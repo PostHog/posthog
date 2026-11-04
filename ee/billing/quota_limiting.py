@@ -1494,8 +1494,10 @@ class _YesterdaysCounts:
     """
     Yesterday's quota counts for organizations whose billing total does not include yesterday yet.
 
-    The first quota run of a day that needs them counts yesterday once and stores the counts in Redis.
-    Later runs and `update_org_billing_quotas` read them there instead of counting a whole day again.
+    The first quota run of each day counts yesterday once and stores the counts for every organization in Redis.
+    An organization can start to lack yesterday after that run, when its first stamped billing status arrives.
+    The run stores every organization so that later lookups find the counts for that organization too.
+    Later runs and `update_org_billing_quotas` read the counts there instead of counting a whole day again.
     Events for yesterday that arrive after that run count only when billing saves yesterday's report.
     """
 
@@ -1511,13 +1513,13 @@ class _YesterdaysCounts:
     def for_organizations(
         self, teams: Sequence[Team], organizations: Sequence[Organization]
     ) -> dict[str, dict[str, int]]:
-        org_ids = {str(org.id) for org in organizations if _billing_total_lacks_day(org.usage, self.day)}
-        if not org_ids:
-            return {}
+        lacking_ids = {str(org.id) for org in organizations if _billing_total_lacks_day(org.usage, self.day)}
         if self._stored is None:
             self._stored = bool(self._redis.hexists(self._key, YESTERDAYS_COUNTS_COMPLETE_FIELD))
         if self._stored:
-            ordered_ids = sorted(org_ids)
+            if not lacking_ids:
+                return {}
+            ordered_ids = sorted(lacking_ids)
             stored = self._redis.hmget(self._key, ordered_ids)
             return {org_id: json.loads(value) for org_id, value in zip(ordered_ids, stored) if value}
 
@@ -1527,8 +1529,8 @@ class _YesterdaysCounts:
             teams, self._counts.by_team, offline_usage=self._counts.offline_by_org, organizations=organizations
         )
         counts: dict[str, dict[str, int]] = {}
-        for org_id in org_ids:
-            report = cast(dict[str, int], reports.usage.get(org_id, {}))
+        for org_id, org_report in reports.usage.items():
+            report = cast(dict[str, int], org_report)
             org_counts = {
                 resource.value: report[resource.value] for resource in QuotaResource if report.get(resource.value)
             }
@@ -1539,7 +1541,7 @@ class _YesterdaysCounts:
             pipeline.hset(self._key, mapping={org_id: json.dumps(org_counts) for org_id, org_counts in counts.items()})
             pipeline.expire(self._key, YESTERDAYS_COUNTS_TTL)
             pipeline.execute()
-        return counts
+        return {org_id: org_counts for org_id, org_counts in counts.items() if org_id in lacking_ids}
 
     def finish(self) -> None:
         # A run that stops early leaves the day unmarked, so the next run counts yesterday again.

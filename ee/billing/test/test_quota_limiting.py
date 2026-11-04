@@ -121,11 +121,12 @@ class TestQuotaLimiting(BaseTest):
 
     @parameterized.expand(
         [
-            ("billing_total_lacks_yesterday", True, "2026-10-30", "2026-10-01T00:00:00Z", True),
-            ("no_report_yet_this_period", True, None, "2026-10-01T00:00:00Z", True),
-            ("billing_total_has_yesterday", True, "2026-10-31", "2026-10-01T00:00:00Z", False),
-            ("yesterday_is_in_the_previous_period", True, "2026-10-30", "2026-11-01T00:00:00Z", False),
-            ("no_stamp", False, None, "2026-10-01T00:00:00Z", False),
+            ("billing_total_lacks_yesterday", 0, "2026-10-30", "2026-10-01T00:00:00Z", True),
+            ("no_report_yet_this_period", 0, None, "2026-10-01T00:00:00Z", True),
+            ("billing_total_has_yesterday", 0, "2026-10-31", "2026-10-01T00:00:00Z", False),
+            ("yesterday_is_in_the_previous_period", 0, "2026-10-30", "2026-11-01T00:00:00Z", False),
+            ("first_stamp_after_the_first_run", 1, "2026-10-30", "2026-10-01T00:00:00Z", True),
+            ("no_stamp", None, None, "2026-10-01T00:00:00Z", False),
         ]
     )
     @patch("posthoganalytics.capture")
@@ -133,20 +134,16 @@ class TestQuotaLimiting(BaseTest):
     def test_quota_run_counts_yesterday_until_billings_total_has_it(
         self,
         _name: str,
-        has_stamp: bool,
+        stamped_from_run: int | None,
         latest_usage_report_date: str | None,
         period_start: str,
         expect_limited: bool,
         _capture,
     ) -> None:
-        usage: dict[str, Any] = {
+        self.organization.usage = {
             "events": {"usage": 90, "limit": 100, "todays_usage": 0},
             "period": [period_start, "2026-12-01T00:00:00Z"],
         }
-        if has_stamp:
-            usage["billing_status_computed_at"] = "2026-10-31T09:00:00+00:00"
-            usage["billing_latest_usage_report_date"] = latest_usage_report_date
-        self.organization.usage = usage
         self.organization.customer_trust_scores = zero_trust_scores()
         self.organization.save()
         for timestamp, count in (("2026-10-31T12:00:00Z", 15), ("2026-11-01T00:10:00Z", 1)):
@@ -159,23 +156,31 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
         flush_persons_and_events()
-        limited = [self.team.api_token.encode("UTF-8")] if expect_limited else []
+        token = self.team.api_token.encode("UTF-8")
 
         with patch.object(
             UsageCounterService, "fetch_report", autospec=True, side_effect=UsageCounterService.fetch_report
         ) as fetch_report:
-            for _ in range(2):
+            for run in range(2):
+                if run == stamped_from_run:
+                    self.organization.refresh_from_db()
+                    stamped_usage: dict[str, Any] = {
+                        **(self.organization.usage or {}),
+                        "billing_status_computed_at": "2026-10-31T09:00:00+00:00",
+                        "billing_latest_usage_report_date": latest_usage_report_date,
+                    }
+                    self.organization.usage = stamped_usage
+                    self.organization.save()
                 self._run_quota_limiting()
-                assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == limited
+                limited = expect_limited and stamped_from_run is not None and run >= stamped_from_run
+                assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if limited else [])
 
         self.organization.refresh_from_db()
         assert self.organization.usage["events"]["todays_usage"] == 1
         update_org_billing_quotas(self.organization)
-        assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == limited
+        assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if expect_limited else [])
         today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
-        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == (
-            [today, yesterday, today] if expect_limited else [today, today]
-        )
+        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == [today, yesterday, today]
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -354,7 +359,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(4, 11)):
+        with self.assertNumQueries(FuzzyInt(4, 18)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
