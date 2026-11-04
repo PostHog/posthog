@@ -14,6 +14,12 @@ import { GUIDANCE_RULES, type GuidanceRule } from './rules'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
 const CALLER_TTL_SECONDS = 30 * 60
 
+interface CountingScopes {
+    primary: string
+    ttl: number
+    mirror?: string
+}
+
 export interface GuidanceCall {
     /** The effective tool name: the inner tool for an exec `call`, `exec` for other verbs. */
     toolName: string
@@ -97,6 +103,7 @@ function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): 
 // One script per rule, so a concurrent batch cannot reserve the same notice twice. The shown
 // key counts reports of either kind, so a suppressed outcome that loses the call to another
 // rule stays pending and is reported on the next matching call instead of being dropped.
+// Mirror mode only records a call that another scope decided, so it never reports a notice itself.
 const RULE_STATE_SCRIPT = `
 local ttl = tonumber(ARGV[1])
 if ARGV[4] == 'suppress' then
@@ -109,6 +116,13 @@ local matched = redis.call('INCR', KEYS[1])
 redis.call('EXPIRE', KEYS[1], ttl)
 redis.call('EXPIRE', KEYS[2], ttl)
 redis.call('EXPIRE', KEYS[3], ttl)
+if ARGV[4] == 'mirror' then
+    if ARGV[5] == '1' then
+        redis.call('INCR', KEYS[3])
+        redis.call('EXPIRE', KEYS[3], ttl)
+    end
+    return 0
+end
 if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) then
     return 0
 end
@@ -146,13 +160,10 @@ export class GuidanceEngine {
             return undefined
         }
         try {
-            const sessionKey = await this.resolveCountingKey(state)
-            const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
-            // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
-            const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
+            const scopes = countingScopes(state)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
-                const result = await this.touchRule(rule, scope, ttl, call, winner === undefined)
+                const result = await this.touchRule(rule, scopes, call, winner === undefined)
                 if (result === RuleResult.Fired) {
                     const outcome = firedOutcome(rule, state)
                     winner = {
@@ -175,27 +186,9 @@ export class GuidanceEngine {
         }
     }
 
-    // A call that carries no handle counts under the caller, because the SDK mints a handle on
-    // every such call and a client that never echoes one would otherwise never reach a threshold.
-    // The minted handle is aliased to the caller, so a client that does echo it keeps the counters
-    // and suppression the conversation started with instead of restarting under the handle.
-    private async resolveCountingKey(state: ResolvedState): Promise<string | undefined> {
-        const handle = resolveSessionKey(state.requestContext)
-        if (!handle) {
-            return undefined
-        }
-        const aliasKey = `mcp:guidance:alias:{${hashKey(`${state.distinctId}|${handle}`)}}`
-        if (state.carriedContextHandle === false) {
-            await this.redis.set(aliasKey, '1', 'EX', SESSION_TTL_SECONDS)
-            return undefined
-        }
-        return (await this.redis.get(aliasKey)) === '1' ? undefined : handle
-    }
-
     private async touchRule(
         rule: GuidanceRule,
-        scope: string,
-        ttl: number,
+        scopes: CountingScopes,
         call: GuidanceCall,
         canFire: boolean
     ): Promise<RuleResult> {
@@ -203,6 +196,32 @@ export class GuidanceEngine {
         if (!suppressing && !triggerMatches(rule, call)) {
             return RuleResult.None
         }
+        const result = await this.runRuleScript(
+            rule,
+            scopes.primary,
+            scopes.ttl,
+            suppressing ? 'suppress' : 'match',
+            canFire
+        )
+        if (scopes.mirror) {
+            await this.runRuleScript(
+                rule,
+                scopes.mirror,
+                SESSION_TTL_SECONDS,
+                suppressing ? 'suppress' : 'mirror',
+                result !== RuleResult.None
+            )
+        }
+        return result
+    }
+
+    private async runRuleScript(
+        rule: GuidanceRule,
+        scope: string,
+        ttl: number,
+        mode: 'match' | 'suppress' | 'mirror',
+        flag: boolean
+    ): Promise<RuleResult> {
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
         const fired = await this.redis.eval(
             RULE_STATE_SCRIPT,
@@ -213,11 +232,30 @@ export class GuidanceEngine {
             ttl,
             rule.threshold,
             rule.maxPerSession,
-            suppressing ? 'suppress' : 'match',
-            canFire ? '1' : '0'
+            mode,
+            flag ? '1' : '0'
         )
         return Number(fired) as RuleResult
     }
+}
+
+// A call with a minted handle counts under the caller, because a client that never echoes gets a new
+// handle on every call. It also records under the handle, so a client that echoes keeps its own counters.
+function countingScopes(state: ResolvedState): CountingScopes {
+    const handle = resolveSessionKey(state.requestContext)
+    const callerScope = scopeKey(state.distinctId, undefined)
+    if (!handle) {
+        return { primary: callerScope, ttl: CALLER_TTL_SECONDS }
+    }
+    const handleScope = scopeKey(state.distinctId, handle)
+    return state.carriedContextHandle === false
+        ? { primary: callerScope, ttl: CALLER_TTL_SECONDS, mirror: handleScope }
+        : { primary: handleScope, ttl: SESSION_TTL_SECONDS }
+}
+
+// The braces are a cluster hash tag, so the script can touch a rule's three keys together.
+function scopeKey(distinctId: string, handle: string | undefined): string {
+    return `mcp:guidance:{${hashKey(`${distinctId}|${handle ?? ''}`)}}`
 }
 
 function firedOutcome(rule: GuidanceRule, state: ResolvedState): GuidanceOutcome {
