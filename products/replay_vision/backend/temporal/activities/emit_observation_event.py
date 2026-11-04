@@ -15,7 +15,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
+from products.replay_vision.backend.temporal.types import AnyScannerOutput, EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +44,14 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
             f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
         )
 
-    snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
+    capture_observation_event(observation, team, inputs.model_output, timestamp=datetime.now(UTC))
+
+
+def capture_observation_event(
+    observation: ReplayObservation, team: Team, model_output: AnyScannerOutput, *, timestamp: datetime
+) -> None:
+    """Capture one observation's `$recording_observed` event at `timestamp`. The event uuid is the observation id."""
+    snapshot = ScannerSnapshot.load_for(observation.id, observation.scanner_snapshot)
     # The recorded subject (distinct from the user who triggered the scan), persisted at scan time.
     recording_distinct_id = observation.distinct_id
     recording_subject_email = observation.recording_subject_email
@@ -72,7 +79,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
-        **inputs.model_output.to_event_properties(),
+        **model_output.to_event_properties(),
         **_experiment_properties(observation, snapshot),
         **_group_properties(team, observation),
     }
@@ -88,7 +95,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,
         distinct_id=distinct_id,
-        timestamp=datetime.now(UTC),
+        timestamp=timestamp,
         properties=properties,
         process_person_profile=False,
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.

@@ -79,6 +79,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalScoutConfig,
     SignalScoutRun,
+    SignalScratchpad,
     SignalSourceConfig,
 )
 from products.signals.backend.report_access import may_read_reports as may_read_reports
@@ -1941,6 +1942,12 @@ def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: 
         .delete()
     )
     return deleted > 0
+
+
+def forget_scratchpad_entries(*, team_id: int, key_prefix: str) -> int:
+    """Delete the team's scout scratchpad entries whose key starts with `key_prefix`, and return how many."""
+    deleted, _ = SignalScratchpad.objects.for_team(team_id).filter(key__startswith=key_prefix).delete()
+    return deleted
 
 
 def notify_report_task_push(
