@@ -93,6 +93,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Feature flag failures',
         description: 'When a feature flag in your project fails to evaluate',
     },
+    feature_flag_rollout: {
+        label: 'Feature flag rollouts',
+        description: 'When an agent rollout you started finishes or stops',
+    },
 }
 
 export function NotificationTitle({

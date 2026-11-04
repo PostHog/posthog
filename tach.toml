@@ -580,6 +580,7 @@ depends_on = [
     "products.notifications",
     # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
     "products.today",
+    "products.tasks",
 ]
 layer = "modules"
 

@@ -1,5 +1,6 @@
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .feature_flag import FeatureFlag, FeatureFlagDashboards, FeatureFlagHashKeyOverride, FeatureFlagOverride
+from .feature_flag_rollout_plan import FeatureFlagRolloutPlan
 from .organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from .scheduled_change import ScheduledChange
 from .team_feature_flag_defaults_config import TeamFeatureFlagDefaultsConfig
@@ -13,6 +14,7 @@ __all__ = [
     "FeatureFlagEvaluationContext",
     "FeatureFlagHashKeyOverride",
     "FeatureFlagOverride",
+    "FeatureFlagRolloutPlan",
     "OrganizationFeatureFlagsConfig",
     "ScheduledChange",
     "TeamFeatureFlagDefaultsConfig",

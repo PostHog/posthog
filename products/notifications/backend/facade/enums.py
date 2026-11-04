@@ -25,6 +25,7 @@ class NotificationType(str, Enum):
     WORKFLOW_SUGGESTION = "workflow_suggestion"
     WAREHOUSE_SUGGESTION_ASSIGNED = "warehouse_suggestion_assigned"
     FEATURE_FLAG_FAILURE = "feature_flag_failure"
+    FEATURE_FLAG_ROLLOUT = "feature_flag_rollout"
     FIRST_REPORT_COMPLETED = "first_report_completed"
 
 

@@ -9,7 +9,7 @@ from products.feature_flags.backend.api import (
     staff_team_config,
     staff_teams,
 )
-from products.feature_flags.backend.presentation import request_usage
+from products.feature_flags.backend.presentation import request_usage, rollout_plans
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -39,6 +39,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"feature_flag_request_usage",
         request_usage.FeatureFlagRequestUsageViewSet,
         "project_feature_flag_request_usage",
+        ["project_id"],
+    )
+    routers.projects.register(
+        r"feature_flag_rollout_plans",
+        rollout_plans.FeatureFlagRolloutPlanViewSet,
+        "project_feature_flag_rollout_plans",
         ["project_id"],
     )
     routers.projects.register(
