@@ -124,13 +124,10 @@ class BulkAddSuppressionsRequestSerializer(serializers.Serializer):
     suppressions = BulkSuppressionEntrySerializer(
         many=True,
         allow_empty=False,
+        # Checked before any entry is validated, so an oversized list is rejected cheaply.
+        max_length=MAX_BULK_SUPPRESSION_ENTRIES,
         help_text=f"Addresses to suppress, at most {MAX_BULK_SUPPRESSION_ENTRIES} per request.",
     )
-
-    def validate_suppressions(self, value: list[dict]) -> list[dict]:
-        if len(value) > MAX_BULK_SUPPRESSION_ENTRIES:
-            raise serializers.ValidationError(f"Send at most {MAX_BULK_SUPPRESSION_ENTRIES} suppressions per request.")
-        return value
 
 
 class BulkAddSuppressionsResultSerializer(serializers.Serializer):

@@ -79,12 +79,14 @@ def bulk_add_suppressions(
             hard_bounced_at=now if source == SuppressionSource.BOUNCE else None,
             created_by_id=created_by_id,
         )
-        for identifier, source in sources_by_identifier.items()
+        # Sorted so concurrent imports take the unique-index locks in the same order and can't deadlock.
+        for identifier, source in sorted(sources_by_identifier.items())
         if identifier not in existing
     ]
     # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
     suppressions.bulk_create(new_rows, ignore_conflicts=True)
-    return len(new_rows)
+    # A skipped conflict keeps its client-generated pk out of the table, so this counts only the rows inserted.
+    return suppressions.filter(pk__in=[row.pk for row in new_rows]).count()
 
 
 def remove_suppression(team_id: int, identifier: str) -> bool:
