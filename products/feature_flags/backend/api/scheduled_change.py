@@ -302,7 +302,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             validated_data["record_id"] = str(feature_flag.id)
             self._reject_unsupported_target(feature_flag, validated_data.get("payload", {}))
 
-        # Capture the project's timezone at creation time so cron recurrence resolves
+        # Capture the project's timezone at creation time so recurrence resolves
         # wall-clock fields in that timezone, independent of later team.timezone changes.
         team = self.context["get_team"]()
         validated_data["timezone"] = team.timezone

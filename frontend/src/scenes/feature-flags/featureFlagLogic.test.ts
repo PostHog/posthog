@@ -3494,6 +3494,7 @@ describe('featureFlagLogic', () => {
             cron_expression: null,
             last_executed_at: null,
             end_date: null,
+            timezone: null,
             change_request: null,
             ...overrides,
         })

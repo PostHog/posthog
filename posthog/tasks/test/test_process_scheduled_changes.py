@@ -1808,6 +1808,85 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             scheduled_change.refresh_from_db()
             self.assertEqual(scheduled_change.scheduled_at, expected_next)
 
+    @parameterized.expand(
+        [
+            # An evening fire time crosses midnight in UTC, which is the shape that exposes the
+            # drift: 11:30pm EDT is 03:30 UTC, and 11:30pm EST is 04:30 UTC. The next run holds
+            # 11:30pm local rather than staying at 03:30 UTC, which would fire at 10:30pm local.
+            (
+                "fall_back_daily",
+                "2024-11-03T03:31:00Z",
+                datetime(2024, 11, 3, 3, 30, tzinfo=UTC),
+                "daily",
+                "America/New_York",
+                datetime(2024, 11, 4, 4, 30, tzinfo=UTC),
+            ),
+            # Spring forward moves the offset the other way: 11:30pm EST (04:30 UTC) holds 11:30pm
+            # as EDT, which is 03:30 UTC.
+            (
+                "spring_forward_daily",
+                "2024-03-10T04:31:00Z",
+                datetime(2024, 3, 10, 4, 30, tzinfo=UTC),
+                "daily",
+                "America/New_York",
+                datetime(2024, 3, 11, 3, 30, tzinfo=UTC),
+            ),
+            # A weekly step crosses the transition in one hop.
+            (
+                "fall_back_weekly",
+                "2024-10-30T03:31:00Z",
+                datetime(2024, 10, 30, 3, 30, tzinfo=UTC),
+                "weekly",
+                "America/New_York",
+                datetime(2024, 11, 6, 4, 30, tzinfo=UTC),
+            ),
+            # Rows with timezone=NULL keep the UTC wall clock they have always fired on, so their
+            # local fire time still moves with the transition. No live schedule shifts silently.
+            (
+                "legacy_null_timezone",
+                "2024-11-03T03:31:00Z",
+                datetime(2024, 11, 3, 3, 30, tzinfo=UTC),
+                "daily",
+                None,
+                datetime(2024, 11, 4, 3, 30, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_interval_recurring_schedule_honors_stored_timezone(
+        self,
+        name: str,
+        frozen_now: str,
+        scheduled_at: datetime,
+        interval: str,
+        tz: str | None,
+        expected_next: datetime,
+    ) -> None:
+        with time_machine.travel(frozen_now, tick=False):
+            feature_flag = FeatureFlag.objects.create(
+                name=f"Flag {name}",
+                key=f"flag-interval-{name.replace('_', '-')}",
+                active=False,
+                filters={"groups": []},
+                team=self.team,
+                created_by=self.user,
+            )
+
+            scheduled_change = ScheduledChange.objects.create(
+                team=self.team,
+                record_id=feature_flag.id,
+                model_name="FeatureFlag",
+                payload={"operation": "update_status", "value": True},
+                scheduled_at=scheduled_at,
+                is_recurring=True,
+                recurrence_interval=interval,
+                timezone=tz,
+            )
+
+            process_scheduled_changes()
+
+            scheduled_change.refresh_from_db()
+            self.assertEqual(scheduled_change.scheduled_at, expected_next)
+
 
 @contextmanager
 def corrupt_system_tzdata() -> Iterator[None]:

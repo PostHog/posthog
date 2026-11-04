@@ -335,6 +335,29 @@ describe('expandScheduleOccurrences', () => {
         ])
     })
 
+    it('holds a daily recurrence at its local wall clock across a DST change', () => {
+        // 11:30pm in the Eastern zone is 03:30 UTC on EDT and 04:30 UTC on EST. The backend steps
+        // the local wall clock, so the projection has to shift with the November 1 transition. A
+        // step on the instant alone would paint a 10:30pm fire the flag never has.
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Daily,
+                scheduled_at: '2026-10-31T03:30:00.000Z',
+                timezone: 'US/Eastern',
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag(), dayjs('2026-10-31T03:00:00Z'))
+
+        expect(occurrences.slice(0, 3).map((o) => o.timestamp)).toEqual([
+            '2026-10-31T03:30:00.000Z',
+            '2026-11-01T03:30:00.000Z',
+            '2026-11-02T04:30:00.000Z',
+        ])
+    })
+
     it('gives a denied recurring cron schedule no occurrences', () => {
         // The next cron run after the denied one is not computed client-side.
         const schedules = [

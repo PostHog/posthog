@@ -4740,6 +4740,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Zone the recurrence steps on. Null on rows created before the column existed; those read as UTC. */
+    timezone: string | null
     /** Null when the change is not gated on approval. */
     change_request: ScheduledChangeRequestSummary | null
 }

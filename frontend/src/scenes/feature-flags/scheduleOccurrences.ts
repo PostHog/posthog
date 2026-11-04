@@ -42,7 +42,9 @@ export interface ScheduleOccurrence {
 export const OCCURRENCE_CAP = 10
 export const OCCURRENCE_HORIZON_DAYS = 90
 
-const INTERVAL_UNIT: Record<RecurrenceInterval, 'day' | 'week' | 'month' | 'year'> = {
+type IntervalUnit = 'day' | 'week' | 'month' | 'year'
+
+const INTERVAL_UNIT: Record<RecurrenceInterval, IntervalUnit> = {
     [RecurrenceInterval.Daily]: 'day',
     [RecurrenceInterval.Weekly]: 'week',
     [RecurrenceInterval.Monthly]: 'month',
@@ -52,19 +54,42 @@ const INTERVAL_UNIT: Record<RecurrenceInterval, 'day' | 'week' | 'month' | 'year
 /** Matches MAX_CATCHUP_ITERATIONS in posthog/tasks/process_scheduled_changes.py. */
 const CATCHUP_CAP = 1000
 
+/** Mirrors resolve_schedule_timezone on the backend: an absent or unusable zone reads as UTC. */
+function resolveScheduleZone(timezone: string | null | undefined): string {
+    if (!timezone) {
+        return 'UTC'
+    }
+    try {
+        new Intl.DateTimeFormat(undefined, { timeZone: timezone })
+        return timezone
+    } catch {
+        return 'UTC'
+    }
+}
+
+/**
+ * Advances one interval on the wall clock in `zone`, as compute_next_run does. A schedule then
+ * holds its local fire time across a DST change. Reinterpreting the stepped wall clock in the zone
+ * is what picks up the offset of the new date: dayjs keeps the offset it parsed with through add(),
+ * so stepping the instant alone would project the pre-transition local time.
+ */
+function stepInterval(from: Dayjs, unit: IntervalUnit, zone: string): Dayjs {
+    return dayjs.tz(from.tz(zone).add(1, unit).format('YYYY-MM-DDTHH:mm:ss.SSS'), zone)
+}
+
 /**
  * Advances a stalled recurring date to its first fire after `now`, as the sweep's catch-up loop
  * does. The sweep skips the missed fires instead of replaying them, so this projects one date.
  */
-function catchUpToFuture(from: Dayjs, unit: 'day' | 'week' | 'month' | 'year', now: Dayjs): Dayjs {
+function catchUpToFuture(from: Dayjs, unit: IntervalUnit, now: Dayjs, zone: string): Dayjs {
     // Step from the previous date rather than add N intervals to the origin, because month-end
     // clamping is path dependent: a monthly schedule from Oct 31 gives Nov 30, then Dec 30.
     let next = from
     for (let step = 0; step < CATCHUP_CAP && !next.isAfter(now); step++) {
-        next = next.add(1, unit)
+        next = stepInterval(next, unit, zone)
     }
     // The sweep gives up the same way at its own cap and computes the next run from now.
-    return next.isAfter(now) ? next : now.add(1, unit)
+    return next.isAfter(now) ? next : stepInterval(now, unit, zone)
 }
 
 /** Null/undefined rollout means the condition set matches 100% of its targets. */
@@ -169,13 +194,14 @@ export function expandScheduleOccurrences(
         if (schedule.executed_at || isSchedulePaused(schedule)) {
             continue
         }
-        // Parse in UTC so recurrence arithmetic below adds fixed 24h days/weeks, matching the
-        // backend's relativedelta on the stored UTC instant. Browser-local .add() would preserve
-        // wall-clock across a DST transition and drift the projected fire time by an hour.
+        // Parse the stored instant in UTC. The recurrence arithmetic below steps on the wall clock
+        // of the schedule's own zone, which is where the backend steps, so the browser's zone must
+        // stay out of the projection.
         const parsed = dayjs.utc(schedule.scheduled_at)
         if (!parsed.isValid()) {
             continue
         }
+        const zone = resolveScheduleZone(schedule.timezone)
         const end = schedule.end_date ? dayjs.utc(schedule.end_date) : null
         // The sweep closes out a recurring window whose end_date has passed, and it fires nothing
         // (process_scheduled_changes stamps executed_at when end_date <= now). Such a row can still
@@ -202,7 +228,7 @@ export function expandScheduleOccurrences(
             if (!unit) {
                 continue
             }
-            first = catchUpToFuture(first, unit, now)
+            first = catchUpToFuture(first, unit, now, zone)
             // The bound request covered the fire that never happened, so the sweep re-gates this
             // one and it must not read as certain.
             isFirst = false
@@ -225,7 +251,7 @@ export function expandScheduleOccurrences(
             // 31st and paint flip dates the flag never fires on.
             let next = first
             for (let step = 1; step < OCCURRENCE_CAP; step++) {
-                next = next.add(1, unit)
+                next = stepInterval(next, unit, zone)
                 if (next.isAfter(horizon) || (end && next.isAfter(end))) {
                     break
                 }

@@ -99,9 +99,14 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
-def compute_next_run(current: datetime, interval: str) -> datetime:
+def compute_next_run(current: datetime, interval: str, tz: tzinfo = UTC) -> datetime:
     """
     Compute the next scheduled run time based on recurrence interval.
+
+    The arithmetic runs on the wall clock in `tz`, so a schedule holds its local fire time across
+    a DST transition instead of drifting by the zone's offset change. A step therefore covers 23
+    or 25 hours on a transition day. A local time the transition skips resolves with the offset
+    in force before it, and a local time the transition repeats resolves to the first of the two.
 
     Uses relativedelta for reliable date arithmetic:
     - Daily: adds exactly 1 day
@@ -112,26 +117,31 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
       (e.g., Feb 29 + 1 year = Feb 28 in non-leap years)
 
     Args:
-        current: The current scheduled_at datetime
+        current: The current scheduled_at datetime. Must be tz-aware.
         interval: One of 'daily', 'weekly', 'monthly', 'yearly' (validated at API layer via
             ScheduledChange.RecurrenceInterval). We use str instead of Literal here
             because Django's TextChoices fields return str at runtime, not the enum type.
+        tz: Timezone whose wall clock the interval steps on. Defaults to UTC, which rows
+            predating the timezone column keep.
 
     Returns:
-        The next scheduled datetime
+        The next scheduled datetime, in UTC
 
     Raises:
         ValueError: If interval is not a recognized value
     """
+    local = current.astimezone(tz)
     if interval == "daily":
-        return current + relativedelta(days=1)
+        next_run = local + relativedelta(days=1)
     elif interval == "weekly":
-        return current + relativedelta(weeks=1)
+        next_run = local + relativedelta(weeks=1)
     elif interval == "monthly":
-        return current + relativedelta(months=1)
+        next_run = local + relativedelta(months=1)
     elif interval == "yearly":
-        return current + relativedelta(years=1)
-    raise ValueError(f"Unknown recurrence interval: {interval}")
+        next_run = local + relativedelta(years=1)
+    else:
+        raise ValueError(f"Unknown recurrence interval: {interval}")
+    return next_run.astimezone(UTC)
 
 
 def resolve_schedule_timezone(tz_name: str | None) -> tzinfo:
@@ -250,7 +260,7 @@ def process_scheduled_changes() -> None:
                             interval_label = "cron"
                         else:
                             assert interval is not None
-                            next_run = compute_next_run(scheduled_change.scheduled_at, interval)
+                            next_run = compute_next_run(scheduled_change.scheduled_at, interval, tz)
                             interval_label = interval
 
                         # If task execution was delayed and next_run is still in the past, skip ahead
@@ -262,7 +272,7 @@ def process_scheduled_changes() -> None:
                                 next_run = compute_next_run_cron(cron_expr, next_run, tz)
                             else:
                                 assert interval is not None
-                                next_run = compute_next_run(next_run, interval)
+                                next_run = compute_next_run(next_run, interval, tz)
                             skipped_count += 1
 
                         # If we hit the cap and next_run is still in the past, jump directly
@@ -278,7 +288,7 @@ def process_scheduled_changes() -> None:
                                 next_run = compute_next_run_cron(cron_expr, now, tz)
                             else:
                                 assert interval is not None
-                                next_run = compute_next_run(now, interval)
+                                next_run = compute_next_run(now, interval, tz)
 
                         # Log and track if we skipped executions due to delayed processing
                         # (skipped_count > 1 means we skipped more than just advancing to the next run)
