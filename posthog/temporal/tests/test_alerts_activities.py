@@ -1045,6 +1045,7 @@ class TestEvaluateAlert:
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         emit.assert_awaited_once()
+        assert emit.await_args is not None
         assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{result.alert_check_id}"
         assert result.new_state == AlertState.FIRING
         assert result.should_notify is True

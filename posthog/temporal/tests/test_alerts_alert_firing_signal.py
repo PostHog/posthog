@@ -108,6 +108,7 @@ class TestEmitAlertFiringSignal(BaseTest):
         assert emitted is expected
         if expected:
             emit.assert_awaited_once()
+            assert emit.await_args is not None
             kwargs = emit.await_args.kwargs
             assert (kwargs["source_product"], kwargs["source_type"]) == ("analytics", "alert_firing")
             assert kwargs["source_id"] == kwargs["idempotency_key"] == f"{alert.id}:{check.id}"
