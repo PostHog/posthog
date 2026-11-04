@@ -69,6 +69,45 @@ describe('SandboxSenderStateService', () => {
         }
     })
 
+    it.each([false, true])(
+        'stops retrying and fails the pause gate when the database stays unavailable (fresh: %s)',
+        async (fresh) => {
+            jest.useFakeTimers()
+            try {
+                const query = jest.fn((_tx: unknown, sql: string) =>
+                    sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : Promise.reject(transient())
+                )
+                const postgres = {
+                    connect: () => Promise.resolve(idleClient()),
+                    query,
+                } as unknown as PostgresRouter
+                const sender = new SandboxEmailSender(
+                    {
+                        enabled: true,
+                        tenantName: 'sandbox-tenant',
+                        configurationSetName: 'sandbox-email',
+                        fromAddress: 'sender@example.com',
+                        dailyTeamCap: '1',
+                        dailyRecipientCap: '1',
+                    },
+                    {} as TeamManager,
+                    { useClient: jest.fn() },
+                    null,
+                    new SandboxSenderStateService(postgres, pubSub)
+                )
+
+                const gate = sender.pauseGate({ fresh })
+                await jest.advanceTimersByTimeAsync(6_000)
+                await expect(gate).resolves.toBe('check_failed')
+                const attempts = query.mock.calls.length
+                await jest.advanceTimersByTimeAsync(30_000)
+                expect(query.mock.calls).toHaveLength(attempts)
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
+
     it('fails fresh checks at their deadline while the pool has no connection, keeps at most five lookups open, and runs no query for them later', async () => {
         jest.useFakeTimers()
         try {
