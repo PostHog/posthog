@@ -201,19 +201,24 @@ describe('workflowsListV2Logic', () => {
         expect(createdBy.resolveValue?.('ada.two@example.com')).toEqual(otherAda.uuid)
     })
 
-    it('brings the filters back when the list opens again from a link without them', async () => {
-        router.actions.push(urls.workflows(), { q: 'status:active', text: 'welcome' })
+    it.each([
+        ['a link without them', {}],
+        ['a reload of the same link', { q: 'status:draft', text: 'invoice' }],
+    ])('brings the filters back and searches the server again when the list opens from %s', async (_, params) => {
+        serverSearch = async () => ['wf-sync']
+        router.actions.push(urls.workflows(), { q: 'status:draft', text: 'invoice' })
         logic = workflowsListV2Logic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'searchWorkflowsSuccess'])
         logic.unmount()
 
-        router.actions.push(urls.workflows())
+        router.actions.push(urls.workflows(), params)
         logic = workflowsListV2Logic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
-        expect(router.values.searchParams).toEqual({ q: 'status:active', text: 'welcome' })
-        expect(shownIds(logic)).toEqual(['wf-welcome'])
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'searchWorkflowsSuccess'])
+        expect(router.values.searchParams).toEqual({ q: 'status:draft', text: 'invoice' })
+        expect(logic.values.serverSearchStatus).toEqual('done')
+        expect(shownIds(logic)).toEqual(['wf-sync'])
     })
 
     it('stops at a next link that does not move forward and shows the load error', async () => {

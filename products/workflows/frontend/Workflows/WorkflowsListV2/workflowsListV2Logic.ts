@@ -790,8 +790,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             [urls.workflows('workflows')]: (_, searchParams, hashParams) => syncFromUrl(searchParams, hashParams),
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadWorkflows()
+        // Kept text that equals the URL never reaches setValue, so its server search starts here.
+        const text = values.value.text.trim()
+        if (text.length >= MIN_SERVER_SEARCH_LENGTH && values.requestedSearchText !== text) {
+            actions.searchWorkflows(text)
+        }
     }),
     beforeUnmount(({ cache }) => {
         cache.searchAbort?.abort()
