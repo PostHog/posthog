@@ -29,11 +29,11 @@ import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
-import { MASKED_SECRET_VALUE, secretEntries } from 'lib/components/CyclotronJob/dictionarySecretRows'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { isEmptyObject } from 'lib/utils/guards'
 import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
@@ -201,28 +201,20 @@ export function sanitizeInputs(
     return sanitizedInputs
 }
 
-function withoutStoredSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
+function withoutSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
     config: T
 ): { config: T; dropped: boolean } {
     if (!config.inputs) {
         return { config, dropped: false }
     }
-    const secretDictionaryKeys = new Set(
-        config.inputs_schema
-            ?.filter((schema) => schema.secret && schema.type === 'dictionary')
-            .map((schema) => schema.key)
-    )
+    const secretKeys = new Set(config.inputs_schema?.filter((schema) => schema.secret).map((schema) => schema.key))
     const inputs: Record<string, CyclotronJobInputType> = {}
     let dropped = false
     for (const [key, input] of Object.entries(config.inputs)) {
-        const entries = secretDictionaryKeys.has(key) ? secretEntries(input) : undefined
-        const typed = Object.entries(entries ?? {}).filter(([, value]) => value !== MASKED_SECRET_VALUE)
-        const masked = Object.keys(entries ?? {}).length - typed.length
-        if (input?.secret || (masked > 0 && typed.length === 0)) {
-            dropped = true
-        } else if (masked > 0) {
-            dropped = true
-            inputs[key] = { ...input, value: Object.fromEntries(typed) }
+        if (input?.secret || secretKeys.has(key)) {
+            const value = input?.value
+            dropped ||=
+                !!input?.secret || !(value === undefined || value === null || value === '' || isEmptyObject(value))
         } else {
             inputs[key] = input
         }
@@ -2139,8 +2131,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
-                const copied = withoutStoredSecrets(values.configuration)
-                const copiedMappings = values.configuration.mappings?.map(withoutStoredSecrets)
+                const copied = withoutSecrets(values.configuration)
+                const copiedMappings = values.configuration.mappings?.map(withoutSecrets)
                 const droppedSecrets = copied.dropped || !!copiedMappings?.some((mapping) => mapping.dropped)
                 const newConfig = {
                     ...copied.config,
