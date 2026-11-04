@@ -62,7 +62,6 @@ describe('transactionalEmailWizardLogic', () => {
     test.each([
         ['an email missing its sender is not created', {}, 0, 'sender', '/transactional/new'],
         [
-            // make_transactional rejects the sandbox sender, so the wizard does not offer it.
             'an email from the sandbox sender is not created',
             { from: { integrationId: 8 }, subject: 'Reset your password' },
             0,

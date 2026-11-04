@@ -15,6 +15,7 @@ from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -118,7 +119,9 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
             sender = IntegrationManager.email.credentials.get(team_id, sender_id)
         except IntegrationNotFound:
             pass
-    if sender is None or not sender.config.get("verified") or sender.config.get("provider") == SANDBOX_EMAIL_PROVIDER:
+    if sender is not None and sender.config.get("provider") == SANDBOX_EMAIL_PROVIDER:
+        raise TransactionalEmailSandboxSender()
+    if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id
 
