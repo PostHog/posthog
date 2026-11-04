@@ -11,7 +11,8 @@
             "!**/web-build",
             "!**/coverage",
             "!**/src/api/generated",
-            "!**/objectKinds.generated.ts"
+            "!**/objectKinds.generated.ts",
+            "!**/player.bundle.json"
         ]
     },
     "formatter": {

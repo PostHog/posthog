@@ -458,3 +458,10 @@ Argent's `argent-create-flow` skill describes the rules. Replay the whole flow b
 - **A `visible` check passes while a sheet covers the screen.**
   The screen under a sheet stays in the accessibility tree. Check that the sheet is `hidden` first, as the flow does.
 - **iOS asks "Open in PostHog?"** after `xcrun simctl openurl`. Tap Open. The question does not come every time.
+
+## Embedded replay renderer
+
+The embedded renderer reuses `common/replay-headless` and `common/replay-shared`. After changing those sources
+or `src/features/replay/player/player.browser.js`, run `node scripts/build-replay-player.mjs` from this directory.
+`node scripts/build-replay-player.mjs --check` verifies the bundled asset. The asset is checked in because EAS uploads this
+standalone workspace without the rest of the monorepo. Its JavaScript dependencies are build tools only.
