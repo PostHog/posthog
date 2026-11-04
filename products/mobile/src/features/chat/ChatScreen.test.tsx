@@ -124,6 +124,7 @@ describe('chat send preparation', () => {
         expect(screen.getByDisplayValue('First message')).toBeTruthy()
         expect(screen.getByText(draft.draftError)).toBeTruthy()
         expect(screen.queryByTestId('session-reconnect')).toBeNull()
+        expect(screen.queryByLabelText('Dismiss')).toBeNull()
         fireEvent.press(screen.getByTestId('chat-draft-retry'))
         expect(draft.retrySave).toHaveBeenCalledTimes(1)
         draft.draftSaving = true
@@ -138,6 +139,8 @@ describe('chat send preparation', () => {
         expect(screen.getByText(session.notice)).toBeTruthy()
         fireEvent.press(screen.getByTestId('session-reconnect'))
         expect(session.reconnect).toHaveBeenCalledTimes(1)
+        fireEvent.press(screen.getByLabelText('Dismiss'))
+        expect(session.dismissNotice).toHaveBeenCalledTimes(1)
     })
     test.each(['new', 'close', 'unmount'])('a prepared message does not send after %s', async (transition) => {
         let finishStorage!: (settle: (sent: boolean) => Promise<void>) => void
