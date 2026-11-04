@@ -61,7 +61,11 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
 
 
 def admit_platform_write(
-    *, team_id: int, current: PlatformAlertConfigurationEdit | None, edit: PlatformAlertConfigurationEdit
+    *,
+    team_id: int,
+    current: PlatformAlertConfigurationEdit | None,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int | None,
 ) -> None:
     """The per-team cap on a logs alert created through the platform, native ones included. The
     platform holds the admission lock the logs API's creates also take."""
