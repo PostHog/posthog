@@ -8,9 +8,12 @@ use tracing::info;
 
 use crate::{
     invocation_context::{context, init_context},
-    utils::auth::{
-        env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
-        Token,
+    utils::{
+        auth::{
+            env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
+            Token,
+        },
+        web_url::WebUrl,
     },
 };
 
@@ -18,7 +21,7 @@ use crate::{
 struct DeviceCodeResponse {
     device_code: String,
     user_code: String,
-    verification_uri_complete: String,
+    verification_uri_complete: WebUrl,
     expires_in: u64,
     interval: u64,
 }
@@ -81,18 +84,8 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     let device_data = request_device_code(&host)?;
 
     // Add use_cases parameter to the verification URL
-    let use_cases_param = use_cases.join(",");
-    let verification_url = if device_data.verification_uri_complete.contains('?') {
-        format!(
-            "{}&use_cases={}",
-            device_data.verification_uri_complete, use_cases_param
-        )
-    } else {
-        format!(
-            "{}?use_cases={}",
-            device_data.verification_uri_complete, use_cases_param
-        )
-    };
+    let mut verification_url = device_data.verification_uri_complete;
+    verification_url.append_query_pair("use_cases", &use_cases.join(","));
 
     crate::safe_println!();
     crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -109,7 +102,7 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     crate::safe_println!();
 
     // Step 2: Try to open browser
-    if let Err(e) = open_browser(&verification_url) {
+    if let Err(e) = verification_url.open_in_browser() {
         info!("Could not open browser automatically: {}", e);
         info!("Please open the URL manually");
     } else {
@@ -169,35 +162,6 @@ fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
         .context("Failed to parse device code response")?;
 
     Ok(device_data)
-}
-
-fn open_browser(url: &str) -> Result<(), Error> {
-    // Try to open browser using platform-specific commands
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .context("Failed to open browser")?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .context("Failed to open browser")?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(&["/C", "start", url])
-            .spawn()
-            .context("Failed to open browser")?;
-    }
-
-    Ok(())
 }
 
 fn poll_for_authorization(
@@ -424,5 +388,34 @@ mod tests {
         ];
 
         assert_eq!(recommended_next_command(&scopes, &[]), NEXT_COMMAND_SCHEMA);
+    }
+
+    #[test]
+    fn device_code_response_accepts_only_web_urls() {
+        let parse = |url: &str| {
+            serde_json::from_value::<DeviceCodeResponse>(serde_json::json!({
+                "device_code": "device",
+                "user_code": "ABCD-1234",
+                "verification_uri_complete": url,
+                "expires_in": 600,
+                "interval": 5,
+            }))
+        };
+
+        for url in [
+            "https://us.posthog.com/cli/authorize?code=ABCD-1234",
+            "http://localhost:8010/cli/authorize?code=ABCD-1234",
+        ] {
+            assert!(parse(url).is_ok(), "{url} should be accepted");
+        }
+
+        for url in [
+            "file:///etc/hosts",
+            "javascript:void(0)",
+            "custom-app://open",
+            "not a url",
+        ] {
+            assert!(parse(url).is_err(), "{url} should be rejected");
+        }
     }
 }

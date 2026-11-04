@@ -74,7 +74,7 @@ urlencoding = "2.1.3"
 url = "2"
 rayon = "1.11.0"
 similar = "2.7"
-open = "5"
+open ={ version = "5", features = ["shellexecute-on-windows"] }
 zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 tempfile = "3"
 symbolic = { version = "12.12", features = ["debuginfo"] }
