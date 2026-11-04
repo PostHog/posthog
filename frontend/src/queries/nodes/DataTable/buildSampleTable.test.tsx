@@ -4,8 +4,8 @@ import type { ReactNode } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 import { buildSampleTable } from './buildSampleTable'
