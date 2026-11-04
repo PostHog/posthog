@@ -705,6 +705,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             timestamp?: string
+            clearsGlobalHardBounces?: boolean
         }[]
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
@@ -811,7 +812,11 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             timestamp?: string
+            clearsGlobalHardBounces?: boolean
         }[] = []
+        // A signature only proves AWS sent the event, from any account's topic. The global hard-bounce list
+        // affects every team, so it only takes events from a configured topic.
+        const fromTrustedTopic = 'envelope' in parsed && this.allowedTopicArns.size > 0
         const emailStatusUpdates: SesEmailStatusUpdate[] = []
 
         for (const rec of records) {
@@ -988,9 +993,9 @@ export class SesWebhookHandler {
                 // SES reports the DSN's final recipient, which the receiving server chooses. Only an address
                 // this send went to can go on the global list.
                 const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
-                const nonexistentAddresses = nonexistentRecipients(rec.bounce).filter((email) =>
-                    sentTo.has(normalizeAddress(email))
-                )
+                const nonexistentAddresses = fromTrustedTopic
+                    ? nonexistentRecipients(rec.bounce).filter((email) => sentTo.has(normalizeAddress(email)))
+                    : []
                 hardBounceRecipients.push({
                     teamId,
                     emailAddresses: emails,
@@ -1035,7 +1040,12 @@ export class SesWebhookHandler {
             if (suppressionAllowed && rec.eventType === 'Delivery') {
                 const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
                 if (emails.length > 0) {
-                    deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
+                    deliveredRecipients.push({
+                        teamId,
+                        emailAddresses: emails,
+                        timestamp: rec.delivery.timestamp,
+                        ...(fromTrustedTopic ? { clearsGlobalHardBounces: true } : {}),
+                    })
                 }
             }
 

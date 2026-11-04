@@ -416,7 +416,12 @@ export class EmailSuppressionService {
      * erase a fresh bounce for a newer send. Reset only when the delivery is newer than the last
      * recorded bounce.
      */
-    public async recordDeliveries(teamId: number, emails: string[], deliveryTimestamp?: string): Promise<void> {
+    public async recordDeliveries(
+        teamId: number,
+        emails: string[],
+        deliveryTimestamp?: string,
+        { clearGlobal = false }: { clearGlobal?: boolean } = {}
+    ): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -446,6 +451,10 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
+        }
+
+        if (!clearGlobal) {
+            return
         }
 
         // A delivery proves the address exists. The timestamp guard stops a late, older delivery from

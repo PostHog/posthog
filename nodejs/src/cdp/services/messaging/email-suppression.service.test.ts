@@ -408,7 +408,10 @@ describe('EmailSuppressionService', () => {
                 await newService(true).recordDeliveries(
                     otherTeamId,
                     [email],
-                    new Date(Date.now() + 60_000).toISOString()
+                    new Date(Date.now() + 60_000).toISOString(),
+                    {
+                        clearGlobal: true,
+                    }
                 )
             }
 
@@ -430,7 +433,7 @@ describe('EmailSuppressionService', () => {
             const bounceAt = new Date(Date.now() - 120_000).toISOString()
             const deliveredAt = new Date(Date.now() - 60_000).toISOString()
             await svc.recordGlobalHardBounces([email], bounceAt)
-            await svc.recordDeliveries(team.id, [email], deliveredAt)
+            await svc.recordDeliveries(team.id, [email], deliveredAt, { clearGlobal: true })
 
             expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
         })
@@ -452,7 +455,10 @@ describe('EmailSuppressionService', () => {
                 await newService(true).recordDeliveries(
                     otherTeamId,
                     [email],
-                    new Date(Date.now() + 60_000).toISOString()
+                    new Date(Date.now() + 60_000).toISOString(),
+                    {
+                        clearGlobal: true,
+                    }
                 )
 
                 expect(await newService(true).isSuppressed(team.id, email, { transactional: true })).toBe(false)
