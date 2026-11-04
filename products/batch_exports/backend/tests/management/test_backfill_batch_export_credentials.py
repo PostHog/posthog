@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -207,7 +207,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.assertEqual(self._run(), {(destination_type, "integration_created"): 1})
 
         export.destination.refresh_from_db()
-        row = ACCESSORS[destination_type].get(self.team.id, export.destination.integration_id)
+        row = ACCESSORS[destination_type].get(self.team.id, cast(int, export.destination.integration_id))
         name = f"{export.name} ({str(export.destination.id)[:8]})"
         self.assertEqual(row.kind, KINDS[destination_type])
         self.assertEqual(row.config, _expected_config(destination_type, name))
@@ -336,7 +336,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self._run()
 
         export.destination.refresh_from_db()
-        row = ACCESSORS[destination_type].get(self.team.id, export.destination.integration_id)
+        row = ACCESSORS[destination_type].get(self.team.id, cast(int, export.destination.integration_id))
         self.assertEqual(row.config["port"], expected_port)
         self.assertNotIn("port", export.destination.config)
 
@@ -353,7 +353,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self._run()
 
         export.destination.refresh_from_db()
-        row = IntegrationManager.snowflake.credentials.get(self.team.id, export.destination.integration_id)
+        row = IntegrationManager.snowflake.credentials.get(self.team.id, cast(int, export.destination.integration_id))
         self.assertEqual(row.config["authentication_type"], "keypair")
         self.assertEqual(
             row.sensitive_config,
