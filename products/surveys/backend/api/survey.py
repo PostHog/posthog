@@ -71,8 +71,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic

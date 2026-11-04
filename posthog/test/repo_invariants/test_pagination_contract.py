@@ -84,7 +84,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "posthog.session_recordings.session_recording_playlist_api.SessionRecordingPlaylistViewSet",
     "posthog.taxonomy.property_definition_api.PropertyDefinitionViewSet",
     "products.access_control.backend.presentation.views.PropertyAccessControlViewSet",
-    "products.actions.backend.api.action.ActionViewSet",
+    "products.actions.backend.presentation.views.action.ActionViewSet",
     "products.ai_observability.backend.api.clustering_config.ClusteringConfigViewSet",
     "products.ai_observability.backend.api.clustering_job.ClusteringJobViewSet",
     "products.ai_observability.backend.api.datasets.DatasetItemViewSet",
