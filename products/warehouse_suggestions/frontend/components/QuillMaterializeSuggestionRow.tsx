@@ -6,13 +6,7 @@ import { Button } from '@posthog/quill'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { suggestionBlockedReason } from '../suggestionBlockedReason'
-import {
-    isMaterializePayload,
-    materializeSaving,
-    readSummary,
-    rebuiltSummary,
-    savingHighlight,
-} from '../suggestionCopy'
+import { isMaterializePayload, materializeHighlight, readSummary, rebuiltSummary } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionRowProps } from './MaterializeSuggestionRow'
 import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
@@ -54,7 +48,7 @@ export function QuillMaterializeSuggestionRow({
                     />
                 ),
             ].filter(Boolean)}
-            highlight={savingHighlight(materializeSaving(payload))}
+            highlight={materializeHighlight(payload)}
             actions={
                 <>
                     <Button

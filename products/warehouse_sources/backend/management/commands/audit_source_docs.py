@@ -7,7 +7,6 @@ from django.core.management.base import BaseCommand, CommandError
 import yaml
 
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Matches the slug in a posthog.com source docsUrl, e.g.
 # https://posthog.com/docs/cdp/sources/active-campaign -> "active-campaign".
@@ -20,7 +19,7 @@ class Command(BaseCommand):
     help = (
         "Audit data warehouse source docs against the source registry: every source whose docsUrl "
         "points at /docs/cdp/sources/<slug> must have a matching <slug>.{md,mdx} file, and every "
-        "doc's `sourceId` frontmatter must be a real ExternalDataSourceType value. Exits non-zero "
+        "doc's `sourceId` frontmatter must be a registered source key. Exits non-zero "
         "on any mismatch so it can gate the docs/source-implementation workflows."
     )
 
@@ -37,7 +36,7 @@ class Command(BaseCommand):
             raise CommandError(f"docs dir does not exist: {docs_dir}")
 
         existing_slugs = {p.stem for p in docs_dir.glob("*.md")} | {p.stem for p in docs_dir.glob("*.mdx")}
-        valid_source_ids = {str(member.value) for member in ExternalDataSourceType}
+        valid_source_ids = {str(source_type) for source_type in SourceRegistry.get_all_sources()}
 
         errors: list[str] = []
 
@@ -61,7 +60,7 @@ class Command(BaseCommand):
             parsed = yaml.safe_load(frontmatter.group(1)) or {}
             source_id = parsed.get("sourceId")
             if source_id and source_id not in valid_source_ids:
-                errors.append(f"{doc.name}: sourceId '{source_id}' is not a valid ExternalDataSourceType")
+                errors.append(f"{doc.name}: sourceId '{source_id}' is not a registered source key")
 
         if errors:
             self.stderr.write(self.style.ERROR(f"Found {len(errors)} source-doc mismatch(es):"))

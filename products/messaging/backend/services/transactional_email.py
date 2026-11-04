@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from django.db import transaction
@@ -14,12 +14,9 @@ import requests
 import structlog
 from prometheus_client import Counter, Histogram
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
-from posthog.plugins.plugin_server_api import (
-    reload_hog_flows_on_workers,
-    send_transactional_email as run_transactional_workflow,
-)
+from posthog.plugins.plugin_server_api import send_transactional_email as run_transactional_workflow
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
@@ -197,12 +194,10 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
     # Without a sender there is no domain to check against. The sender field rejects that case on its own.
     if integration_id is None:
         return None
-    config = (
-        Integration.objects.filter(team_id=team_id, kind="email", id=integration_id)
-        .values_list("config", flat=True)
-        .first()
-        or {}
-    )
+    try:
+        config = IntegrationManager.email.credentials.get(team_id, integration_id).config or {}
+    except IntegrationNotFound:
+        config = {}
     domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
     if domain and address.partition("@")[2].lower() != domain:
         return f"Use an address on {domain}, the domain this sender is verified for."
@@ -310,15 +305,6 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     )
 
 
-def _reload_workers(team_id: int, hog_flow_id: UUID) -> None:
-    # The edit is already committed, so a failed reload must not fail the request. Workers still pick up the
-    # new version when their cache expires.
-    try:
-        reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)])
-    except Exception:
-        logger.exception("transactional_email_worker_reload_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
-
-
 def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int | None) -> None:
     """Write the template's current content as a new version of its workflow, if it has one."""
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
@@ -336,9 +322,6 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             hog_flow_id=hog_flow_id,
             content=_content(template),
         )
-        # The save already told the workers to reload, but before the caller's transaction committed, so a
-        # worker can cache the old version. This reload runs once the new version is visible.
-        transaction.on_commit(lambda: _reload_workers(team_id, hog_flow_id))
     except WorkflowNotFound:
         # Deleted between the check above and the update.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
@@ -348,8 +331,26 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
 
-def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
-    template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
+class TransactionalTemplate(Protocol):
+    """The template fields a send reads. A caller that already loaded the template passes it in."""
+
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def content(self) -> dict[str, Any]: ...
+
+    @property
+    def message_category_id(self) -> UUID | None: ...
+
+    @property
+    def transactional_hog_flow_id(self) -> UUID | None: ...
+
+
+def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -370,7 +371,7 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 def send_transactional_email(
     team: Team,
-    template_id: UUID,
+    template: UUID | TransactionalTemplate,
     *,
     to: str,
     distinct_id: str | None,
@@ -387,7 +388,14 @@ def send_transactional_email(
         raise InvalidRecipient("The recipient address can't contain { or }.")
 
     with transactional_email_stage("workflow_lookup"):
-        hog_flow_id = _transactional_workflow_id(team.id, template_id)
+        # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
+        if isinstance(template, UUID):
+            template_id = template
+            model = MessageTemplate.objects.get(team_id=team.id, id=template_id, deleted=False)
+            hog_flow_id = _transactional_workflow_id(team.id, model)
+        else:
+            template_id = template.id
+            hog_flow_id = _transactional_workflow_id(team.id, template)
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
@@ -409,7 +417,8 @@ def send_transactional_email(
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
     if response.status_code != 202:
-        refusal = PIPELINE_REFUSALS.get(_refusal_code(response) or "")
+        refusal_code = _refusal_code(response)
+        refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is not None:
             error_class, message = refusal
             raise error_class(message)
@@ -418,6 +427,7 @@ def send_transactional_email(
             team_id=team.id,
             template_id=str(template_id),
             status_code=response.status_code,
+            refusal_code=refusal_code,
         )
         raise DeliveryUnavailable()
 

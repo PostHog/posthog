@@ -72,10 +72,10 @@ export function QuillSceneStaticName({ name, icon, description, className }: Qui
                 {copied ? (
                     <div role="status">Copied</div>
                 ) : (
-                    <>
+                    <div className="flex flex-col gap-0.5">
                         {description && <div>{description}</div>}
                         {copyableName && <div className="text-muted-foreground">Click to copy</div>}
-                    </>
+                    </div>
                 )}
             </TooltipContent>
         </Tooltip>

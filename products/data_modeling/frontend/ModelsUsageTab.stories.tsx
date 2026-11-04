@@ -351,6 +351,27 @@ export default meta
 type Story = StoryObj<typeof ModelsUsageTab>
 
 export const Populated: Story = { decorators: [inMainContent('w-256')] }
+export const Loading: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[aria-label="Loading model usage"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_modeling_usage/': (): Promise<never> => new Promise(() => {}),
+                    '/api/projects/:team_id/data_modeling_jobs/': (): Promise<never> => new Promise(() => {}),
+                },
+            },
+        },
+    },
+}
+export const LoadingNarrow: Story = {
+    ...Loading,
+    decorators: [inMainContent('w-128')],
+}
 export const Narrow: Story = {
     decorators: [inMainContent('w-128')],
 }

@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -744,14 +745,6 @@ class WorkflowListQuery:
 
 
 @frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
-
-
-@frozen
 class WorkflowListFilterError:
     message: str
     code: str | None
@@ -992,8 +985,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
@@ -1118,12 +1111,32 @@ class ImportContent:
 
 @dataclass(frozen=False)
 class SnippetRoom:
-    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+    """How many more bytes of snippet and subject content one import request may inline, shared by every automation.
 
-    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    Snippets and `{{ message.subject }}` are inlined by copy, so a short template that repeats a large one could grow
+    without bound.
     """
 
     remaining: int = 5_000_000
+
+
+@frozen
+class RehostedWorkflow:
+    """An imported workflow whose email images point at copies in the team's media library."""
+
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@dataclass(frozen=False)
+class ImageBudget:
+    """How many more email images one import request may copy, and until when, shared by every automation in it."""
+
+    remaining: int = 100
+    # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 60)
+    # False when the caller's token can't write to the media library, so nothing is copied.
+    can_upload: bool = True
 
 
 @frozen

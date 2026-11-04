@@ -25,7 +25,7 @@ export function QuillSuggestedModelsSection({
                     render={<span />}
                     className="hidden text-right @min-[36rem]/suggestions:block"
                 >
-                    Saves a month
+                    Main saving a month
                 </Text>
             </div>
             <div className="divide-y divide-border">{children}</div>

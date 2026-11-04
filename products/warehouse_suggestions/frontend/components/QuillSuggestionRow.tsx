@@ -1,9 +1,37 @@
-import { cn } from '@posthog/quill'
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
+import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
 import { SAVING_COLUMNS_CLASS, SuggestionRowProps } from './SuggestionRow'
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success-foreground'
+
+function QuillHighlightAmount({ highlight }: { highlight: SavingHighlight }): JSX.Element {
+    const amount = (
+        <span translate="no" className={AMOUNT_CLASS}>
+            {highlight.amount}
+        </span>
+    )
+    if (!highlight.tooltip?.length) {
+        return amount
+    }
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                render={<span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2" />}
+            >
+                {amount}
+            </TooltipTrigger>
+            <TooltipContent>
+                <span className="flex flex-col gap-0.5">
+                    {highlight.tooltip.map((line) => (
+                        <span key={line}>{line}</span>
+                    ))}
+                </span>
+            </TooltipContent>
+        </Tooltip>
+    )
+}
 
 export function QuillSuggestionRow({
     suggestionId,
@@ -39,9 +67,7 @@ export function QuillSuggestionRow({
                             <div className="flex min-w-0">{title}</div>
                             {highlight && (
                                 <div className="flex flex-wrap items-baseline gap-x-1.5 @min-[36rem]/suggestions:hidden">
-                                    <span translate="no" className={AMOUNT_CLASS}>
-                                        {highlight.amount}
-                                    </span>
+                                    <QuillHighlightAmount highlight={highlight} />
                                     <span className="text-xs text-muted-foreground">{highlight.narrowLabel}</span>
                                 </div>
                             )}
@@ -67,9 +93,7 @@ export function QuillSuggestionRow({
                     </div>
                     {highlight && (
                         <div className="hidden min-w-0 flex-col items-end @min-[36rem]/suggestions:flex">
-                            <span translate="no" className={AMOUNT_CLASS}>
-                                {highlight.amount}
-                            </span>
+                            <QuillHighlightAmount highlight={highlight} />
                             {highlight.detail && (
                                 <span translate="no" className="text-xs tabular-nums text-muted-foreground">
                                     {highlight.detail}

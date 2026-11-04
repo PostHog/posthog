@@ -1,8 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    FilterMenuTrigger,
+} from '@posthog/quill'
 
-import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 
 import { ISSUE_KIND_ORDER, ISSUE_LABELS } from 'products/data_modeling/frontend/overviewIssueCopy'
@@ -44,7 +49,7 @@ export function CatalogTablesFilterMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <TodayFilterMenuTrigger active={filtersActive} dataAttr="data-catalog-tables-filter" />
+            <FilterMenuTrigger active={filtersActive} dataAttr="data-catalog-tables-filter" />
             <DropdownMenuContent align="start" className="min-w-56">
                 <TodayRecentRadioSubmenu
                     label="Type"

@@ -12,9 +12,8 @@ import { materializeScheduleNotes } from '../materializeScheduleNotes'
 import {
     dataAgeLabel,
     isMaterializePayload,
-    materializeSaving,
+    materializeSavingLines,
     refreshModeLabel,
-    savingSentence,
     todayAgeLabel,
 } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
@@ -45,6 +44,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         materializeInterval,
         materializeIntervalShorterThanSuggested
     )
+    const [estimateHeadline, ...estimateDetails] = materializeSavingLines(payload)
 
     return (
         <LemonModal
@@ -108,7 +108,12 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         <span className="text-xs font-semibold text-secondary">
                             Estimated at the suggested settings
                         </span>
-                        <span className="text-sm">{savingSentence(materializeSaving(payload))}</span>
+                        <span className="text-sm">{estimateHeadline}</span>
+                        {estimateDetails.map((line) => (
+                            <span key={line} className="text-xs text-secondary">
+                                {line}
+                            </span>
+                        ))}
                     </div>
                 </div>
                 {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}

@@ -139,7 +139,13 @@ const checks = [
     check('weekly users above zero', 'view', 'query-active', 'active_users_weekly', 'passed'),
 ]
 
-function certification(id: string, savedQuery: string, targetName: string, status: string): Record<string, unknown> {
+function certification(
+    id: string,
+    savedQuery: string,
+    targetName: string,
+    status: string,
+    proposedStatus: string = status === 'proposed' ? 'certified' : status
+): Record<string, unknown> {
     return {
         id,
         table: null,
@@ -147,7 +153,7 @@ function certification(id: string, savedQuery: string, targetName: string, statu
         target_type: 'view',
         target_name: targetName,
         status,
-        proposed_status: status === 'proposed' ? 'certified' : status,
+        proposed_status: proposedStatus,
         notes: '',
         certified_by: null,
         certified_at: null,
@@ -160,6 +166,7 @@ const certifications = [
     certification('cert-revenue', 'query-revenue', 'revenue_by_account', 'certified'),
     certification('cert-orders', 'query-orders', 'orders_daily', 'proposed'),
     certification('cert-active', 'query-active', 'active_users_weekly', 'certified'),
+    certification('cert-marketing', 'query-marketing', 'marketing_spend', 'proposed', 'deprecated'),
     certification('cert-adoption', 'query-adoption', 'feature_adoption', 'deprecated'),
 ]
 
@@ -321,4 +328,31 @@ export const RunningAllChecks: Story = {
             }
         })
     },
+}
+
+async function selectRows(canvasElement: HTMLElement, names: string[]): Promise<void> {
+    for (const name of names) {
+        const checkbox = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLElement>(`[aria-label="Select ${name}"]`)
+            if (!element) {
+                throw new Error('Row not rendered yet')
+            }
+            return element
+        })
+        checkbox.click()
+    }
+    await waitFor(() => {
+        if (!canvasElement.querySelector('[data-attr="data-catalog-tables-bulk-bar"]')) {
+            throw new Error('Bulk bar not shown yet')
+        }
+    })
+}
+
+export const RowsSelected: Story = {
+    play: async ({ canvasElement }) => selectRows(canvasElement, ['orders_daily', 'marketing_spend', 'events']),
+}
+
+export const NarrowRowsSelected: Story = {
+    decorators: [inMainContent('w-128')],
+    play: RowsSelected.play,
 }

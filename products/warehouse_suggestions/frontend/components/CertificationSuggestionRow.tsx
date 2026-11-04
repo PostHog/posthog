@@ -31,6 +31,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
         leaving,
         inFlight
     )
+    const refreshes = deprecating && payload.materialized !== false
 
     return (
         <SuggestionRow
@@ -55,8 +56,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                               windowDays={windowDays}
                               label={noReadsLabel(windowDays)}
                           />,
-                          <span key="cost">{refreshCostLabel(payload)}</span>,
-                      ]
+                          refreshes && <span key="cost">{refreshCostLabel(payload)}</span>,
+                      ].filter(Boolean)
                     : [
                           <WhyThisSuggestion
                               key="reads"

@@ -29,6 +29,7 @@ export function QuillCertificationSuggestionRow({
         leaving,
         inFlight
     )
+    const refreshes = deprecating && payload.materialized !== false
     const subjectLabel = isTable ? 'Table' : 'View'
 
     return (
@@ -55,8 +56,8 @@ export function QuillCertificationSuggestionRow({
                               windowDays={windowDays}
                               label={noReadsLabel(windowDays)}
                           />,
-                          <span key="cost">{refreshCostLabel(payload)}</span>,
-                      ]
+                          refreshes && <span key="cost">{refreshCostLabel(payload)}</span>,
+                      ].filter(Boolean)
                     : [
                           <QuillWhyThisSuggestion
                               key="reads"

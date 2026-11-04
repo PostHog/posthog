@@ -2,7 +2,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookType } from 'scenes/notebooks/types'
 
 import { useMocks } from '~/mocks/jest'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
+import { LATEST_VERSIONS } from '~/queries/schema/latest-versions'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'

@@ -6,9 +6,10 @@ request, hands it back to whoever releases it with a send, and sends it itself o
 deadline passes, so a source that never answers still delivers.
 """
 
-from collections.abc import Sequence
-from datetime import datetime, timedelta
+from collections.abc import Collection, Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 
@@ -16,11 +17,18 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AnnouncedTransition,
     HeldDeliveryAddress,
+    IncidentAction,
     PlatformAlertOutcome,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
-from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
 # As long as the history rows a hold annotates live, so a reader never finds one without the other.
@@ -149,6 +157,21 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return updated > 0
 
 
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's hold. None when the evaluation was never held or is still held."""
+    value = (
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id)
+        .filter(
+            configuration_id=address.configuration_id,
+            evaluation_key=address.evaluation_key,
+            released_at__isnull=False,
+        )
+        .values_list("released_by", flat=True)
+        .first()
+    )
+    return HoldReleasedBy(value) if value else None
+
+
 def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) -> bool:
     """Whether an evaluation has a hold that is not released with a send.
 
@@ -161,6 +184,68 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
         .exclude(release_action=HoldRelease.SEND)
         .exists()
     )
+
+
+def source_suppressed_holds_by_legacy_id(
+    team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose hold its source released with a suppress.
+
+    A suppress by the safety net is left out: it is the platform's, for a configuration turned off.
+    """
+    if not evaluation_keys:
+        return frozenset()
+    return frozenset(
+        PlatformAlertDeliveryHold.objects.for_team(team_id)
+        .filter(
+            configuration__legacy_configuration_id=legacy_configuration_id,
+            configuration__owner=PlatformAlertOwner.PLATFORM,
+            evaluation_key__in=evaluation_keys,
+            release_action=HoldRelease.SUPPRESS,
+        )
+        .exclude(released_by=HoldReleasedBy.SAFETY_NET)
+        .values_list("evaluation_key", flat=True)
+    )
+
+
+def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[AnnouncedTransition]) -> frozenset[str]:
+    """The groups of a held evaluation whose incident trigger must not go out.
+
+    A hold can release after a later evaluation resolved the firing it held, and nothing orders the
+    two sends. A trigger sent then would open an incident that no resolve follows. So a trigger goes
+    out only while its group is still in the firing the held evaluation saw. The message still goes,
+    as a late firing does.
+    """
+    triggering = {key for key, action in request.incident_actions.items() if action == IncidentAction.TRIGGER}
+    if not triggering:
+        return frozenset()
+    held = (
+        PlatformAlertDeliveryHold.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, evaluation_key=request.evaluation_key)
+        .exists()
+    )
+    if not held:
+        return frozenset()
+    current = {
+        grouping_key: (state, _in_utc(firing_started_at))
+        for grouping_key, state, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, grouping_key__in=triggering)
+        .values_list("grouping_key", "state", "firing_started_at")
+    }
+    return frozenset(
+        transition.grouping_key
+        for transition in transitions
+        if transition.grouping_key in triggering
+        and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, _in_utc(transition.episode_started_at))
+    )
+
+
+def _in_utc(moment: datetime | None) -> datetime | None:
+    # ClickHouse can return a history row's times without a zone, and they are UTC. A naive time
+    # never equals an aware one, so every comparison with a Postgres time would say "changed".
+    if moment is None or moment.tzinfo is not None:
+        return moment
+    return moment.replace(tzinfo=UTC)
 
 
 def prune_holds(now: datetime, *, limit: int) -> int:

@@ -12,12 +12,11 @@ import {
     SavingHighlight,
     isMaterializePayload,
     isUnmaterializePayload,
-    materializeSaving,
+    materializeHighlight,
     notNowCondition,
     readSummary,
     rebuiltSummary,
-    savingHighlight,
-    unmaterializeSaving,
+    unmaterializeHighlight,
 } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
@@ -41,7 +40,7 @@ function suggestedChange(suggestion: WarehouseSuggestionApi): SuggestedChange | 
             label: 'Materialize',
             badge: 'info',
             dataAttr: 'warehouse-suggestions-materialize',
-            saving: savingHighlight(materializeSaving(payload)),
+            saving: materializeHighlight(payload),
         }
     }
     if (isUnmaterializePayload(payload)) {
@@ -49,7 +48,7 @@ function suggestedChange(suggestion: WarehouseSuggestionApi): SuggestedChange | 
             label: 'Stop materializing',
             badge: 'default',
             dataAttr: 'warehouse-suggestions-unmaterialize',
-            saving: savingHighlight(unmaterializeSaving(payload)),
+            saving: unmaterializeHighlight(payload),
         }
     }
     return null

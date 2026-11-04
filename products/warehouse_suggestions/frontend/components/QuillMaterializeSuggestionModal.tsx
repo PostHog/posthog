@@ -27,9 +27,8 @@ import { materializeScheduleNotes } from '../materializeScheduleNotes'
 import {
     dataAgeLabel,
     isMaterializePayload,
-    materializeSaving,
+    materializeSavingLines,
     refreshModeLabel,
-    savingSentence,
     todayAgeLabel,
 } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
@@ -62,6 +61,7 @@ export function QuillMaterializeSuggestionModal(): JSX.Element | null {
         materializeInterval,
         materializeIntervalShorterThanSuggested
     )
+    const [estimateHeadline, ...estimateDetails] = materializeSavingLines(payload)
 
     return (
         <Dialog open onOpenChange={(open: boolean) => !open && !inFlight && closeMaterializeModal()}>
@@ -108,7 +108,8 @@ export function QuillMaterializeSuggestionModal(): JSX.Element | null {
                                 },
                                 {
                                     label: 'Estimated at the suggested settings',
-                                    value: savingSentence(materializeSaving(payload)),
+                                    value: estimateHeadline,
+                                    details: estimateDetails,
                                 },
                             ]}
                         />

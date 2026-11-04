@@ -16,7 +16,7 @@ pub(super) const BATCH_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub(super) struct Harness<P> {
     pub(super) poller: P,
-    pub(super) settlement: Arc<dyn Settlement>,
+    pub(super) settlement: Arc<GroupSettlement>,
     pub(super) ledger: Arc<TopicOffsetLedger>,
     pub(super) now: Instant,
 }
@@ -24,7 +24,7 @@ pub(super) struct Harness<P> {
 impl<P: PollingStrategy> Harness<P> {
     pub(super) fn new(make: impl FnOnce(Parts) -> P) -> Self {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::ZERO,
             BudgetLimits::unset(),
@@ -37,7 +37,6 @@ impl<P: PollingStrategy> Harness<P> {
             },
             settlement: Arc::clone(&settlement),
             group_id: "test".to_string(),
-            debug_recorder: None,
         });
         Self {
             poller,
@@ -50,7 +49,7 @@ impl<P: PollingStrategy> Harness<P> {
     pub(super) fn receive(&mut self, partition: i32, offsets: &[i64]) {
         for &offset in offsets {
             self.poller
-                .received(&message(partition, offset, 10), self.now);
+                .on_received(&message(partition, offset, 10), self.now);
         }
     }
 
@@ -66,11 +65,7 @@ impl<P: PollingStrategy> Harness<P> {
         let Some(Step::Submit(collected)) = self.step() else {
             panic!("expected a poll to submit");
         };
-        let CollectedBatch {
-            accumulator,
-            mut partitions,
-            ..
-        } = collected;
+        let CollectedBatch { mut partitions, .. } = collected;
         let mut uncommitted = HashMap::new();
         for (topic_partition, deliveries) in &mut partitions {
             deliveries.generation = self.ledger.generation(topic_partition);
@@ -89,15 +84,9 @@ impl<P: PollingStrategy> Harness<P> {
                 )
             })
             .collect();
-        self.poller.submitted(InFlightPoll {
-            poll_id: "poll".to_string(),
-            assignment_epoch: 1,
+        self.poller.on_submitted(InFlightPoll {
             partitions,
             uncommitted,
-            message_count: accumulator.message_count() as u32,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: std::time::Instant::now(),
         });
         spans
     }
@@ -109,13 +98,23 @@ impl<P: PollingStrategy> Harness<P> {
 
     pub(super) fn complete_under(&mut self, generation: u64, partition: i32, offsets: &[i64]) {
         self.poller
-            .completed(&completion(generation, partition, offsets))
+            .on_completed(&completion(generation, partition, offsets))
             .expect("the completion applies");
     }
 
     pub(super) fn revoke(&mut self, partition: i32) {
-        self.settlement.forget_partitions(&[p(partition)]);
-        self.poller.revoked(&[p(partition)]);
+        self.settlement.on_revoked(&[p(partition)]);
+        self.poller.on_revoked(&[p(partition)]);
+    }
+
+    pub(super) fn finish_drain(&mut self, partition: i32) -> HashMap<TopicPartition, Offset> {
+        let committed = self
+            .poller
+            .on_drain_finished(&[p(partition)])
+            .map(|commit| commit.offsets)
+            .unwrap_or_default();
+        self.settlement.on_revoked(&[p(partition)]);
+        committed
     }
 
     pub(super) fn commit(&mut self) -> HashMap<TopicPartition, Offset> {

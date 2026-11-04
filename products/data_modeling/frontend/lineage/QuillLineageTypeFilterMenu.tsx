@@ -9,10 +9,9 @@ import {
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
+    FilterMenuTrigger,
     cn,
 } from '@posthog/quill'
-
-import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
@@ -31,7 +30,7 @@ export function QuillLineageTypeFilterMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <TodayFilterMenuTrigger active={isFiltered} dataAttr="models-lineage-type-filter" />
+            <FilterMenuTrigger active={isFiltered} dataAttr="models-lineage-type-filter" />
             <DropdownMenuContent align="start" className="min-w-56">
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger>

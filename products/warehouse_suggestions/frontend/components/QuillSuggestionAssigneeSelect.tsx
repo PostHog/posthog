@@ -14,8 +14,8 @@ import {
 
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'

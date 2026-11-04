@@ -6,7 +6,7 @@ import { Button } from '@posthog/quill'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { suggestionBlockedReason } from '../suggestionBlockedReason'
-import { isUnmaterializePayload, readSummary, savingHighlight, unmaterializeSaving } from '../suggestionCopy'
+import { isUnmaterializePayload, readSummary, unmaterializeHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
 import { QuillSuggestionRow } from './QuillSuggestionRow'
@@ -43,7 +43,7 @@ export function QuillUnmaterializeSuggestionRow({
                     label={readSummary(suggestion.evidence)}
                 />,
             ]}
-            highlight={savingHighlight(unmaterializeSaving(payload))}
+            highlight={unmaterializeHighlight(payload)}
             actions={
                 <>
                     <Button

@@ -8,10 +8,9 @@ import type {
     TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar, getSeriesColor } from 'lib/colors'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { BillingPeriodMarkers } from './BillingPeriodMarkers'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'

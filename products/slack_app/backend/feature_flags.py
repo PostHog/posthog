@@ -37,7 +37,8 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationRecord
+from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
@@ -65,9 +66,13 @@ def _region_properties() -> dict[str, str]:
     return {"region": get_instance_region() or "dev"}
 
 
+def _organization_id(integration: IntegrationRecord) -> str:
+    return str(Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id))
+
+
 def _workspace_flag_enabled(
     flag: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
@@ -80,7 +85,7 @@ def _workspace_flag_enabled(
 
     ``distinct_id`` identifies the PostHog user the check is being made for, and becomes
     the identity the flag resolves against. It is a distinct ID rather than a user id so
-    a caller can pass what it already holds, and so deciding a gate costs no query here.
+    a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
     """
@@ -89,7 +94,7 @@ def _workspace_flag_enabled(
             posthoganalytics.feature_enabled(
                 flag,
                 distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
+                groups={"organization": _organization_id(integration)},
                 person_properties=_region_properties(),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -100,7 +105,7 @@ def _workspace_flag_enabled(
         return False
 
 
-def is_slack_app_oauth_enabled(integration: Integration) -> bool:
+def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the Slack user-identity OAuth link feature, covering both backend
     (offering the invite button, accepting the link callback, listing/starting
     from settings) and frontend (rendering the Slack card in Personal
@@ -109,7 +114,7 @@ def is_slack_app_oauth_enabled(integration: Integration) -> bool:
     return has_scopes(integration, OAUTH_REQUIRED_SCOPES)
 
 
-def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_id: str | None = None) -> bool:
     """Gate for the agent-design plan-block streaming surface on Slack task runs.
     Posts through the ``chat:write`` the mention flow already requires, so this is the
     flag alone.
@@ -126,7 +131,9 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+def is_slack_app_byos_enabled(
+    integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
+) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
     Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
@@ -136,7 +143,7 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
     if not tasks_facade.own_subscription_cloud_enabled(
-        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+        adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
     ):
         return False
     return _workspace_flag_enabled(
@@ -147,14 +154,14 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     )
 
 
-def is_slack_app_assistant_enabled(integration: Integration) -> bool:
+def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
 
 
-def is_slack_app_forking_enabled(integration: Integration) -> bool:
+def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the "Fork to DM" menu under a reply.
 
     A fork lands in a DM and is answered there, so it inherits the assistant

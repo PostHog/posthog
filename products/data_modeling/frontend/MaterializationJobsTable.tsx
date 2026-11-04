@@ -23,6 +23,7 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    Skeleton,
     Spinner,
     Table,
     TableBody,
@@ -211,14 +212,30 @@ export function MaterializationJobsTable({
                                 })}
                             </TableBody>
                         ) : jobsLoading && !materializationJobs ? (
-                            <TableBody>
-                                <TableRow>
-                                    <TableCell colSpan={managedWarehouseEnabled ? 7 : 6}>
-                                        <div className="flex justify-center py-8">
-                                            <Spinner />
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
+                            <TableBody aria-label="Loading materialization jobs">
+                                {Array.from({ length: 4 }, (_, index) => (
+                                    <TableRow key={index} aria-hidden="true">
+                                        <TableCell expand>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-40 max-w-full" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-20" />
+                                        </TableCell>
+                                        {managedWarehouseEnabled ? (
+                                            <TableCell>
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-24" />
+                                            </TableCell>
+                                        ) : null}
+                                        {Array.from({ length: 4 }, (_, column) => (
+                                            <TableCell
+                                                key={column}
+                                                className="hidden @min-[48rem]/main-content:table-cell"
+                                            >
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-16" />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))}
                             </TableBody>
                         ) : (
                             <TableEmpty className="py-8 text-secondary">

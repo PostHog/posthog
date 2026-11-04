@@ -40,6 +40,7 @@ import {
     modelStatusLabel,
     modelsUsageLogic,
 } from './modelsUsageLogic'
+import { ModelsUsageSkeleton } from './ModelsUsageSkeleton'
 
 function MetricTile({ title, value }: { title: string; value: string }): JSX.Element {
     return (
@@ -213,9 +214,7 @@ export function ModelsUsageTab({
                     </CardContent>
                 </Card>
             ) : !usage ? (
-                <div className="flex justify-center py-16">
-                    <Spinner />
-                </div>
+                <ModelsUsageSkeleton />
             ) : usage.overview.runs === 0 && statusChartLabels.length === 0 ? (
                 <Card size="sm">
                     <CardContent>

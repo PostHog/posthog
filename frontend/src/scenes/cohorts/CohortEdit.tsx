@@ -9,12 +9,13 @@ import {
     IconExpand,
     IconInfo,
     IconLetter,
+    IconPlus,
     IconRefresh,
     IconSend,
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonSnack, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -72,6 +73,7 @@ import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { CohortBlockingWorkflowsModal } from './CohortBlockingWorkflowsModal'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
+import { CohortCsvUploadModal } from './CohortCsvUploadModal'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import { cohortUsedInSections } from './cohortUsedIn'
 import { CohortUsedInList } from './CohortUsedInList'
@@ -185,6 +187,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setUsedInExpanded,
         openBlockingWorkflowsModal,
         submitCohort,
+        setCsvUploadModalOpen,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
@@ -202,6 +205,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         usedInExpanded,
         staticCohortMode,
         activeTab,
+        hasAddUsersMenu,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -219,6 +223,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { shouldShowCountWarning } = useValues(warningLogic)
 
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+
+    // The details section and the divider above the persons table render only when they have
+    // content, so a plain static cohort shows its people right under the tabs.
+    const hasOverviewDetails =
+        isNewCohort ||
+        !cohort.is_static ||
+        (usedIn ? cohortUsedInSections(usedIn).length > 0 || usedIn.workflows.total > 0 : false)
+    const hasSectionAbovePersons = hasOverviewDetails || staticCohortMode === 'criteria' || !hasAddUsersMenu
 
     useFileSystemLogView({
         type: 'cohort',
@@ -254,6 +266,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                <CohortCsvUploadModal id={id} />
                 <CohortBlockingWorkflowsModal />
                 <CohortSceneMenuBar id={id} />
 
@@ -374,6 +387,23 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
                                 name={cohort.name}
+                                nameSuffix={
+                                    !isNewCohort ? (
+                                        <Tooltip
+                                            title={
+                                                cohort.is_static
+                                                    ? staticCohortMode === 'criteria'
+                                                        ? 'This cohort is a fixed list, snapshotted from criteria when it was created. It will not update as people change. Create a new cohort to use a different type.'
+                                                        : 'This cohort is a fixed list, populated by uploading a CSV or adding people individually. Create a new cohort to use a different type.'
+                                                    : 'This cohort updates automatically as people and their data change. Create a new cohort to use a different type.'
+                                            }
+                                        >
+                                            <LemonTag size="small" data-attr="cohort-type-tag">
+                                                {cohort.is_static ? 'Static' : 'Dynamic'}
+                                            </LemonTag>
+                                        </Tooltip>
+                                    ) : undefined
+                                }
                                 description={cohort.description || ''}
                                 // When the SceneMenuBar renders above the title, the title's default
                                 // negative top margin pulls it up under the bar — drop it in that case.
@@ -416,6 +446,28 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             >
                                                 Save
                                             </Button>
+                                            {hasAddUsersMenu && (
+                                                <LemonMenu
+                                                    items={[
+                                                        {
+                                                            label: 'Upload a CSV',
+                                                            onClick: () => setCsvUploadModalOpen(true),
+                                                            'data-attr': 'cohort-upload-csv-modal-open',
+                                                        },
+                                                        {
+                                                            label: 'Add users manually',
+                                                            onClick: showAddPersonToCohortModal,
+                                                            'data-attr': 'cohort-add-users-modal-open',
+                                                        },
+                                                    ]}
+                                                    placement="bottom-end"
+                                                >
+                                                    <Button variant="outline" data-attr="cohort-add-users-menu">
+                                                        <IconPlus />
+                                                        Add users
+                                                    </Button>
+                                                </LemonMenu>
+                                            )}
                                         </>
                                     ) : (
                                         <>
@@ -443,6 +495,32 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             >
                                                 Save
                                             </LemonButton>
+                                            {hasAddUsersMenu && (
+                                                <LemonMenu
+                                                    items={[
+                                                        {
+                                                            label: 'Upload a CSV',
+                                                            onClick: () => setCsvUploadModalOpen(true),
+                                                            'data-attr': 'cohort-upload-csv-modal-open',
+                                                        },
+                                                        {
+                                                            label: 'Add users manually',
+                                                            onClick: showAddPersonToCohortModal,
+                                                            'data-attr': 'cohort-add-users-modal-open',
+                                                        },
+                                                    ]}
+                                                    placement="bottom-end"
+                                                >
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        icon={<IconPlus />}
+                                                        data-attr="cohort-add-users-menu"
+                                                    >
+                                                        Add users
+                                                    </LemonButton>
+                                                </LemonMenu>
+                                            )}
                                         </>
                                     )
                                 }
@@ -457,6 +535,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     { key: 'overview', label: 'Overview' },
                                     { key: 'history', label: 'History' },
                                 ]}
+                                sceneInset
                             />
                         )}
 
@@ -471,46 +550,82 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                         ) : null}
 
                         <div className={cn(activeTab === 'overview' ? 'contents' : 'hidden')}>
-                            <SceneSection
-                                title={isNewCohort ? 'Type' : undefined}
-                                description={
-                                    isNewCohort
-                                        ? 'Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data.'
-                                        : undefined
-                                }
-                                className="max-w-200 flex flex-col gap-y-2"
-                                hideTitleAndDescription
-                            >
-                                <div className="flex gap-4 flex-wrap">
-                                    <div className={cn('flex-1 flex flex-col gap-y-4')}>
-                                        {isNewCohort ? (
-                                            <LemonField name="is_static" label={null}>
-                                                {({ value, onChange }) => (
-                                                    <LemonSelect
-                                                        options={COHORT_TYPE_OPTIONS}
-                                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                                        onChange={(cohortType) => {
-                                                            onChange(cohortType === CohortTypeEnum.Static)
-                                                        }}
-                                                        fullWidth
-                                                        data-attr="cohort-type"
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        ) : (
-                                            <div className="flex items-center gap-x-2" data-attr="cohort-type">
-                                                <span className="text-sm text-secondary">
-                                                    Type:{' '}
-                                                    <strong className="font-medium text-default">
-                                                        {cohort.is_static ? 'Static' : 'Dynamic'}
-                                                    </strong>
-                                                </span>
-                                                <Tooltip title="Create a new cohort to use a different type of cohort.">
-                                                    <IconInfo className="text-secondary text-base" />
-                                                </Tooltip>
-                                                {usedIn && usedIn.workflows.total > 0 && (
-                                                    <>
-                                                        <span className="text-secondary">·</span>
+                            {!isNewCohort &&
+                                (isCalculatingOrPending ? (
+                                    <LemonBanner type="warning">
+                                        {isPendingCalculation && !cohort.is_calculating
+                                            ? cohort.last_calculation
+                                                ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                : "We're queuing the calculation. It should be ready in a few minutes."
+                                            : cohort.last_calculation
+                                              ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                              : "We're calculating the cohort. It should be ready in a few minutes."}
+                                    </LemonBanner>
+                                ) : cohort.errors_calculating ? (
+                                    <LemonBanner
+                                        type="error"
+                                        // A static cohort is populated once from the source it was created
+                                        // with, and the edit form does not resend that source, so saving the
+                                        // cohort again would not run the population.
+                                        action={
+                                            cohort.is_static
+                                                ? undefined
+                                                : {
+                                                      onClick: () => submitCohort(),
+                                                      children: 'Retry',
+                                                  }
+                                        }
+                                    >
+                                        <strong>Calculation failed:</strong>{' '}
+                                        {cohort.last_error_message ||
+                                            (cohort.is_static
+                                                ? 'Unable to populate this cohort from its source.'
+                                                : 'Unable to calculate this cohort. Please check your matching criteria and try again.')}{' '}
+                                        {cohort.is_static ? 'If it keeps happening, ' : 'If it fails again, '}
+                                        <Link onClick={() => openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')}>
+                                            contact support
+                                        </Link>
+                                        .
+                                    </LemonBanner>
+                                ) : null)}
+                            {!isNewCohort && (
+                                <div aria-live="polite">
+                                    <UnmatchedImportBanner cohort={cohort} />
+                                </div>
+                            )}
+                            {hasOverviewDetails && (
+                                <SceneSection
+                                    title={isNewCohort ? 'Type' : undefined}
+                                    description={
+                                        isNewCohort
+                                            ? 'Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data.'
+                                            : undefined
+                                    }
+                                    className="max-w-200 flex flex-col gap-y-2"
+                                    hideTitleAndDescription
+                                >
+                                    <div className="flex gap-4 flex-wrap">
+                                        <div className={cn('flex-1 flex flex-col gap-y-4')}>
+                                            {isNewCohort ? (
+                                                <LemonField name="is_static" label={null}>
+                                                    {({ value, onChange }) => (
+                                                        <LemonSelect
+                                                            options={COHORT_TYPE_OPTIONS}
+                                                            value={
+                                                                value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic
+                                                            }
+                                                            onChange={(cohortType) => {
+                                                                onChange(cohortType === CohortTypeEnum.Static)
+                                                            }}
+                                                            fullWidth
+                                                            data-attr="cohort-type"
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            ) : (
+                                                usedIn &&
+                                                usedIn.workflows.total > 0 && (
+                                                    <div className="flex items-center gap-x-2">
                                                         <Link
                                                             className="text-sm"
                                                             onClick={() =>
@@ -524,145 +639,63 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                             Used in {usedIn.workflows.total}{' '}
                                                             {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
                                                         </Link>
-                                                    </>
-                                                )}
-                                            </div>
-                                        )}
+                                                    </div>
+                                                )
+                                            )}
 
-                                        {cohort.is_static && (
-                                            <div className="flex flex-col gap-y-2">
-                                                {isNewCohort ? (
-                                                    <>
-                                                        <h2 className="text-base mb-0">Populate from</h2>
-                                                        <p className="text-sm text-secondary my-0 max-w-prose">
-                                                            {staticCohortMode === 'criteria'
-                                                                ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
-                                                                : 'Manually add people via CSV upload or by selecting them individually.'}
-                                                        </p>
-                                                        <LemonSelect
-                                                            options={POPULATE_FROM_OPTIONS}
-                                                            value={staticCohortMode}
-                                                            onChange={(value) => setStaticCohortMode(value)}
-                                                            fullWidth
-                                                            data-attr="static-cohort-mode"
-                                                        />
-                                                    </>
-                                                ) : (
-                                                    <div
-                                                        className="flex items-center gap-x-2"
+                                            {cohort.is_static && isNewCohort && (
+                                                <div className="flex flex-col gap-y-2">
+                                                    <h2 className="text-base mb-0">Populate from</h2>
+                                                    <p className="text-sm text-secondary my-0 max-w-prose">
+                                                        {staticCohortMode === 'criteria'
+                                                            ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                            : 'Manually add people via CSV upload or by selecting them individually.'}
+                                                    </p>
+                                                    <LemonSelect
+                                                        options={POPULATE_FROM_OPTIONS}
+                                                        value={staticCohortMode}
+                                                        onChange={(value) => setStaticCohortMode(value)}
+                                                        fullWidth
                                                         data-attr="static-cohort-mode"
-                                                    >
-                                                        <span className="text-sm text-secondary">
-                                                            Populate from:{' '}
-                                                            <strong className="font-medium text-default">
-                                                                {
-                                                                    POPULATE_FROM_OPTIONS.find(
-                                                                        (option) => option.value === staticCohortMode
-                                                                    )?.label
-                                                                }
-                                                            </strong>
-                                                        </span>
-                                                        <Tooltip
-                                                            title={
-                                                                staticCohortMode === 'criteria'
-                                                                    ? 'This cohort was snapshotted from criteria at creation time and will not update as people change. Create a new cohort to change how a static cohort is populated.'
-                                                                    : 'This cohort was populated by uploading a CSV or selecting people individually. Create a new cohort to change how a static cohort is populated.'
-                                                            }
-                                                        >
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {!isNewCohort && !cohort.is_static && (
+                                                <div className="flex items-center gap-x-2 my-0">
+                                                    <strong>Last calculated:</strong>
+                                                    {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
+                                                        <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
                                                             <IconInfo className="text-secondary text-base" />
                                                         </Tooltip>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                                    )}
+                                                    {isCalculatingOrPending ? (
+                                                        <div className="flex items-center gap-x-2">
+                                                            <Spinner size="small" />
+                                                            <span className="text-muted">In progress...</span>
+                                                        </div>
+                                                    ) : cohort.last_calculation ? (
+                                                        <TZLabel time={cohort.last_calculation} />
+                                                    ) : (
+                                                        <span className="text-muted">Not yet calculated</span>
+                                                    )}
+                                                </div>
+                                            )}
 
-                                        {!isNewCohort && (
-                                            <div className="flex flex-col gap-y-2">
-                                                {!cohort.is_static && (
-                                                    <div className="flex items-center gap-x-2 my-0">
-                                                        <strong>Last calculated:</strong>
-                                                        {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
-                                                            <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
-                                                                <IconInfo className="text-secondary text-base" />
-                                                            </Tooltip>
-                                                        )}
-                                                        {isCalculatingOrPending ? (
-                                                            <div className="flex items-center gap-x-2">
-                                                                <Spinner size="small" />
-                                                                <span className="text-muted">In progress...</span>
-                                                            </div>
-                                                        ) : cohort.last_calculation ? (
-                                                            <TZLabel time={cohort.last_calculation} />
-                                                        ) : (
-                                                            <span className="text-muted">Not yet calculated</span>
-                                                        )}
-                                                    </div>
-                                                )}
+                                            {!isNewCohort && !cohort.is_static && (
+                                                <CohortRealtimeStatus realtime={cohort.realtime} />
+                                            )}
 
-                                                {isCalculatingOrPending ? (
-                                                    <LemonBanner type="warning">
-                                                        {isPendingCalculation && !cohort.is_calculating
-                                                            ? cohort.last_calculation
-                                                                ? "We're queuing a recalculation. The table below shows results from the previous calculation."
-                                                                : "We're queuing the calculation. It should be ready in a few minutes."
-                                                            : cohort.last_calculation
-                                                              ? "We're recalculating the cohort. The table below shows results from the previous calculation."
-                                                              : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                    </LemonBanner>
-                                                ) : cohort.errors_calculating ? (
-                                                    <LemonBanner
-                                                        type="error"
-                                                        // A static cohort is populated once from the source it was created
-                                                        // with, and the edit form does not resend that source, so saving the
-                                                        // cohort again would not run the population.
-                                                        action={
-                                                            cohort.is_static
-                                                                ? undefined
-                                                                : {
-                                                                      onClick: () => submitCohort(),
-                                                                      children: 'Retry',
-                                                                  }
-                                                        }
-                                                    >
-                                                        <strong>Calculation failed:</strong>{' '}
-                                                        {cohort.last_error_message ||
-                                                            (cohort.is_static
-                                                                ? 'Unable to populate this cohort from its source.'
-                                                                : 'Unable to calculate this cohort. Please check your matching criteria and try again.')}{' '}
-                                                        {cohort.is_static
-                                                            ? 'If it keeps happening, '
-                                                            : 'If it fails again, '}
-                                                        <Link
-                                                            onClick={() =>
-                                                                openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
-                                                            }
-                                                        >
-                                                            contact support
-                                                        </Link>
-                                                        .
-                                                    </LemonBanner>
-                                                ) : null}
-                                            </div>
-                                        )}
-
-                                        {!isNewCohort && !cohort.is_static && (
-                                            <CohortRealtimeStatus realtime={cohort.realtime} />
-                                        )}
-
-                                        {!isNewCohort && usedIn && (
-                                            <UsedInSummary
-                                                usedIn={usedIn}
-                                                isExpanded={usedInExpanded}
-                                                setIsExpanded={setUsedInExpanded}
-                                            />
-                                        )}
+                                            {!isNewCohort && usedIn && (
+                                                <UsedInSummary
+                                                    usedIn={usedIn}
+                                                    isExpanded={usedInExpanded}
+                                                    setIsExpanded={setUsedInExpanded}
+                                                />
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            </SceneSection>
-                            {!isNewCohort && (
-                                <div aria-live="polite">
-                                    <UnmatchedImportBanner cohort={cohort} />
-                                </div>
+                                </SceneSection>
                             )}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>
@@ -699,7 +732,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </div>
                                     </SceneSection>
                                 </>
-                            ) : cohort.is_static ? (
+                            ) : cohort.is_static && !hasAddUsersMenu ? (
                                 <>
                                     <SceneDivider />
                                     <SceneSection
@@ -794,7 +827,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </>
                                     )}
                                 </>
-                            ) : (
+                            ) : cohort.is_static ? null : (
                                 <>
                                     <SceneDivider />
                                     {!isNewCohort && (
@@ -853,7 +886,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                             {typeof cohort.id === 'number' && (
                                 <>
-                                    <SceneDivider />
+                                    {hasSectionAbovePersons && <SceneDivider />}
                                     <SceneSection
                                         title={
                                             <>
