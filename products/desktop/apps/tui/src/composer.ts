@@ -84,6 +84,11 @@ export const SLASH_COMMANDS = [
   },
   { name: "billing", description: "Choose who pays for new chats" },
   { name: "new", description: "Start a new chat" },
+  {
+    name: "bug",
+    description:
+      "Report a bug: starts a local chat with your report and this chat's details",
+  },
   { name: "rename", description: "Rename this chat" },
   { name: "rename-workspace", description: "Rename this workspace" },
   { name: "pin", description: "Pin this chat above the workspaces" },

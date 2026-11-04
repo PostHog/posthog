@@ -1,7 +1,14 @@
 import type { Task } from "@posthog/shared";
-import { type Dispatch, type SetStateAction, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { track } from "../analytics";
 import { billingBlocker, cloudHarnessFor, localHarnessFor } from "../billing";
+import { bugMessage } from "../bug";
 import type { PiChats, StartPick } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -165,6 +172,14 @@ export function useSend({
       return next;
     });
 
+  // /bug's report waits here for its pane to show a new local chat, then goes out as that chat's first message.
+  const [bug, setBug] = useState<{ paneId: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!bug || findPane(layout, bug.paneId)?.taskId !== null) return;
+    setBug(null);
+    onSubmit(bug.paneId, bug.text);
+  });
+
   const onSubmit = (
     paneId: string,
     text: string,
@@ -205,6 +220,24 @@ export function useSend({
     }
     if (slash?.command === "new") {
       setLayout((state) => newChatIn(state, paneId));
+      return;
+    }
+    if (slash?.command === "bug") {
+      const report = slash.args.trim();
+      if (!report) {
+        flashNotice("Say what went wrong: /bug <what happened>", here);
+        return;
+      }
+      const chat = pane?.taskId
+        ? {
+            id: pane.taskId,
+            title: current?.title || pane.title,
+            local: isLocal(pane.taskId),
+          }
+        : null;
+      places.setPlace(paneId, "local");
+      setLayout((state) => newChatIn(state, paneId));
+      setBug({ paneId, text: bugMessage(report, chat) });
       return;
     }
     if (slash?.command === "search") {

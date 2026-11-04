@@ -1338,6 +1338,25 @@ describe("App", () => {
     }
   });
 
+  it("starts a local chat from /bug with the report and the chat it came from", async () => {
+    const createLocal = vi.fn(
+      async () => ({ id: "t7", title: "Bug", runtime: "pi" }) as Task,
+    );
+    const { press, drawnSince, close } = localApp({ createLocal });
+    try {
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      press("/bug the sidebar lost my chat");
+      press("\r");
+      await vi.waitFor(() => expect(createLocal).toHaveBeenCalled());
+      const [message] = createLocal.mock.calls[0] as unknown as [string];
+      expect(message).toContain("Bug report: the sidebar lost my chat");
+      expect(message).toContain("Task id: t5");
+      expect(message).toContain("Runs on this machine");
+    } finally {
+      close();
+    }
+  });
+
   it("keeps a sent message out of the next chat the pane shows", async () => {
     const { output, press, drawnSince, close } = localApp();
     try {
