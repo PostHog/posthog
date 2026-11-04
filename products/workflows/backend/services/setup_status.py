@@ -2,7 +2,7 @@
 
 from posthog.integrations import IntegrationManager
 from posthog.models import Team
-from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
+from posthog.models.integration import is_sandbox_email_sender
 
 from products.messaging.backend.facade.api import list_email_templates
 from products.messaging.backend.facade.categories import list_categories
@@ -38,7 +38,7 @@ def _has_own_email_sender(team: Team) -> bool:
     if not sandbox_sender_configured():
         return senders.exists(team.id)
     # The managed sandbox sender is not a channel the project set up.
-    return any((sender.config or {}).get("provider") != SANDBOX_EMAIL_PROVIDER for sender in senders.list(team.id))
+    return any(not is_sandbox_email_sender(sender.config) for sender in senders.list(team.id))
 
 
 def get_setup_steps(team: Team) -> tuple[SetupStep, ...]:
