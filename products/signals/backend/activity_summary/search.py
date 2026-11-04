@@ -27,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.prompt import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_RENDERING
 from products.signals.backend.activity_summary.read import (
     ActivitySummaryTheme,
@@ -156,6 +157,14 @@ def search_enabled(team: Team) -> bool:
         return False
 
 
+def searchable_config(team: Team) -> ActivitySummaryConfig | None:
+    """The read config when `team` can search summaries: the team is enrolled for reads and the search flag is on."""
+    config = readable_config(team)
+    if config is None or not search_enabled(team):
+        return None
+    return config
+
+
 def search_summaries(
     team: Team,
     *,
@@ -171,8 +180,8 @@ def search_summaries(
     Returns `None` when the team is not enrolled for reads or the search flag is off. Raises
     `SemanticSearchUnavailable` only for a semantic search, because a hybrid one keeps its keyword ranking.
     """
-    config = readable_config(team)
-    if config is None or not search_enabled(team):
+    config = searchable_config(team)
+    if config is None:
         return None
     limit = max(1, min(limit, MAX_LIMIT))
     members = {user.id: user for user in team.all_users_with_access().order_by("id")}
