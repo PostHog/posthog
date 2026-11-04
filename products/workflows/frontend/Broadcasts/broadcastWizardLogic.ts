@@ -2907,6 +2907,21 @@ export function getSenderLaunchError(
     return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
 }
 
+export function getPickerSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[] | null
+): number[] {
+    const senderIds = getSenderIds(from)
+    if (!integrations) {
+        return senderIds
+    }
+    if (getSandboxSenderIds(from, integrations).length > 0) {
+        return []
+    }
+    const missingSenderIds = getMissingSenderIds(from, integrations)
+    return senderIds.filter((id) => !missingSenderIds.includes(id))
+}
+
 export function getSandboxSenderIds(
     from: BroadcastEmailValue['from'] | undefined,
     integrations: IntegrationType[]
