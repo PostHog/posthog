@@ -135,6 +135,9 @@ export class HogFlowFunctionsService {
                       {
                           appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
                           instanceId: invocation.state.currentAction?.id,
+                          workflowId: invocation.hogFlow.id,
+                          invocationId: invocation.id,
+                          workflowVersion: invocation.hogFlow.version,
                       }
                   ),
                   timings: [],

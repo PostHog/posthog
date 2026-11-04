@@ -455,7 +455,10 @@ describe('Hog Inputs', () => {
 
         it.each([
             { name: 'a hog function', source: undefined },
-            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+            {
+                name: 'a workflow email step',
+                source: { appSourceId: 'flow-1', instanceId: 'action-1', workflowId: 'flow-1', invocationId: 'run-1' },
+            },
         ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {

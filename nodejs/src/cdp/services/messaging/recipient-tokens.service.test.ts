@@ -21,10 +21,26 @@ describe('RecipientTokensService', () => {
         { name: 'no source', source: undefined, claims: {} },
         {
             name: 'a workflow source',
-            source: { appSourceId: 'flow-1', instanceId: 'action-1' },
-            claims: { app_source_id: 'flow-1', instance_id: 'action-1' },
+            source: {
+                appSourceId: 'flow-1',
+                instanceId: 'action-1',
+                workflowId: 'flow-1',
+                invocationId: 'run-1',
+                workflowVersion: 3,
+            },
+            claims: {
+                app_source_id: 'flow-1',
+                instance_id: 'action-1',
+                workflow_id: 'flow-1',
+                invocation_id: 'run-1',
+                workflow_version: 3,
+            },
         },
-        { name: 'a source without an action', source: { appSourceId: 'run-1' }, claims: { app_source_id: 'run-1' } },
+        {
+            name: 'a source without an action or version',
+            source: { appSourceId: 'batch-run-1', workflowId: 'flow-1', invocationId: 'run-1' },
+            claims: { app_source_id: 'batch-run-1', workflow_id: 'flow-1', invocation_id: 'run-1' },
+        },
     ])('should validate a token minted with $name', ({ source, claims }) => {
         const token = service.generatePreferencesToken({ team_id: 1, identifier: 'test@test.com' }, source)
         const result = service.validatePreferencesToken(token)
