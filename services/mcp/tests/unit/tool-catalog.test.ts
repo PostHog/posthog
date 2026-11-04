@@ -46,7 +46,7 @@ const fakeDef = (overrides?: Record<string, unknown>): FakeDefinition => ({
 vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
-        'tool-b': () => makeToolBase('tool-b'),
+        'tool-b': () => makeToolBase('tool-b', { infoFieldDescriptions: { url: 'Run `schema tool-b url`.' } }),
         'update-feature-flag': () =>
             makeToolBase('update-feature-flag', {
                 schema: z.object({ source: z.literal('handwritten') }),
@@ -231,6 +231,11 @@ describe('ToolCatalog', () => {
             // Schema is from the TOOL_MAP mock (handwritten), not GENERATED_TOOL_MAP.
             expect(update!.schema.safeParse({ source: 'handwritten' }).success).toBe(true)
             expect(update!.schema.safeParse({ source: 'generated' }).success).toBe(false)
+        })
+
+        it('keeps the info field descriptions exec info shows instead of the full ones', () => {
+            const toolB = catalog.getFilteredTools({ scopes: [] }).find((t) => t.name === 'tool-b')
+            expect(toolB?.infoFieldDescriptions).toEqual({ url: 'Run `schema tool-b url`.' })
         })
 
         it('should exclude tools by name', () => {

@@ -1910,10 +1910,17 @@ class TestPosthogCodeKeepsBundledSkills(SimpleTestCase):
     @parameterized.expand(
         [
             ("acp_run_keeps_skills", "acp", {}, None, True),
-            ("environment_without_the_variable", "acp", {}, {"FOO": "1"}, True),
+            ("environment_without_the_variable", "acp", {}, MagicMock(environment_variables={"FOO": "1"}), True),
+            ("environment_with_no_variables", "acp", {}, MagicMock(environment_variables=None), True),
             ("pi_runtime", "pi", {}, None, False),
             ("caller_disables_skills", "acp", {"disable_skills": True}, None, False),
-            ("environment_disables_skills", "acp", {}, {"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"}, False),
+            (
+                "environment_disables_skills",
+                "acp",
+                {},
+                MagicMock(environment_variables={"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"}),
+                False,
+            ),
         ]
     )
     def test_matches_what_provisioning_strips(
@@ -1921,13 +1928,11 @@ class TestPosthogCodeKeepsBundledSkills(SimpleTestCase):
         _name: str,
         runtime: str,
         state: dict,
-        environment_variables: dict[str, str] | None,
+        sandbox_environment: MagicMock | None,
         expected: bool,
     ) -> None:
         task_run = MagicMock(state=state, task=MagicMock(runtime=runtime))
-        task_run.get_sandbox_environment.return_value = (
-            MagicMock(environment_variables=environment_variables) if environment_variables is not None else None
-        )
+        task_run.get_sandbox_environment.return_value = sandbox_environment
 
         assert posthog_code_keeps_bundled_skills(task_run) is expected
 

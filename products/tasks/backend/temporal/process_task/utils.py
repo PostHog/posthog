@@ -831,7 +831,7 @@ def posthog_code_keeps_bundled_skills(task_run: TaskRun) -> bool:
         return False
     sandbox_environment = task_run.get_sandbox_environment()
     applied_variables, _ = filter_user_sandbox_env_vars(
-        sandbox_environment.environment_variables if sandbox_environment else {}
+        (sandbox_environment.environment_variables if sandbox_environment else None) or {}
     )
     return not bundled_skills_disabled(applied_variables)
 

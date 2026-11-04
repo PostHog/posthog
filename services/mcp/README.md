@@ -314,7 +314,7 @@ Skill use is advisory: a product `call` is never rejected for skipping `learn`, 
 - Other cli clients with skill discovery enabled: `learn posthog:querying-posthog-data references/guidelines.md`.
 - `consumer=plugin`, and any client that sends `x-posthog-mcp-bundled-skills: true`: the bundled `querying-posthog-data` skill.
 
-PostHog Code sends that header only when its agent has the bundled skills: the desktop app always, and a Tasks sandbox unless the run strips them (`disable_skills`, or `POSTHOG_CODE_DISABLE_BUNDLED_SKILLS=1` in its sandbox environment).
+A PostHog Code Tasks sandbox sends that header unless the run strips the bundled skills (`disable_skills`, `POSTHOG_CODE_DISABLE_BUNDLED_SKILLS=1` in its sandbox environment, or the Pi runtime).
 Tools mode, `consumer=posthog-code` without the header, and cli clients without `learn` keep the full description, because they have no on-demand path the server can rely on.
 
 A tool can also give `info` a short description for a long input field through `infoFieldDescriptions`, and `schema <tool> <field>` still returns the full one.
