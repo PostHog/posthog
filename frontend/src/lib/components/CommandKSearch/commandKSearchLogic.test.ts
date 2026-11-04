@@ -20,7 +20,10 @@ describe('commandKSearchLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        logic.unmount()
+        jest.useRealTimers()
+    })
 
     test.each([
         ['typing', (): void => logic.actions.inputChanged('revenue', 7, false)],
@@ -101,6 +104,7 @@ describe('commandKSearchLogic', () => {
     })
 
     test.each(['control', 'test'])('finds and opens an endpoint with %s ranking', async (ranking) => {
+        jest.useFakeTimers()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: ranking })
         useMocks({
             get: {
