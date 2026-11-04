@@ -200,12 +200,12 @@ describe('sandbox setup in the channel catalog', () => {
     it.each([
         { who: 'a project member below admin', level: OrganizationMembershipLevel.Member, existing: [], expected: 1 },
         {
-            who: 'an admin whose project already has the sender',
+            who: 'a project that already has the sender, so its name follows the organization',
             level: OrganizationMembershipLevel.Admin,
             existing: [9],
-            expected: 0,
+            expected: 1,
         },
-    ])('sends $expected setup requests for $who', async ({ level, existing, expected }) => {
+    ])('sends $expected setup request on mount for $who', async ({ level, existing, expected }) => {
         let requests = 0
         const results = existing.map((id) => ({ id, kind: 'email', config: { provider: 'sandbox', verified: true } }))
         useMocks({
