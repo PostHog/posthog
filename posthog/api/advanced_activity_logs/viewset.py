@@ -804,7 +804,7 @@ class OrganizationActivityLogPermission(BasePermission):
         except OrganizationMembership.DoesNotExist:
             return False
 
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return membership.effective_level >= OrganizationMembership.Level.ADMIN
 
 
 @extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})

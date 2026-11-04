@@ -402,7 +402,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if self.instance:
             try:
                 membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
-                if membership.level < OrganizationMembership.Level.ADMIN:
+                if membership.effective_level < OrganizationMembership.Level.ADMIN:
                     raise exceptions.PermissionDenied(
                         "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
                     )

@@ -28,6 +28,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
 if TYPE_CHECKING:
+    from django_stubs_ext import WithAnnotations
+
     from posthog.models import Team, User
 
     from ee.billing.quota_limiting import QuotaResource
@@ -796,7 +798,14 @@ class OrganizationAITerms(Organization):
         verbose_name_plural = "AI terms and conditions"
 
 
+class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
+    def with_effective_level(self) -> "QuerySet[WithAnnotations[OrganizationMembership]]":
+        return self.annotate(resolved_level=models.F("level"))
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
+    objects = OrganizationMembershipQuerySet.as_manager()
+
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -849,6 +858,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    @property
+    def effective_level(self) -> Level:
+        return self.Level(self.level)
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
@@ -863,16 +876,16 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
                         "You can only make another member owner if you're this organization's owner."
                     )
                 self.save()
-            elif new_level > self.level:
+            elif new_level > self.effective_level:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
         if membership_being_updated.id != self.id:
             if membership_being_updated.organization_id != self.organization_id:
                 raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
+            if self.effective_level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-            if membership_being_updated.level > self.level:
+            if membership_being_updated.effective_level > self.effective_level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     def get_scoped_api_keys(self):

@@ -135,9 +135,10 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
 def data_suggestions_acting_user(team: Team) -> User | None:
     """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
     membership = (
-        OrganizationMembership.objects.filter(
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
             organization_id=team.organization_id,
-            level__gte=OrganizationMembership.Level.ADMIN,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
             user__is_active=True,
         )
         .select_related("user")

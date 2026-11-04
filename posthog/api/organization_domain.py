@@ -229,7 +229,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         membership = OrganizationMembership.objects.filter(
             user=cast("User", request.user), organization=self.organization
         ).first()
-        if not membership or membership.level < OrganizationMembership.Level.ADMIN:
+        if not membership or membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         domain: OrganizationDomain = self.get_object()

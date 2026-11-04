@@ -302,9 +302,10 @@ def drop_preview(template: MetricsDashboardTemplate) -> None:
 def acting_user(team: Team) -> User | None:
     """The user that a background job acts as, to build and render a preview: the longest-standing admin of the organization."""
     membership = (
-        OrganizationMembership.objects.filter(
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
             organization_id=team.organization_id,
-            level__gte=OrganizationMembership.Level.ADMIN,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
             user__is_active=True,
         )
         .select_related("user")

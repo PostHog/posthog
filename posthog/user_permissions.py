@@ -164,9 +164,9 @@ class UserTeamPermissions:
         # Admin/non-ACL bypasses happen here too so the caller skips the prefetch properties
         # that would otherwise query for data a short-circuited answer does not need.
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            return UserTeamPermissions._capped_at_admin(organization_membership.level)
-        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+            return UserTeamPermissions._capped_at_admin(organization_membership.effective_level)
+        if organization_membership.effective_level >= OrganizationMembership.Level.ADMIN:
+            return UserTeamPermissions._capped_at_admin(organization_membership.effective_level)
 
         role_ids = self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set())
         return self.resolve_membership_level(
@@ -198,11 +198,11 @@ class UserTeamPermissions:
         the subject's roles rather than running N of each.
         """
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+            return UserTeamPermissions._capped_at_admin(organization_membership.effective_level)
 
         # Admins and owners always have access, so skip the facade construction entirely.
-        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+        if organization_membership.effective_level >= OrganizationMembership.Level.ADMIN:
+            return UserTeamPermissions._capped_at_admin(organization_membership.effective_level)
 
         from products.access_control.backend.facade.subject_access_control import (  # noqa: PLC0415 - circular at module import
             SubjectAccessControl,

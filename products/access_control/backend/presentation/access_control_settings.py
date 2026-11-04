@@ -476,7 +476,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "last_name": user.last_name,
                         "email": user.email,
                     },
-                    "organization_level": member.level,
+                    "organization_level": member.effective_level,
                     "role_ids": role_ids,
                     "project": _project_entry(subject, team),
                     "resources": {

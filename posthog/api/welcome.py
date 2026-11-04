@@ -391,7 +391,7 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
                 "name": display_name,
                 "email": member_user.email,
                 "avatar": None,
-                "role": OrganizationMembership.Level(membership.level).label,
+                "role": OrganizationMembership.Level(membership.effective_level).label,
                 "last_active": last_active,
             }
         )

@@ -776,7 +776,7 @@ def _compute_system_table_access_decision(
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST

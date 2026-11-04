@@ -543,24 +543,16 @@ class BillingManager:
 
         distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
 
+        admin_memberships = organization.memberships.with_effective_level().filter(
+            resolved_level__gte=OrganizationMembership.Level.ADMIN
+        )
         admin_emails = [
-            email
-            for email in organization.members.filter(
-                organization_membership__level__gte=OrganizationMembership.Level.ADMIN
-            ).values_list("email", flat=True)
-            if _is_valid_email(email)
+            email for email in admin_memberships.values_list("user__email", flat=True) if _is_valid_email(email)
         ]
-
         org_users = list(
-            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
-            .order_by("email")  # Deterministic order for tests
-            .annotate(role=F("organization_membership__level"))
-            .filter(role__gte=OrganizationMembership.Level.ADMIN)
-            .values(
-                "email",
-                "distinct_id",
-                "role",
-            )
+            admin_memberships.exclude(Q(user__distinct_id__isnull=True) | Q(user__distinct_id=""))
+            .order_by("user__email")  # Deterministic order for tests
+            .values(email=F("user__email"), distinct_id=F("user__distinct_id"), role=F("resolved_level"))
         )
 
         return self.update_billing(

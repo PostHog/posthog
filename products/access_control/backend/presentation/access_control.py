@@ -537,7 +537,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "access_level": access_level,
                     "access_source": access_source.value,
                     "organization_membership_id": membership.id,
-                    "organization_membership_level": OrganizationMembership.Level(membership.level).name.lower(),
+                    "organization_membership_level": OrganizationMembership.Level(
+                        membership.effective_level
+                    ).name.lower(),
                 }
             )
 

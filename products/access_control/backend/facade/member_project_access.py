@@ -55,7 +55,7 @@ def _visible_memberships(
     if member_id is not None:
         memberships = memberships.filter(id=member_id)
     # The same roster the members list shows: a restricted member sees only their project peers
-    if not organization.members_can_see_org_members and requester.level < OrganizationMembership.Level.ADMIN:
+    if not organization.members_can_see_org_members and requester.effective_level < OrganizationMembership.Level.ADMIN:
         visible_ids = get_project_scoped_visible_membership_ids(organization, requester)
         if visible_ids is not None:
             memberships = memberships.filter(id__in=visible_ids)

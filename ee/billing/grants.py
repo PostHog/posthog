@@ -240,13 +240,13 @@ def effective_billing_grants(
     membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
     if membership is None:
         return EffectiveBillingGrants(sub=sub, distinct_id=distinct_id)
-    roles = [_role_name(membership.level)]
+    roles = [_role_name(membership.effective_level)]
     if not _credential_may_act_for(authenticator, organization):
         return EffectiveBillingGrants(sub=sub, roles=roles, distinct_id=distinct_id)
     scope = _billing_scope_from_credential(get_authenticator_scopes(authenticator))
     if BILLING_READ_SCOPE not in scope:
         return EffectiveBillingGrants(sub=sub, roles=roles, distinct_id=distinct_id)
-    entitlement = _entitlement_for_role(user, organization, membership.level)
+    entitlement = _entitlement_for_role(user, organization, membership.effective_level)
     projects, anything = _projects_for_credential(organization, authenticator)
     if not anything:
         return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope, distinct_id=distinct_id)

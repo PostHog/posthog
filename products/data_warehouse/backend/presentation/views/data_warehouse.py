@@ -289,7 +289,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         membership = OrganizationMembership.objects.filter(
             organization_id=self.team.organization_id, user=request.user
         ).first()
-        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+        if membership is None or membership.effective_level < OrganizationMembership.Level.ADMIN:
             return Response(
                 {"error": f"Only organization admins can {action} the managed warehouse"},
                 status=status.HTTP_403_FORBIDDEN,

@@ -661,7 +661,7 @@ class UserAccessControl:
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
-        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+        return bool(org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN)
 
     def _is_creator(self, obj: Model) -> bool:
         # Compare ids so callers do not need created_by hydrated on the object.
@@ -912,7 +912,7 @@ class UserAccessControl:
 
         if resource == "organization":
             # Organization access is controlled via membership level only
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            if org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
                 return "admin"
             return "member"
 
@@ -1674,7 +1674,7 @@ class UserAccessControl:
         if resource == "organization":
             # Organization access is controlled via membership level only
             membership_level: AccessControlLevel = (
-                "admin" if org_membership.level >= OrganizationMembership.Level.ADMIN else "member"
+                "admin" if org_membership.effective_level >= OrganizationMembership.Level.ADMIN else "member"
             )
             return True, ResolvedAccess(
                 access_level=membership_level,

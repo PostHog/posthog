@@ -1240,8 +1240,10 @@ class Team(UUIDTClassicModel):
             else:
                 # Default "none" denies every member; only org admins and owners pass the
                 # subject's admin bypass.
-                member_user_ids = member_queryset.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
-                    "user_id", flat=True
+                member_user_ids = (
+                    member_queryset.with_effective_level()
+                    .filter(resolved_level__gte=OrganizationMembership.Level.ADMIN)
+                    .values_list("user_id", flat=True)
                 )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 

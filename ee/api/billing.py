@@ -209,7 +209,7 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if membership.level >= OrganizationMembership.Level.OWNER:
         return True
 
-    if membership.level < OrganizationMembership.Level.ADMIN:
+    if membership.effective_level < OrganizationMembership.Level.ADMIN:
         return False
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
@@ -257,10 +257,10 @@ def user_has_billing_usage_spend_read_access(user: User, organization: Organizat
     if _owner_only_billing_enabled(user, organization) is not False:
         return False
 
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return True
 
-    if membership.level < OrganizationMembership.Level.MEMBER:
+    if membership.effective_level < OrganizationMembership.Level.MEMBER:
         return False
 
     return _member_billing_usage_spend_read_access_enabled(user, organization)

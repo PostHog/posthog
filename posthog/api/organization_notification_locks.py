@@ -147,7 +147,7 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                         f"User {change['user_id']} is not a member of this organization",
                         code="invalid_input",
                     )
-                if membership.level > actor_level:
+                if membership.effective_level > actor_level:
                     raise PermissionDenied(
                         f"Your organization access level is insufficient to change settings for {membership.user.email}"
                     )
@@ -222,7 +222,7 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
         membership = OrganizationMembership.objects.filter(
             user=cast(User, self.request.user), organization_id=self.organization.id
         ).first()
-        return membership.level if membership else OrganizationMembership.Level.MEMBER
+        return membership.effective_level if membership else OrganizationMembership.Level.MEMBER
 
     def _represent_members(self) -> _Members:
         actor_level = self._actor_level()
@@ -241,8 +241,8 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                     "first_name": membership.user.first_name,
                     "last_name": membership.user.last_name,
                     "email": membership.user.email,
-                    "organization_membership_level": membership.level,
-                    "editable": membership.level <= actor_level,
+                    "organization_membership_level": membership.effective_level,
+                    "editable": membership.effective_level <= actor_level,
                     "locks": [_represent_lock(lock) for lock in own],
                 }
             )

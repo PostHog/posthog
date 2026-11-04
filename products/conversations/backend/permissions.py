@@ -35,4 +35,4 @@ class IsConversationsAdmin(BasePermission):
             )
         except OrganizationMembership.DoesNotExist:
             return False
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return membership.effective_level >= OrganizationMembership.Level.ADMIN

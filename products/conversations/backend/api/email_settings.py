@@ -153,11 +153,15 @@ def _get_config_for_team(config_id: uuid.UUID, team: Team) -> EmailChannel | Non
 
 
 def _is_organization_admin(user: User, team: Team) -> bool:
-    return OrganizationMembership.objects.filter(
-        organization_id=team.organization_id,
-        user=user,
-        level__gte=OrganizationMembership.Level.ADMIN,
-    ).exists()
+    return (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
+            organization_id=team.organization_id,
+            user=user,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+        )
+        .exists()
+    )
 
 
 def _resolve_config(request: Request, config_id: uuid.UUID) -> ResolvedEmailConfig | Response:

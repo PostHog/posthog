@@ -290,7 +290,7 @@ def get_members_to_notify_for_pipeline_error(
 def get_project_api_key_admins_to_notify(team: Team) -> list[OrganizationMembership]:
     memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
     # Filter to admins since they can manage keys
-    return [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
+    return [m for m in memberships_to_email if m.effective_level >= OrganizationMembership.Level.ADMIN]
 
 
 _DIGEST_PROJECT_SETTING_KEYS: dict[str, str] = {
@@ -3069,7 +3069,8 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     # Org admins/owners always have access to every project, so the org-level filter is the access check.
     memberships = (
         OrganizationMembership.objects.select_related("user")
-        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .with_effective_level()
+        .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
         .exclude(user_id=requesting_user_id)
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
@@ -3133,7 +3134,8 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
     # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
     memberships = (
         OrganizationMembership.objects.select_related("user")
-        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .with_effective_level()
+        .filter(organization_id=organization.id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
         .exclude(user_id=requesting_user_id)
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
@@ -3190,10 +3192,14 @@ def send_workload_trust_policy_changed(
         context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
     )
 
-    memberships = OrganizationMembership.objects.select_related("user").filter(
-        organization_id=team.organization_id,
-        level__gte=OrganizationMembership.Level.ADMIN,
-        user__is_active=True,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(
+            organization_id=team.organization_id,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:

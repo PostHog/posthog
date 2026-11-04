@@ -1626,13 +1626,17 @@ class ProjectViewSet(
             membership = OrganizationMembership.objects.filter(
                 user=user, organization_id=project.organization_id
             ).first()
-            if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+            if membership is None or membership.effective_level >= OrganizationMembership.Level.ADMIN:
                 return
 
-            admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=project.organization_id,
-                level__gte=OrganizationMembership.Level.ADMIN,
-            ).values_list("user_id", flat=True)
+            admin_user_ids = (
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
+                    organization_id=project.organization_id,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
+                )
+                .values_list("user_id", flat=True)
+            )
 
             creator = user.first_name or user.email
             for admin_user_id in admin_user_ids:
@@ -2273,8 +2277,8 @@ class ProjectViewSet(
                 )
 
                 if (
-                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+                    current_organization_membership.effective_level < OrganizationMembership.Level.ADMIN
+                    or target_organization_membership.effective_level < OrganizationMembership.Level.ADMIN
                 ):
                     raise exceptions.ValidationError(
                         "You must be an admin of both the source and target organizations to move a project."

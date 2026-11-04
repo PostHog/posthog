@@ -101,7 +101,7 @@ class DiagnoseProxyTool(MaxTool):
             organization_id=self._team.organization_id,
             user=self._user,
         ).first()
-        return membership is not None and membership.level >= OrganizationMembership.Level.ADMIN
+        return membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
 
     def _get_record(self, proxy_record_id: str) -> ProxyRecord:
         return ProxyRecord.objects.get(id=proxy_record_id, organization_id=self._team.organization_id)

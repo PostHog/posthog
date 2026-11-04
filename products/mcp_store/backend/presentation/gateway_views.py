@@ -1750,7 +1750,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             rows.append(
                 {
                     "user": UserBasicSerializer(membership.user).data,
-                    "is_org_admin": membership.level >= OrganizationMembership.Level.ADMIN,
+                    "is_org_admin": membership.effective_level >= OrganizationMembership.Level.ADMIN,
                     "connected_server_ids": connected.get(membership.user_id, []),
                     "revoked_server_ids": revoked.get(membership.user_id, []),
                 }
