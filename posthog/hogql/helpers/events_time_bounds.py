@@ -48,7 +48,7 @@ def reads_events_without_lower_bound(
     resolved_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
 ) -> bool:
     scan = _SelectScan()
-    scan.visit(resolved_query)
+    scan.scan(resolved_query)
     reads: set[int] = set()
     restricted: set[int] = set()
     for select in scan.selects:
@@ -69,7 +69,14 @@ class _SelectScan(TraversingVisitor):
         self.scalar_ctes: dict[str, list[ast.Expr]] = {}
         self.pushdown_blocked: set[int] = set()
         self._referenced_ctes: set[int] = set()
+        self._unread_ctes: dict[int, ast.Expr] = {}
         self._enclosing_selects: list[ast.SelectQuery] = []
+
+    def scan(self, query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+        self.visit(query)
+        while pending := self._referenced_ctes & self._unread_ctes.keys():
+            for cte_key in pending:
+                self.visit(self._unread_ctes.pop(cte_key))
 
     def visit(self, node: ast.AST | None) -> None:
         if not isinstance(node, ast.Type):
@@ -109,7 +116,9 @@ class _SelectScan(TraversingVisitor):
     def visit_cte(self, node: ast.CTE) -> None:
         if node.cte_type == "column":
             self.scalar_ctes.setdefault(node.name, []).append(node.expr)
-        super().visit_cte(node)
+            super().visit_cte(node)
+        else:
+            self._unread_ctes[id(node.expr.type)] = node.expr
 
 
 def _is_events_table(table_type: Optional[ast.Type]) -> bool:
@@ -210,9 +219,14 @@ class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
             self.events_table_types.append(field_type.table_type)
             return True
         columns = _subquery_columns(field_type.table_type, self.scan.pushdown_blocked).get(field_type.name, [])
-        # Evaluate every column before `any`, so that each union branch records its events table.
-        derived = [self._derives_from_events_timestamp(column) for column in columns]
-        return any(derived)
+        derived = False
+        for column in columns:
+            recorded = len(self.events_table_types)
+            if self._derives_from_events_timestamp(column):
+                derived = True
+            else:
+                del self.events_table_types[recorded:]
+        return derived
 
 
 def _timestamp_tables(expr: ast.Expr, context: HogQLContext, scan: _SelectScan) -> set[int]:

@@ -169,6 +169,35 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 True,
             ),
             ("unbounded_cte", "with e as (select event from events) select count() from e", True),
+            ("unused_cte", "with unused as (select timestamp from events) select 1", False),
+            (
+                "cte_used_only_by_an_unused_cte",
+                "with a as (select event from events), b as (select * from a) select 1",
+                False,
+            ),
+            (
+                "cte_used_through_another_cte",
+                "with a as (select event from events), b as (select * from a) select count() from b",
+                True,
+            ),
+            (
+                "cte_used_only_in_a_subquery_of_in",
+                f"with e as (select uuid from events) select count() from events "
+                f"where timestamp > {RECENT} and uuid in (select uuid from e)",
+                True,
+            ),
+            (
+                "outer_bound_on_union_with_a_row_dependent_later_branch",
+                f"select count() from (select timestamp as t from events union all "
+                f"select timestamp + toIntervalDay(length(event)) as t from events) where t > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_on_union_with_a_row_dependent_first_branch",
+                f"select count() from (select timestamp + toIntervalDay(length(event)) as t from events union all "
+                f"select timestamp as t from events) where t > {RECENT}",
+                True,
+            ),
             (
                 "outer_filter_on_other_column",
                 "select count() from (select event from events) where event = 'a'",
