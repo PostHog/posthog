@@ -36,9 +36,11 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
@@ -47,7 +49,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_investigation import claim_requested_investigations
-from products.alerts.backend.platform_investigation_detail import requested_investigation
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     CHART_RENDER_INFLIGHT_KEY,
@@ -722,7 +724,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
-            ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator")),
             ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
@@ -740,6 +742,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
+
+    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+        outcome, _ = self._evaluate(
+            self._copy(self._alert(detector_config={"type": "llm"})),
+            result=LLMDetectorPausedError("consent withdrawn"),
+            uses_llm_detector=True,
+        )
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "consent withdrawn",
+            False,
+        )
+        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
@@ -958,6 +975,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert requested_investigation(outcome) is None
         assert (outcome.groups[0].kind, outcome.groups[0].muted_notification) == (AlertEventKind.CHECK, "fire")
+        assert outcome.groups[0].source_detail.get(SUPPRESSED_BY_AGENT_KEY) is True
         assert self.deliveries == ()
 
     @parameterized.expand(
