@@ -239,4 +239,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "creator_user_id": "ID of the creator user.",
         },
     },
+    "group_users": {
+        "description": "A membership row linking a user to a group in your SafetyCulture organization.",
+        "docs_url": "https://developer.safetyculture.com/reference/thepubservice_feedgroupusers",
+        "columns": {
+            "user_id": "ID of the user.",
+            "group_id": "ID of the group.",
+            "organisation_id": "ID of the organisation.",
+        },
+    },
+    "site_members": {
+        "description": "A membership row linking a member to a site in your SafetyCulture organization.",
+        "docs_url": "https://developer.safetyculture.com/reference/thepubservice_feedsitemembers",
+        "columns": {
+            "site_id": "ID of the site.",
+            "member_id": "ID of the member.",
+        },
+    },
+    "action_assignees": {
+        "description": "An assignee of an action, one row per action and assignee.",
+        "docs_url": "https://developer.safetyculture.com/reference/thepubservice_feedactionassignees",
+        "columns": {
+            "id": "Unique action assignee ID.",
+            "action_id": "ID of the action.",
+            "assignee_id": "ID of the assignee.",
+            "name": "Name of the assignee.",
+            "organisation_id": "Organisation that owns this action.",
+            "type": "Type of assignee.",
+        },
+    },
+    "issue_assignees": {
+        "description": "An assignee of an issue, one row per issue and assignee.",
+        "docs_url": "https://developer.safetyculture.com/reference/thepubservice_feedissueassignees",
+        "columns": {
+            "id": "Unique issue assignee ID.",
+            "issue_id": "ID of the issue.",
+            "assignee_id": "ID of the assignee.",
+            "name": "Name of the assignee.",
+            "organisation_id": "Organisation that owns this issue.",
+            "modified_at": "The date this assignee was modified.",
+            "type": "Type of assignee.",
+        },
+    },
 }
