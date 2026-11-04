@@ -90,7 +90,6 @@ function isSchemaObject(value: unknown): value is JsonSchema {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Apply `visit` to every direct subschema, leaving data keywords such as `default` and `enum` untouched. */
 function mapSubschemas(schema: JsonSchema, visit: (subschema: JsonSchema) => JsonSchema): JsonSchema {
     const result: JsonSchema = {}
     for (const [keyword, value] of Object.entries(schema)) {
@@ -114,16 +113,9 @@ function stripDescriptions(schema: JsonSchema): JsonSchema {
     return mapSubschemas(typeof description === 'string' ? rest : schema, stripDescriptions)
 }
 
-// Below this size a repeated subschema is a short leaf, such as a described string field, and its
-// description is cheap and still useful where it appears.
 const MIN_DEDUPED_SUBSCHEMA_CHARS = 200
 
-/**
- * Keep the descriptions of a repeated subschema on its first occurrence only. Inlined query schemas repeat
- * the same property filter union in every series and filter slot, so most of their size is copies of the
- * same descriptions. `description` is an annotation, so the result accepts exactly the same inputs. Zod
- * emits identical key order for identical subschemas, so plain `JSON.stringify` identifies the copies.
- */
+// `description` is an annotation, so dropping it from repeated copies keeps validation identical.
 export function dedupeRepeatedDescriptions(schema: JsonSchema): JsonSchema {
     const seen = new Set<string>()
     const visit = (node: JsonSchema): JsonSchema => {

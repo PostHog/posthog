@@ -173,11 +173,9 @@ describe('Tool schema snapshots', () => {
         const OVERSIZED_SCHEMA_COUNT = 39
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
-        // About 10k tokens at 4 chars per token. One schema this large costs a tools-mode client as much
-        // context as many ordinary tools together, so a new tool must stay under it.
+        // About 10k tokens, the cost of many ordinary tools together.
         const TOOL_SCHEMA_CHAR_BUDGET = 40_000
-        // Ratchet: the tools already over TOOL_SCHEMA_CHAR_BUDGET, each capped at its size rounded up to the
-        // next 1,000 chars. Lower a ceiling when its schema shrinks, and never add a tool to this list.
+        // Ratchet: existing offenders at their size rounded up to 1,000 chars. Never add a tool here.
         const OVERSIZED_TOOL_SCHEMA_CEILINGS: Record<string, number> = {
             'experiment-update': 99_000,
             'project-settings-update': 75_000,
@@ -189,9 +187,7 @@ describe('Tool schema snapshots', () => {
             'query-retention-actors': 47_000,
             'query-retention': 46_000,
         }
-        // The sum of every advertised schema, which a tools-mode client receives on each session. It sits about
-        // 1% over the measured total, so small help_text edits pass and a batch of new tools fails until a
-        // reviewer raises it.
+        // About 1% over the measured total, so help_text edits pass and new tools need a reviewed raise.
         const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_920_000
 
         interface DescriptionCoverage {
