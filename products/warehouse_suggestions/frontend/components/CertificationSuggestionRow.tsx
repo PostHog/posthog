@@ -7,7 +7,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
-import { CATALOG_EDIT_ACCESS_REASON, canEditDataCatalog, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
 import { SuggestionSubjectLink } from './SuggestionSubjectLink'
@@ -31,8 +31,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     const deprecating = isDeprecatePayload(payload)
     const refreshes = deprecating && payload.materialized !== false
     const confirmsFirst = deprecating && !isTable
-    const acceptBlockedReason =
-        blockedReason ?? (confirmsFirst || canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON)
+    const acceptBlockedReason = blockedReason ?? (confirmsFirst ? undefined : catalogEditBlockedReason())
 
     return (
         <SuggestionRow

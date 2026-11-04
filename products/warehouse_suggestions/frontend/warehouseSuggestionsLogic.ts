@@ -72,10 +72,14 @@ export interface WarehouseSuggestionsLogicProps {
 }
 
 export const ROW_LEAVE_MS = 150
-export const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
+const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
-export function canEditDataCatalog(): boolean {
+function canEditDataCatalog(): boolean {
     return userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
+}
+
+export function catalogEditBlockedReason(): string | undefined {
+    return canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON
 }
 
 const KIND_ORDER: Record<string, number> = {

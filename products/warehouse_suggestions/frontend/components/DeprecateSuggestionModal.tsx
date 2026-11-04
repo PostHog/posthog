@@ -5,7 +5,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
-import { CATALOG_EDIT_ACCESS_REASON, canEditDataCatalog, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
 type RefreshChoice = 'stop' | 'keep'
 type ActionChoice = 'deprecate' | 'delete'
@@ -56,11 +56,11 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
     const windowDays = status?.window_days ?? 0
     const noReads = noReadsLabel(windowDays)
     const blockedReasons: Record<ActionChoice, string | undefined> = {
-        deprecate: canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON,
+        deprecate: catalogEditBlockedReason(),
         delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
     }
     const actionChoices = ACTION_CHOICES.map((choice) => ({ ...choice, disabledReason: blockedReasons[choice.value] }))
-    const chosenBlockedReason = blockedReasons[deleteView ? 'delete' : 'deprecate']
+    const chosen: ActionChoice = deleteView ? 'delete' : 'deprecate'
 
     return (
         <LemonModal
@@ -81,7 +81,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         type="primary"
                         status={deleteView ? 'danger' : undefined}
                         loading={inFlight}
-                        disabledReason={chosenBlockedReason}
+                        disabledReason={blockedReasons[chosen]}
                         onClick={() => confirmAccept()}
                         data-attr={
                             deleteView
@@ -102,7 +102,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                     <h4 className="m-0 text-sm font-semibold">What to do</h4>
                     <LemonRadio
                         aria-label="What to do"
-                        value={deleteView ? 'delete' : 'deprecate'}
+                        value={chosen}
                         onChange={(choice) => setDeleteView(choice === 'delete')}
                         options={actionChoices}
                         radioPosition="top"
