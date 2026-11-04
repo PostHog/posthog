@@ -6,6 +6,8 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 
 import structlog
@@ -61,6 +63,7 @@ from products.messaging.backend.facade.templates import (
 from products.messaging.backend.facade.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
+    SENDER_ADDRESS_PATTERN,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -86,7 +89,6 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CodeSendFieldRefused,
     code_send_refusal,
     field_not_accepted_refusal,
-    is_bare_address,
     template_send_refusal,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
@@ -572,7 +574,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             _name, address = parseaddr(value)
         except RecursionError:
             address = ""
-        if not is_bare_address(address):
+        if not _is_sender_address(address):
             raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
         return value
 
@@ -608,6 +610,16 @@ def _within_body_limit(value: str, body: str) -> str:
             f"{body} can be at most 5 MiB as UTF-8. Link to large images and files instead of embedding them."
         )
     return value
+
+
+def _is_sender_address(address: str) -> bool:
+    if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
+        return False
+    try:
+        validate_email(address)
+    except DjangoValidationError:
+        return False
+    return True
 
 
 class MakeTransactionalSerializer(serializers.Serializer):

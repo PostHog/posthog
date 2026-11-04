@@ -12,11 +12,7 @@ from rest_framework.settings import api_settings
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.transactional_email import (
-    PIPELINE_ADDRESS_PATTERN,
-    SENDER_ADDRESS_MAX_LENGTH,
-    SENDER_ADDRESS_PATTERN,
-)
+from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRESS_PATTERN
 
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
@@ -38,12 +34,6 @@ CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
 CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments")
-
-
-def is_bare_address(address: str) -> bool:
-    if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
-        return False
-    return _passes_validate_email(address)
 
 
 def _passes_validate_email(address: str) -> bool:
