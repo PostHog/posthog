@@ -13,6 +13,7 @@ import { markPaintDone, markPaintPending } from '../../core/paint-state'
 import { monotonicNow } from '../../core/time'
 import type { ChartDimensions, ChartMargins, ChartScales, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { Tooltip } from '../../overlays/Tooltip'
 import { cellRect, drawFlame, drawFlameHover, LabelFitter } from './draw-flame'
 import { computeFlameColors, FlameShades, resolveColorBy, resolveInk } from './flame-colors'
@@ -38,7 +39,6 @@ import {
 } from './flame-layout'
 import { FlameGraphHeader, type FlameCrumb } from './FlameGraphHeader'
 import { FlameLegend } from './FlameLegend'
-import { FlameTooltip } from './FlameTooltip'
 import type { FlameBundleDatum, FlameGraphProps, FlameHit, FlameNodeDatum, FlameTooltipContext } from './types'
 
 const DEFAULT_ROW_HEIGHT = 22
@@ -179,7 +179,6 @@ function FlameGraphInner<Meta = unknown>({
     const isBreakdown = preset === 'breakdown'
     const labelFont = config?.labelFont ?? (isBreakdown ? 'sans' : 'monospace')
     const sort = config?.sort ?? (isBreakdown ? 'value' : 'input')
-    const showSelf = tooltipConfig?.showSelf ?? !isBreakdown
     const rowHeight = Math.max(8, requestedRowHeight)
     const showTooltip = tooltipConfig?.enabled !== false
     const threshold = Math.max(0, diffConfig?.threshold ?? DEFAULT_THRESHOLD)
@@ -537,19 +536,35 @@ function FlameGraphInner<Meta = unknown>({
         if (!hover || !hit) {
             return null
         }
-        const label = hit.kind === 'node' ? hit.node.name : `${hit.bundle.count} smaller nodes`
+        const label =
+            hit.kind === 'node'
+                ? hit.node.name
+                : hit.bundle.parent
+                  ? `${hit.bundle.count} smaller nodes in ${hit.bundle.parent.name}`
+                  : `${hit.bundle.count} smaller roots`
         const value = hit.kind === 'node' ? hit.node.value : hit.bundle.value
         const fill = hover.cell.kind === 'bundle' ? ink.neutral : colors.fills[hover.cell.index]
+        const rowLabel = (hit.kind === 'node' && hit.node.group) || 'Value'
+        const baseline = hit.kind === 'node' && colorBy === 'diff' ? hit.node.baselineValue : undefined
         const isFocused = focus?.kind === 'node' && hover.cell.kind === 'node' && focus.index === hover.cell.index
         return {
             dataIndex: hover.cell.index,
             label,
             seriesData: [
                 {
-                    series: { key: hit.kind === 'node' ? hit.node.id : 'bundle', label, data: [value] },
+                    series: { key: hit.kind === 'node' ? hit.node.id : 'bundle', label: rowLabel, data: [value] },
                     value,
                     color: fill,
                 },
+                ...(baseline === undefined
+                    ? []
+                    : [
+                          {
+                              series: { key: 'baseline', label: 'Baseline', data: [baseline] },
+                              value: baseline,
+                              color: ink.neutral,
+                          },
+                      ]),
             ],
             position: { x: hover.x, y: hover.y },
             hoverPosition: { x: hover.x, y: hover.y },
@@ -559,16 +574,20 @@ function FlameGraphInner<Meta = unknown>({
             valueFormatter,
             comparing: colorBy === 'diff',
             canFocus: hover.cell.kind === 'bundle' || (clickToFocus && !isFocused),
-            totalValue: tree.totalValue,
-            showSelf,
         }
-    }, [hover, hit, ink, colors, focus, tree, valueFormatter, colorBy, clickToFocus, showSelf])
+    }, [hover, hit, ink, colors, focus, valueFormatter, colorBy, clickToFocus])
 
     const renderTooltip = useMemo(
         () =>
             tooltip ??
-            ((context: FlameTooltipContext<Meta>): React.ReactNode => <FlameTooltip ctx={context} ink={ink} />),
-        [tooltip, ink]
+            ((context: FlameTooltipContext<Meta>): React.ReactNode => (
+                <DefaultTooltip
+                    {...context}
+                    valueFormatter={context.valueFormatter}
+                    footer={context.canFocus ? 'Click to zoom in' : undefined}
+                />
+            )),
+        [tooltip]
     )
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(

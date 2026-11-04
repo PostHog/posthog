@@ -48,21 +48,21 @@ describe('FlameGraph', () => {
         absent: string[]
     }>([
         {
-            label: 'total, self and shares',
+            label: 'the value',
             data: TREE,
             point: [200, rowY(1)],
-            expected: ['a', 'Total60 (60%)', 'Self30', 'Of parent60%', 'Click to zoom in'],
-            absent: ['Of total'],
+            expected: ['a', 'Value60', 'Click to zoom in'],
+            absent: ['Baseline'],
         },
         {
             label: 'the change against the baseline',
             data: { ...TREE, value: 130, baselineValue: 100, count: 40, baselineCount: 50 },
             point: [400, rowY(0)],
-            expected: ['root', 'Count40', 'Baseline100', 'Change+30%'],
+            expected: ['root', 'Value130', 'Baseline100'],
             absent: [],
         },
         {
-            label: 'value and shares without a self row, siblings widest first, under the breakdown preset',
+            label: 'the formatted value, siblings widest first, under the breakdown preset',
             data: {
                 name: 'all',
                 value: 100,
@@ -73,8 +73,8 @@ describe('FlameGraph', () => {
             },
             point: [200, rowY(1)],
             config: { preset: 'breakdown', valueFormatter: (v) => `${v} views` },
-            expected: ['wide', 'Value60 views', 'Of parent60%', 'Of total60%'],
-            absent: ['Self', 'Total60'],
+            expected: ['wide', 'Value60 views'],
+            absent: ['small'],
         },
     ])('shows $label in the tooltip of the hovered node', async ({ data, point, expected, config, absent }) => {
         const { chart } = renderFlame({ data, config })
