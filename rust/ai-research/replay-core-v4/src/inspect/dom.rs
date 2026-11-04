@@ -10,10 +10,10 @@ use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
-use crate::url_policy::{checked_url, is_fetched_image_type, is_remote, Decline, MAX_URL_LEN};
+use crate::url_policy::{is_fetched_image_type, is_remote, needs_redaction, MAX_URL_LEN};
 
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
-use super::edits::{Buffers, Edit, Slot};
+use super::edits::{Buffers, Edit, LinkForm, Slot};
 use super::events::{field, field_copies, fields, number, text};
 use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
@@ -33,8 +33,6 @@ pub const MAX_FONT_URLS: usize = 512;
 /// Attribute changes read per mutation, as many as the nodes tracked. A mutation with more drops its block, because
 /// the inspector does not name the URLs in the rest.
 pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
-/// The writer builds one matcher over a block's refused URLs to overwrite their copies, and its memory follows their bytes.
-pub const MAX_BLOCK_DECLINED_URL_BYTES: usize = 1024 * 1024;
 /// Windows tracked per session. A new window past this evicts the window used least recently.
 pub const MAX_WINDOWS: usize = 16;
 /// Evicted windows remembered, so that one that comes back is known to have lost its DOM.
@@ -197,7 +195,7 @@ struct WindowDom {
 pub enum UrlLimit {
     AttributeItems,
     NestedBlocks,
-    DeclinedUrls,
+    NestedJson,
     Edits,
 }
 
@@ -207,32 +205,26 @@ impl UrlLimit {
         match self {
             UrlLimit::AttributeItems => "too_many_attribute_items",
             UrlLimit::NestedBlocks => "too_many_nested_blocks",
-            UrlLimit::DeclinedUrls => "too_many_declined_urls",
+            UrlLimit::NestedJson => "too_deep_json",
             UrlLimit::Edits => "too_many_edits",
         }
     }
 }
 
-/// The kind of a remote URL by the slot that holds it. A refused URL named as several kinds takes the greatest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RemoteKind {
     BundledFont(&'static str),
     Font,
     Image,
+    /// A URL that no fetch takes, such as a relative one or one in a CSS property that shows no image. The writer keeps
+    /// it without its credentials.
+    Link,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteUrl {
     pub url: String,
     pub kind: RemoteKind,
-}
-
-/// A spelling of a refused URL, with the reason for the URL as the policy reads it, which an escaped spelling hides.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclinedUrl {
-    pub url: String,
-    pub kind: RemoteKind,
-    pub decline: Decline,
 }
 
 /// Distinct remote image URLs, at most [`MAX_IMAGE_URLS`] per message.
@@ -248,9 +240,15 @@ struct Urls {
     edit_bytes_taken: usize,
     /// A slot the writer could not find again, so that the block must not be stored.
     unplaced: bool,
-    /// Named URLs that the policy refuses, by the largest kind each was named as. The writer overwrites every copy of each one, outside its slot too.
-    declined: HashMap<String, (RemoteKind, Decline)>,
-    declined_bytes: usize,
+}
+
+#[derive(Clone, Copy)]
+enum CssRead<'p> {
+    Sheet,
+    /// The value of the property it names.
+    Declaration(&'p str),
+    /// A text that may not be CSS. See [`css::text_link_urls`].
+    Links,
 }
 
 #[derive(Default)]
@@ -267,11 +265,6 @@ fn fetchable(url: &str) -> Option<&str> {
 }
 
 impl Urls {
-    fn push(&mut self, url: &str) {
-        self.push_remote(url);
-        self.push_fetch(url);
-    }
-
     fn push_fetch(&mut self, url: &str) {
         let Some(url) = fetchable(url) else { return };
         if self.in_message.len() < MAX_IMAGE_URLS && !self.in_message.contains(url) {
@@ -280,46 +273,12 @@ impl Urls {
         }
     }
 
-    /// Records a URL that the block holds but the fetcher does not take now, such as one of a hidden img.
-    fn push_remote(&mut self, url: &str) {
-        let url = url.trim();
-        if is_remote(url) {
-            self.note_declined(url, RemoteKind::Image);
-        }
-    }
-
-    fn note_declined(&mut self, url: &str, kind: RemoteKind) -> Option<Decline> {
-        if let Some((noted, decline)) = self.declined.get_mut(url) {
-            *noted = (*noted).max(kind);
-            return Some(*decline);
-        }
-        let decline = checked_url(url).err()?;
-        self.add_declined(url.to_owned(), kind, decline);
-        Some(decline)
-    }
-
-    fn add_declined(&mut self, url: String, kind: RemoteKind, decline: Decline) {
-        if let Some((noted, _)) = self.declined.get_mut(&url) {
-            *noted = (*noted).max(kind);
-        } else if self.declined_bytes + url.len() > MAX_BLOCK_DECLINED_URL_BYTES {
-            self.limit = self.limit.or(Some(UrlLimit::DeclinedUrls));
-        } else {
-            self.declined_bytes += url.len();
-            self.declined.insert(url, (kind, decline));
-        }
-    }
-
     fn push_font(&mut self, url: &str, family: Option<&str>) {
         let url = url.trim();
         if !is_remote(url) {
             return;
         }
-        let kind = match family.and_then(bundled_font) {
-            Some(slug) => RemoteKind::BundledFont(slug),
-            None => RemoteKind::Font,
-        };
-        self.note_declined(url, kind);
-        if kind == RemoteKind::Font {
+        if family.and_then(bundled_font).is_none() {
             self.queue_font(url);
         }
     }
@@ -337,29 +296,13 @@ impl Urls {
 
     fn push_css(&mut self, found: CssUrl<'_>) {
         match found {
-            CssUrl::Image(url) => self.push(url),
-            CssUrl::Unshown(url) => self.push_remote(url),
-            CssUrl::Resolved(url) => {
-                self.note_declined(url, RemoteKind::Image);
-                self.push_fetch(url);
-            }
-            // A bundled font's URL comes only in its rewrite, as no fetch takes it.
-            CssUrl::Rewrite { rewrite, .. } => {
-                let Some(resolved) = &rewrite.resolved else {
-                    return;
-                };
-                if let Some(decline) = self.note_declined(&resolved.url, resolved.kind) {
-                    for spelling in &rewrite.spellings {
-                        self.add_declined(spelling.clone(), resolved.kind, decline);
-                    }
-                }
-            }
-            CssUrl::Unresolved(_) => {}
+            CssUrl::Image(url) | CssUrl::Resolved(url) => self.push_fetch(url),
+            CssUrl::Unshown(_)
+            | CssUrl::Rewrite { .. }
+            | CssUrl::Unresolved(_)
+            | CssUrl::Link(_) => {}
             CssUrl::Font { url, family } => self.push_font(url, family),
-            CssUrl::ResolvedFont(url) => {
-                self.note_declined(url, RemoteKind::Font);
-                self.queue_font(url);
-            }
+            CssUrl::ResolvedFont(url) => self.queue_font(url),
             CssUrl::NestedTooDeep => self.limit = self.limit.or(Some(UrlLimit::NestedBlocks)),
             CssUrl::Unplaced => self.unplaced = true,
         }
@@ -405,13 +348,12 @@ impl Urls {
         }
     }
 
-    /// Reads `css`, the text of the JSON string at `value`, as a style sheet, or as the value of `property`.
     fn read_css(
         &mut self,
         buffers: &Buffers,
         (bytes, value): (&[u8], Span),
         css: &str,
-        property: Option<&str>,
+        read: CssRead<'_>,
         resolver: &mut Resolver<'_>,
     ) {
         let edit_budget = resolver.edit_budget();
@@ -425,9 +367,12 @@ impl Urls {
             }
             self.push_css(found);
         };
-        match property {
-            Some(property) => css::declaration_image_urls(property, css, resolver, &mut found),
-            None => css::urls(css, resolver, &mut found),
+        match read {
+            CssRead::Sheet => css::urls(css, resolver, &mut found),
+            CssRead::Declaration(property) => {
+                css::declaration_image_urls(property, css, resolver, &mut found)
+            }
+            CssRead::Links => css::text_link_urls(css, &mut found),
         }
         match edit.map(CssEditBuilder::finish) {
             Some(Ok(Some(edit))) => {
@@ -450,9 +395,6 @@ impl Urls {
         self.edits.extend(walk.edits);
         self.edit_bytes_taken += walk.edit_bytes_taken;
         self.unplaced |= walk.unplaced;
-        for (url, (kind, decline)) in walk.declined {
-            self.add_declined(url, kind, decline);
-        }
     }
 }
 
@@ -530,7 +472,7 @@ impl Walk<'_> {
     }
 
     fn record_url(&mut self, bytes: &[u8], value: Span, url: &str) {
-        if is_remote(url.trim()) {
+        if is_remote(url.trim()) || needs_redaction(url) {
             let edit_budget = self.resolver.edit_budget();
             self.image_urls
                 .record(&self.buffers, (bytes, value), Slot::Url, edit_budget);
@@ -538,18 +480,34 @@ impl Walk<'_> {
     }
 
     fn push_url_text(&mut self, url: &str) {
-        self.image_urls.push(url);
+        self.image_urls.push_fetch(url);
     }
 
-    /// The URLs of a slot the fetcher does not take now. The block still holds them, so the writer replaces them.
-    fn push_remote(&mut self, bytes: &[u8], value: Option<Span>, srcset: bool) {
-        if let (Some(span), Some(text)) = (value, text(bytes, value)) {
-            if srcset {
-                srcset_urls(&text, &mut |url| self.image_urls.push_remote(url));
-            } else {
-                self.record_url(bytes, span, &text);
-                self.image_urls.push_remote(&text);
+    /// A URL that shows no image is a slot only when it holds a credential, so that the writer leaves the rest alone.
+    fn push_link(&mut self, bytes: &[u8], value: Option<Span>, form: LinkForm) {
+        let (Some(span), Some(text)) = (value, text(bytes, value)) else {
+            return;
+        };
+        let holds_credential = match form {
+            LinkForm::Url => needs_redaction(&text),
+            LinkForm::Srcset => {
+                let mut holds = false;
+                for_each_srcset_candidate(&text, |url, _| holds |= needs_redaction(url));
+                holds
             }
+            LinkForm::Urls => text.split_ascii_whitespace().any(needs_redaction),
+        };
+        if holds_credential {
+            let edit_budget = self.resolver.edit_budget();
+            self.image_urls
+                .record(&self.buffers, (bytes, span), Slot::Link(form), edit_budget);
+        }
+    }
+
+    /// The URL of a slot the fetcher does not take now. The block still holds it, so the writer replaces it.
+    fn push_remote(&mut self, bytes: &[u8], value: Option<Span>) {
+        if let (Some(span), Some(text)) = (value, text(bytes, value)) {
+            self.record_url(bytes, span, &text);
         }
     }
 
@@ -559,7 +517,6 @@ impl Walk<'_> {
         let Some(srcset) = text(bytes, value) else {
             return false;
         };
-        srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
         let shown = srcset::shown_candidate(&srcset, slot);
         if let Some(kept) = shown {
             self.push_url_text(kept.url);
@@ -588,14 +545,21 @@ impl Walk<'_> {
         } else {
             SrcsetSlot::Alone
         };
-        if let Some((&last, earlier)) = srcsets.split_last() {
-            for &copy in earlier {
-                self.push_remote(bytes, Some(copy), true);
-            }
-            self.push_srcset(bytes, Some(last), slot);
-        }
+        self.push_srcset(bytes, srcsets.last().copied(), slot);
         for &copy in srcsets {
             self.push_srcset_value(bytes, Some(copy), slot);
+        }
+    }
+
+    fn push_css_links(&mut self, bytes: &[u8], value: Option<Span>) {
+        if let (Some(value), Some(text)) = (value, text(bytes, value)) {
+            self.image_urls.read_css(
+                &self.buffers,
+                (bytes, value),
+                &text,
+                CssRead::Links,
+                &mut self.resolver,
+            );
         }
     }
 
@@ -606,7 +570,7 @@ impl Walk<'_> {
                 &self.buffers,
                 (bytes, value),
                 &text,
-                None,
+                CssRead::Sheet,
                 &mut self.resolver,
             );
         } else if scan::is_object(bytes, value) {
@@ -623,7 +587,7 @@ impl Walk<'_> {
                         &self.buffers,
                         (bytes, at),
                         &declared,
-                        Some(property),
+                        CssRead::Declaration(property),
                         &mut self.resolver,
                     );
                 }
@@ -687,10 +651,6 @@ pub fn for_each_srcset_candidate<'s>(srcset: &'s str, mut found: impl FnMut(&'s 
     }
 }
 
-fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
-    for_each_srcset_candidate(srcset, |url, _| found(url));
-}
-
 fn style_property_value(bytes: &[u8], span: Span) -> Option<Span> {
     if scan::is_array(bytes, span) {
         scan::array_items(bytes, span).ok()?.next()?.ok()
@@ -728,6 +688,16 @@ impl AssetAttribute {
     }
 }
 
+/// How the walk reads an earlier copy of an attribute, which no fetch takes.
+#[derive(Clone, Copy)]
+enum EarlierRead {
+    /// As an image slot, with a srcset read as this slot.
+    Image(SrcsetSlot),
+    /// As a URL that shows no image.
+    Link,
+    Css,
+}
+
 /// A repeated attribute takes its last value, as in `JSON.parse`, so that the inspector names the URL the player loads.
 /// The block still holds the earlier copies of an asset attribute, so the writer replaces those too.
 #[derive(Default)]
@@ -746,6 +716,66 @@ struct Attributes {
     width: Option<Span>,
     height: Option<Span>,
     source_type: Option<Span>,
+    links: Vec<(Span, LinkForm)>,
+    css_links: Vec<Span>,
+}
+
+/// SVG presentation attributes take a CSS value, and a `url()` in one loads a resource.
+fn is_svg_css_attribute(name: &[u8]) -> bool {
+    const NAMES: &[&[u8]] = &[
+        b"clip-path",
+        b"cursor",
+        b"fill",
+        b"filter",
+        b"marker",
+        b"marker-end",
+        b"marker-mid",
+        b"marker-start",
+        b"mask",
+        b"stroke",
+    ];
+    NAMES.iter().any(|known| known.eq_ignore_ascii_case(name))
+}
+
+/// URL attributes that never hold an image slot, and the `data-` attributes that lazy loaders keep a URL in.
+fn link_attribute(name: &[u8]) -> Option<LinkForm> {
+    const URLS: &[&[u8]] = &[
+        b"action",
+        b"formaction",
+        b"data",
+        b"background",
+        b"cite",
+        b"longdesc",
+        b"manifest",
+        b"codebase",
+        b"icon",
+    ];
+    const DATA_URL_SUFFIXES: &[&[u8]] = &[
+        b"src",
+        b"href",
+        b"url",
+        b"original",
+        b"bg",
+        b"background",
+        b"poster",
+    ];
+    if name == b"imagesrcset" {
+        return Some(LinkForm::Srcset);
+    }
+    if name == b"ping" || name == b"attributionsrc" {
+        return Some(LinkForm::Urls);
+    }
+    if URLS.contains(&name) {
+        return Some(LinkForm::Url);
+    }
+    let data = name.strip_prefix(b"data-")?;
+    if data.ends_with(b"srcset") {
+        return Some(LinkForm::Srcset);
+    }
+    DATA_URL_SUFFIXES
+        .iter()
+        .any(|suffix| data.ends_with(suffix))
+        .then_some(LinkForm::Url)
 }
 
 impl Attributes {
@@ -769,9 +799,15 @@ impl Attributes {
     }
 
     fn set(&mut self, name: &[u8], value: Span) {
-        let previous = self.slot(name).and_then(|slot| slot.replace(value));
-        if let (Some(previous), Some(attribute)) = (previous, AssetAttribute::named(name)) {
-            self.earlier.push((attribute, previous));
+        if let Some(slot) = self.slot(name) {
+            let previous = slot.replace(value);
+            if let (Some(previous), Some(attribute)) = (previous, AssetAttribute::named(name)) {
+                self.earlier.push((attribute, previous));
+            }
+        } else if let Some(form) = link_attribute(name) {
+            self.links.push((value, form));
+        } else if is_svg_css_attribute(name) {
+            self.css_links.push(value);
         }
     }
 
@@ -800,20 +836,24 @@ impl Attributes {
         &self,
         bytes: &[u8],
         attributes: &[AssetAttribute],
-        srcset_slot: SrcsetSlot,
+        read: EarlierRead,
         walk: &mut Walk,
     ) {
         for &(attribute, span) in &self.earlier {
             if !attributes.contains(&attribute) {
                 continue;
             }
-            match attribute {
-                AssetAttribute::Srcset => {
-                    walk.push_remote(bytes, Some(span), true);
-                    walk.push_srcset_value(bytes, Some(span), srcset_slot);
+            let span = Some(span);
+            match (attribute, read) {
+                (_, EarlierRead::Css) => walk.push_css(bytes, span),
+                (AssetAttribute::Srcset, EarlierRead::Image(slot)) => {
+                    walk.push_srcset_value(bytes, span, slot)
                 }
-                AssetAttribute::Style | AssetAttribute::CssText => walk.push_css(bytes, Some(span)),
-                _ => walk.push_remote(bytes, Some(span), false),
+                (AssetAttribute::Srcset, EarlierRead::Link) => {
+                    walk.push_link(bytes, span, LinkForm::Srcset)
+                }
+                (_, EarlierRead::Image(_)) => walk.push_remote(bytes, span),
+                (_, EarlierRead::Link) => walk.push_link(bytes, span, LinkForm::Url),
             }
         }
     }
@@ -821,13 +861,12 @@ impl Attributes {
     /// The sources of a node the window does not know, after a restart, an eviction or the node cap. What the node
     /// shows is not known, so they are not fetched. The block holds them, so the writer replaces them.
     fn push_unknown_sources(&self, bytes: &[u8], walk: &mut Walk) {
-        walk.push_remote(bytes, self.src, false);
-        walk.push_remote(bytes, self.rr_src, false);
-        walk.push_remote(bytes, self.srcset, true);
+        walk.push_remote(bytes, self.src);
+        walk.push_remote(bytes, self.rr_src);
         walk.push_srcset_value(bytes, self.srcset, SrcsetSlot::Alone);
-        walk.push_remote(bytes, self.href, false);
-        walk.push_remote(bytes, self.xlink_href, false);
-        walk.push_remote(bytes, self.poster, false);
+        walk.push_remote(bytes, self.href);
+        walk.push_remote(bytes, self.xlink_href);
+        walk.push_remote(bytes, self.poster);
         let sources = [
             AssetAttribute::Src,
             AssetAttribute::RrSrc,
@@ -836,7 +875,8 @@ impl Attributes {
             AssetAttribute::XlinkHref,
             AssetAttribute::Poster,
         ];
-        self.push_earlier(bytes, &sources, SrcsetSlot::Alone, walk);
+        let read = EarlierRead::Image(SrcsetSlot::Alone);
+        self.push_earlier(bytes, &sources, read, walk);
     }
 
     /// A mutation that does not set `src` leaves it unknown, so the img's srcset counts as alone.
@@ -862,42 +902,73 @@ impl Attributes {
             Some(Media::Img { visibility }) if !visibility.hides() => {
                 let slot = self.img_srcset_slot(bytes);
                 if walk.push_srcset(bytes, self.srcset, slot) {
-                    walk.push_remote(bytes, self.src, false);
-                    walk.push_remote(bytes, self.rr_src, false);
+                    walk.push_remote(bytes, self.src);
+                    walk.push_remote(bytes, self.rr_src);
                 } else {
                     walk.push_url(bytes, self.src);
                     walk.push_url(bytes, self.rr_src);
                 }
                 walk.push_srcset_value(bytes, self.srcset, slot);
-                self.push_earlier(bytes, &img_sources, slot, walk);
+                self.push_earlier(bytes, &img_sources, EarlierRead::Image(slot), walk);
             }
             Some(Media::Img { .. }) => {
                 let slot = self.img_srcset_slot(bytes);
-                walk.push_remote(bytes, self.src, false);
-                walk.push_remote(bytes, self.rr_src, false);
-                walk.push_remote(bytes, self.srcset, true);
+                walk.push_remote(bytes, self.src);
+                walk.push_remote(bytes, self.rr_src);
                 walk.push_srcset_value(bytes, self.srcset, slot);
-                self.push_earlier(bytes, &img_sources, slot, walk);
+                self.push_earlier(bytes, &img_sources, EarlierRead::Image(slot), walk);
             }
             Some(Media::SvgImage) => {
                 walk.push_url(bytes, self.href);
                 walk.push_url(bytes, self.xlink_href);
-                let links = [AssetAttribute::Href, AssetAttribute::XlinkHref];
-                self.push_earlier(bytes, &links, SrcsetSlot::Alone, walk);
+                let sources = [AssetAttribute::Href, AssetAttribute::XlinkHref];
+                let read = EarlierRead::Image(SrcsetSlot::Alone);
+                self.push_earlier(bytes, &sources, read, walk);
             }
             Some(Media::Video) => {
                 walk.push_url(bytes, self.poster);
-                self.push_earlier(bytes, &[AssetAttribute::Poster], SrcsetSlot::Alone, walk);
+                walk.push_link(bytes, self.src, LinkForm::Url);
+                let read = EarlierRead::Image(SrcsetSlot::Alone);
+                self.push_earlier(bytes, &[AssetAttribute::Poster], read, walk);
+                self.push_earlier(bytes, &[AssetAttribute::Src], EarlierRead::Link, walk);
             }
             Some(Media::PictureSource { unfetched_type }) => {
-                walk.push_source(bytes, &self.srcset_copies(), unfetched_type)
+                walk.push_source(bytes, &self.srcset_copies(), unfetched_type);
+                walk.push_link(bytes, self.src, LinkForm::Url);
+                self.push_earlier(bytes, &[AssetAttribute::Src], EarlierRead::Link, walk);
             }
-            _ => {}
+            Some(Media::Picture) | None => {
+                for value in [
+                    self.href,
+                    self.xlink_href,
+                    self.src,
+                    self.rr_src,
+                    self.poster,
+                ] {
+                    walk.push_link(bytes, value, LinkForm::Url);
+                }
+                walk.push_link(bytes, self.srcset, LinkForm::Srcset);
+                let links = [
+                    AssetAttribute::Href,
+                    AssetAttribute::XlinkHref,
+                    AssetAttribute::Src,
+                    AssetAttribute::RrSrc,
+                    AssetAttribute::Poster,
+                    AssetAttribute::Srcset,
+                ];
+                self.push_earlier(bytes, &links, EarlierRead::Link, walk);
+            }
+        }
+        for &(value, form) in &self.links {
+            walk.push_link(bytes, Some(value), form);
+        }
+        for &value in &self.css_links {
+            walk.push_css_links(bytes, Some(value));
         }
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
         let css = [AssetAttribute::Style, AssetAttribute::CssText];
-        self.push_earlier(bytes, &css, SrcsetSlot::Alone, walk);
+        self.push_earlier(bytes, &css, EarlierRead::Css, walk);
     }
 }
 
@@ -1229,8 +1300,9 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
 enum Snapshot<'p> {
     /// The player drops it, because its data or its node is not an object.
     Dropped,
-    /// It does not decode or is too deep to walk, and the player may still build a DOM from a payload this deep.
     Unreadable,
+    /// It nests too deep to walk, and the player may still build a DOM from a payload this deep.
+    Unwalked,
     Walked(Box<Walk<'p>>),
 }
 
@@ -1245,7 +1317,7 @@ fn walk_snapshot<'p>(
         match expansion.json(data) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(root) => (json, root),
-                Err(_) => return Snapshot::Unreadable,
+                Err(_) => return Snapshot::Unwalked,
             },
             Some(None) => return Snapshot::Dropped,
             None => return Snapshot::Unreadable,
@@ -1265,7 +1337,7 @@ fn walk_snapshot<'p>(
     if walk_nodes(bytes, node, &mut walk) {
         Snapshot::Walked(Box::new(walk))
     } else {
-        Snapshot::Unreadable
+        Snapshot::Unwalked
     }
 }
 
@@ -1546,7 +1618,10 @@ impl DomInspector {
                         self.seen_snapshot = true;
                         observed.full_snapshot = true;
                     }
-                    Snapshot::Unreadable => {
+                    unread @ (Snapshot::Unreadable | Snapshot::Unwalked) => {
+                        if matches!(unread, Snapshot::Unwalked) {
+                            self.urls.limit = self.urls.limit.or(Some(UrlLimit::NestedJson));
+                        }
                         stats.decode_failures += 1;
                         *dom = WindowDom {
                             unverifiable: true,
@@ -1619,14 +1694,6 @@ impl DomInspector {
         )
     }
 
-    pub fn take_declined(&mut self) -> Vec<DeclinedUrl> {
-        self.urls.declined_bytes = 0;
-        std::mem::take(&mut self.urls.declined)
-            .into_iter()
-            .map(|(url, (kind, decline))| DeclinedUrl { url, kind, decline })
-            .collect()
-    }
-
     pub fn take_url_limit(&mut self) -> Option<UrlLimit> {
         self.urls.limit.take()
     }
@@ -1652,6 +1719,8 @@ struct Lists<'b> {
     attributes: Option<List<'b>>,
     /// A list is a string that did not decode, so the player drops the whole mutation.
     failed: bool,
+    /// A list decoded to JSON that nests too deep to read, which the player still reads.
+    too_deep: bool,
 }
 
 fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> Lists<'b> {
@@ -1664,7 +1733,7 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         &mut lists.texts,
         &mut lists.attributes,
     ];
-    let mut failed = false;
+    let (mut failed, mut too_deep) = (false, false);
     for (slot, span) in slots.into_iter().zip(found) {
         let Some(span) = span else { continue };
         if !scan::is_string(inner, span) {
@@ -1675,13 +1744,14 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         match expansion.json(span) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(span) => *slot = Some(List { bytes: json, span }),
-                Err(_) => failed = true,
+                Err(_) => too_deep = true,
             },
             Some(None) => {}
             None => failed = true,
         }
     }
-    lists.failed = failed;
+    lists.failed = failed || too_deep;
+    lists.too_deep = too_deep;
     lists
 }
 
@@ -1746,6 +1816,10 @@ fn observe_mutation(
         return (0, 0, true);
     }
     let lists = mutation_lists(inner, data, expansion);
+    if lists.too_deep {
+        dom.unverifiable = true;
+        urls.limit = urls.limit.or(Some(UrlLimit::NestedJson));
+    }
     if lists.failed {
         return (0, 0, true);
     }
@@ -1756,6 +1830,8 @@ fn observe_mutation(
         ..Walk::default()
     };
     let mut adds = Vec::new();
+    // The node cap allows a mutation to add 200,000 nodes, so the set of their ids is built once.
+    let mut walked: Option<HashSet<i64>> = None;
     if let Some(list) = lists.adds {
         let mut sources = Vec::new();
         for item in items(list) {
@@ -1767,6 +1843,7 @@ fn observe_mutation(
                 if !walk_nodes(list.bytes, node, &mut walk) {
                     dom.unverifiable = true;
                     undecoded = true;
+                    walk.image_urls.limit = walk.image_urls.limit.or(Some(UrlLimit::NestedJson));
                 }
                 for entry in &mut walk.ids[first..] {
                     entry.1 = entry.1.or(parent);
@@ -1785,9 +1862,14 @@ fn observe_mutation(
                 .filter(|(_, media)| *media == Media::Picture)
                 .map(|&(id, _)| id)
                 .collect();
+            let walked = walked.get_or_insert_with(|| walk.ids.iter().map(|&(id, _)| id).collect());
             for (parent, (id, srcsets, source_type)) in sources {
                 let Some(parent) = parent else { continue };
-                if pictures.contains(&parent) || dom.media.get(&parent) == Some(&Media::Picture) {
+                // A parent the window does not know can be a picture, as after a restart.
+                if pictures.contains(&parent)
+                    || dom.media.get(&parent) == Some(&Media::Picture)
+                    || !dom.knows(parent, walked)
+                {
                     let unfetched_type = is_unfetched_type(list.bytes, source_type);
                     walk.media
                         .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
@@ -1799,19 +1881,25 @@ fn observe_mutation(
     dom.add_media(&walk.media);
     dom.add_hidden_sources(&walk.hidden);
     dom.add_style_texts(&walk.style_texts);
+    let walked = walked.unwrap_or_else(|| walk.ids.iter().map(|&(id, _)| id).collect());
     if let Some(texts) = lists.texts {
         for item in items(texts) {
             let id = field(texts.bytes, item, b"id");
-            if number(texts.bytes, id).is_some_and(|id| dom.style_texts.contains(&(id as i64))) {
-                for value in field_copies(texts.bytes, item, b"value") {
+            let Some(id) = number(texts.bytes, id).map(|id| id as i64) else {
+                continue;
+            };
+            for value in field_copies(texts.bytes, item, b"value") {
+                if dom.style_texts.contains(&id) {
                     walk.push_css(texts.bytes, Some(value));
+                } else if !dom.knows(id, &walked) {
+                    // A node the window does not know can be the text of a style element, as after a restart.
+                    walk.push_css_links(texts.bytes, Some(value));
                 }
             }
         }
     }
     let mut attribute_ids = Vec::new();
     if let Some(attributes) = lists.attributes {
-        let walked: HashSet<i64> = walk.ids.iter().map(|&(id, _)| id).collect();
         for (index, item) in items(attributes).enumerate() {
             if index == MAX_ATTRIBUTE_ITEMS {
                 walk.image_urls.limit = Some(UrlLimit::AttributeItems);
@@ -1938,18 +2026,22 @@ fn style_sheet_urls(
     let resolver = &mut resolver;
     let mut read_rule = |bytes: &[u8], span: Option<Span>, urls: &mut Urls| {
         if let (Some(span), Some(rule)) = (span, text(bytes, span)) {
-            urls.read_css(&buffers, (bytes, span), &rule, None, resolver);
+            urls.read_css(&buffers, (bytes, span), &rule, CssRead::Sheet, resolver);
         }
     };
     match source {
         Some(STYLE_SHEET_RULE) => {
             let adds = field(inner, data, b"adds");
-            if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
-                for item in items(adds) {
-                    for rule in field_copies(adds.bytes, item, b"rule") {
-                        read_rule(adds.bytes, Some(rule), urls);
+            match adds.map(|adds| decoded_list(inner, adds, expansion)) {
+                Some(Ok(Some(adds))) => {
+                    for item in items(adds) {
+                        for rule in field_copies(adds.bytes, item, b"rule") {
+                            read_rule(adds.bytes, Some(rule), urls);
+                        }
                     }
                 }
+                Some(Err(limit)) => urls.limit = urls.limit.or(Some(limit)),
+                Some(Ok(None)) | None => {}
             }
             for key in [&b"replace"[..], b"replaceSync"] {
                 for sheet in field_copies(inner, data, key) {
@@ -1963,7 +2055,8 @@ fn style_sheet_urls(
             if let (Some(set), Some(property)) = (set, property) {
                 for at in field_copies(inner, set, b"value") {
                     if let Some(value) = text(inner, Some(at)) {
-                        urls.read_css(&buffers, (inner, at), &value, Some(&property), resolver);
+                        let read = CssRead::Declaration(&property);
+                        urls.read_css(&buffers, (inner, at), &value, read, resolver);
                     }
                 }
             }
@@ -1994,15 +2087,19 @@ fn style_sheet_urls(
 }
 
 /// A list as the player reads it, decoded when the event compressed it. `None` when it is empty or does not decode.
-fn decoded_list<'b>(inner: &'b [u8], span: Span, expansion: &'b Expansion) -> Option<List<'b>> {
+fn decoded_list<'b>(
+    inner: &'b [u8],
+    span: Span,
+    expansion: &'b Expansion,
+) -> Result<Option<List<'b>>, UrlLimit> {
     if !scan::is_string(inner, span) {
-        return Some(List { bytes: inner, span });
+        return Ok(Some(List { bytes: inner, span }));
     }
-    let json = expansion.json(span)??;
-    Some(List {
-        bytes: json,
-        span: scan::locate_value(json, 0).ok()?,
-    })
+    let Some(Some(json)) = expansion.json(span) else {
+        return Ok(None);
+    };
+    let span = scan::locate_value(json, 0).map_err(|_| UrlLimit::NestedJson)?;
+    Ok(Some(List { bytes: json, span }))
 }
 
 fn items(list: List<'_>) -> impl Iterator<Item = Span> + '_ {
@@ -2190,11 +2287,12 @@ mod tests {
             let text = scan::unescape(&bytes, edit.value).unwrap();
             match edit.slot {
                 Slot::Url => named.urls.push((text.trim().to_owned(), RemoteKind::Image)),
-                Slot::Srcset(_) => srcset_urls(&text, &mut |url| {
+                Slot::Srcset(_) => for_each_srcset_candidate(&text, |url, _| {
                     if is_remote(url) {
                         named.urls.push((url.to_owned(), RemoteKind::Image));
                     }
                 }),
+                Slot::Link(_) => {}
                 Slot::Css(edit) => {
                     for piece in edit.pieces {
                         let urls = piece.parts.iter().filter_map(|part| match part {
@@ -2574,33 +2672,6 @@ mod tests {
             attributes(MAX_ATTRIBUTE_ITEMS + 1),
             Some(UrlLimit::AttributeItems)
         );
-    }
-
-    #[test]
-    fn notes_each_refused_url_once_within_the_declined_budget() {
-        let declined = |srcset: String| {
-            let img = json!({"parentId": 1, "node": element(2, "img", json!({"srcset": srcset}), json!([]))});
-            let message = events(json!([mutation(
-                json!([img]),
-                json!([]),
-                json!([]),
-                json!([])
-            )]));
-            let (mut dom, _) = observe_all(&message, "w");
-            (dom.take_declined().len(), dom.take_url_limit())
-        };
-        let repeated = vec!["https://cdn.example.com/a.png?token=x 1x"; 10_000].join(", ");
-        assert_eq!(declined(repeated), (1, None));
-        let distinct = (0..2_000)
-            .map(|i| {
-                format!(
-                    "https://cdn.example.com/{i}/{}.png?token=x {i}w",
-                    "a".repeat(600)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        assert_eq!(declined(distinct).1, Some(UrlLimit::DeclinedUrls));
     }
 
     #[test]
