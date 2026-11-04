@@ -13,12 +13,14 @@ import { template as setVariableTemplate } from '~/cdp/templates/_destinations/p
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -37,6 +39,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { AcceptedSend } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -3298,6 +3301,70 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
+        const emailFlow = (email: Record<string, any>): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email-routing-test',
+                                inputs: { email: { value: email } },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const flowInvocation = (hogFlow: HogFlow): CyclotronJobInvocationHogFlow =>
+            createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    event: '$pageview',
+                },
+            })
+
+        const storedStep = () => ({
+            to: { email: 'recipient@example.com', name: 'Recipient' },
+            from: { integrationId, email: 'test@posthog.com' },
+            subject: 'Test Email',
+            text: 'Test text',
+            html: '<p>Test html</p>',
+        })
+
+        const codeKeyStep = () => ({
+            to: { email: 'recipient@example.com', name: 'Recipient' },
+            from: { integrationId: null },
+            cc: 'cc@example.com',
+            subject: '',
+            text: '',
+            html: '',
+        })
+
+        const codeSend = (): AcceptedSend => ({
+            content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
+            from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+            replyTo: ['help@example.com', 'support@example.com'],
+            tracking: { captureEngagement: true },
+        })
+
         it('should route email actions to the email queue', async () => {
             await insertEmailSetup('maildev')
 
@@ -3532,5 +3599,115 @@ if (not res.success) { throw Error(res.error) }`,
             expect(result.invocation.state.currentAction?.id).toBe('email_2')
             expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 0 })
         })
+
+        it.each([
+            {
+                name: 'a template send as the step renders it',
+                step: storedStep,
+                send: (): AcceptedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
+            {
+                name: 'a code send for a local template as the step renders it',
+                step: storedStep,
+                send: (): AcceptedSend => ({ tracking: { captureEngagement: false } }),
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
+            {
+                name: "a code send with the caller's content, sender and reply-to over the step",
+                step: codeKeyStep,
+                send: codeSend,
+                expected: () => ({
+                    type: 'email',
+                    to: { email: 'recipient@example.com', name: 'Recipient' },
+                    from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+                    cc: 'cc@example.com',
+                    replyTo: 'help@example.com, support@example.com',
+                    subject: 'Reset your password',
+                    preheader: '',
+                    text: 'Hi',
+                    html: '<p>Hi {{ variables.name }}</p>',
+                }),
+            },
+        ])('hands the email queue $name', async ({ step, send, expected }) => {
+            await insertEmailSetup('ses')
+            const invocation = flowInvocation(emailFlow(step()))
+            invocation.state.variables = { name: 'Ada' }
+            invocation.state.send = send()
+
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation.queueParameters).toEqual(expected())
+        })
+
+        it.each([
+            {
+                name: 'fails a code-key step without an accepted send',
+                send: (): AcceptedSend | undefined => undefined,
+                sent: 0,
+            },
+            { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },
+        ])('$name', async ({ send, sent }) => {
+            await insertEmailSetup('ses')
+            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            sesSend.mockResolvedValue({ MessageId: 'code-key-email' })
+            const invocation = flowInvocation(emailFlow(codeKeyStep()))
+            invocation.state.send = send()
+
+            let result = await executor.execute(invocation)
+            const metrics = [...result.metrics]
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+                metrics.push(...result.metrics)
+            }
+
+            expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
+            expect(sesSend).toHaveBeenCalledTimes(sent)
+        })
+
+        it.each([
+            {
+                captureEngagement: true,
+                teamCaptures: true,
+                savedWithoutSend: false,
+                captured: ['$workflows_email_sent'],
+            },
+            { captureEngagement: false, teamCaptures: true, savedWithoutSend: false, captured: [] },
+            { captureEngagement: true, teamCaptures: false, savedWithoutSend: false, captured: [] },
+            { captureEngagement: false, teamCaptures: true, savedWithoutSend: true, captured: [] },
+        ])(
+            "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures, step state saved without the send: $savedWithoutSend",
+            async ({ captureEngagement, teamCaptures, savedWithoutSend, captured }) => {
+                await insertEmailSetup('ses')
+                const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+                sesSend.mockResolvedValue({ MessageId: 'captured-email' })
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, $2, 'off', '', '', 0)`,
+                    [team.id, teamCaptures],
+                    'test-team-engagement-capture'
+                )
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.send = { tracking: { captureEngagement } }
+
+                let result = await executor.execute(invocation)
+                const events = [...result.capturedPostHogEvents]
+                if (savedWithoutSend) {
+                    delete result.invocation.state.currentAction!.hogFunctionState!.send
+                }
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    events.push(...result.capturedPostHogEvents)
+                }
+
+                expect(
+                    events.map((event) => event.event).filter((event) => event.startsWith('$workflows_email_'))
+                ).toEqual(captured)
+                expect(sesSend).toHaveBeenCalledTimes(1)
+            }
+        )
     })
 })
