@@ -17,7 +17,7 @@ from products.product_analytics.backend.models import Insight
 from products.product_analytics.backend.presentation.insight_explanation import InsightExplanationCreateSerializer
 
 EXPLANATION: dict[str, Any] = {
-    "query": {"interval": "day", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    "query": {"interval": "day", "series": [{"kind": "EventsNode", "event": "$pageview"}], "compareFilter": None},
     "results": [
         {"label": "$pageview", "data": [3, 9, 4], "days": ["2026-10-01", "2026-10-02", "2026-10-03"], "count": 16},
         {"label": "$autocapture", "data": [1, 1, 1], "days": ["2026-10-01", "2026-10-02", "2026-10-03"]},
@@ -58,6 +58,7 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
             ("missing_series", _explanation(seriesIndex=2)),
             ("unknown_shape", _explanation(shape="funnel_steps")),
             ("evidence_longer_than_a_sentence", _with_evidence(text="x" * 401)),
+            ("evidence_link_not_https", _with_evidence(url="http://example.com/commit/1")),
             ("redraw_tool_for_another_kind", _with_evidence(query={"kind": "HogQLQuery"}, queryTool="query-trends")),
             ("too_large", _explanation(query={"filter": "x" * 300_000})),
         ]
@@ -76,7 +77,7 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
         ]
         assert serializer.validated_data["data"]["shape"] == "time_series"
         assert serializer.validated_data["data"]["chapters"][0]["evidence"] == [
-            {"text": "Most views came from one referrer."}
+            {"text": "Most views came from one referrer.", "url": "https://us.posthog.com/insights/new"}
         ]
 
 

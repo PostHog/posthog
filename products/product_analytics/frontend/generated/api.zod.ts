@@ -253,6 +253,8 @@ export const insightsExplanationsCreateBodyDataOneChaptersItemConfidenceReasonMa
 
 export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemTextMax = 400
 
+export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax = 2000
+
 export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
 
 export const insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax = 5000
@@ -362,6 +364,13 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
                                         .record(zod.string(), zod.unknown())
                                         .nullish()
                                         .describe('The query that shows the fact. The page links to it.'),
+                                    url: zod
+                                        .url()
+                                        .max(insightsExplanationsCreateBodyDataOneChaptersItemEvidenceItemUrlMax)
+                                        .nullish()
+                                        .describe(
+                                            'An https link to the source when it is not a query, for example a commit, a pull request or a deploy.'
+                                        ),
                                     queryTool: zod
                                         .union([
                                             zod
@@ -477,6 +486,8 @@ export const insightsExplanationsUpdateBodyDataOneChaptersItemConfidenceReasonMa
 
 export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemTextMax = 400
 
+export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax = 2000
+
 export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneLabelsMax = 5000
 
 export const insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemChartOneTicksMax = 5000
@@ -586,6 +597,13 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
                                         .record(zod.string(), zod.unknown())
                                         .nullish()
                                         .describe('The query that shows the fact. The page links to it.'),
+                                    url: zod
+                                        .url()
+                                        .max(insightsExplanationsUpdateBodyDataOneChaptersItemEvidenceItemUrlMax)
+                                        .nullish()
+                                        .describe(
+                                            'An https link to the source when it is not a query, for example a commit, a pull request or a deploy.'
+                                        ),
                                     queryTool: zod
                                         .union([
                                             zod

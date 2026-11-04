@@ -98,10 +98,16 @@ class StoryEvidenceChartSerializer(serializers.Serializer):
 class StoryEvidenceSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=400, help_text="One fact that supports the chapter, in one sentence.")
     query = serializers.DictField(
-        child=serializers.JSONField(),
+        child=serializers.JSONField(allow_null=True),
         allow_null=True,
         required=False,
         help_text="The query that shows the fact. The page links to it.",
+    )
+    url = serializers.URLField(
+        max_length=2_000,
+        allow_null=True,
+        required=False,
+        help_text="An https link to the source when it is not a query, for example a commit, a pull request or a deploy.",
     )
     queryTool = serializers.ChoiceField(
         choices=StoryEvidenceQueryTool.choices,
@@ -116,6 +122,11 @@ class StoryEvidenceSerializer(serializers.Serializer):
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         if value is not None and len(json.dumps(value)) > MAX_EVIDENCE_QUERY_BYTES:
             raise serializers.ValidationError("The query is too large to save.")
+        return value
+
+    def validate_url(self, value: str | None) -> str | None:
+        if value is not None and not value.startswith("https://"):
+            raise serializers.ValidationError("The link must start with https://.")
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -171,7 +182,9 @@ class ExplainChartDataSerializer(serializers.Serializer):
         default=ChartExplanationShape.TIME_SERIES,
         help_text="What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.",
     )
-    query = serializers.DictField(child=serializers.JSONField(), help_text="The insight query the explanation follows.")
+    query = serializers.DictField(
+        child=serializers.JSONField(allow_null=True), help_text="The insight query the explanation follows."
+    )
     results = StorySeriesResultSerializer(
         many=True, max_length=1_000, help_text="Every series on the chart when it was explained."
     )
