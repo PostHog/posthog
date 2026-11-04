@@ -387,6 +387,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         addInsightToDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
+                const mountedDashboard = dashboardLogic.findMounted({ id: dashboardId })
+                const tileIdsBefore = new Set(mountedDashboard?.values.tiles.map((dashboardTile) => dashboardTile.id))
                 const tile = await insightsApi.addToDashboard(insight.id, dashboardId)
                 actions.updateInsight({
                     ...insight,
@@ -395,9 +397,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                         tile,
                     ],
                 })
-                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                    action: DashboardLoadAction.Update,
-                })
+                // A tile that was already on the dashboard stays in its own group.
+                mountedDashboard?.actions.placeAddedTiles(tileIdsBefore.has(tile.id) ? [] : [tile.id])
                 lemonToast.success('Insight added to dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)

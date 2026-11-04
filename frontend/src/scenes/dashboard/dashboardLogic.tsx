@@ -25,8 +25,11 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
-import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
-import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
+import { dashboardsCopyGroupCreate, dashboardsPartialUpdate } from '@posthog/products-dashboards/frontend/generated/api'
+import type {
+    DashboardTileGroupApi,
+    DashboardWidgetRunResultApi,
+} from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
@@ -112,6 +115,7 @@ import {
     DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
+    NewDashboardTile,
     DashboardTileBasicType,
     DashboardTileIdOrNew,
     DashboardTileSpacing,
@@ -155,6 +159,7 @@ import {
     getTileGroupLabel,
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
+    getTileGroupSectionKey,
 } from 'products/dashboards/frontend/dashboardTileSections'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
@@ -685,6 +690,7 @@ export interface dashboardLogicValues {
     variables: Variable[] // variableDataLogic
     accessDeniedToDashboard: boolean
     activeTileGroupTab: string | null
+    addTargetTileGroupKey: string | null
     addWidgetCollapsedGroups: string[]
     addWidgetFilteredGroups: string[]
     addWidgetModalOpen: boolean
@@ -784,6 +790,7 @@ export interface dashboardLogicValues {
     loadingPreview: boolean
     maxContext: MaxContextInput[]
     nextAllowedDashboardRefresh: Dayjs | null
+    newTileGroupKey: string | null
     nextWidgetStaleAt: number | null
     oldestRefreshed: Dayjs | null
     pageVisibility: boolean
@@ -794,6 +801,7 @@ export interface dashboardLogicValues {
     projectTreeRef: ProjectTreeRef
     queryLoadQueue: TaskQueue
     readOnly: boolean
+    renamingTileGroupKey: string | null
     refreshEligibilityTick: number
     refreshMetrics: {
         completed: number
@@ -864,7 +872,10 @@ export interface dashboardLogicActions {
         queryStartTime: number
         shortId: InsightShortId
     }
-    addTileGroup: (title: string) => {
+    setAddTargetTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
+    }
+    addTileGroup: (title?: string) => {
         title: string
     }
     addWidgetTileFinished: () => {
@@ -1147,6 +1158,16 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    createTiles: (tiles: NewDashboardTile[]) => {
+        tiles: NewDashboardTile[]
+    }
+    placeAddedTiles: (
+        tileIds: number[],
+        groupKey?: string | null
+    ) => {
+        groupKey: string | null | undefined
+        tileIds: number[]
+    }
     previewDashboardChanges: () => {
         value: true
     }
@@ -1205,6 +1226,9 @@ export interface dashboardLogicActions {
         payload?: {
             tile: DashboardTile
         }
+    }
+    setRenamingTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
     }
     renameTileGroup: (
         groupKey: string,
@@ -1471,6 +1495,9 @@ export interface dashboardLogicActions {
     }
     setTextTileId: (textTileId: DashboardTileIdOrNew) => {
         textTileId: DashboardTileIdOrNew
+    }
+    setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
+        groups: Record<string, DashboardTileGroupApi>
     }
     setTileOverride: (tile: DashboardTile) => {
         tile: DashboardTile
@@ -1761,6 +1788,7 @@ export interface dashboardLogicMeta {
             highlightedInsightId: any,
             searchParams: Record<string, any>
         ) => string | null
+        newTileGroupKey: (addTargetTileGroupKey: string | null, activeTileGroupTab: string | null) => string | null
         collapsedTileGroupKeys: (
             tileGroupSectionsEnabled: boolean,
             placement: DashboardPlacement,
@@ -2057,7 +2085,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
         renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
-        addTileGroup: (title: string) => ({ title }),
+        setRenamingTileGroupKey: (groupKey: string | null) => ({ groupKey }),
+        /** Null follows the open tab. */
+        setAddTargetTileGroupKey: (groupKey: string | null) => ({ groupKey }),
+        addTileGroup: (title?: string) => ({ title: title ?? '' }),
         removeTileGroup: (groupKey: string) => ({ groupKey }),
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
@@ -2073,6 +2104,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             method: TileGroupMoveMethod
         ) => ({ tileId, sectionKey, cell, method }),
         tilePlacementsSaved: (placements: Record<number, TilePlacement>) => ({ placements }),
+        /** Moves tiles just added to the dashboard into the add's target group, then reloads. */
+        /** Creates tiles in the add's target group, in the same request. */
+        createTiles: (tiles: NewDashboardTile[]) => ({ tiles }),
+        /** For tiles another endpoint created: moves them into the target group, then reloads. */
+        placeAddedTiles: (tileIds: number[], groupKey?: string | null) => ({ tileIds, groupKey }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -2176,6 +2212,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
+        /** Shows a group change before it saves. The API replaces every group on write. */
+        setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => ({ groups }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
@@ -2926,6 +2964,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
                     } as DashboardType
                 },
+                setTileGroups: (state, { groups }) =>
+                    state ? { ...state, customization: { ...state.customization, groups } } : state,
                 setDashboardTileSpacing: (state, { tileSpacing }) =>
                     state
                         ? {
@@ -3455,6 +3495,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 addWidgetTileFinished: () => false,
             },
         ],
+        addTargetTileGroupKey: [
+            null as string | null,
+            {
+                setAddTargetTileGroupKey: (_, { groupKey }) => groupKey,
+                // Each add ends by closing its modal, so the next add from the dashboard's Add menu follows the open tab.
+                closeTileModal: () => null,
+                setAddWidgetModalOpen: (state, { open }) => (open ? state : null),
+                [addInsightToDashboardLogic.actionTypes.hideAddInsightToDashboardModal]: () => null,
+            },
+        ],
+        renamingTileGroupKey: [
+            null as string | null,
+            {
+                setRenamingTileGroupKey: (_, { groupKey }) => groupKey,
+            },
+        ],
         // Incremented on each scroll-to-bottom request; the view effects on the change.
         scrollToBottomSignal: [
             0,
@@ -3942,6 +3998,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const highlightedTab = highlightedTile ? tileGroupKeys.get(highlightedTile.id) : undefined
                 return highlightedTab ?? (tileGroupSections[0] ? getSectionGroupKey(tileGroupSections[0]) : null)
             },
+        ],
+        newTileGroupKey: [
+            (s) => [s.addTargetTileGroupKey, s.activeTileGroupTab],
+            (addTargetTileGroupKey: string | null, activeTileGroupTab: string | null): string | null =>
+                addTargetTileGroupKey ??
+                (activeTileGroupTab && activeTileGroupTab !== UNGROUPED_TILES_TAB_KEY ? activeTileGroupTab : null),
         ],
         collapsedTileGroupKeys: [
             (s) => [
@@ -4711,6 +4773,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }) => {
             if (!dashboard || !values.dashboard || dashboard.id !== props.id || values.dashboard.id !== dashboard.id) {
                 return
+            }
+            cache.tileGroupsSaving = false
+            const pendingTileGroups = cache.pendingTileGroups
+            if (pendingTileGroups) {
+                cache.pendingTileGroups = null
+                actions.setTileGroups(pendingTileGroups)
             }
 
             const layoutsPersisted = payload?.layoutsPersisted === true
@@ -5734,12 +5802,46 @@ export const dashboardLogic = kea<dashboardLogicType>([
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
         },
+        createTiles: ({ tiles }) => {
+            const groupKey = values.newTileGroupKey
+            dashboardsModel.actions.updateDashboard({
+                id: props.id,
+                tiles: groupKey ? tiles.map((tile) => ({ ...tile, group_key: groupKey })) : tiles,
+            })
+        },
+        placeAddedTiles: async ({ tileIds, groupKey = values.newTileGroupKey }) => {
+            if (groupKey && tileIds.length > 0) {
+                try {
+                    await dashboardsPartialUpdate(String(values.currentTeamId), props.id, {
+                        tiles: tileIds.map((id) => ({ id, group_key: groupKey })),
+                    })
+                } catch {
+                    lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
+                }
+            }
+            actions.loadDashboard({ action: DashboardLoadAction.Update })
+        },
+        setTileGroups: ({ groups }) => {
+            // Each write sends every group, so a second write waits for the first.
+            if (cache.tileGroupsSaving) {
+                cache.pendingTileGroups = groups
+                return
+            }
+            cache.tileGroupsSaving = true
+            actions.triggerDashboardUpdate({ groups })
+        },
+        [dashboardsModel.actionTypes.updateDashboardFailure]: () => {
+            if (cache.tileGroupsSaving) {
+                cache.tileGroupsSaving = false
+                cache.pendingTileGroups = null
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error("Couldn't save the group change. Try again.")
+            }
+        },
         renameTileGroup: ({ groupKey, title }) => {
             // The API replaces every group on write, so send the others back unchanged.
             const groups = values.dashboard?.customization?.groups ?? {}
-            actions.triggerDashboardUpdate({
-                groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
-            })
+            actions.setTileGroups({ ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } })
         },
         addTileGroup: ({ title }) => {
             // Each write sends every group, so a write that starts before the last one saves would drop its change.
@@ -5749,7 +5851,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const groups = values.dashboard?.customization?.groups ?? {}
             const groupKey = uuid()
-            actions.triggerDashboardUpdate({ groups: { ...groups, [groupKey]: { title: title.trim() } } })
+            // An untitled group shows its tile count.
+            const trimmedTitle = title.trim()
+            actions.setTileGroups({ ...groups, [groupKey]: trimmedTitle ? { title: trimmedTitle } : {} })
+            actions.setRenamingTileGroupKey(groupKey)
+            if (values.tileGroupDisplay === 'tabs') {
+                actions.selectTileGroupTab(getTileGroupSectionKey(groupKey))
+            } else {
+                // A new group goes last, which can be below the fold.
+                actions.requestScrollToBottom()
+            }
             posthog.capture('dashboard tile group added', { dashboard_id: props.id })
         },
         removeTileGroup: ({ groupKey }) => {
@@ -5757,13 +5868,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // A tile staged out of the group is still in it on the server, and returns to it on Cancel.
             if (
                 values.layoutEditMode ||
-                values.tiles.some((tile) => tile.group_key === groupKey) ||
-                Object.values(values.savedTilePlacements).some((placement) => placement.group_key === groupKey)
+                values.tiles.some(
+                    (tile) =>
+                        tile.group_key === groupKey ||
+                        savedTilePlacement(values.savedTilePlacements, tile.id).group_key === groupKey
+                )
             ) {
                 return
             }
             const { [groupKey]: _removed, ...groups } = values.dashboard?.customization?.groups ?? {}
-            actions.triggerDashboardUpdate({ groups })
+            actions.setTileGroups(groups)
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
@@ -5904,6 +6018,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            // Read before the request, because the modal can close and clear the target while it runs.
+            const groupKey = values.newTileGroupKey
             try {
                 const previousWidgetTileIds = new Set(values.widgetTiles.map((tile) => tile.id))
 
@@ -5914,7 +6030,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${dashboardId}/widgets/batch/`,
                     { widgets: widgetsPayload }
                 )
-                const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
+                const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles).map((tile) =>
+                    groupKey ? { ...tile, group_key: groupKey } : tile
+                )
+                if (groupKey && createdTiles.length > 0) {
+                    actions.placeAddedTiles(
+                        createdTiles.map((tile) => tile.id),
+                        groupKey
+                    )
+                }
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
                     const dashboard = {
                         ...values.dashboard,

@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
+import { dashboardResult, tileFromInsight } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -370,21 +370,35 @@ describe('addSavedInsightsModalLogic', () => {
         })
     })
 
-    it('refreshes the mounted dashboard after adding an insight', async () => {
-        initKeaTests()
-        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, []) })
-        dashboard.mount()
-        const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
-        jest.spyOn(insightsApi, 'addToDashboard').mockResolvedValue({ id: 3, dashboard_id: 1 })
+    it.each([
+        { name: 'places a new tile in the open tab', existingTiles: [], placedTileIds: [3] },
+        {
+            name: 'leaves a tile that was already on the dashboard in its own group',
+            existingTiles: [tileFromInsight(createInsight(2), 3)],
+            placedTileIds: [],
+        },
+    ])(
+        'refreshes the mounted dashboard after adding an insight, and $name',
+        async ({ existingTiles, placedTileIds }) => {
+            initKeaTests()
+            const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, existingTiles) })
+            dashboard.mount()
+            const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
+            const placeAddedTiles = jest.spyOn(dashboard.actions, 'placeAddedTiles')
+            jest.spyOn(insightsApi, 'addToDashboard').mockResolvedValue({ id: 3, dashboard_id: 1 })
 
-        const logic = addSavedInsightsModalLogic()
-        logic.mount()
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
 
-        await expectLogic(logic, () => logic.actions.addInsightToDashboard(createInsight(1), 1)).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.addInsightToDashboard(createInsight(1), 1)
+            ).toFinishAllListeners()
 
-        expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+            expect(placeAddedTiles).toHaveBeenCalledWith(placedTileIds)
+            expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
 
-        logic.unmount()
-        dashboard.unmount()
-    })
+            logic.unmount()
+            dashboard.unmount()
+        }
+    )
 })

@@ -55,7 +55,8 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
         addWidgetModalOpen,
         addWidgetTileLoading,
     } = useValues(dashboardLogic)
-    const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles, closeTileModal } = useActions(dashboardLogic)
+    const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles, closeTileModal, createTiles } =
+        useActions(dashboardLogic)
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
@@ -142,6 +143,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                             onClose={closeTile}
                             dashboard={dashboard}
                             imageTileId={selectedImageTileId}
+                            onCreateTile={(tile) => createTiles([tile])}
                         />
                     ) : (
                         <TextCardModal
@@ -149,6 +151,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                             onClose={closeTile}
                             dashboard={dashboard}
                             textTileId={textTileId}
+                            onCreateTile={(tile) => createTiles([tile])}
                         />
                     )}
                     <ButtonTileCardModal
@@ -156,6 +159,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                         onClose={closeTile}
                         dashboard={dashboard}
                         buttonTileId={buttonTileId}
+                        onCreateTile={(tile) => createTiles([tile])}
                     />
                     {shouldRenderAddWidget ? (
                         <Suspense

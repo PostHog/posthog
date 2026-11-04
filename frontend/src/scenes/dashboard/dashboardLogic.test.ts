@@ -472,6 +472,14 @@ describe('dashboardLogic', () => {
                 expectedKeys: null,
             },
             {
+                name: 'removes a group whose last tile was deleted',
+                dispatch: () => {
+                    logic.actions.removeTile(dashboards[5].tiles[1])
+                    logic.actions.removeTileGroup('other')
+                },
+                expectedKeys: ['target', 'empty'],
+            },
+            {
                 name: 'keeps a group whose last tile moved out only in an unsaved layout edit',
                 dispatch: () => {
                     logic.actions.setDashboardEditing(
@@ -497,8 +505,129 @@ describe('dashboardLogic', () => {
             const { groups } = update.mock.calls[0][0]
             const keys = Object.keys(groups).map((key) => (['target', 'other', 'empty'].includes(key) ? key : 'added'))
             expect(keys).toEqual(expectedKeys)
+            // The change shows before the save answers.
+            expect(logic.values.dashboard?.customization?.groups).toEqual(groups)
             // The API replaces every group on write, so the others go back unchanged.
             expect(groups.target).toEqual({ collapsed: true })
+        })
+
+        it.each([
+            { display: 'tabs' as const, title: undefined, opensTab: true },
+            { display: 'sections' as const, title: ' Named ', opensTab: false },
+        ])('opens a new group in $display ready to name', async ({ display, title, opensTab }) => {
+            groupTiles({ target: { collapsed: false } })
+            dashboards[5] = {
+                ...dashboards[5],
+                user_access_level: 'editor' as DashboardType['user_access_level'],
+                customization: { ...dashboards[5].customization, group_display: display },
+            }
+            await mountDashboard()
+            const scrollSignal = logic.values.scrollToBottomSignal
+
+            logic.actions.addTileGroup(title)
+
+            const added = Object.keys(logic.values.dashboard?.customization?.groups ?? {}).find(
+                (key) => key !== 'target'
+            )!
+            expect(logic.values.dashboard?.customization?.groups?.[added]).toEqual(title ? { title: 'Named' } : {})
+            expect(logic.values.renamingTileGroupKey).toEqual(added)
+            expect(logic.values.activeTileGroupTab).toEqual(opensTab ? added : null)
+            expect(logic.values.scrollToBottomSignal).toEqual(opensTab ? scrollSignal : scrollSignal + 1)
+        })
+
+        it('creates a tile from a group menu in that group, in the same request', async () => {
+            groupTiles({ target: { collapsed: false }, other: { collapsed: false } })
+            await mountDashboard()
+            const update = jest.spyOn(dashboardsModel.actions, 'updateDashboard')
+
+            logic.actions.setAddTargetTileGroupKey('other')
+            logic.actions.createTiles([{ text: { body: 'New' } as DashboardTile['text'] }])
+
+            expect(update).toHaveBeenCalledWith({ id: 5, tiles: [{ text: { body: 'New' }, group_key: 'other' }] })
+        })
+
+        it('sends a rename made while the new group saves after that save', async () => {
+            groupTiles({ target: { collapsed: false } })
+            await mountDashboard()
+            const update = jest.spyOn(logic.actions, 'triggerDashboardUpdate')
+
+            logic.actions.addTileGroup()
+            const added = logic.values.renamingTileGroupKey!
+            logic.actions.renameTileGroup(added, 'Named')
+            expect(update).toHaveBeenCalledTimes(1)
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledTimes(2)
+            expect(update.mock.calls[1][0].groups).toEqual({
+                target: { collapsed: false },
+                [added]: { title: 'Named' },
+            })
+        })
+
+        it('reloads the dashboard when a group change fails to save', async () => {
+            groupTiles({ target: { collapsed: false } })
+            await mountDashboard()
+            useMocks({ patch: { '/api/environments/:team_id/dashboards/:id/': () => [500, {}] } })
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+            const load = jest.spyOn(logic.actions, 'loadDashboard')
+
+            logic.actions.renameTileGroup('target', 'Unsaved')
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+
+            expect(load).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+            expect(errorToast).toHaveBeenCalledWith("Couldn't save the group change. Try again.")
+        })
+
+        it.each([
+            {
+                name: 'the group whose menu started the add',
+                display: 'sections' as const,
+                before: () => logic.actions.setAddTargetTileGroupKey('other'),
+                expectedGroup: 'other',
+            },
+            {
+                name: 'the open tab',
+                display: 'tabs' as const,
+                before: () => {},
+                expectedGroup: 'target',
+            },
+            {
+                name: 'no group after the group menu add closed',
+                display: 'sections' as const,
+                before: () => {
+                    logic.actions.setAddTargetTileGroupKey('other')
+                    logic.actions.closeTileModal()
+                },
+                expectedGroup: null,
+            },
+        ])('puts a tile added from the Add menu into $name', async ({ display, before, expectedGroup }) => {
+            groupTiles({ target: { collapsed: false }, other: { collapsed: false }, empty: { collapsed: false } })
+            dashboards[5] = {
+                ...dashboards[5],
+                customization: { ...dashboards[5].customization, group_display: display },
+            }
+            await mountDashboard()
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            const tilePatches: unknown[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/dashboards/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        if (body.tiles) {
+                            tilePatches.push(body.tiles)
+                        }
+                        return [200, dashboards[5]]
+                    },
+                },
+            })
+            before()
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            const tileId = dashboards[5].tiles[0].id
+
+            await expectLogic(logic, () => logic.actions.placeAddedTiles([tileId])).toFinishAllListeners()
+
+            expect(tilePatches).toEqual(expectedGroup ? [[{ id: tileId, group_key: expectedGroup }]] : [])
         })
 
         it.each([

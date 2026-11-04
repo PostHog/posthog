@@ -18,9 +18,11 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { openAddTileGroupDialog } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenu'
-
-import { DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import {
+    DashboardAddTileKey,
+    getDashboardAddTileOptions,
+    groupDashboardAddTileOptions,
+} from './dashboardAddTileOptions'
 import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
@@ -61,7 +63,7 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
         setAddWidgetModalOpen,
-        onAddGroup: tileGroupSectionsEnabled ? () => openAddTileGroupDialog(addTileGroup) : undefined,
+        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
     })
 
     return (
@@ -102,25 +104,29 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
                         Add
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-40">
-                        <DropdownMenuGroup>
-                            <DropdownMenuLabel>Content</DropdownMenuLabel>
-                            {options.map((option) => {
-                                return (
-                                    <DropdownMenuItem
-                                        key={option.key}
-                                        onClick={option.onClick}
-                                        data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
-                                    >
-                                        {option.label}
-                                        {option.tag && (
-                                            <Badge variant="success" className="ml-auto">
-                                                {option.tag.toUpperCase()}
-                                            </Badge>
-                                        )}
-                                    </DropdownMenuItem>
-                                )
-                            })}
-                        </DropdownMenuGroup>
+                        {groupDashboardAddTileOptions(options).map(({ section, title, options: sectionOptions }) => {
+                            return (
+                                <DropdownMenuGroup key={section}>
+                                    <DropdownMenuLabel>{title}</DropdownMenuLabel>
+                                    {sectionOptions.map((option) => {
+                                        return (
+                                            <DropdownMenuItem
+                                                key={option.key}
+                                                onClick={option.onClick}
+                                                data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
+                                            >
+                                                {option.label}
+                                                {option.tag && (
+                                                    <Badge variant="success" className="ml-auto">
+                                                        {option.tag.toUpperCase()}
+                                                    </Badge>
+                                                )}
+                                            </DropdownMenuItem>
+                                        )
+                                    })}
+                                </DropdownMenuGroup>
+                            )
+                        })}
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}

@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardTile, DashboardTileIdOrNew, DashboardType } from '~/types'
+import { DashboardTile, DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 
@@ -25,6 +25,8 @@ export interface TextCardModalProps {
     textTileId: DashboardTileIdOrNew
     onClose: () => void
     tileType: TextCardTileType
+    /** Creates the new tile. Without it, the tile is created on the dashboard as is. */
+    onCreateTile?: (tile: NewDashboardTile) => void
 }
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
@@ -185,15 +187,15 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             },
             submit: (formValues) => {
                 if (props.textTileId === null) {
-                    actions.updateDashboard({
-                        id: props.dashboard.id,
-                        tiles: [
-                            {
-                                text: { body: formValues.body, agent_context: formValues.agent_context },
-                                transparent_background: formValues.transparent_background,
-                            },
-                        ],
-                    })
+                    const tile = {
+                        text: { body: formValues.body, agent_context: formValues.agent_context },
+                        transparent_background: formValues.transparent_background,
+                    }
+                    if (props.onCreateTile) {
+                        props.onCreateTile(tile)
+                    } else {
+                        actions.updateDashboard({ id: props.dashboard.id, tiles: [tile] })
+                    }
                 } else {
                     const updatedTiles = (props.dashboard.tiles || []).reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {

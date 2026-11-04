@@ -1,7 +1,32 @@
 export type DashboardAddTileKey = 'insight' | 'text' | 'image' | 'button' | 'widget' | 'group'
 
+/** Content adds a tile; layout organizes the tiles already there. */
+export type DashboardAddTileSection = 'content' | 'layout'
+
+export const DASHBOARD_ADD_TILE_SECTION_TITLES: Record<DashboardAddTileSection, string> = {
+    content: 'Content',
+    layout: 'Layout',
+}
+
+export interface DashboardAddTileOptionGroup {
+    section: DashboardAddTileSection
+    title: string
+    options: DashboardAddTileOption[]
+}
+
+export function groupDashboardAddTileOptions(options: DashboardAddTileOption[]): DashboardAddTileOptionGroup[] {
+    return (Object.keys(DASHBOARD_ADD_TILE_SECTION_TITLES) as DashboardAddTileSection[])
+        .map((section) => ({
+            section,
+            title: DASHBOARD_ADD_TILE_SECTION_TITLES[section],
+            options: options.filter((option) => option.section === section),
+        }))
+        .filter((group) => group.options.length > 0)
+}
+
 export interface DashboardAddTileOption {
     key: DashboardAddTileKey
+    section: DashboardAddTileSection
     label: string
     tag?: 'new'
     onClick: () => void
@@ -27,14 +52,20 @@ export function getDashboardAddTileOptions({
     onAddGroup,
 }: DashboardAddTileHandlers): DashboardAddTileOption[] {
     const options: DashboardAddTileOption[] = [
-        { key: 'insight', label: 'Charts', onClick: onAddInsight },
-        { key: 'text', label: 'Add text', onClick: onAddText },
-        { key: 'image', label: 'Image', onClick: onAddImage },
-        { key: 'button', label: 'Button', onClick: onAddButton },
-        { key: 'widget', label: 'Widget', onClick: () => setAddWidgetModalOpen(true) },
+        { key: 'insight', section: 'content', label: 'Charts', onClick: onAddInsight },
+        { key: 'text', section: 'content', label: 'Add text', onClick: onAddText },
+        { key: 'image', section: 'content', label: 'Image', onClick: onAddImage },
+        { key: 'button', section: 'content', label: 'Button', onClick: onAddButton },
+        { key: 'widget', section: 'content', label: 'Widget', onClick: () => setAddWidgetModalOpen(true) },
     ]
     if (onAddGroup) {
-        options.push({ key: 'group', label: 'Group', tag: 'new', onClick: onAddGroup })
+        options.push({
+            key: 'group',
+            section: 'layout',
+            label: 'Group',
+            tag: 'new',
+            onClick: onAddGroup,
+        })
     }
     return options
 }

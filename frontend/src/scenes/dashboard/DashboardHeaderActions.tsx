@@ -19,9 +19,14 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
-import { openAddTileGroupDialog } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenu'
 
-import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import {
+    DashboardAddTileHandlers,
+    DashboardAddTileKey,
+    DashboardAddTileOption,
+    getDashboardAddTileOptions,
+    groupDashboardAddTileOptions,
+} from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
@@ -41,7 +46,7 @@ export function getAddTileMenuItems({
     onBeforeSelect,
     ...handlers
 }: DashboardAddTileHandlers & { onBeforeSelect?: () => void }): LemonMenuItems {
-    const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
+    const toItem = (option: DashboardAddTileOption): LemonMenuItem => ({
         label: option.label,
         tag: option.tag,
         onClick: () => {
@@ -49,9 +54,12 @@ export function getAddTileMenuItems({
             option.onClick()
         },
         'data-attr': ADD_TILE_MENU_DATA_ATTRS[option.key],
-    }))
+    })
 
-    return [{ title: 'Content', items }]
+    return groupDashboardAddTileOptions(getDashboardAddTileOptions(handlers)).map(({ title, options }) => ({
+        title,
+        items: options.map(toItem),
+    }))
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
@@ -102,7 +110,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddImage: openImageTileModal,
                         onAddButton: openButtonTileModal,
                         setAddWidgetModalOpen,
-                        onAddGroup: tileGroupSectionsEnabled ? () => openAddTileGroupDialog(addTileGroup) : undefined,
+                        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
                     })}
                     onVisibilityChange={(visible) => {
                         if (visible) {

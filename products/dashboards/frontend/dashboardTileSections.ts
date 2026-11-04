@@ -32,7 +32,7 @@ export function isTileGroupSectionKey(sectionKey: string): boolean {
     return sectionKey.startsWith(TILE_GROUP_SECTION_KEY_PREFIX)
 }
 
-function getTileGroupSectionKey(groupKey: string): string {
+export function getTileGroupSectionKey(groupKey: string): string {
     return `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`
 }
 

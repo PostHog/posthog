@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
-import { SceneMenuBarItem, SceneMenuBarSubMenu } from '~/layout/scenes/components/SceneMenuBar'
+import { SceneMenuBarItem, SceneMenuBarSeparator, SceneMenuBarSubMenu } from '~/layout/scenes/components/SceneMenuBar'
 
-import { openAddTileGroupDialog } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenu'
-
-import { getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import { getDashboardAddTileOptions, groupDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardAddTileSubMenu(): JSX.Element {
@@ -24,20 +23,25 @@ export function DashboardAddTileSubMenu(): JSX.Element {
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
         setAddWidgetModalOpen,
-        onAddGroup: tileGroupSectionsEnabled ? () => openAddTileGroupDialog(addTileGroup) : undefined,
+        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
     })
 
     return (
         <SceneMenuBarSubMenu label="Add">
-            {options.map((option) => (
-                <SceneMenuBarItem
-                    key={option.key}
-                    opensFloatingUi
-                    onClick={option.onClick}
-                    data-attr={`dashboard-menubar-add-${option.key}`}
-                >
-                    {option.label}
-                </SceneMenuBarItem>
+            {groupDashboardAddTileOptions(options).map(({ section, options: sectionOptions }, index) => (
+                <Fragment key={section}>
+                    {index > 0 && <SceneMenuBarSeparator />}
+                    {sectionOptions.map((option) => (
+                        <SceneMenuBarItem
+                            key={option.key}
+                            opensFloatingUi
+                            onClick={option.onClick}
+                            data-attr={`dashboard-menubar-add-${option.key}`}
+                        >
+                            {option.label}
+                        </SceneMenuBarItem>
+                    ))}
+                </Fragment>
             ))}
         </SceneMenuBarSubMenu>
     )
