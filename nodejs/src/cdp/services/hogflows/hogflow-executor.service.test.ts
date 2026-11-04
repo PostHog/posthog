@@ -43,11 +43,15 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-execu
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { AcceptedSend } from './transactional-email'
 
-async function histogramCount(name: string, labels: Record<string, string>): Promise<number> {
+async function histogramCount(
+    name: string,
+    labels: Record<string, string>,
+    series: 'count' | 'sum' = 'count'
+): Promise<number> {
     const values: { labels: Record<string, string>; value: number; metricName?: string }[] = await getMetricValues(name)
     const sample = values.find(
         (value) =>
-            value.metricName === `${name}_count` &&
+            value.metricName === `${name}_${series}` &&
             Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
     )
     return sample?.value ?? 0
@@ -378,6 +382,7 @@ describe('Hogflow Executor', () => {
                     filterGlobals: expect.any(Object),
                     functionId: invocation.hogFlow.id,
                     queue: 'hogflow',
+                    queueDueAt: expect.any(DateTime),
                     queueMetadata: undefined,
                     queueScheduledAt: undefined,
                     queueSource: undefined,
@@ -3570,7 +3575,7 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('labels a fast email after a capped bulk email in the same run team_capped=false', async () => {
+        it('times a fast email after a capped bulk email in the same run from its own start, team_capped=false', async () => {
             await insertEmailSetup('ses')
             jest.spyOn(SESv2Client.prototype, 'send').mockResolvedValue({ MessageId: 'sent' } as never)
             const fastEmail = {
@@ -3603,7 +3608,7 @@ if (not res.success) { throw Error(res.error) }`,
             // The stored row of email_1 after the team sending cap delayed it.
             const capped: CyclotronJobInvocationHogFlow = {
                 ...routed.invocation,
-                queueDueAt: DateTime.utc(),
+                queueDueAt: DateTime.utc().minus({ hours: 1 }),
                 queueMetadata: {
                     ...routed.invocation.queueMetadata,
                     emailWait: {
@@ -3612,7 +3617,7 @@ if (not res.success) { throw Error(res.error) }`,
                             'email_1',
                             routed.invocation.state.actionStepCount
                         ),
-                        firstDueAt: DateTime.utc().toISO(),
+                        firstDueAt: DateTime.utc().minus({ hours: 1 }).toISO(),
                         teamCapped: true,
                     },
                 },
@@ -3622,12 +3627,14 @@ if (not res.success) { throw Error(res.error) }`,
             const fastUncapped = { source: 'workflow', priority_class: 'fast', team_capped: 'false' }
             const bulkCappedBefore = await histogramCount(name, bulkCapped)
             const fastUncappedBefore = await histogramCount(name, fastUncapped)
+            const fastWaitBefore = await histogramCount(name, fastUncapped, 'sum')
 
             const result = await executor.execute(capped)
 
             expect(result.finished).toBe(true)
             expect(await histogramCount(name, bulkCapped)).toBe(bulkCappedBefore + 1)
             expect(await histogramCount(name, fastUncapped)).toBe(fastUncappedBefore + 1)
+            expect((await histogramCount(name, fastUncapped, 'sum')) - fastWaitBefore).toBeLessThan(60_000)
         })
 
         it.each([
