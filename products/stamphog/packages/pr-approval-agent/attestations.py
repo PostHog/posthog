@@ -3,8 +3,7 @@
 An attestation is a policy entry (see `policy.Attestation`). It names a CI result, the deny
 categories it may lift, and `paths`, the files it is expected to judge. A result lifts its
 categories only for the files it lists itself, intersected with `paths` and the PR's files.
-The engine knows no ecosystem, tool or bot: what a passing result proves is the publisher's
-business.
+The engine knows no ecosystem, tool or bot. The publisher decides what a passing result proves.
 
 A result lists its files in a `<!-- stamphog:v1 [...] -->` marker in the check's summary. It is
 read from the head commit's check runs, which GitHub binds to that commit.

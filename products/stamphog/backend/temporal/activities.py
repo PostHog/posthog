@@ -509,7 +509,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
-        # Head-commit check runs carry the check attestations the engine reads (see attestations.py there).
+        # The engine reads check attestations from the head commit's check runs.
         check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)

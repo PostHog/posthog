@@ -121,7 +121,7 @@ class Attestation:
     """A CI result trusted to lift deny categories for the files it lists (see attestations.py).
 
     The source is a check run by name, optionally pinned to the App that publishes it. `paths` are
-    regexes for the files the result is expected to judge: a PR that changes one waits for the
+    regexes for the files the result is expected to judge. A PR that changes one waits for the
     result, and the result can lift nothing outside them. The publisher's own trigger must cover
     them, or such a PR waits for a run that never comes.
     """

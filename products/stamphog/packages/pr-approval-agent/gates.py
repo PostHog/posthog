@@ -543,7 +543,7 @@ def detect_deny_categories(
 ) -> list[str]:
     """Categories hard-denied by the changed file paths. Titles never deny.
 
-    ``lifted`` maps a category to the files an attestation lifted it for: those files no longer
+    ``lifted`` maps a category to the files an attestation lifted it for. Those files no longer
     deny that category, and still deny every other one.
     """
     hits: set[str] = set()

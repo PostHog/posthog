@@ -513,7 +513,7 @@ class Pipeline:
             "pending_attestations": [
                 {"name": rule.name, "check": rule.check, "lifts": list(rule.lifts)} for rule in pending_rules
             ],
-            # File by file, not by category: a denied file outside an attestation's paths stays denied.
+            # Lift file by file, not by category, so a denied file outside an attestation's paths stays denied.
             "pending_attestations_clear_deny": clears_deny(pending_rules),
             # A failed result can pass on a re-run, so the deny is not one only a human can clear.
             "attestations_could_clear_deny": clears_deny(POLICY.attestations),
