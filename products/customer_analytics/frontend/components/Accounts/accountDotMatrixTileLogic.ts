@@ -27,6 +27,7 @@ import type { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 import type { AccountActivityMatrixProps } from './accountActivityMatrix'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
+import { getMatrixHogQLScopeWarning } from './dotMatrixHogQLScope'
 import {
     DOT_MATRIX_CONFIG_MAX_BYTES,
     getDotMatrixConfigBytes,
@@ -74,6 +75,7 @@ export interface accountDotMatrixTileLogicValues {
     queryDraftDirty: boolean
     queryEditorOpen: boolean
     querySaveError: string | null
+    queryScopeWarning: string | null
     savedResultStale: boolean
     selectedSeries: string[]
     sourceKind: DotMatrixTileSource['kind'] | null
@@ -185,6 +187,7 @@ export interface accountDotMatrixTileLogicMeta {
                 notices: string[]
             }
         ) => string[]
+        queryScopeWarning: (queryDraft: string) => string | null
         querySaveError: (
             config: DotMatrixTileConfig,
             matrixResult: DotMatrixTileResult | null,
@@ -407,6 +410,10 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                     )
                     return known.size ? config.selectedSeries.filter((key) => known.has(key)) : config.selectedSeries
                 },
+            ],
+            queryScopeWarning: [
+                (s) => [s.queryDraft],
+                (query: string): string | null => getMatrixHogQLScopeWarning(query),
             ],
             querySaveError: [
                 (s) => [s.config, s.matrixResult, s.queryDraft, s.mappingDraft, s.matrixResultLoading, s.loadError],

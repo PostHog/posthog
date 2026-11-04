@@ -10,6 +10,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { getMatrixHogQLScope } from './dotMatrixHogQLScope'
 import type { DotMatrixTileSource, DotMatrixWeeks } from './dotMatrixTileConfig'
 
 export interface DotMatrixQueryContext {
@@ -25,7 +26,7 @@ export type DotMatrixTileResult =
     | { kind: 'hogql'; query: string; result: HogQLQueryResponse }
 
 export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryContext): HogQLQuery {
-    if (query.includes('{filters}') && (context.groupTypeIndex == null || !context.externalId)) {
+    if (getMatrixHogQLScope(query).usesFilters && (context.groupTypeIndex == null || !context.externalId)) {
         // Status 400 marks this as the user's to fix, like a SQL mistake, so it isn't reported as an exception.
         throw Object.assign(
             new Error(

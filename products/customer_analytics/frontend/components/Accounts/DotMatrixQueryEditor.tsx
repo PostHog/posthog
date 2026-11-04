@@ -13,7 +13,8 @@ import { DotMatrixColumnMapping } from './DotMatrixColumnMapping'
 const CodeEditor = lazyWithRetry(async () => ({ default: (await import('lib/monaco/CodeEditor')).CodeEditor }))
 
 export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accountDotMatrixTileLogic> }): JSX.Element {
-    const { queryDraft, mappingDraft, matrixResult, matrixResultLoading, querySaveError } = useValues(logic)
+    const { queryDraft, mappingDraft, matrixResult, matrixResultLoading, querySaveError, queryScopeWarning } =
+        useValues(logic)
     const { setQueryDraft, setMappingDraft, runQuery, saveQuery, cancelQuery } = useActions(logic)
     const columns = matrixResult?.kind === 'hogql' ? (matrixResult.result.columns ?? []) : []
     const names = [...new Set(columns.filter((column): column is string => typeof column === 'string'))]
@@ -24,6 +25,7 @@ export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accou
                     'Use {filters} for this account and the selected weeks. {account_id} and {account_external_id} are also available. Your SQL controls which data appears.'
                 }
             </p>
+            {queryScopeWarning && <LemonBanner type="warning">{queryScopeWarning}</LemonBanner>}
             <Suspense fallback={<Spinner />}>
                 <CodeEditor
                     queryKey={`dot-matrix-${logic.props.instanceId}`}
