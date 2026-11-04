@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
+        True,
+        "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
         5000,
         "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "

@@ -7282,6 +7282,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
@@ -8247,6 +8249,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */

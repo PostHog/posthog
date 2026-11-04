@@ -137,6 +137,46 @@ A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard i
 
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
 
+### Run the Storybook WebKit shards on 4-CPU runners
+
+**Verdict: rejected** · Nov 2026 · [#128516](https://github.com/PostHog/posthog/pull/128516), [run](https://github.com/PostHog/posthog/actions/runs/41694856025)
+
+The 8 WebKit shards run on `depot-ubuntu-24.04` (2 CPUs) with 2 Jest workers. Depot metrics show the test runner step at 84% mean CPU and above 90% for a third of the time.
+On `depot-ubuntu-24.04-4` the test runner step took 228s median, against about 362s on 2 CPUs.
+
+Each shard also has about 190s of setup, and more CPUs do not make the setup faster.
+Thus the slowest shard finished only about 50s sooner (477s against about 526s), and the 4-CPU runner costs twice as much per minute. WebKit cost increased by about 75%.
+WebKit runs only on master pushes and in the merge queue, so 50s gives little value. Fewer shards on 4 CPUs are slower than today, because each shard then has more tests.
+
+The 2-CPU shards peaked at 86% memory. If WebKit starts to fail with out-of-memory errors, more memory is the reason to try a larger runner again.
+
+_Also asked as:_ bigger runners for WebKit, WebKit visual regression is slow, give Storybook more CPU
+
+### Run the Node.js serial tests in 2 duration-balanced shards
+
+**Verdict: rejected** · Nov 2026 · [#128491](https://github.com/PostHog/posthog/pull/128491), [2-shard run](https://github.com/PostHog/posthog/actions/runs/41702931651), [3-shard run](https://github.com/PostHog/posthog/actions/runs/41718453769)
+
+The serial lane runs about 270s of Jest in `--runInBand`, and each shard has about 230s of setup. A sequencer that splits the files by measured duration (`nodejs/jest.serial.sequencer.js`) can make 2 shards almost equal.
+The proposal was to use 2 shards and remove one runner from each run.
+
+With 2 shards the Jest steps took 153s and 186s. The serial lane then finished about 30s later than the old worst hash shard, and it was the last Node.js job.
+The JUnit times in the duration map do not include the start-up cost of each test file, so the measured shards were 15–40% heavier than the map predicted.
+With 3 shards the Jest steps took 119s, 106s and 126s, and the serial lane was no longer the slowest job.
+
+_Also asked as:_ fewer Node.js serial shards, merge the serial shards, save a runner on the Node.js tests
+
+### Run the Rust ingestion consumer e2e job on 2-CPU runners
+
+**Verdict: rejected** · Nov 2026 · [#129158](https://github.com/PostHog/posthog/pull/129158), [run](https://github.com/PostHog/posthog/actions/runs/41834630979)
+
+Depot metrics showed the job at 21% mean CPU on `depot-ubuntu-24.04-4`, so a 2-CPU runner looked sufficient.
+On `depot-ubuntu-24.04` the job took 675s, against a 358s median. The low average hides the setup steps, which use all the CPUs: `pnpm install` took 123s against about 16s, the Rust cache restore 47s against about 9s, and the personhog pre-build 47s against about 19s.
+The job then was the slowest Node.js job by about 250s.
+
+Average CPU does not show which steps are CPU-bound. Examine the time of each setup step before you move a job to a smaller runner.
+
+_Also asked as:_ smaller runner for the Rust e2e job, downsize the ingestion e2e runner, cheaper Node.js CI
+
 ### Use Bazel to scope product tests
 
 **Verdict: abandoned** · Dec 2025 to Mar 2026 · [#43397](https://github.com/PostHog/posthog/pull/43397)
@@ -478,9 +518,12 @@ Keep the full directory so every environment and role remains available to valid
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
 
+The MCP live canary uses the same workspace manifest pattern, plus `services/mcp/` and `packages/` for its dependency tree.
+It keeps the frozen filtered install and live upstream test.
+
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
-Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout. Source files do not need to exist in the PR worktree for this job.
+Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
@@ -706,7 +749,7 @@ One narrow PR from the same window did merge. [#41620](https://github.com/PostHo
 The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
 The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
 `posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
-Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `.agents/architecture.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
 Read this entry before you propose a Django-level cutover. The setting is already there.
 What is missing is everything that must be true before a person changes its value.
