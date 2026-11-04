@@ -8593,6 +8593,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
