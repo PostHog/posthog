@@ -63,10 +63,8 @@ class AlertScope(enum.StrEnum):
 
 
 # ── Alert name patterns ─────────────────────────────────────────────────────────
-# `SignalSourceConfig.config` keys holding regex patterns that a firing alert's name or its insight's
-# name must match (allow) or must not match (block). Only the `ALERT_SCOPE_SOURCE` row accepts them.
-# The patterns are user input that runs on our workers, so they compile with RE2, which runs in linear
-# time. A backtracking engine such as `re` would let one pattern stall a worker.
+# Patterns matched against a firing alert's name and its insight's name. Only `ALERT_SCOPE_SOURCE` accepts them.
+# They compile with RE2, which runs in linear time, so a user pattern cannot stall a worker as `re` can.
 ALERT_ALLOW_PATTERNS_KEY = "alert_allow_patterns"
 ALERT_BLOCK_PATTERNS_KEY = "alert_block_patterns"
 ALERT_PATTERNS_MAX_COUNT = 20

@@ -100,8 +100,7 @@ class AlertNamePatterns:
 
     allow: tuple[str, ...] = ()
     block: tuple[str, ...] = ()
-    # A stored list failed validation, or the patterns could not be read. Callers then drop every alert
-    # instead of applying part of a filter or none of it.
+    # The stored patterns could not be read or validated, so callers drop every alert.
     invalid: bool = False
 
 

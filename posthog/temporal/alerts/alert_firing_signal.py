@@ -35,8 +35,7 @@ logger = structlog.get_logger(__name__)
 
 SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "alert_firing"
-# The product analytics source row. Its `enabled` flag, its `alert_scope` key and its alert name patterns
-# govern this signal too.
+# The product analytics source row. Its `enabled` flag and its alert config keys govern this signal too.
 _SOURCE_CONFIG_TYPE = "anomaly_investigation"
 _ALL_FIRING_ALERTS = "all_firing_alerts"
 
