@@ -195,7 +195,9 @@ A comment names the cut owners and why.
 
 `routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
 
-There is no API or admin page for these settings yet. Set them with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_mode="fallback", routing_fork_labels={"team-alpha": "team/alpha"})`.
+`routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+`routing_fork_labels` has no API yet. Set it with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_fork_labels={"team-alpha": "team/alpha"})`.
 
 The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.

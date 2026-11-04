@@ -28,6 +28,15 @@ class RoutingMode(LabeledStrEnum):
     FALLBACK = "fallback", "When stamphog does not approve"
 
 
+class OwnersFileStatus(LabeledStrEnum):
+    """Whether a repository's default branch has the root owners.yaml that reviewer routing reads."""
+
+    FOUND = "found", "Found"
+    MISSING = "missing", "Missing"
+    # The check could not ask GitHub: no installation to read with, or GitHub answered with an error.
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
 # The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
