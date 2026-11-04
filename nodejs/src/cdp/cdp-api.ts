@@ -196,6 +196,7 @@ export class CdpApi {
     private rescheduleJwt: ScopedServiceJwt
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
+    private manualRunJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
@@ -277,6 +278,11 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
+        // The web tier mints this token as it mints the cancel tokens, so it shares their key on its own audience.
+        this.manualRunJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
         this.stepResumeJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
             config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
@@ -352,6 +358,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
             asyncHandler(this.postHogflowScheduledInvocation)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/manual_invocations',
+            asyncHandler(this.postHogFlowManualInvocation)
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
@@ -1027,6 +1037,46 @@ export class CdpApi {
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
             res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    // Auth: a per-call JWT that Django mints for this team and workflow after it checks that the
+    // user may edit the workflow. The route is exempt from the internal API secret.
+    private postHogFlowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        if (!this.manualRunJwt.enabled) {
+            return res.status(503).json({
+                error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+            })
+        }
+        if (!this.verifyScopedWorkflowJwt(this.manualRunJwt, req, res, 'manual run')) {
+            return
+        }
+
+        const { id, team_id } = req.params
+        const { user_id, variables } = req.body ?? {}
+
+        if (typeof user_id !== 'string' || !user_id) {
+            return res.status(400).json({ error: 'user_id is required' })
+        }
+        if (
+            variables !== undefined &&
+            (typeof variables !== 'object' || variables === null || Array.isArray(variables))
+        ) {
+            return res.status(400).json({ error: 'variables must be an object' })
+        }
+
+        try {
+            const invocationId = await this.cdpSourceWebhooksConsumer.processManualTrigger(parseInt(team_id), id, {
+                userId: user_id,
+                variables: variables ?? {},
+            })
+            return res.json({ status: 'queued', invocation_id: invocationId })
+        } catch (error) {
+            if (error instanceof SourceWebhookError) {
+                return res.status(error.status).json({ error: error.message })
+            }
+            logger.error('Error handling hogflow manual invocation', { error })
+            return res.status(500).json({ error: 'Internal error' })
         }
     }
 
