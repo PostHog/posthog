@@ -18,7 +18,7 @@ export interface issuePaneSectionsLogicActions {
 
 export type issuePaneSectionsLogicType = MakeLogicType<issuePaneSectionsLogicValues, issuePaneSectionsLogicActions>
 
-/** Which sections of the issue page's right pane are open. One choice per person, kept across issues. */
+/** Which sections of the issue page's right pane are open. One choice per browser, kept across issues and projects. */
 export const issuePaneSectionsLogic = kea<issuePaneSectionsLogicType>([
     // pinned: the path is the localStorage key of the persisted reducers, so renaming it resets everyone's choice
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingIssueScene', 'issuePaneSectionsLogic']),
