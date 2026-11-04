@@ -138,10 +138,17 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert normal_response.hasMore is None
         assert query.query.endswith("LIMIT 3 OFFSET 2")
 
-    def test_hogql_query_filters(self):
+    @parameterized.expand(
+        [
+            ("", None),
+            (" and event = {event_name}", {"event_name": "clicky-3"}),
+        ]
+    )
+    def test_hogql_query_filters(self, suffix, values):
         runner = self._create_runner(
             HogQLQuery(
-                query="select count(event) from events where {filters}",
+                query="select count(event) from events where {filters}" + suffix,
+                values=values,
                 filters=HogQLFilters(properties=[HogQLPropertyFilter(key="event='clicky-3'")]),
             )
         )
@@ -156,7 +163,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        self.assertEqual(clear_locations(query), expected)
+        if not suffix:
+            self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
 

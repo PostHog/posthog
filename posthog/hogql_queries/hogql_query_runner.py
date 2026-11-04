@@ -206,6 +206,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
+        # Keep filter placeholders for to_query, which resolves them after parsing values.
+        if values and self.query.filters:
+            values = {"filters": ast.Placeholder(expr=ast.Field(chain=["filters"])), **values}
         with self.timings.measure("parse_select"):
             parsed_select = parse_select(
                 self.query.query,
