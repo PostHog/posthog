@@ -110,6 +110,8 @@ export interface DataTableProps<TData, TValue> {
     data: TData[]
     /** Opens or selects a record when the user clicks a non-interactive part of its row. */
     onRowClick?: (row: TData) => void
+    /** Optional class name for a row, for example to highlight a selected record. */
+    rowClassName?: (row: TData) => string | undefined
     /** Called when the user moves between pages. Page numbers are one-based. */
     onPageChange?: (page: number, nextPage: number) => void
     /** Sizing/scroll classes for the table container (forwarded to the Table primitive). */
@@ -351,18 +353,20 @@ function DataTableHead<TData>({
 }
 
 // Memoized so that a resize, which ends by setting a width on the table, does not render every row again. For the same
-// reason, a caller with its own state should keep `columns`, `onRowClick` and `empty` stable between renders.
+// reason, a caller with its own state should keep `columns`, `onRowClick`, `rowClassName` and `empty` stable between renders.
 function DataTableBodyInner<TData, TValue>({
     rows,
     columns,
     filler,
     onRowClick,
+    rowClassName,
     empty,
 }: {
     rows: Row<TData>[]
     columns: ColumnDef<TData, TValue>[]
     filler: boolean
     onRowClick?: (row: TData) => void
+    rowClassName?: (row: TData) => string | undefined
     empty: React.ReactNode
 }): React.ReactElement {
     return (
@@ -372,11 +376,11 @@ function DataTableBodyInner<TData, TValue>({
                     <TableRow
                         key={row.id}
                         data-state={row.getIsSelected() ? 'selected' : undefined}
-                        className={
-                            onRowClick
-                                ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
-                                : undefined
-                        }
+                        className={cn(
+                            onRowClick &&
+                                'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+                            rowClassName?.(row.original)
+                        )}
                         tabIndex={onRowClick ? 0 : undefined}
                         onClick={
                             onRowClick
@@ -439,6 +443,7 @@ function DataTable<TData, TValue>({
     columns,
     data,
     onRowClick,
+    rowClassName,
     className,
     stickyHeader,
     viewportRef,
@@ -526,6 +531,7 @@ function DataTable<TData, TValue>({
                 columns={columns}
                 filler={hasFiller}
                 onRowClick={onRowClick}
+                rowClassName={rowClassName}
                 empty={empty}
             />
         </Table>

@@ -63,9 +63,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.source import SharePointSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
@@ -571,8 +573,7 @@ class TestExternalDataSchema(APIBaseTest):
                 # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
                 # element is an unrelated table; the endpoint must pick the one matching instance.name.
                 "name_match_when_names_filter_ignored",
-                StripeSource,
-                {"stripe_secret_key": "test_key"},
+                False,
                 None,
                 False,
                 [["C123"]],
@@ -585,8 +586,7 @@ class TestExternalDataSchema(APIBaseTest):
             ),
             (
                 "resource_id_match_after_rename",
-                GoogleSheetsSource,
-                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                True,
                 {"schema_metadata": {"source_resource_id": "123"}},
                 True,
                 [["C123"], None],
@@ -608,8 +608,7 @@ class TestExternalDataSchema(APIBaseTest):
             ),
             (
                 "name_filter_kept_when_name_still_matches_resource_id",
-                GoogleSheetsSource,
-                {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/example/edit"},
+                True,
                 {"schema_metadata": {"source_resource_id": "123"}},
                 True,
                 [["C123"]],
@@ -630,11 +629,9 @@ class TestExternalDataSchema(APIBaseTest):
                 ],
             ),
             (
-                # A SharePoint endpoint table has no resource id, so discovery keeps the name filter
-                # and skips the file crawl.
+                # A schema with no stored resource id keeps the name filter and skips the full discovery.
                 "name_filter_kept_without_stored_resource_id",
-                SharePointSource,
-                {"tenant_id": "tenant", "client_id": "client", "client_secret": "secret"},
+                True,
                 None,
                 True,
                 [["C123"]],
@@ -649,15 +646,14 @@ class TestExternalDataSchema(APIBaseTest):
     def test_incremental_fields_matches_discovered_schema(
         self,
         _name,
-        source_class,
-        job_inputs,
+        uses_stable_schema_resource_ids,
         sync_type_config,
         honors_names_filter,
         expected_names_per_call,
         discovered_schemas,
     ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=source_class().source_type, job_inputs=job_inputs
+            team=self.team, source_type=StripeSource().source_type, job_inputs={"stripe_secret_key": "test_key"}
         )
         schema = ExternalDataSchema.objects.create(
             name="C123",
@@ -675,8 +671,9 @@ class TestExternalDataSchema(APIBaseTest):
             return [s for s in discovered_schemas if s.name in names]
 
         with (
-            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(source_class, "get_schemas", side_effect=get_schemas) as mock_get_schemas,
+            mock.patch.object(StripeSource, "uses_stable_schema_resource_ids", uses_stable_schema_resource_ids),
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=get_schemas) as mock_get_schemas,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -5193,7 +5190,6 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             (ExternalDataSourceType.CLICKHOUSE, True),
             (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
-            (ExternalDataSourceType.ZENDESK, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
@@ -5671,21 +5667,21 @@ class TestFanoutParentSelection(APIBaseTest):
     Temporal server, while every Temporal touchpoint here is behind a mock.
     """
 
-    def _create_sentry_fanout_pair(self, parent_sync_type, child_should_sync=False, parent_should_sync=False):
+    def _create_fanout_pair(self, parent_sync_type, child_should_sync=False, parent_should_sync=False):
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.SENTRY,
-            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
         )
         parent = ExternalDataSchema.objects.create(
-            name="issues",
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
             team=self.team,
             source=source,
             should_sync=parent_should_sync,
             sync_type=parent_sync_type,
         )
         child = ExternalDataSchema.objects.create(
-            name="issue_events",
+            name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
             team=self.team,
             source=source,
             should_sync=child_should_sync,
@@ -5731,7 +5727,7 @@ class TestFanoutParentSelection(APIBaseTest):
         # These are the configurations teams already run, so enabling the child has to keep
         # working. The parent must come out byte-identical either way: enabling one bills its
         # rows, and even a redundant write would churn its Temporal schedule.
-        _, parent, child = self._create_sentry_fanout_pair(
+        _, parent, child = self._create_fanout_pair(
             parent_sync_type=parent_sync_type, parent_should_sync=parent_should_sync
         )
         parent_updated_at = parent.updated_at
@@ -5749,7 +5745,7 @@ class TestFanoutParentSelection(APIBaseTest):
     def test_parent_stays_editable_while_a_child_syncs_from_it(self, action):
         # The child degrades to the parent-API path instead of stranding, so neither write is
         # protected against.
-        _, parent, _child = self._create_sentry_fanout_pair(
+        _, parent, _child = self._create_fanout_pair(
             parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             parent_should_sync=True,
             child_should_sync=True,

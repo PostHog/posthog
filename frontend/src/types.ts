@@ -1531,6 +1531,8 @@ export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
     replay_proxy_token?: string | null
+    block_token?: string | null
+    block_token_expires_at?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
@@ -6142,6 +6144,7 @@ export enum ActivityScope {
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
     OAUTH_APPLICATION = 'OAuthApplication',
+    WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
@@ -6302,6 +6305,8 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
+    /** The view stores raw Trino SQL. Only hosted Trino can run it, and HogQL cannot reference it. */
+    is_raw_managed_trino?: boolean
     /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null

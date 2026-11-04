@@ -704,3 +704,23 @@ def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool], partitio
 def test_delete_tables_refuses_legacy_shared_table(lake: psycopg.Connection[tuple[object, ...]]) -> None:
     with pytest.raises(ValueError, match="shared groups table"):
         ensure_groups_table(lake, "groups", DucklingBackfillConfig(delete_tables=True))
+
+
+@pytest.mark.parametrize(
+    "alter,accepted",
+    [
+        ("ALTER COLUMN group_type_index SET DATA TYPE SMALLINT", True),
+        ("ALTER COLUMN group_type_index SET DATA TYPE INTEGER", False),
+        ("ADD COLUMN extra INTEGER", False),
+    ],
+)
+def test_groups_table_check_accepts_only_the_converted_group_type_index(
+    lake: psycopg.Connection[tuple[object, ...]], alter: str, accepted: bool
+) -> None:
+    lake.execute(f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.groups_production {alter}")
+
+    if accepted:
+        ensure_groups_table(lake, "groups_production", DucklingBackfillConfig())
+    else:
+        with pytest.raises(ValueError, match="schema mismatch"):
+            ensure_groups_table(lake, "groups_production", DucklingBackfillConfig())
