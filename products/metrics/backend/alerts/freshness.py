@@ -66,9 +66,10 @@ _PARTITION_CHECKPOINT_QUERY: Final = parse_select(
     """
 )
 
-# 30s of sender delay before capture, the offset VictoriaMetrics reads with by default, plus 45s of
-# Node consumer lag, which the checkpoint cannot see and which peaked at 43s by 2026-11-02.
-CHECKPOINT_EVAL_DELAY: Final = dt.timedelta(seconds=75)
+# The checkpoint is a capture time, and a query reads by sample time. A sample reaches capture after
+# its sender stamps it, so the read is held back by the sender delay to cover. 30s is the offset
+# VictoriaMetrics reads with by default, so a sender slower than that is exposed here as in Grafana.
+CHECKPOINT_EVAL_DELAY: Final = dt.timedelta(seconds=30)
 
 
 def fetch_metrics_freshness(team: Team, *, max_execution_time: int) -> dt.datetime | None:
