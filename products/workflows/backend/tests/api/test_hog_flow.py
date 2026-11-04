@@ -7138,28 +7138,30 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
     def _global(self, params=None):
         return self.client.get(f"/api/projects/{self.team.id}/hog_flows/metrics/global/", params)
 
-    def _seed(self, workflow_id, *, succeeded=0, failed=0, timestamp=None, team_id=None, app_source="hog_flow"):
-        tid = team_id or self.team.pk
-        if succeeded:
-            create_app_metric2(
-                team_id=tid,
-                app_source=app_source,
-                app_source_id=str(workflow_id),
-                metric_kind="success",
-                metric_name="succeeded",
-                count=succeeded,
-                timestamp=timestamp,
-            )
-        if failed:
-            create_app_metric2(
-                team_id=tid,
-                app_source=app_source,
-                app_source_id=str(workflow_id),
-                metric_kind="failure",
-                metric_name="failed",
-                count=failed,
-                timestamp=timestamp,
-            )
+    def _seed(
+        self,
+        workflow_id,
+        *,
+        succeeded=0,
+        failed=0,
+        timestamp=None,
+        team_id=None,
+        app_source="hog_flow_version",
+        app_source_id=None,
+        instance_id="",
+    ):
+        for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
+            if count:
+                create_app_metric2(
+                    team_id=team_id or self.team.pk,
+                    app_source=app_source,
+                    app_source_id=app_source_id or f"{workflow_id}/1",
+                    instance_id=instance_id,
+                    metric_kind=metric_kind,
+                    metric_name=metric_name,
+                    count=count,
+                    timestamp=timestamp,
+                )
 
     def test_returns_empty_when_no_metrics(self):
         res = self._global()
@@ -7175,6 +7177,15 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         assert by_id[str(self.flow_b.id)] == {"workflow_id": str(self.flow_b.id), "succeeded": 5, "failed": 4}
         # Most-failing first.
         assert rows[0]["workflow_id"] == str(self.flow_b.id)
+
+    def test_counts_runs_of_every_version_and_ignores_steps_and_the_version_agnostic_series(self):
+        self._seed(self.flow_a.id, succeeded=3, failed=1)
+        self._seed(self.flow_a.id, succeeded=2, app_source_id=f"{self.flow_a.id}/2")
+        # Step rows carry the action id, and the version-agnostic series keys batch runs by run id.
+        self._seed(self.flow_a.id, succeeded=8, failed=6, instance_id="action_email")
+        self._seed(self.flow_a.id, succeeded=40, app_source="hog_flow", app_source_id=str(self.flow_a.id))
+        rows = self._global().json()
+        assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": 5, "failed": 1}]
 
     def test_time_window_filter(self):
         now = datetime.now(tz=UTC)

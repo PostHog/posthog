@@ -35,6 +35,9 @@ import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
+import { WorkflowsListV2 } from './Workflows/WorkflowsListV2/WorkflowsListV2'
+import { WorkflowsListV2ColumnsMenu } from './Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu'
+import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { templateTypeForListType } from './Workflows/workflowTypeFilters'
@@ -196,15 +199,15 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
-    const { filters } = useValues(workflowsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const listV2 = useFeatureFlag('WORKFLOWS_LIST_V2')
     const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
         key: 'workflows' as const,
-        content: <WorkflowsTable />,
+        content: listV2 ? <WorkflowsListV2 /> : <WorkflowsTable />,
         link: urls.workflows(),
     }
     const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
@@ -215,7 +218,13 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         })
         // Open the template chooser on the type the list shows, so a person on the
         // Messaging tab sees messaging templates first.
-        setTypeFilter(currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all')
+        setTypeFilter(
+            currentTab === 'workflows'
+                ? listV2
+                    ? workflowsListV2Logic.values.templateTypeFilter
+                    : templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
+                : 'all'
+        )
         startNewWorkflow()
     }
 
@@ -273,6 +282,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
+                        {currentTab === 'workflows' && listV2 && <WorkflowsListV2ColumnsMenu />}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}

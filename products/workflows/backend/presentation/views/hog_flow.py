@@ -1402,6 +1402,23 @@ class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     )
 
 
+RUN_LEVEL_INSTANCE_ID = ""
+
+
+def _run_totals_by_workflow(totals_by_version: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
+    """Sums `<flow id>/<version>` run totals per flow.
+
+    The versioned series keys batch runs by flow, where the version-agnostic one keys them by run, and
+    its run-level rows (empty instance_id) count runs where step rows would count steps.
+    """
+    totals: dict[str, dict[str, int]] = {}
+    for versioned_id, counts in totals_by_version.items():
+        workflow_totals = totals.setdefault(versioned_id.split("/", 1)[0], {})
+        for metric_name, count in counts.items():
+            workflow_totals[metric_name] = workflow_totals.get(metric_name, 0) + count
+    return totals
+
+
 class WorkflowStatsRowSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="The workflow these counts are for.")
     succeeded = serializers.IntegerField(help_text="Successful invocations in the window.")
@@ -7210,11 +7227,14 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        totals = fetch_app_metric_totals_by_source(
-            team_id=self.team_id,
-            app_source=self.app_source,
-            after=after_date,
-            before=before_date,
+        totals = _run_totals_by_workflow(
+            fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source=HOG_FLOW_VERSION_APP_SOURCE,
+                after=after_date,
+                before=before_date,
+                instance_id=RUN_LEVEL_INSTANCE_ID,
+            )
         )
         # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
         # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog

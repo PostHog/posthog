@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
@@ -15,125 +20,222 @@ jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
     deleteFromTree: jest.fn(),
 }))
 
+// A child environment: its team id differs from the project id (997 in the test setup).
+const TEAM_ID = 4242
+
+const WORKFLOW = {
+    id: 'wf-1',
+    name: 'Welcome series',
+    status: 'draft',
+    actions: [],
+    edges: [],
+} as unknown as HogFlow
+
 describe('workflowsLogic', () => {
-    let logic: ReturnType<typeof workflowsLogic.build>
+    describe('list filters and tags', () => {
+        let logic: ReturnType<typeof workflowsLogic.build>
 
-    beforeEach(() => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/': { results: [], count: 0 },
-                '/api/projects/:team_id/hog_flows/': { results: [], count: 0 },
-            },
-        })
-        initKeaTests()
-        logic = workflowsLogic()
-        logic.mount()
-    })
-
-    afterEach(() => logic.unmount())
-
-    it.each(['/workflows', '/workflows/workflows'])('fills the filters from the query params on %s', (path) => {
-        router.actions.push(
-            `${path}?created_by=user-uuid&status=active&trigger_type=event&type=messaging&tags=${encodeURIComponent('["growth","billing"]')}`
-        )
-
-        expect(logic.values.filters).toEqual({
-            search: '',
-            createdBy: 'user-uuid',
-            status: 'active',
-            type: 'messaging',
-            triggerType: 'event',
-            tags: ['growth', 'billing'],
-            page: 1,
-        })
-    })
-
-    it('drops only the workflows the server deleted from the project tree', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team_id/hog_flows/bulk_delete/': () => [
-                    200,
-                    { deleted: 1, deleted_ids: ['flow-deleted'] },
-                ],
-            },
-        })
-        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
-        logic.actions.toggleArchivedWorkflowSelection('flow-deleted')
-        logic.actions.toggleArchivedWorkflowSelection('flow-restored-meanwhile')
-
-        logic.actions.deleteSelectedWorkflows()
-        await openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
-
-        expect(deleteFromTree).toHaveBeenCalledTimes(1)
-        expect(deleteFromTree).toHaveBeenCalledWith('hog_flow', 'flow-deleted')
-    })
-
-    it('saves a row tag edit with only the tags, and shows the name the server stored', async () => {
-        const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
-        const bodies: unknown[] = []
-        useMocks({
-            patch: {
-                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
-                    bodies.push(await request.json())
-                    return [200, { ...workflow, tags: ['growth'] }]
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/': { results: [], count: 0 },
+                    '/api/projects/:team_id/hog_flows/': { results: [], count: 0 },
                 },
-            },
+            })
+            initKeaTests()
+            logic = workflowsLogic()
+            logic.mount()
         })
 
-        await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['Growth']))
-            .toFinishAllListeners()
-            .toMatchValues({ localWorkflowTags: { 'flow-1': ['growth'] } })
+        afterEach(() => logic.unmount())
 
-        expect(bodies).toEqual([{ tags: ['Growth'] }])
-    })
+        it.each(['/workflows', '/workflows/workflows'])('fills the filters from the query params on %s', (path) => {
+            router.actions.push(
+                `${path}?created_by=user-uuid&status=active&trigger_type=event&type=messaging&tags=${encodeURIComponent('["growth","billing"]')}`
+            )
 
-    it("sends a row's next tag save only after the one before it lands", async () => {
-        const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
-        const bodies: string[][] = []
-        let markFirstInFlight = (): void => {}
-        let releaseFirst = (): void => {}
-        const firstInFlight = new Promise<void>((resolve) => (markFirstInFlight = resolve))
-        const firstReleased = new Promise<void>((resolve) => (releaseFirst = resolve))
-        let started = 0
-        useMocks({
-            patch: {
-                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
-                    const { tags } = (await request.json()) as { tags: string[] }
-                    started += 1
-                    if (started === 1) {
-                        markFirstInFlight()
-                        await firstReleased
-                    }
-                    bodies.push(tags)
-                    return [200, { ...workflow, tags }]
+            expect(logic.values.filters).toEqual({
+                search: '',
+                createdBy: 'user-uuid',
+                status: 'active',
+                type: 'messaging',
+                triggerType: 'event',
+                tags: ['growth', 'billing'],
+                page: 1,
+            })
+        })
+
+        it('drops only the workflows the server deleted from the project tree', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/bulk_delete/': () => [
+                        200,
+                        { deleted: 1, deleted_ids: ['flow-deleted'] },
+                    ],
                 },
-            },
+            })
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.toggleArchivedWorkflowSelection('flow-deleted')
+            logic.actions.toggleArchivedWorkflowSelection('flow-restored-meanwhile')
+
+            logic.actions.deleteSelectedWorkflows()
+            await openDialog.mock.calls[0][0].primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+            expect(deleteFromTree).toHaveBeenCalledTimes(1)
+            expect(deleteFromTree).toHaveBeenCalledWith('hog_flow', 'flow-deleted')
         })
 
-        logic.actions.updateWorkflowTags(workflow, ['growth'])
-        logic.actions.updateWorkflowTags(workflow, ['growth', 'billing'])
-        await firstInFlight
-        releaseFirst()
-        await expectLogic(logic).toFinishAllListeners()
+        it('saves a row tag edit with only the tags, and shows the name the server stored', async () => {
+            const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
+            const bodies: unknown[] = []
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                        bodies.push(await request.json())
+                        return [200, { ...workflow, tags: ['growth'] }]
+                    },
+                },
+            })
 
-        expect(bodies).toEqual([['growth'], ['growth', 'billing']])
-        expect(logic.values.localWorkflowTags).toEqual({ 'flow-1': ['growth', 'billing'] })
+            await expectLogic(logic, () => logic.actions.updateWorkflowTags(workflow, ['Growth']))
+                .toFinishAllListeners()
+                .toMatchValues({ localWorkflowTags: { 'flow-1': ['growth'] } })
+
+            expect(bodies).toEqual([{ tags: ['Growth'] }])
+        })
+
+        it("sends a row's next tag save only after the one before it lands", async () => {
+            const workflow = { id: 'flow-1', name: 'Churn win-back', tags: [] } as unknown as HogFlow
+            const bodies: string[][] = []
+            let markFirstInFlight = (): void => {}
+            let releaseFirst = (): void => {}
+            const firstInFlight = new Promise<void>((resolve) => (markFirstInFlight = resolve))
+            const firstReleased = new Promise<void>((resolve) => (releaseFirst = resolve))
+            let started = 0
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const { tags } = (await request.json()) as { tags: string[] }
+                        started += 1
+                        if (started === 1) {
+                            markFirstInFlight()
+                            await firstReleased
+                        }
+                        bodies.push(tags)
+                        return [200, { ...workflow, tags }]
+                    },
+                },
+            })
+
+            logic.actions.updateWorkflowTags(workflow, ['growth'])
+            logic.actions.updateWorkflowTags(workflow, ['growth', 'billing'])
+            await firstInFlight
+            releaseFirst()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(bodies).toEqual([['growth'], ['growth', 'billing']])
+            expect(logic.values.localWorkflowTags).toEqual({ 'flow-1': ['growth', 'billing'] })
+        })
+
+        it('parses a url whose only filter is a tag', () => {
+            router.actions.push(`/workflows?tags=${encodeURIComponent('["growth"]')}`)
+
+            expect(logic.values.filters.tags).toEqual(['growth'])
+        })
+
+        it('keeps the filters when a link back to the list carries no query params', () => {
+            router.actions.push('/workflows?status=active&type=messaging')
+            expect(logic.values.filters.status).toEqual('active')
+
+            router.actions.push('/workflows')
+
+            expect(logic.values.filters.status).toEqual('active')
+            expect(logic.values.filters.type).toEqual('messaging')
+            expect(router.values.searchParams).toMatchObject({ status: 'active', type: 'messaging' })
+        })
     })
 
-    it('parses a url whose only filter is a tag', () => {
-        router.actions.push(`/workflows?tags=${encodeURIComponent('["growth"]')}`)
+    describe('row actions in a child environment', () => {
+        let logic: ReturnType<typeof workflowsLogic.build>
+        let requests: string[]
+        let confirm: () => Promise<void>
 
-        expect(logic.values.filters.tags).toEqual(['growth'])
-    })
+        beforeEach(() => {
+            requests = []
+            const record = ({ request }: { request: Request }): [number, unknown] => {
+                requests.push(`${request.method} ${new URL(request.url).pathname}`)
+                return request.method === 'DELETE' ? [204, null] : [200, { ...WORKFLOW, results: [WORKFLOW], count: 1 }]
+            }
+            useMocks({
+                get: { '/api/projects/:team_id/hog_flows/': record, '/api/projects/:team_id/hog_flows/:id/': record },
+                post: { '/api/projects/:team_id/hog_flows/': record },
+                patch: { '/api/projects/:team_id/hog_flows/:id/': record },
+                delete: { '/api/projects/:team_id/hog_flows/:id/': record },
+            })
+            initKeaTests()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: TEAM_ID })
+            jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
+                confirm = async () => {
+                    await (props.primaryButton as { onClick: () => Promise<void> }).onClick()
+                }
+            })
+            router.actions.push(urls.workflows(), { status: 'all' })
+            logic = workflowsLogic()
+            logic.mount()
+            // The table loads the list when it mounts; the logic alone doesn't.
+            logic.actions.loadWorkflows()
+        })
 
-    it('keeps the filters when a link back to the list carries no query params', () => {
-        router.actions.push('/workflows?status=active&type=messaging')
-        expect(logic.values.filters.status).toEqual('active')
+        afterEach(() => {
+            logic.unmount()
+            jest.restoreAllMocks()
+        })
 
-        router.actions.push('/workflows')
+        it.each([
+            [
+                'archive',
+                () => logic.actions.archiveWorkflow(WORKFLOW),
+                true,
+                `PATCH /api/projects/${TEAM_ID}/hog_flows/wf-1/`,
+            ],
+            [
+                'restore',
+                () => logic.actions.restoreWorkflow(WORKFLOW),
+                false,
+                `PATCH /api/projects/${TEAM_ID}/hog_flows/wf-1/`,
+            ],
+            [
+                'delete',
+                () => logic.actions.deleteWorkflow(WORKFLOW),
+                true,
+                `DELETE /api/projects/${TEAM_ID}/hog_flows/wf-1/`,
+            ],
+            [
+                'toggle',
+                () => logic.actions.toggleWorkflowStatus(WORKFLOW),
+                false,
+                `PATCH /api/projects/${TEAM_ID}/hog_flows/wf-1/`,
+            ],
+            [
+                'duplicate',
+                () => logic.actions.duplicateWorkflow(WORKFLOW),
+                false,
+                `POST /api/projects/${TEAM_ID}/hog_flows/`,
+            ],
+        ])('%s goes to the team id and reloads the list', async (_, run, confirmFirst, request) => {
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+            requests = []
 
-        expect(logic.values.filters.status).toEqual('active')
-        expect(logic.values.filters.type).toEqual('messaging')
-        expect(router.values.searchParams).toMatchObject({ status: 'active', type: 'messaging' })
+            await expectLogic(logic, run).toFinishAllListeners()
+            if (confirmFirst) {
+                await confirm()
+            }
+            // The list reloads from the same team once the change lands.
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+            expect(requests.filter((r) => !r.startsWith('GET'))).toEqual([request])
+            expect(requests).toContain(`GET /api/projects/${TEAM_ID}/hog_flows`)
+            expect(requests.filter((r) => r.includes('/projects/997/'))).toEqual([])
+        })
     })
 })
