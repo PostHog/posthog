@@ -13,10 +13,9 @@ import { emailTemplaterLogic } from './emailTemplaterLogic'
 export function EmailSenderSummary(): JSX.Element {
     const { emailTemplate } = useValues(emailTemplaterLogic)
     const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
-    const { integrations } = useValues(integrationsLogic)
+    const { ownEmailIntegrations: senders } = useValues(integrationsLogic)
     const [isEditing, setIsEditing] = useState(false)
 
-    const senders = (integrations ?? []).filter((integration) => integration.kind === 'email')
     const from = senderFrom(emailTemplate)
     const sender = senderIntegrationFor(emailTemplate, senders)
     const name = from.name || sender?.config?.name
