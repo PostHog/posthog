@@ -90,6 +90,10 @@ test.each(['https://mobile-replay.invalid', 'https://mobile-replay.invalid/'])(
         expect(screen.getByTestId('replay-player-webview').props.source.html).toBe(initialHtml)
         expect(view.props.incognito).toBe(true)
         expect(view.props.source).not.toHaveProperty('headers')
+        expect(view.props.setSupportMultipleWindows).toBe(true)
+        expect(view.props.onShouldStartLoadWithRequest({ url: 'https://example.com/' })).toBe(false)
+        fireEvent(view, 'openWindow', { nativeEvent: { targetUrl: 'https://example.com/' } })
+        expect(fetch).toHaveBeenCalledTimes(1)
         const message = (data: unknown): void =>
             fireEvent(view, 'message', {
                 nativeEvent: { url: playerUrl, data: JSON.stringify(data) },

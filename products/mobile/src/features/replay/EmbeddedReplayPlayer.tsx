@@ -293,7 +293,7 @@ function PlayerContent({
                                 javaScriptEnabled
                                 scrollEnabled={false}
                                 bounces={false}
-                                setSupportMultipleWindows={false}
+                                setSupportMultipleWindows
                                 style={styles.webview}
                                 testID="replay-player-webview"
                             />
