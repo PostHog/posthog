@@ -432,6 +432,14 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+type SesRoute = {
+    tenantName: string
+    configurationSetName: string
+    unsubscribeHeaders: boolean
+    ccAddresses?: string[]
+    bccAddresses?: string[]
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -1076,6 +1084,20 @@ export class EmailService {
     // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
     // destination (suppression and the Metrics tab depend on those events); they differ only in
     // ESP-level open/click tracking.
+    private teamSesRoute(
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): SesRoute {
+        return {
+            tenantName: `team-${invocation.teamId}`,
+            configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
+            unsubscribeHeaders: true,
+            ccAddresses: parseAddressList(params.cc),
+            bccAddresses: parseAddressList(params.bcc),
+        }
+    }
+
     private resolveConfigurationSetName(
         trackingEnabled: boolean,
         invocation: CyclotronJobInvocationHogFunction
@@ -1222,7 +1244,8 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueWait?: EmailQueueWait
+        queueWait?: EmailQueueWait,
+        route: SesRoute = this.teamSesRoute(result.invocation, trackingEnabled, params)
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1275,7 +1298,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: route.configurationSetName,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
@@ -1300,7 +1323,7 @@ export class EmailService {
         // this class only shield our internal metrics, a separate concern from SES-side
         // attribution; test volume is far below the representative volume AWS needs for a
         // reputation finding.
-        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
+        sendEmailParams.TenantName = route.tenantName
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code
@@ -1310,26 +1333,26 @@ export class EmailService {
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders(
-                      { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                      preferencesTokenSourceForInvocation(result.invocation)
-                  )
-                : []
+            const unsubscribeHeaders =
+                route.unsubscribeHeaders && !isTransactionalEmail
+                    ? this.generateUnsubscribeHeaders(
+                          { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                          preferencesTokenSourceForInvocation(result.invocation)
+                      )
+                    : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
+        const { ccAddresses, bccAddresses } = route
 
         if (replyToAddresses) {
             sendEmailParams.ReplyToAddresses = replyToAddresses
         }
-        if (ccAddresses) {
+        if (ccAddresses?.length) {
             sendEmailParams.Destination!.CcAddresses = ccAddresses
         }
-        if (bccAddresses) {
+        if (bccAddresses?.length) {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
