@@ -92,7 +92,7 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
     org_days = (
         SignalSpend.objects.unscoped()
         .filter(
-            team__organization__usage__signals_spend_credits__has_key="billing_start_date",
+            usage_billing=True,
             finalized_at__gte=begin,
             finalized_at__lt=end,
             billing_exempt=False,

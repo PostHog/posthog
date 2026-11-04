@@ -33,7 +33,9 @@ class TestSignalsRatedUsage(BaseTest):
         self.license_cache.start()
         self.addCleanup(self.license_cache.stop)
 
-    def _spend(self, amount: str, *, team: Team | None = None, day: int = 10, exempt: bool = False) -> None:
+    def _spend(
+        self, amount: str, *, team: Team | None = None, day: int = 10, exempt: bool = False, usage_billing: bool = True
+    ) -> None:
         with time_machine.travel(_at(day), tick=False):
             SignalSpend.objects.for_team((team or self.team).id).create(
                 team=team or self.team,
@@ -42,6 +44,7 @@ class TestSignalsRatedUsage(BaseTest):
                 spend=Decimal(amount),
                 finalized_at=_at(day),
                 billing_exempt=exempt,
+                usage_billing=usage_billing,
             )
 
     @patch("ee.billing.billing_manager.http_session.post")
@@ -88,7 +91,14 @@ class TestSignalsRatedUsage(BaseTest):
         )
         SignalSpend.objects.unscoped().bulk_create(
             [
-                SignalSpend(team=team, signal_id=uuid4(), kind=SignalSpend.Kind.AD_HOC, spend=1, finalized_at=_at(10))
+                SignalSpend(
+                    team=team,
+                    signal_id=uuid4(),
+                    kind=SignalSpend.Kind.AD_HOC,
+                    spend=1,
+                    finalized_at=_at(10),
+                    usage_billing=True,
+                )
                 for team in teams
             ]
         )
@@ -163,6 +173,7 @@ class TestSignalsRatedUsage(BaseTest):
         self._spend("4", day=12)
         self._spend("5", day=4)
         self._spend("6", day=8, exempt=True)
+        self._spend("7", day=9, usage_billing=False)
         with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
             enqueue_signals_rated_usage.run()
         assert [call.args for call in enqueue.call_args_list] == [
@@ -173,13 +184,16 @@ class TestSignalsRatedUsage(BaseTest):
             enqueue_signals_rated_usage.run(day=date(2026, 6, 10).isoformat())
         enqueue.assert_called_once_with(str(self.organization.id), "2026-06-10")
 
-    def test_sweep_skips_unsnapshotted_usage_without_a_billing_start_date(self) -> None:
-        self._spend("25")
+    @parameterized.expand([(True,), (False,)])
+    def test_sweep_preserves_the_work_meter_after_a_plan_change(self, usage_billing: bool) -> None:
+        self._spend("25", usage_billing=usage_billing)
         self.organization.usage = {"signals_spend_credits": {"usage": 0, "limit": 0}}
         self.organization.save(update_fields=["usage"])
         with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
             enqueue_signals_rated_usage.run()
-        enqueue.assert_not_called()
+        assert [call.args for call in enqueue.call_args_list] == (
+            [(str(self.organization.id), "2026-06-10")] if usage_billing else []
+        )
 
     @parameterized.expand([("successful_delivery", False), ("lost_acknowledgment", True)])
     @patch("ee.billing.billing_manager.http_session.post")
