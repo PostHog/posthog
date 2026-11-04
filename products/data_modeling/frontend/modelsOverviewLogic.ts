@@ -12,11 +12,14 @@ import {
 
 import { BehindScheduleModel, MATERIALIZING_TYPES } from './freshness'
 import type { RefreshSummary } from './healthyMessage'
+import { lineageDataLogic } from './lineage/lineageDataLogic'
 import { AttentionModel, modelsSceneLogic } from './modelsSceneLogic'
 import type { IssueKind } from './overviewIssueCopy'
 
 const FAILING_CHECK_STATUSES = new Set(['failed', 'errored'])
 const ALL = 'all'
+const REFRESH_POLL_INTERVAL_MS = 5000
+const REFRESH_POLL_MAX_ATTEMPTS = 12
 
 export type AttentionFilter = typeof ALL | IssueKind
 
@@ -35,8 +38,12 @@ function problemNode(problem: MaterializationProblem): DataModelingNode {
     return problem.kind === 'behind' ? problem.behind.node : problem.attention.node
 }
 
-function checkSubjectKey(check: DataQualityOverviewCheckApi): string {
-    return check.subject_node_id ? `node-${check.subject_node_id}` : `${check.subject_type}-${check.subject_name}`
+function nodeSubjectKey(node: DataModelingNode): string {
+    return node.saved_query_id ? `view-${node.saved_query_id}` : `node-${node.id}`
+}
+
+function checkSubjectKey(check: DataQualityOverviewCheckApi, node: DataModelingNode | null): string {
+    return node ? nodeSubjectKey(node) : `${check.subject_type}-${check.subject_uuid ?? check.subject_name}`
 }
 
 function groupAttentionSubjects(
@@ -48,16 +55,15 @@ function groupAttentionSubjects(
     const subjects = new Map<string, AttentionSubject>()
     for (const problem of problems) {
         const node = problemNode(problem)
-        subjects.set(`node-${node.id}`, { key: `node-${node.id}`, node, materialization: problem, failingChecks: [] })
+        const key = nodeSubjectKey(node)
+        if (!subjects.has(key)) {
+            subjects.set(key, { key, node, materialization: problem, failingChecks: [] })
+        }
     }
     for (const check of failingChecks) {
-        const key = checkSubjectKey(check)
-        const subject = subjects.get(key) ?? {
-            key,
-            node: check.subject_node_id ? (nodesById.get(check.subject_node_id) ?? null) : null,
-            materialization: null,
-            failingChecks: [],
-        }
+        const node = check.subject_node_id ? (nodesById.get(check.subject_node_id) ?? null) : null
+        const key = checkSubjectKey(check, node)
+        const subject = subjects.get(key) ?? { key, node, materialization: null, failingChecks: [] }
         subject.failingChecks.push(check)
         subjects.set(key, subject)
     }
@@ -131,10 +137,20 @@ export interface modelsOverviewLogicActions {
     runDataWarehouseSavedQuerySuccess: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
+    loadNodesSuccess: (
+        nodes: DataModelingNode[],
+        payload?: any
+    ) => {
+        nodes: DataModelingNode[]
+        payload?: any
+    } // lineageDataLogic
     loadDataWarehouseSavedQueries: () => any // modelsSceneLogic
     loadNodes: () => any // modelsSceneLogic
     setAttentionFilter: (filter: AttentionFilter) => {
         filter: AttentionFilter
+    }
+    settleRefresh: (savedQueryId: string) => {
+        savedQueryId: string
     }
 }
 
@@ -193,10 +209,13 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
             ['loadOverview'],
             dataWarehouseViewsLogic,
             ['runDataWarehouseSavedQuery', 'runDataWarehouseSavedQuerySuccess', 'runDataWarehouseSavedQueryFailure'],
+            lineageDataLogic,
+            ['loadNodesSuccess'],
         ],
     })),
     actions({
         setAttentionFilter: (filter: AttentionFilter) => ({ filter }),
+        settleRefresh: (savedQueryId: string) => ({ savedQueryId }),
     }),
     reducers({
         attentionFilter: [
@@ -210,6 +229,7 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
             {
                 runDataWarehouseSavedQuery: (state, { viewId }) => [...state, viewId],
                 runDataWarehouseSavedQueryFailure: (state, { viewId }) => state.filter((id) => id !== viewId),
+                settleRefresh: (state, { savedQueryId }) => state.filter((id) => id !== savedQueryId),
             },
         ],
     }),
@@ -290,9 +310,38 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                     : attentionSubjects.filter((subject) => subjectIssueKinds(subject).includes(activeAttentionFilter)),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         runDataWarehouseSavedQuerySuccess: () => {
             actions.loadNodes()
+        },
+        loadNodesSuccess: ({ nodes }) => {
+            const seenRunning: Set<string> = (cache.refreshSeenRunning ??= new Set())
+            const attempts: Record<string, number> = (cache.refreshPollAttempts ??= {})
+            const pending = values.startedRefreshSavedQueryIds.filter((savedQueryId) => {
+                const running = nodes.some(
+                    (node) => node.saved_query_id === savedQueryId && node.last_run_status === 'Running'
+                )
+                if (running) {
+                    seenRunning.add(savedQueryId)
+                }
+                attempts[savedQueryId] = (attempts[savedQueryId] ?? 0) + 1
+                const finished = !running && seenRunning.has(savedQueryId)
+                if (finished || attempts[savedQueryId] >= REFRESH_POLL_MAX_ATTEMPTS) {
+                    seenRunning.delete(savedQueryId)
+                    delete attempts[savedQueryId]
+                    actions.settleRefresh(savedQueryId)
+                    return false
+                }
+                return true
+            })
+            if (pending.length === 0) {
+                cache.disposables.dispose('refreshPoll')
+                return
+            }
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadNodes(), REFRESH_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'refreshPoll')
         },
     })),
 ])

@@ -117,10 +117,52 @@ describe('modelsOverviewLogic', () => {
                 failingChecks.map(({ id }) => id),
             ])
         ).toEqual([
-            ['node-paused', 'suspended', []],
-            ['node-broken', 'failed', []],
-            ['node-late', 'behind', ['late-rows']],
+            ['view-query-paused', 'suspended', []],
+            ['view-query-broken', 'failed', []],
+            ['view-query-late', 'behind', ['late-rows']],
             ['posthog_table-events', null, ['nulls']],
+        ])
+    })
+
+    it('puts a check on another node of the same view in the same row as the view', async () => {
+        useMocks(
+            apiMocks(NODES, [
+                buildCheck('broken-rows', 'failed', {
+                    subject_type: 'view',
+                    subject_uuid: 'query-broken',
+                    subject_name: 'broken',
+                    subject_node_id: 'broken-in-second-dag',
+                }),
+            ])
+        )
+        await mountLoaded()
+
+        expect(
+            logic.values.attentionSubjects
+                .filter(({ key }) => key === 'view-query-broken')
+                .map(({ materialization, failingChecks }) => [
+                    materialization?.kind ?? null,
+                    failingChecks.map(({ id }) => id),
+                ])
+        ).toEqual([['failed', ['broken-rows']]])
+    })
+
+    it('keeps one row for a table whose checks carry an old and a new name', async () => {
+        useMocks(
+            apiMocks(NODES, [
+                buildCheck('old-name', 'failed', { subject_type: 'table', subject_uuid: 't1', subject_name: 'orders' }),
+                buildCheck('new-name', 'failed', {
+                    subject_type: 'table',
+                    subject_uuid: 't1',
+                    subject_name: 'orders_v2',
+                }),
+            ])
+        )
+        await mountLoaded()
+
+        expect(logic.values.attentionSubjects.at(-1)?.failingChecks.map(({ id }) => id)).toEqual([
+            'old-name',
+            'new-name',
         ])
     })
 
@@ -128,7 +170,7 @@ describe('modelsOverviewLogic', () => {
         await mountLoaded()
 
         logic.actions.setAttentionFilter('failed')
-        expect(logic.values.filteredAttentionSubjects.map(({ key }) => key)).toEqual(['node-broken'])
+        expect(logic.values.filteredAttentionSubjects.map(({ key }) => key)).toEqual(['view-query-broken'])
 
         useMocks({
             get: {
@@ -163,6 +205,43 @@ describe('modelsOverviewLogic', () => {
         ])
 
         expect(logic.values.startedRefreshSavedQueryIds).toEqual(expectedStarted)
+    })
+
+    it.each<[string, string, boolean]>([
+        ['re-enables the button when the run fails', 'Failed', true],
+        ['drops the row when the run succeeds', 'Completed', false],
+    ])('after a refresh starts, %s', async (_case, finalStatus, rowStays) => {
+        const nodesWithBrokenStatus = (status: string): Parameters<typeof useMocks>[0] => ({
+            get: {
+                [NODES_URL]: {
+                    count: NODES.length,
+                    results: NODES.map((node) => (node.id === 'broken' ? { ...node, last_run_status: status } : node)),
+                },
+            },
+        })
+        useMocks({
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/run/': () => [200, {}],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/run/': () => [200, {}],
+            },
+        })
+        await mountLoaded()
+
+        useMocks(nodesWithBrokenStatus('Running'))
+        await expectLogic(logic, () => logic.actions.runDataWarehouseSavedQuery('query-broken')).toDispatchActions([
+            'runDataWarehouseSavedQuerySuccess',
+            'loadNodesSuccess',
+        ])
+        expect(logic.values.startedRefreshSavedQueryIds).toEqual(['query-broken'])
+
+        useMocks(nodesWithBrokenStatus(finalStatus))
+        await expectLogic(logic, () => logic.actions.loadNodes()).toDispatchActions([
+            'loadNodesSuccess',
+            'settleRefresh',
+        ])
+
+        expect(logic.values.startedRefreshSavedQueryIds).toEqual([])
+        expect(logic.values.attentionSubjects.some(({ key }) => key === 'view-query-broken')).toBe(rowStays)
     })
 
     it('never reports a healthy overview when checks fail to load', async () => {
