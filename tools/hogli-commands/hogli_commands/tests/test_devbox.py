@@ -1018,6 +1018,43 @@ class TestWorktreeAutoProvision:
         )
 
     @pytest.mark.parametrize(
+        "existing_settings, expected_settings",
+        [
+            pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
+            pytest.param(
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                id="keeps-the-users-own-scripts",
+            ),
+        ],
+    )
+    def test_auto_with_conductor_adds_scripts_only_to_uncommitted_settings(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        existing_settings: str | None,
+        expected_settings: str,
+    ) -> None:
+        main = tmp_path / "main"
+        settings_path = main / ".conductor" / "settings.local.toml"
+        main.mkdir()
+        if existing_settings is not None:
+            settings_path.parent.mkdir()
+            settings_path.write_text(existing_settings)
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.subprocess,
+            "run",
+            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr=""),
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "conductor"])
+
+        assert result.exit_code == 0, result.output
+        assert settings_path.read_text() == expected_settings
+
+    @pytest.mark.parametrize(
         "source_arg, enabled, first_spawn_fails, expected_starts",
         [
             pytest.param("t3code", "t3code", False, 1, id="tool-hook-declares-an-enabled-source"),

@@ -72,6 +72,9 @@ _TEARDOWN_LOG_NAME = "hogli-devbox-teardown.log"
 _HERDR_PLUGIN_ID = "posthog.devbox"
 _HERDR_PLUGIN_DIR = Path("tools") / "herdr-devbox-plugin"
 _SUBAGENT_WORKTREE_PREFIX = "agent-"
+_CONDUCTOR_LOCAL_SETTINGS = Path(".conductor") / "settings.local.toml"
+_CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
+_CONDUCTOR_SCRIPTS = f'[scripts]\nsetup = "{_CONDUCTOR_SETUP_SCRIPT}"\narchive = "bin/devbox-worktree-hook archiving"\n'
 
 
 def label_budget(username: str, region: str) -> int:
@@ -152,6 +155,31 @@ def _save_auto_sources(value: str) -> None:
     )
     if "herdr" in sources:
         _link_herdr_plugin(_detect_local_posthog_checkout())
+    if "conductor" in sources:
+        _install_conductor_scripts(_detect_local_posthog_checkout())
+
+
+def _install_conductor_scripts(root: Path) -> None:
+    """Write the hooks to Conductor's uncommitted project settings, because a committed file would replace each user's own scripts."""
+    try:
+        settings_path = _main_checkout(root) / _CONDUCTOR_LOCAL_SETTINGS
+    except (OSError, subprocess.SubprocessError):
+        click.echo(
+            f"Couldn't find your main checkout. Add these lines to <main checkout>/{_CONDUCTOR_LOCAL_SETTINGS}:\n"
+            f"{_CONDUCTOR_SCRIPTS}"
+        )
+        return
+    if settings_path.exists():
+        if _CONDUCTOR_SETUP_SCRIPT in settings_path.read_text():
+            click.echo(f"Conductor already runs the devbox scripts from {settings_path}.")
+        else:
+            click.echo(
+                f"{settings_path} already exists, so add the devbox scripts to it yourself:\n{_CONDUCTOR_SCRIPTS}"
+            )
+        return
+    settings_path.parent.mkdir(exist_ok=True)
+    settings_path.write_text(_CONDUCTOR_SCRIPTS)
+    click.echo(f"Added the devbox setup and archive scripts to {settings_path}.")
 
 
 def _find_herdr_plugin(listing: Any) -> dict[str, Any] | None:

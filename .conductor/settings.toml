@@ -1,3 +1,0 @@
-[scripts]
-setup = "bin/devbox-worktree-hook created conductor"
-archive = "bin/devbox-worktree-hook archiving"

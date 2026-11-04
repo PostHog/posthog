@@ -160,6 +160,9 @@ posthog/management/commands/clear_demo_data.py
 .claude/scheduled_tasks.lock
 .claude/plans/
 
+# Ignore Conductor local settings
+.conductor/settings.local.toml
+
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
 
