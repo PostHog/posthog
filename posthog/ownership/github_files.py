@@ -18,6 +18,7 @@ from typing import Any
 
 import requests
 import structlog
+from owners_yaml import PathKind
 
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -100,6 +101,8 @@ query($owner: String!, $name: String!) {
 # cuts a large blob's `text` short without saying so anywhere else in the answer.
 _TEXT_SELECTION = "... on Blob { text isTruncated }"
 _EXISTS_SELECTION = "__typename"
+# A submodule is a `Commit` entry in its parent tree: a leaf, like a file.
+_KIND_BY_TYPENAME: dict[str, PathKind] = {"Blob": "file", "Tree": "dir", "Commit": "file"}
 
 
 def _token_audience(token: str) -> str:
@@ -136,6 +139,16 @@ def _entry(field: dict[str, Any], index: int) -> dict[str, Any] | None:
 
 def _is_blob(entry: dict[str, Any] | None) -> bool:
     return entry is not None and entry.get("__typename") == "Blob"
+
+
+def _path_kind(path: str, entry: dict[str, Any] | None) -> PathKind | None:
+    if entry is None:
+        return None
+    kind = _KIND_BY_TYPENAME.get(entry.get("__typename") or "")
+    if kind is None:
+        # An unknown entry type must not read as absent, which would report the path as new.
+        raise OwnershipUnavailable(f"{path} has an unknown tree entry type")
+    return kind
 
 
 def is_absent(text: str) -> bool:
@@ -244,6 +257,12 @@ class GitHubFilesFetcher:
         return self._read_chunks(
             repository, sha, paths, deadline, _EXISTS_SELECTION, lambda _path, entry: _is_blob(entry)
         )
+
+    def path_kinds(
+        self, repository: str, sha: str, paths: Sequence[str], deadline: float
+    ) -> dict[str, PathKind | None]:
+        """Whether the commit holds each path as a file or a directory, or None when it holds neither."""
+        return self._read_chunks(repository, sha, paths, deadline, _EXISTS_SELECTION, _path_kind)
 
     def changed_paths(self, repository: str, base: str, head: str, deadline: float) -> frozenset[str] | None:
         """Every path that a change between the two commits added, removed, modified or renamed.
@@ -533,6 +552,39 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
         if self._head_sha is None:
             return dict.fromkeys(paths, False)
         return super().exists_all(paths)
+
+
+class AuthenticatedRepoTree(AuthenticatedRepoFiles):
+    """``AuthenticatedRepoFiles`` that also answers ``path_kind``, so the resolver can report the part
+    of a path that the default branch does not hold (``Resolution.added``).
+
+    The kinds come from one batched lookup, ``prefetch_kinds``, and are not cached across batches. A
+    path the batch did not prefetch raises rather than reading as absent, because absent means new.
+    """
+
+    def __init__(self, repository: str, fetcher: GitHubFilesFetcher, *, fresh_head: bool = False) -> None:
+        super().__init__(repository, fetcher, fresh_head=fresh_head)
+        self._kinds: dict[str, PathKind | None] = {}
+
+    def prefetch_kinds(self, paths: Sequence[str]) -> None:
+        """Look up each path and every directory above it in one batch."""
+        wanted: dict[str, None] = {}
+        for path in paths:
+            parts = path.split("/")
+            for depth in range(1, len(parts) + 1):
+                wanted["/".join(parts[:depth])] = None
+        todo = [path for path in wanted if path not in self._kinds]
+        if not todo:
+            return
+        if self._head_sha is None:
+            self._kinds.update(dict.fromkeys(todo))
+            return
+        self._kinds.update(self._fetcher.path_kinds(self.repository, self._commit(), todo, self._deadline))
+
+    def path_kind(self, path: str) -> PathKind | None:
+        if path not in self._kinds:
+            raise OwnershipUnavailable(f"the kind of {path} was not prefetched")
+        return self._kinds[path]
 
 
 def _covering_integration(team_id: int, repository: str, *, priority: Priority) -> GitHubIntegration | None:

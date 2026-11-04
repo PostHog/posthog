@@ -9,7 +9,13 @@ import { isMessageIO } from './toThreadMessages'
 
 export type NodeDetailData = Omit<
     NodeDetailProps,
-    'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode' | 'actions'
+    | 'tab'
+    | 'onTabChange'
+    | 'onViewInThread'
+    | 'messagesOpening'
+    | 'onMessagesOpeningChange'
+    | 'onSelectNode'
+    | 'actions'
 >
 
 const NODE_LOAD_ERRORS: Record<LoadFailure, string> = {
