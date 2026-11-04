@@ -19,8 +19,7 @@ import {
     BroadcastEmailValue,
     DEFAULT_BROADCAST_EMAIL,
     broadcastWizardLogic,
-    getMissingSenderIds,
-    getSandboxSenderIds,
+    getPickerSenderIds,
     getSenderIds,
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
@@ -47,21 +46,19 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = ownEmailIntegrations.length > 0
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
-    // A deleted or sandbox sender would otherwise show as its bare id, so the picker leaves it out.
-    const hiddenSenderIds = integrations
-        ? [...getMissingSenderIds(email.from, integrations), ...getSandboxSenderIds(email.from, integrations)]
-        : []
-    const remainingSenderIds = getSenderIds(email.from).filter((id) => !hiddenSenderIds.includes(id))
-    const editorValue = hiddenSenderIds.length
-        ? {
-              ...email,
-              from: {
-                  ...email.from,
-                  integrationId: remainingSenderIds[0],
-                  integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
-              },
-          }
-        : email
+    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
+    const remainingSenderIds = getPickerSenderIds(email.from, integrations)
+    const editorValue =
+        remainingSenderIds.length === getSenderIds(email.from).length
+            ? email
+            : {
+                  ...email,
+                  from: {
+                      ...email.from,
+                      integrationId: remainingSenderIds[0],
+                      integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+                  },
+              }
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {
