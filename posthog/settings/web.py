@@ -941,6 +941,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
                 "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|log_entries|session_logs)/?$",
+                # Summary rows have no step config, and the trigger's secret inputs are masked.
+                "^/?api/(environments|projects)/\\d+/hog_flows/summaries/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",

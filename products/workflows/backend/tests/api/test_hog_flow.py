@@ -14,6 +14,7 @@ from unittest.mock import ANY, MagicMock, patch
 from django.core.management import call_command
 from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -482,6 +483,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
 
+    def test_summaries_search_returns_name_and_step_matches_together(self):
+        HogFlow.objects.create(team=self.team, name="March campaign", created_by=self.user)
+        HogFlow.objects.create(
+            team=self.team,
+            name="Billing",
+            created_by=self.user,
+            actions=[_email_step("email_1", "Monthly invoice email", subject="Your invoice for March is ready")],
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=march")
+        assert {flow["name"] for flow in list_response.json()["results"]} == {"March campaign"}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries?search=march")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"March campaign", "Billing"}
+
     def test_list_search_step_tier_counts_every_match_across_pages(self):
         for name in ("Alpha", "Beta"):
             HogFlow.objects.create(
@@ -668,6 +685,22 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+        summaries = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries?type={workflow_type}")
+        assert summaries.status_code == 200, summaries.json()
+        rows = summaries.json()["results"]
+        assert {row["name"] for row in rows} == expected_names
+        assert {row["type"] for row in rows} <= set(workflow_type.split(","))
+
+    def test_summaries_keep_their_order_when_a_workflow_is_saved(self):
+        first = HogFlow.objects.create(team=self.team, name="First", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Second", created_by=self.user)
+        first.name = "First, renamed"
+        first.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries")
+        assert response.status_code == 200, response.json()
+        assert [row["name"] for row in response.json()["results"]] == ["Second", "First, renamed"]
 
     @parameterized.expand(
         [
@@ -928,6 +961,15 @@ class TestHogFlowAPI(APIBaseTest):
         assert "actions" not in result
         assert "edges" not in result
         assert secret not in mcp_response.content.decode()
+
+        with CaptureQueriesContext(connection) as queries:
+            summaries_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries")
+        assert summaries_response.status_code == 200, summaries_response.json()
+        assert "actions" not in summaries_response.json()["results"][0]
+        assert summaries_response.json()["results"][0]["suggestions_enabled"] is False
+        assert summaries_response.json()["results"][0]["pending_suggestions"] == 0
+        assert secret not in summaries_response.content.decode()
+        assert not any('"posthog_hogfunctiontemplate"' in query["sql"] for query in queries)
 
         # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
         # and it does carry the secret, proving the MCP omission above is the summary serializer at
@@ -7596,6 +7638,13 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "actions" not in row
         assert row["trigger"]["inputs"]["api_key"] == {"secret": True}
         assert "TRIGGER-SECRET" not in json.dumps(listing)
+
+        # Summary rows build their trigger apart from the step graph, and the route is gzipped on the
+        # promise that the trigger is masked.
+        summaries = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries").json()
+        summary_row = next(r for r in summaries["results"] if r["id"] == str(flow.id))
+        assert summary_row["trigger"]["inputs"]["api_key"] == {"secret": True}
+        assert "TRIGGER-SECRET" not in json.dumps(summaries)
 
     def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self):
         # A row written before encryption shipped still has a plaintext secret in `actions`. The first

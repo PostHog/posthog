@@ -152,10 +152,13 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self._create_access_control(self.viewer_user, resource_id=str(self.hog_flow.id), access_level="none")
         self.client.force_login(self.viewer_user)
+        visible = self._create_workflow(name="visible_workflow")
 
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
-        ids = [row["id"] for row in self.client.get(self._list_url()).json()["results"]]
-        self.assertNotIn(str(self.hog_flow.id), ids)
+        for url in (self._list_url(), f"{self._list_url()}/summaries"):
+            ids = [row["id"] for row in self.client.get(url).json()["results"]]
+            self.assertNotIn(str(self.hog_flow.id), ids, url)
+            self.assertIn(str(visible.id), ids, url)
 
     def test_create_blocked_without_resource_editor_access(self):
         # A project default of "none" leaves the member below editor, so create is rejected.
@@ -282,6 +285,16 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         self._create_access_control(self.user, resource_id=str(self.hog_flow.id), access_level="none")
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_200_OK)
+
+    def test_summaries_keep_object_filtering_with_admin_include_all(self):
+        self.hog_flow.created_by = self.editor_user
+        self.hog_flow.save()
+        self._create_access_control(self.user, resource_id=str(self.hog_flow.id), access_level="none")
+        self.client.force_login(self.user)
+
+        summaries = self.client.get(f"{self._list_url()}/summaries", {"admin_include_all": "true"})
+        self.assertEqual(summaries.status_code, status.HTTP_200_OK)
+        self.assertEqual(summaries.json()["results"], [])
 
     def test_no_enforcement_without_access_control_feature(self):
         # Drop the entitlement — access control rows become inert and ordinary members regain access.

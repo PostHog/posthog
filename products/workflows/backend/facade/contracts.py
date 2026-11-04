@@ -647,7 +647,9 @@ class Workflow:
     user_access_level: str | None
     # Tag names, sorted.
     tags: tuple[str, ...] = ()
-    # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
+    # Read on list pages only, and ``workflow_type`` on summary pages only. A single-workflow read leaves
+    # them None and fills ``schedules``.
+    workflow_type: str | None = None
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
 
@@ -738,6 +740,7 @@ class WorkflowListQuery:
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
+    summaries: bool = False
     search: str = ""
     created_by_uuid: UUID | None = None
     types: frozenset[str] = frozenset()

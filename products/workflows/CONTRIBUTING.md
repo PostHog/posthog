@@ -303,6 +303,19 @@ Existing example:
 - `posthog_assignee` type defined in nodejs/src/cdp/templates/\_destinations/posthog_conversations/posthog-update-ticket.template.ts
 - Renderer in products/conversations/frontend/components/Assignee/CyclotronJobInputAssignee.tsx
 
+## Listing workflows
+
+`GET /api/projects/:id/hog_flows/` returns full workflows with the step graph.
+MCP requests (`x-posthog-client: mcp`) get `HogFlowSummarySerializer` instead, which has no step graph.
+
+`GET /api/projects/:id/hog_flows/summaries/` returns those summary fields plus `type`, for loading a whole project's list page by page.
+It takes the same filters as the list. Keep these in mind when you change it:
+
+- **Its search returns name and step matches together.** The list searches step content only when nothing matches by name or description.
+- **It sorts on `-created_at, -id`.** A save during the load changes `updated_at`, so sorting on it moves rows between pages.
+- **It uses the list facade for access checks.** The routing mixin only filters `list`; the facade filters both list and summary pages.
+- **Only this path is gzipped.** The full list has step config next to the `search` input that its `next` link reflects, which is the shape `ScopedGZipMiddleware` warns about.
+
 ## Metrics and version attribution
 
 Workflow metrics live in the ClickHouse `app_metrics2` table, written by the CDP workers.

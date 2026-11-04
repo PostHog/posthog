@@ -221,3 +221,11 @@ class PushTokenImportRowFailureReason(LabeledStrEnum):
     TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
     NOT_STORED = "not_stored", "The device was not stored"
     PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"
+
+
+class HogFlowType(LabeledStrEnum):
+    MESSAGING = "messaging"
+    AUTOMATION = "automation"
+    LOOP = "loop"
+    BROADCAST = "broadcast"
+    TRANSACTIONAL_EMAIL = "transactional_email"
