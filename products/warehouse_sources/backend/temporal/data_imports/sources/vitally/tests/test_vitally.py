@@ -234,6 +234,55 @@ class TestResume:
         ]
 
 
+class TestFullRefreshEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, expected_path, expected_sort_by, expected_partition_keys",
+        [
+            pytest.param("Admins", "/resources/admins", None, None, id="admins"),
+            pytest.param("Meetings", "/resources/meetings", "createdAt", None, id="meetings"),
+            pytest.param(
+                "Project_Templates", "/resources/projectTemplates", "createdAt", ["created_at"], id="project_templates"
+            ),
+            pytest.param(
+                "Project_Categories",
+                "/resources/projectCategories",
+                "createdAt",
+                ["created_at"],
+                id="project_categories",
+            ),
+        ],
+    )
+    def test_walks_every_page(
+        self,
+        endpoint: str,
+        expected_path: str,
+        expected_sort_by: str | None,
+        expected_partition_keys: list[str] | None,
+    ) -> None:
+        driver = SourceDriver(
+            VitallySource(),
+            VitallySourceConfig(secret_token="secret", region=VitallyRegionConfig(subdomain="", selection="EU")),
+        )
+
+        result = driver.run(
+            endpoint,
+            [
+                ScriptedResponse(json={"results": [{"id": "row-1"}, {"id": "row-2"}], "next": "cursor-2"}),
+                ScriptedResponse(json={"results": [{"id": "row-3"}], "next": None}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [expected_path, expected_path]
+        assert result.params("from") == [None, "cursor-2"]
+        assert result.params("sortBy") == [expected_sort_by, expected_sort_by]
+        assert result.params("updatedAt") == [None, None]
+        assert [row["id"] for row in result.rows] == ["row-1", "row-2", "row-3"]
+        assert result.response is not None
+        assert result.response.partition_keys == expected_partition_keys
+        assert result.final_state == VitallyResumeConfig(completed=True)
+
+
 class TestGetCustomObjectRecordsResource:
     @pytest.mark.parametrize("should_use_incremental_field", [False, True])
     def test_builds_resource(self, should_use_incremental_field):
