@@ -2635,7 +2635,7 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
         rows = [dataclasses.asdict(member) for member in roster.members]
         if (validated.get("search") or team_slug) and len(rows) <= MAX_MEMBERS_WITH_ACTIVITY:
-            activities = _member_activities(self.team, [row["user_uuid"] for row in rows])
+            activities = _member_activities(canonical_team, [row["user_uuid"] for row in rows])
             for row in rows:
                 activity = activities.get(row["user_uuid"])
                 row["activity"] = dataclasses.asdict(activity) if activity is not None else None

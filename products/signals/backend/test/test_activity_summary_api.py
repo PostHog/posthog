@@ -15,6 +15,7 @@ from posthog.models import Organization, User
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.render import RENDER_VERSION
+from products.signals.backend.activity_summary.search import member_activities
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout
 
@@ -241,6 +242,7 @@ class TestActivitySummaryAPI(APIBaseTest):
 
 
 SEARCH = "products.signals.backend.activity_summary.search"
+SCOUT_VIEWS = "products.signals.backend.scout_harness.views"
 
 
 @time_machine.travel(NOW, tick=False)
@@ -382,27 +384,37 @@ class TestActivitySummarySearchAPI(APIBaseTest):
         assert by_email["rest@example.com"]["activity"] is None
         activity = by_email["reader@example.com"]["activity"]
         assert activity["headline"] == "Plans the roadmap."
-        assert activity["themes"] == [
-            {"label": "Signup funnel", "mode": "building", "strength": "high", "last_seen": "2026-10-18"}
-        ]
-        assert activity["owned"] == [{"type": "insight", "id": "12", "name": "Signup funnel", "last_at": "2026-10-18"}]
-        assert activity["watched"] == [
-            {"type": "dashboard", "id": "7", "name": "Onboarding drop-off", "last_at": "2026-10-18"}
-        ]
+        assert activity["themes"] == ["Signup funnel"]
+        assert activity["owned"] == [{"type": "insight", "name": "Signup funnel"}]
+        assert activity["watched"] == [{"type": "dashboard", "name": "Onboarding drop-off"}]
         assert activity["stale"] is False
 
-    @parameterized.expand([("no_narrowing",), ("flag_off",), ("read_fails",)])
-    def test_member_roster_falls_back_to_no_activity(self, case: str) -> None:
+    @parameterized.expand(
+        [
+            ("no_narrowing", False),
+            ("over_row_limit", False),
+            ("flag_off", True),
+            ("not_enrolled", True),
+            ("read_fails", True),
+        ]
+    )
+    def test_member_roster_falls_back_to_no_activity(self, case: str, reads_activity: bool) -> None:
         self._summary(self.reader, "Plans the roadmap.")
         params = {} if case == "no_narrowing" else {"search": "reader"}
+        if case == "over_row_limit":
+            patch(f"{SCOUT_VIEWS}.MAX_MEMBERS_WITH_ACTIVITY", 0).start()
         if case == "flag_off":
             patch(f"{SEARCH}.feature_enabled_or_false", return_value=False).start()
+        if case == "not_enrolled":
+            self.config = dataclasses.replace(self.config, enabled=False)
         if case == "read_fails":
             patch(f"{SEARCH}.ready_view", side_effect=RuntimeError("bad row")).start()
 
-        response = self._members(**params)
+        with patch(f"{SCOUT_VIEWS}.member_activities", wraps=member_activities) as read:
+            response = self._members(**params)
 
         assert response.status_code == 200, response.content
         rows = response.json()
         assert str(self.reader.uuid) in {row["user_uuid"] for row in rows}
         assert all(row["activity"] is None for row in rows)
+        assert read.called is reads_activity

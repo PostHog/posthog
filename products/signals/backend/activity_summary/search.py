@@ -27,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.prompt import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_RENDERING
 from products.signals.backend.activity_summary.read import (
     SKIPPED_REBUILD_STATUSES,
@@ -138,15 +139,13 @@ class ActivitySummarySearchResult:
 @frozen
 class MemberActivityObject:
     type: str
-    id: str
     name: str
-    last_at: str | None
 
 
 @frozen
 class MemberActivity:
     headline: str | None
-    themes: tuple[ActivitySummaryTheme, ...]
+    themes: tuple[str, ...]
     owned: tuple[MemberActivityObject, ...]
     watched: tuple[MemberActivityObject, ...]
     generated_at: datetime.datetime | None
@@ -179,6 +178,14 @@ def search_enabled(team: Team) -> bool:
         return False
 
 
+def searchable_config(team: Team) -> ActivitySummaryConfig | None:
+    """The read config when `team` can search summaries: the team is enrolled for reads and the search flag is on."""
+    config = readable_config(team)
+    if config is None or not search_enabled(team):
+        return None
+    return config
+
+
 def search_summaries(
     team: Team,
     *,
@@ -194,8 +201,8 @@ def search_summaries(
     Returns `None` when the team is not enrolled for reads or the search flag is off. Raises
     `SemanticSearchUnavailable` only for a semantic search, because a hybrid one keeps its keyword ranking.
     """
-    config = readable_config(team)
-    if config is None or not search_enabled(team):
+    config = searchable_config(team)
+    if config is None:
         return None
     limit = max(1, min(limit, MAX_LIMIT))
     members = {user.id: user for user in team.all_users_with_access().order_by("id")}
@@ -269,8 +276,8 @@ def member_activities(team: Team, user_uuids: Sequence[str]) -> dict[str, Member
     Returns `None` when the team is not enrolled for reads or the search flag is off. A member without
     a ready summary, or without access to `team`, has no key.
     """
-    config = readable_config(team)
-    if config is None or not search_enabled(team):
+    config = searchable_config(team)
+    if config is None:
         return None
     members = {
         user_id: str(user_uuid)
@@ -287,7 +294,7 @@ def member_activities(team: Team, user_uuids: Sequence[str]) -> dict[str, Member
         computed = view.computed or {}
         activities[members[row.user_id]] = MemberActivity(
             headline=view.headline,
-            themes=view.themes,
+            themes=tuple(theme.label for theme in view.themes),
             owned=_activity_objects(computed, "owned"),
             watched=_activity_objects(computed, "watched"),
             generated_at=view.generated_at,
@@ -301,12 +308,7 @@ def _activity_objects(computed: dict[str, Any], key: str) -> tuple[MemberActivit
     if not isinstance(items, list):
         return ()
     return tuple(
-        MemberActivityObject(
-            type=str(item.get("type") or ""),
-            id=str(item.get("id") or ""),
-            name=str(item.get("name") or ""),
-            last_at=last_at if isinstance(last_at := item.get("last_at"), str) else None,
-        )
+        MemberActivityObject(type=str(item.get("type") or ""), name=str(item.get("name") or ""))
         for item in items
         if isinstance(item, dict)
     )[:MAX_MEMBER_ACTIVITY_OBJECTS]

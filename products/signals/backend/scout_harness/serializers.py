@@ -34,7 +34,6 @@ from posthog.permissions import get_authenticator_scopes, scopes_missing_after_l
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
-from products.signals.backend.activity_summary.prompt import ActivitySummaryMode
 from products.signals.backend.activity_summary.search import MAX_MEMBER_ACTIVITY_OBJECTS, MAX_MEMBERS_WITH_ACTIVITY
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_LINK_REASON_LENGTH,
@@ -4748,38 +4747,18 @@ class ScoutMemberTeamSerializer(serializers.Serializer):
     )
 
 
-class ScoutMemberActivityThemeSerializer(serializers.Serializer):
-    label = serializers.CharField(  # type: ignore[assignment]  # DRF Field.label collides with a field named label
-        help_text="A main thread of the member's recent work, in at most 60 characters."
-    )
-    mode = serializers.ChoiceField(
-        choices=ActivitySummaryMode.choices,
-        allow_null=True,
-        help_text="How the member works on this thread, for example building it or only reading it. Null on "
-        "older summaries.",
-    )
-    strength = serializers.CharField(
-        allow_null=True, help_text="How much of the recent activity is about this thread: high, medium or low."
-    )
-    last_seen = serializers.CharField(
-        allow_null=True, help_text="The last day of activity on this thread, as YYYY-MM-DD."
-    )
-
-
 class ScoutMemberActivityObjectSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="The object type in snake case, such as `dashboard` or `feature_flag`.")
-    id = serializers.CharField(help_text="The id of the object.")
     name = serializers.CharField(help_text="The latest name of the object.")
-    last_at = serializers.CharField(
-        allow_null=True, help_text="The last day the member changed or opened the object, as YYYY-MM-DD."
-    )
 
 
 class ScoutMemberActivitySerializer(serializers.Serializer):
     """What one member worked on recently, from their activity summary."""
 
     headline = serializers.CharField(allow_null=True, help_text="One line about the member's recent work.")
-    themes = ScoutMemberActivityThemeSerializer(many=True, help_text="The main threads of the member's work.")
+    themes = serializers.ListField(
+        child=serializers.CharField(), help_text="The labels of the main threads of the member's recent work."
+    )
     owned = ScoutMemberActivityObjectSerializer(
         many=True,
         help_text=f"Up to {MAX_MEMBER_ACTIVITY_OBJECTS} objects the member created or changed, the most edited first.",
@@ -4787,11 +4766,12 @@ class ScoutMemberActivitySerializer(serializers.Serializer):
     watched = ScoutMemberActivityObjectSerializer(
         many=True,
         help_text=f"Up to {MAX_MEMBER_ACTIVITY_OBJECTS} objects the member opened on several days, the most opened "
-        "first. A member who only reads the work shows up here.",
+        "first. A member who only reads the work shows up here. A specific object here can support a reviewer "
+        "pick when the pick's `reason` names it.",
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the summary was written.")
     stale = serializers.BooleanField(
-        help_text="True when the summary is older than the current summary format and waits for a rebuild."
+        help_text="True when the summary waits for a rebuild in a newer format. Give a stale summary less weight."
     )
 
 
@@ -4829,9 +4809,9 @@ class ScoutMemberSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text=(
-            "What the member worked on recently, so you can check that they are close to the work before "
-            "you route to them. Present only when the call passes `search` or `team` and returns at most "
-            f"{MAX_MEMBERS_WITH_ACTIVITY} members. Null when the member has no ready summary, or when "
-            "activity summaries are not available for this project."
+            "What the member worked on recently. Use it as context to check against the report, not as proof: "
+            "general activity is not evidence that the member owns the affected work. Filled only when the call "
+            f"passes `search` or `team` and returns at most {MAX_MEMBERS_WITH_ACTIVITY} members. Null when the "
+            "member has no ready summary, or when activity summaries are not available for this project."
         ),
     )
