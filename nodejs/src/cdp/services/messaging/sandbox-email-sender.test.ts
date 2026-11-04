@@ -237,6 +237,11 @@ describe('sandbox email content', () => {
             null,
         ],
         ['<body style="background:#525252;color:white"><p>Hello</p></body>', '<p>Hello</p>', null],
+        [
+            '<body><div style="position:relative"><p>Hello</p><div style="position:absolute;top:0;left:0;width:100%;height:20000px;background:#fff;z-index:9999"></div></div></body>',
+            '<p>Hello</p>',
+            null,
+        ],
         ['<body><style>div { text-indent: -99999px !important }</style><p>Hello</p></body>', '<p>Hello</p>', null],
         [
             '<body><!--[if mso]><p>Outlook</p><![endif]--><!--[if !mso]><!--><p>Hello</p><!--<![endif]--></body>',
@@ -260,10 +265,11 @@ describe('sandbox email content', () => {
                 tagName: 'div',
                 childNodes: [{ nodeName: '#text', value: footer }],
             })
-            expect(
+            const footerStyle =
                 defaultTreeAdapter.isElementNode(deliveredFooter!) &&
-                    deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value
-            ).toContain('text-indent:0!important')
+                deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value
+            expect(footerStyle).toContain('position:relative!important;z-index:2147483647!important')
+            expect(footerStyle).toContain('text-indent:0!important')
         }
         expect(result.preheader).toBeUndefined()
     })
