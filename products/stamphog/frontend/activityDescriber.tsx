@@ -9,8 +9,9 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
-import { ReviewModeEnumApi } from './generated/api.schemas'
+import { ReviewModeEnumApi, RoutingModeEnumApi } from './generated/api.schemas'
 import { REVIEW_MODE_LABELS } from './reviewModeLabels'
+import { ROUTING_MODE_LABELS } from './routingModeLabels'
 
 // A GitHub installation webhook writes a system row, so the actor reads "PostHog". Say which
 // GitHub event caused it, or the reader cannot tell why reviews stopped.
@@ -31,6 +32,17 @@ function repoConfigFieldCopy(change: ActivityChange): Description | null {
             return (
                 <>
                     changed the review mode to <strong>{REVIEW_MODE_LABELS[mode as ReviewModeEnumApi] ?? mode}</strong>
+                </>
+            )
+        }
+        case 'routing_mode': {
+            const mode = String(change.after)
+            if (mode === RoutingModeEnumApi.Off) {
+                return <>turned reviewer requests off</>
+            }
+            return (
+                <>
+                    set reviewer requests to <strong>{ROUTING_MODE_LABELS[mode as RoutingModeEnumApi] ?? mode}</strong>
                 </>
             )
         }
