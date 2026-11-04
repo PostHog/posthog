@@ -14,7 +14,6 @@ import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
 
 export interface IssueSummaryLogicProps {
     issueId: string
-    /** When the issue was first seen. Null until the issue loads. */
     firstSeen: string | null
 }
 

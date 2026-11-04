@@ -9,14 +9,12 @@ export interface IssuePaneSectionHeaderProps {
     name: string
     open: boolean
     onToggle: () => void
-    /** Shown after the name, cut to one line. */
     preview?: ReactNode
     /** Controls at the end of the strip. They sit beside the toggle, because a button cannot hold another. */
     trailing?: ReactNode
     dataAttr: string
 }
 
-/** The header strip of a right-pane section, and the toggle that opens and closes it. */
 export function IssuePaneSectionHeader({
     name,
     open,

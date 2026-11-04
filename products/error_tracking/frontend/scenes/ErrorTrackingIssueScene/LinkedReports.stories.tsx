@@ -118,7 +118,6 @@ export const NarrowPane: Story = {
     ),
 }
 
-/** The section starts closed, so the count is all a person sees until they open it. */
 export const Closed: Story = {
     render: () => (
         <Pane>

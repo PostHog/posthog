@@ -53,7 +53,6 @@ function SummaryField({
     )
 }
 
-/** Why there is no summary to open, and what the person can do about it. */
 function SummaryNote({
     view,
     canManageAiSettings,
