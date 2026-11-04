@@ -1,4 +1,4 @@
-import { Locator, Page } from '@playwright/test'
+import { Locator, Page, Request } from '@playwright/test'
 
 import { LOGIN_PASSWORD } from '../utils/playwright-test-core'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
@@ -39,10 +39,38 @@ async function reauthenticate(page: Page): Promise<void> {
     await expect(page.getByRole('heading', { name: REAUTH_TITLE })).toBeHidden({ timeout: 30000 })
 }
 
+type ApiActivity = { pending: Set<Request>; lastChangeAt: number }
+const apiActivity = new WeakMap<Page, ApiActivity>()
+
+function trackApiRequests(page: Page): void {
+    const activity: ApiActivity = { pending: new Set(), lastChangeAt: Date.now() }
+    apiActivity.set(page, activity)
+    const isApi = (request: Request): boolean => new URL(request.url()).pathname.startsWith('/api/')
+    const settle = (request: Request): void => {
+        if (activity.pending.delete(request)) {
+            activity.lastChangeAt = Date.now()
+        }
+    }
+    page.on('request', (request) => {
+        if (isApi(request)) {
+            activity.pending.add(request)
+            activity.lastChangeAt = Date.now()
+        }
+    })
+    page.on('requestfinished', settle)
+    page.on('requestfailed', settle)
+}
+
 async function expireSession(
     page: Page,
     playwrightSetup: { expireSessionReauth: (key: string) => Promise<void> }
 ): Promise<void> {
+    // A request still in flight loaded the session before the backdate, and saving it writes the
+    // fresh login time back. A save's follow-up calls start just after it ends, so wait for a quiet gap.
+    const activity = apiActivity.get(page)!
+    await expect
+        .poll(() => activity.pending.size === 0 && Date.now() - activity.lastChangeAt >= 500, { timeout: 30000 })
+        .toBe(true)
     const cookies = await page.context().cookies()
     const sessionCookie = cookies.find((cookie) => cookie.name.endsWith('sessionid'))
     expect(sessionCookie, 'session cookie should be set after login').toBeTruthy()
@@ -184,6 +212,7 @@ test.describe('CDP secret binding', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        trackApiRequests(page)
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
     })
 
@@ -231,6 +260,9 @@ test.describe('CDP secret binding', () => {
             await addSecretHeader(page, SECRET_HEADER_VALUE)
             await page.getByTestId('workflow-save').click()
             await expect(page.getByTestId('workflow-save')).toBeDisabled({ timeout: 15000 })
+            // A disabled button does not prove the save landed. Without a stored secret, the next
+            // save would carry the secret and the new URL together and rightly need no login.
+            await expect(page.getByText(MASKED_MESSAGE)).toBeVisible({ timeout: 15000 })
         })
 
         await test.step('moving the step from a stale session asks for the password', async () => {
