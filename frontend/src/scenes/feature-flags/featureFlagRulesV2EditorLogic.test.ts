@@ -507,6 +507,18 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(JSON.stringify(body)).not.toContain('seed')
     })
 
+    it.each([
+        ['a valid key', 'checkout-layout', 'checkout-layout'],
+        ['an invalid key', "x' + 1 + '", ''],
+    ])('starts a new flag with %s from the link', (_label, key, expectedKey) => {
+        router.actions.push(urls.featureFlagNew({ format: 'rules_v2', key }))
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+
+        expect(logic.values.draft.key).toBe(expectedKey)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
     it('blocks a create in a project that requires evaluation contexts, which a rules v2 create cannot set', () => {
         enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, require_evaluation_contexts: true })

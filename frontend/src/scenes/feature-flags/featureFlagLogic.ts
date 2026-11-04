@@ -668,6 +668,12 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+/** The `?key=` from a new-flag link, or null when it isn't a valid key. Code examples render it before save-time validation. */
+export function prefilledFlagKey(value: unknown): string | null {
+    const key = String(value ?? '')
+    return validateFeatureFlagKey(key) ? null : key
+}
+
 function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
     const raw = Array.isArray(value) ? value : value == null ? [] : String(value).split(',')
     const keys = [...new Set(raw.map((key) => String(key).trim()))]
@@ -3621,9 +3627,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    // Code examples render the key before save-time validation, so an invalid one is never prefilled.
-                    const prefilledKey = String(router.values.searchParams.key ?? '')
-                    if (!validateFeatureFlagKey(prefilledKey)) {
+                    const prefilledKey = prefilledFlagKey(router.values.searchParams.key)
+                    if (prefilledKey) {
                         baseFlagConfig = { ...baseFlagConfig, key: prefilledKey }
                     }
 
