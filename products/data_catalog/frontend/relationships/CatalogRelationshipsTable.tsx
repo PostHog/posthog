@@ -21,9 +21,9 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
-import { usePagedItems } from '../components/usePagedItems'
 import {
     DEFAULT_RELATIONSHIPS_FILTERS,
     RelationshipRow,
@@ -34,7 +34,6 @@ import {
 import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { CatalogRelationshipActions } from './CatalogRelationshipActions'
 
-const RELATIONSHIPS_PAGE_SIZE = 20
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const EXTRA_WIDE_ONLY_CELL = 'hidden @min-[72rem]/main-content:table-cell'
@@ -85,6 +84,9 @@ function SourceCell({ row }: { row: RelationshipRow }): JSX.Element {
                 <Text size="xs" variant="muted" className="flex min-w-0 items-center gap-1">
                     <span className="shrink-0">Joins to</span>
                     <TableRefText table={row.joiningTableName} refKey={row.joiningTableKey} />
+                </Text>
+                <Text size="xs" variant="muted">
+                    {`Accessor ${row.fieldName}`}
                 </Text>
                 <StatusBadges row={row} />
             </div>
@@ -237,9 +239,8 @@ function NoRelationships(): JSX.Element {
 }
 
 export function CatalogRelationshipsTable(): JSX.Element {
-    const { sortedRows, sort } = useValues(relationshipsLogic)
-    const { toggleSort } = useActions(relationshipsLogic)
-    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(sortedRows, RELATIONSHIPS_PAGE_SIZE)
+    const { sortedRows, pageRows: pageItems, currentPage, pageCount, sort } = useValues(relationshipsLogic)
+    const { toggleSort, setPage } = useActions(relationshipsLogic)
     const sortProps = (column: RelationshipsSortColumn): SortHeadProps => ({
         direction: sortDirectionFor(sort, column),
         onToggle: () => toggleSort(column),
@@ -304,7 +305,7 @@ export function CatalogRelationshipsTable(): JSX.Element {
                 <CatalogTablesPagination
                     currentPage={currentPage}
                     pageCount={pageCount}
-                    pageSize={RELATIONSHIPS_PAGE_SIZE}
+                    pageSize={CATALOG_PAGE_SIZE}
                     total={sortedRows.length}
                     onPageChange={setPage}
                 />

@@ -30,12 +30,12 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { checkGroupCounts } from '../catalogTableRows'
 import { humanizeDefinitionKind } from '../common'
 import { CheckGroupSummary } from '../components/CheckGroupSummary'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
-import { usePagedItems } from '../components/usePagedItems'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { bulkBusyReason } from '../metricActionGuards'
 import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
@@ -51,7 +51,6 @@ import {
 } from './catalogMetricsLogic'
 import { MetricOwnerCombobox } from './MetricOwnerCombobox'
 
-const METRICS_PAGE_SIZE = 20
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const EXTRA_WIDE_ONLY_CELL = 'hidden @min-[72rem]/main-content:table-cell'
@@ -279,9 +278,8 @@ function MetricRow({
 }
 
 export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelectionProps): JSX.Element {
-    const { visibleMetrics, sort } = useValues(catalogMetricsLogic)
-    const { toggleSort } = useActions(catalogMetricsLogic)
-    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(visibleMetrics, METRICS_PAGE_SIZE)
+    const { visibleMetrics, pageMetrics: pageItems, currentPage, pageCount, sort } = useValues(catalogMetricsLogic)
+    const { toggleSort, setPage } = useActions(catalogMetricsLogic)
     const sortProps = (column: MetricsSortColumn): SortHeadProps => ({
         direction: sortDirectionFor(sort, column),
         onToggle: () => toggleSort(column),
@@ -334,7 +332,7 @@ export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelec
                 <CatalogTablesPagination
                     currentPage={currentPage}
                     pageCount={pageCount}
-                    pageSize={METRICS_PAGE_SIZE}
+                    pageSize={CATALOG_PAGE_SIZE}
                     total={visibleMetrics.length}
                     onPageChange={setPage}
                 />

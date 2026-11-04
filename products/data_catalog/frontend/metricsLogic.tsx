@@ -538,10 +538,16 @@ export const metricsLogic = kea<metricsLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        [urls.dataCatalog()]: (_, searchParams) => {
-            if (searchParams.tab === 'metrics' && searchParams[TABLES_FILTER_PARAM] === PROPOSED_TABLES_FILTER) {
-                actions.setFilters({ status: 'proposed' })
+        [urls.dataCatalog()]: (_, searchParams, hashParams) => {
+            if (searchParams.tab !== 'metrics' || searchParams[TABLES_FILTER_PARAM] !== PROPOSED_TABLES_FILTER) {
+                return
             }
+            actions.setFilters({ status: 'proposed' })
+            router.actions.replace(
+                urls.dataCatalog(),
+                { ...searchParams, [TABLES_FILTER_PARAM]: undefined },
+                hashParams
+            )
         },
     })),
 ])

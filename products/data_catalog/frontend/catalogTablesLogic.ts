@@ -35,6 +35,7 @@ import {
     groupChecksBySubject,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { CATALOG_PAGE_SIZE, itemsOnPage, pageCountFor } from './catalogPagination'
 import { nextColumnSort } from './catalogSort'
 import {
     CatalogTableRow,
@@ -67,7 +68,7 @@ import {
 } from './generated/api'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
-export const TABLES_PAGE_SIZE = 20
+export const TABLES_PAGE_SIZE = CATALOG_PAGE_SIZE
 
 export type TablesBulkAction = ProposalDecision | 'certify'
 
@@ -533,7 +534,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         pageCount: [
             (s) => [s.filteredRows],
-            (filteredRows: CatalogTableRow[]): number => Math.max(1, Math.ceil(filteredRows.length / TABLES_PAGE_SIZE)),
+            (filteredRows: CatalogTableRow[]): number => pageCountFor(filteredRows.length, TABLES_PAGE_SIZE),
         ],
         currentPage: [
             (s) => [s.page, s.pageCount],
@@ -541,10 +542,8 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         visibleRows: [
             (s) => [s.filteredRows, s.currentPage],
-            (filteredRows: CatalogTableRow[], currentPage: number): CatalogTableRow[] => {
-                const start = (currentPage - 1) * TABLES_PAGE_SIZE
-                return filteredRows.slice(start, start + TABLES_PAGE_SIZE)
-            },
+            (filteredRows: CatalogTableRow[], currentPage: number): CatalogTableRow[] =>
+                itemsOnPage(filteredRows, currentPage, TABLES_PAGE_SIZE),
         ],
         selectedRows: [
             (s) => [s.rows, s.selectedRowKeys],

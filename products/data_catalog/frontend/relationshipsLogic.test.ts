@@ -124,10 +124,26 @@ describe('relationshipsLogic', () => {
         expect(router.values.searchParams.propose_table).toBeUndefined()
     })
 
+    it('lists pending relationships first and goes back to the first page when the search changes', async () => {
+        await mountWith(
+            [
+                buildProposal({ id: 'rejected', field_name: 'account', status: 'rejected' }),
+                buildProposal({ id: 'pending', field_name: 'contact', status: 'proposed' }),
+            ],
+            [{ id: 'join-1', source_table_name: 'events' }]
+        )
+        expect(logic.values.sortedRows.map((row) => row.rowStatus)).toEqual(['pending', 'active', 'rejected'])
+
+        logic.actions.setPage(2)
+        logic.actions.setFilters({ search: 'contact' })
+        expect(logic.values.page).toBe(1)
+    })
+
     it('opens on pending relationships when the To review card links to proposed ones', async () => {
         await mountWith([], [])
         router.actions.push('/data-catalog', { tab: 'relationships', filter: 'proposed' })
         expect(logic.values.filters.status).toBe('pending')
+        expect(router.values.searchParams).toEqual({ tab: 'relationships' })
     })
 
     it('loads proposals with the linked table filter before pagination and clears it on general navigation', async () => {

@@ -102,6 +102,7 @@ describe('metricsLogic', () => {
     it('opens on proposed metrics when the To review card links to them', () => {
         router.actions.push('/data-catalog', { tab: 'metrics', filter: 'proposed' })
         expect(logic.values.filters.status).toBe('proposed')
+        expect(router.values.searchParams).toEqual({ tab: 'metrics' })
     })
 
     it('replaces the row with the response when approve succeeds', async () => {

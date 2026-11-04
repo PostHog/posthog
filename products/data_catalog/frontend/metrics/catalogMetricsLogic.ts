@@ -16,6 +16,7 @@ import {
     groupChecksBySubject,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { itemsOnPage, pageCountFor } from '../catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from '../catalogSort'
 import { ChecksFilter, checkGroupCounts, matchesChecksFilter, passingShare } from '../catalogTableRows'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
@@ -64,7 +65,11 @@ export interface catalogMetricsLogicValues {
     metrics: DataCatalogMetricApi[] // metricsLogic
     checkGroupByMetricId: Record<string, SubjectGroup>
     checksFilter: ChecksFilter
+    currentPage: number
     ownerNameByEmail: Record<string, string>
+    page: number
+    pageCount: number
+    pageMetrics: DataCatalogMetricApi[]
     sort: MetricsSort | null
     visibleMetrics: DataCatalogMetricApi[]
 }
@@ -74,8 +79,14 @@ export interface catalogMetricsLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    setFilters: (filters: Partial<import('../metricsLogic').MetricsFilters>) => {
+        filters: Partial<import('../metricsLogic').MetricsFilters>
+    } // metricsLogic
     setChecksFilter: (checks: ChecksFilter) => {
         checks: ChecksFilter
+    }
+    setPage: (page: number) => {
+        page: number
     }
     toggleSort: (column: MetricsSortColumn) => {
         column: MetricsSortColumn
@@ -99,6 +110,9 @@ export interface catalogMetricsLogicMeta {
             checksFilter: ChecksFilter,
             sort: MetricsSort | null
         ) => DataCatalogMetricApi[]
+        pageCount: (visibleMetrics: DataCatalogMetricApi[]) => number
+        currentPage: (page: number, pageCount: number) => number
+        pageMetrics: (visibleMetrics: DataCatalogMetricApi[], currentPage: number) => DataCatalogMetricApi[]
     }
 }
 
@@ -120,11 +134,12 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
             membersLogic,
             ['meFirstMembers'],
         ],
-        actions: [membersLogic, ['ensureAllMembersLoaded']],
+        actions: [membersLogic, ['ensureAllMembersLoaded'], metricsLogic, ['setFilters']],
     })),
     actions({
         toggleSort: (column: MetricsSortColumn) => ({ column }),
         setChecksFilter: (checks: ChecksFilter) => ({ checks }),
+        setPage: (page: number) => ({ page }),
     }),
     reducers({
         sort: [
@@ -137,6 +152,15 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
             DEFAULT_METRIC_CHECKS_FILTER as ChecksFilter,
             {
                 setChecksFilter: (_, { checks }) => checks,
+            },
+        ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setFilters: () => 1,
+                setChecksFilter: () => 1,
+                toggleSort: () => 1,
             },
         ],
     }),
@@ -173,6 +197,19 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
                     metricSortGetters(checkGroupByMetricId, ownerNameByEmail),
                     metricDisplayName
                 ),
+        ],
+        pageCount: [
+            (s) => [s.visibleMetrics],
+            (visibleMetrics: DataCatalogMetricApi[]): number => pageCountFor(visibleMetrics.length),
+        ],
+        currentPage: [
+            (s) => [s.page, s.pageCount],
+            (page: number, pageCount: number): number => Math.min(page, pageCount),
+        ],
+        pageMetrics: [
+            (s) => [s.visibleMetrics, s.currentPage],
+            (visibleMetrics: DataCatalogMetricApi[], currentPage: number): DataCatalogMetricApi[] =>
+                itemsOnPage(visibleMetrics, currentPage),
         ],
     }),
     afterMount(({ actions }) => {
