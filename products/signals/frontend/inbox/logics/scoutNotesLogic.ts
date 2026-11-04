@@ -3,7 +3,10 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import {
     signalsScoutNotesCreate,
@@ -42,6 +45,14 @@ export function scoutNoteOriginLabel(origin: string): string {
 /** A note left directly is the team steering the fleet; the rest are derived from inbox activity. */
 export function isDirectScoutNote(note: ScoutNoteApi): boolean {
     return note.origin === 'human'
+}
+
+/** Bounded by the create serializer; mirrored here so a composer can say so before a failed request. */
+export const SCOUT_NOTE_MAX_CHARS = 10000
+
+/** Notes are written and retired through the skill, so the same editor access gates both. */
+export function scoutNoteWriteDisabledReason(): string | undefined {
+    return getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor) ?? undefined
 }
 
 /**

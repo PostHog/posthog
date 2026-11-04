@@ -25,6 +25,7 @@ import {
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { buildReportNoteContent } from '../../utils/reportNotes'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -324,6 +325,61 @@ export const ReportClaimedByTeammate: Story = {
                     },
                 }}
             />
+        </Frame>
+    ),
+}
+
+const NOTES_REPORT: SignalReport = { ...reportTabReports[0], scout_name: 'signals-scout-checkout' }
+
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-direct',
+                    skill_name: 'signals-scout-checkout',
+                    content: buildReportNoteContent(
+                        NOTES_REPORT.id,
+                        'The checkout flow is being rebuilt next month. Focus on the new flow instead.'
+                    ),
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+                {
+                    id: 'note-fleet',
+                    skill_name: '',
+                    content: buildReportNoteContent(NOTES_REPORT.id, 'Anything under /legacy is out of scope.'),
+                    created_at: '2026-06-09T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+                {
+                    id: 'note-dismissal',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Inbox dismissal: a reviewer dismissed report \`${NOTES_REPORT.id}\` as not worth fixing.`,
+                    created_at: '2026-06-08T09:00:00Z',
+                    expires_at: '2026-07-08T09:00:00Z',
+                    created_by_name: null,
+                    origin: 'report_dismissal',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+    },
+})
+
+export const ReportWithNotes: Story = {
+    decorators: [reportNotesMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={NOTES_REPORT} />
         </Frame>
     ),
 }
