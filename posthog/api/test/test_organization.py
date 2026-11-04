@@ -618,7 +618,7 @@ class TestOrganizationAPI(APIBaseTest):
     @parameterized.expand(
         [
             (False, None, status.HTTP_403_FORBIDDEN),
-            (True, None, status.HTTP_200_OK),
+            (True, None, status.HTTP_403_FORBIDDEN),
             (True, "198.51.100.7", status.HTTP_403_FORBIDDEN),
             (True, "203.0.113.4", status.HTTP_200_OK),
         ]
