@@ -76578,6 +76578,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly research_blocked_reason: string | null;
+      /**
+         * Machine-readable implementation access blocker, if any.
+         * @nullable
+         */
+      readonly implementation_blocked_reason: string | null;
       readonly id: string;
       /** @nullable */
       readonly title: string | null;
@@ -101302,6 +101307,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly research_blocked_reason: string | null;
+      /**
+         * Machine-readable implementation access blocker, if any.
+         * @nullable
+         */
+      readonly implementation_blocked_reason: string | null;
       readonly id: string;
       /** @nullable */
       readonly title: string | null;

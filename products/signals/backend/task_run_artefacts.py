@@ -377,6 +377,7 @@ def implementation_started_by_person(*, team_id: int, report_id: str, task_id: s
     return found
 
 
+@transaction.atomic
 def record_implementation_task(
     *,
     team_id: int,
@@ -400,14 +401,18 @@ def record_implementation_task(
     raises once a billable PR run exists). Auto-start stamps its exemption itself under its row
     lock and does not pass this.
     """
+    report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
     if billing_exempt_reason:
-        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         mark_report_billing_exempt(report, billing_exempt_reason)
     SignalReportTask.objects.get_or_create(
         team_id=team_id,
         report_id=report_id,
         task_id=task_id,
-        defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
+        defaults={
+            "relationship": TASK_RUN_TYPE_IMPLEMENTATION,
+            "report_run_count": report.run_count,
+            "report_content_revision_count": report.content_revision_count or 0,
+        },
     )
     artefact = SignalReportArtefact.add_log(
         team_id=team_id,
