@@ -71,6 +71,7 @@ describe('deliveryWebhooksLogic', () => {
 
     it.each([
         ['a URL without a scheme', { url: 'example.com/hooks' }],
+        ['a plain http URL', { url: 'http://example.com/hooks' }],
         ['no events', { url: 'https://example.com/hooks', events: [] }],
     ])('does not create a webhook with %s', async (_, values) => {
         logic.actions.setWebhookFormValues(values)

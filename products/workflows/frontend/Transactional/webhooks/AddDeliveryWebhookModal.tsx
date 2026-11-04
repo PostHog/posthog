@@ -47,13 +47,18 @@ export function AddDeliveryWebhookModal(): JSX.Element {
     return (
         <LemonModal
             isOpen={isAddModalOpen}
-            onClose={closeAddModal}
+            // Closing mid-request would hide the secret of a webhook the request still creates.
+            onClose={isWebhookFormSubmitting ? undefined : closeAddModal}
             title="Add webhook"
             description="Send a request to your endpoint when a transactional email is sent, delivered, opened, or fails."
             width={560}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeAddModal}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeAddModal}
+                        disabledReason={isWebhookFormSubmitting ? 'Adding the webhook' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
