@@ -42,7 +42,6 @@ const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 const QUIET_WINDOW_MS = 250
-// Equal to the fixed sleeps these waits replaced, so no story waits longer than before.
 const RESIZE_SETTLE_TIMEOUT_MS = 300
 const CONTENT_SETTLE_TIMEOUT_MS = 1300
 
