@@ -148,6 +148,24 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     })
 }
 
+export const getSubscriptionsTakeOwnershipCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/take_ownership/`
+}
+
+/**
+ * Make the requesting user the owner of this subscription and enable it. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ */
+export const subscriptionsTakeOwnershipCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsTakeOwnershipCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
 }

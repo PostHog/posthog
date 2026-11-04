@@ -36,6 +36,7 @@ async def create_health_check_schedules(client: Client) -> None:
                 dataclasses.asdict(workflow_inputs),
                 id=f"health-check-{config.name}",
                 task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
+                execution_timeout=config.execution_timeout,
             ),
             # Checks look back a day or more, so a start up to 30 minutes after the cron time finds the same
             # issues. The jitter also stops checks that share a cron time from starting together.

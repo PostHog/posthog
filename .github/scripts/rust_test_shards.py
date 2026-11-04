@@ -20,6 +20,7 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "cohort-stream-processor": 285,
     "common-alloc": 5,
     "common-cache": 6,
+    "common-cohort-team-access": 5,
     "common-compression": 5,
     "common-continuous-profiling": 9,
     "common-cookieless": 103,

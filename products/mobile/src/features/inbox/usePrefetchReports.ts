@@ -1,10 +1,22 @@
-import { type QueryClient, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import {
+    type DefaultError,
+    type FetchQueryOptions,
+    type QueryClient,
+    type QueryKey,
+    useIsFetching,
+    useQueryClient,
+} from '@tanstack/react-query'
+import { NetworkStateType } from 'expo-network'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ViewabilityConfig, ViewToken } from 'react-native'
 
 import { isMissingFeature, type ProjectScope } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
+import { useAppActive } from '@/features/handoff/useTaskRun'
+import { useConnectivity } from '@/lib/connectivity'
 import type { InboxItem } from '@/model/types'
 
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from '../report/queries'
@@ -30,78 +42,125 @@ function knownMissing(queryClient: QueryClient, scope: ProjectScope, reportId: s
     )
 }
 
-async function prefetchReport(queryClient: QueryClient, scope: ProjectScope, reportId: string): Promise<void> {
-    const options = { staleTime: PREFETCH_STALE_MS }
-    await Promise.all([
-        queryClient.prefetchQuery({ ...reportDetailQuery(scope, reportId), ...options }),
-        queryClient.prefetchQuery({ ...reportArtefactsQuery(scope, reportId), ...options }),
-        knownMissing(queryClient, scope, reportId)
-            ? Promise.resolve()
-            : queryClient.prefetchQuery({ ...reportPageQuery(scope, reportId), ...options }),
-    ])
-    // The screen shows the signals as the evidence only when the report has no Today page.
+async function prefetchReport(
+    queryClient: QueryClient,
+    scope: ProjectScope,
+    reportId: string,
+    signal: AbortSignal,
+    owned: Set<QueryKey>,
+    wanted: () => boolean
+): Promise<void> {
+    const prefetch = async <TData, TKey extends QueryKey>(
+        options: FetchQueryOptions<TData, DefaultError, TData, TKey>
+    ): Promise<void> => {
+        if (
+            signal.aborted ||
+            !wanted() ||
+            queryClient.isFetching({ predicate: (query) => query.getObserversCount() > 0 }) > 0
+        )
+            return
+        const query = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })
+        if (query && (query.getObserversCount() > 0 || query.state.fetchStatus !== 'idle')) return
+        const configuredRetry = queryClient.defaultQueryOptions(options).retry
+        const retry = (failureCount: number, error: DefaultError): boolean => {
+            const current = queryClient.getQueryCache().find({ queryKey: options.queryKey, exact: true })
+            if (!current || current.getObserversCount() === 0) return false
+            // The retryer captures this callback, even after an opened report replaces the query's options.
+            const policy = current.options.retry === retry ? configuredRetry : current.options.retry
+            return typeof policy === 'function'
+                ? policy(failureCount, error)
+                : policy === true || (typeof policy === 'number' && failureCount < policy)
+        }
+        owned.add(options.queryKey)
+        try {
+            await queryClient.prefetchQuery({ ...options, staleTime: PREFETCH_STALE_MS, retry })
+        } finally {
+            owned.delete(options.queryKey)
+        }
+    }
+    await prefetch(reportDetailQuery(scope, reportId))
+    await prefetch(reportArtefactsQuery(scope, reportId))
+    if (!knownMissing(queryClient, scope, reportId)) await prefetch(reportPageQuery(scope, reportId))
     const page = queryClient.getQueryState(reportPageQuery(scope, reportId).queryKey)
     if (page?.status === 'error' && isMissingFeature(page.error)) {
-        await queryClient.prefetchQuery({ ...reportSignalsQuery(scope, reportId), ...options })
+        await prefetch(reportSignalsQuery(scope, reportId))
     }
 }
 
-/** Fills the report screen's cache for the rows on screen and a few ahead, so opening a row renders at once. */
-export function usePrefetchReports(items: InboxItem[] | undefined): ReportPrefetchListProps {
+/** Shares the report screen's cache so visible rows can open from a prefetched copy. */
+export function usePrefetchReports(items: InboxItem[] | undefined, focused: boolean): ReportPrefetchListProps {
     const queryClient = useQueryClient()
     const live = useDataMode() === 'live'
     const scope = useProjectScope()
-    const scopeRef = useRef(scope)
-    scopeRef.current = scope
-    const queueRef = useRef<PrefetchQueue | null>(null)
-    if (queueRef.current === null) {
-        queueRef.current = createPrefetchQueue(async (reportId) => {
-            const current = scopeRef.current
-            if (current) {
-                await prefetchReport(queryClient, current, reportId)
-            }
-        })
-    }
-    const lastVisibleRef = useRef<number | null>(null)
-
-    const rows = useMemo(() => prefetchRows(items ?? []), [items])
-    const idsKey = rows.ids.join(',')
-    const rowsRef = useRef(rows)
-    rowsRef.current = rows
-    const enabled = live && scope !== null
-    const enabledRef = useRef(enabled)
-    enabledRef.current = enabled
-
-    const scopeKey = scope ? `${scope.host}|${scope.projectId}` : ''
+    const account = useAuthStore((state) => JSON.stringify([state.user?.uuid, sessionGeneration()]))
+    const accountRef = useRef(account)
+    accountRef.current = account
+    const active = useAppActive()
+    const connected = useConnectivity(
+        (state) =>
+            state.status === 'connected' &&
+            (state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET)
+    )
+    const foregroundFetching = useIsFetching({ predicate: (query) => query.getObserversCount() > 0 })
+    const enabled = live && scope !== null && focused && active && connected && foregroundFetching === 0
+    const scopeKey = scope ? JSON.stringify([scope.host, scope.projectId, account]) : ''
     const scopeKeyRef = useRef(scopeKey)
+    scopeKeyRef.current = scopeKey
+    const queueRef = useRef<PrefetchQueue | null>(null)
+    const [visible, setVisible] = useState<{ first: number; last: number; scopeKey: string } | null>(null)
+    const rows = useMemo(() => prefetchRows(items ?? []), [items])
+    const currentVisible = visible?.scopeKey === scopeKey ? visible : null
+    const ids = prefetchWindow(rows, currentVisible)
+    const idsKey = ids.join(',')
+    const idsRef = useRef(ids)
+    idsRef.current = ids
 
-    // Keyed on the id string, not `items`, so the inbox's once-a-minute clock re-render does not enqueue again.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `idsKey` stands for `rows.ids`, read through the ref.
     useEffect(() => {
-        if (scopeKeyRef.current !== scopeKey) {
-            scopeKeyRef.current = scopeKey
-            queueRef.current?.reset()
-            lastVisibleRef.current = null
+        if (!enabled || !scope) return
+        const controller = new AbortController()
+        const owned = new Set<QueryKey>()
+        const queue = createPrefetchQueue((id) =>
+            prefetchReport(
+                queryClient,
+                scope,
+                id,
+                controller.signal,
+                owned,
+                () => accountRef.current === account && idsRef.current.includes(id)
+            )
+        )
+        queueRef.current = queue
+        return () => {
+            controller.abort()
+            queue.reset()
+            queueRef.current = null
+            for (const queryKey of owned) {
+                // A report opened since prefetch began owns the shared request now. Leave its observed reads running.
+                void queryClient.cancelQueries({
+                    queryKey,
+                    exact: true,
+                    predicate: (query) => query.getObserversCount() === 0,
+                })
+            }
         }
-        if (enabled) {
-            queueRef.current?.enqueue(prefetchWindow(rowsRef.current.ids, lastVisibleRef.current))
-        }
-    }, [enabled, idsKey, scopeKey])
+    }, [enabled, scope, queryClient, account])
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: idsKey represents the current window, read through the ref.
+    useEffect(() => {
+        queueRef.current?.enqueue(idsRef.current)
+    }, [enabled, scopeKey, idsKey])
 
     const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<InboxItem>[] }): void => {
-        const maxRow = viewableItems.reduce((max, token) => Math.max(max, token.index ?? -1), -1)
-        if (maxRow < 0) {
-            return
-        }
-        const { ids, idIndexByRow } = rowsRef.current
-        const lastVisible = idIndexByRow[maxRow] ?? ids.length - 1
-        if (lastVisible === lastVisibleRef.current) {
-            return
-        }
-        lastVisibleRef.current = lastVisible
-        if (enabledRef.current) {
-            queueRef.current?.enqueue(prefetchWindow(ids, lastVisible))
-        }
+        const indices = viewableItems.flatMap((token) => (token.index === null ? [] : [token.index]))
+        const first = Math.min(...indices)
+        const last = Math.max(...indices)
+        const scopeKey = scopeKeyRef.current
+        setVisible((current) => {
+            if (indices.length === 0) return current === null ? current : null
+            return current?.first === first && current.last === last && current.scopeKey === scopeKey
+                ? current
+                : { first, last, scopeKey }
+        })
     }, [])
 
     return { onViewableItemsChanged, viewabilityConfig: VIEWABILITY_CONFIG }

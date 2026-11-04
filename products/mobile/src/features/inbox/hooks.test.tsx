@@ -3,10 +3,15 @@ import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { setAuthProvider } from '@/api/client'
+import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { type DataMode, useDemoMode } from '@/demo/demoMode'
+import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
+
+import { snoozeKey } from '../snooze/snoozeEntries'
+import { useSnoozeStore } from '../snooze/snoozeStore'
 
 import { useInboxItems, useMarkReadOnOpen, useSetReportRead } from './hooks'
 
@@ -42,6 +47,7 @@ describe('inbox hooks', () => {
 
     beforeEach(() => {
         posted.length = 0
+        useSnoozeStore.setState({ entries: {} })
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
@@ -249,10 +255,13 @@ describe('inbox hooks', () => {
         jest.useFakeTimers()
         const previousState = AppState.currentState
         AppState.currentState = 'active'
-        let appChange: ((state: AppStateStatus) => void) | undefined
+        const appListeners = new Set<(state: AppStateStatus) => void>()
+        const appChange = (state: AppStateStatus): void => {
+            for (const listener of appListeners) listener(state)
+        }
         const listener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
-            appChange = handler
-            return { remove: () => undefined }
+            appListeners.add(handler)
+            return { remove: () => appListeners.delete(handler) }
         })
         let reads = 0
         globalThis.fetch = jest.fn(async (url: string) => {
@@ -382,9 +391,11 @@ describe('inbox hooks', () => {
         }
     })
 
-    test.each(['server error', 'invalid page'])(
+    test.each(['server error', 'invalid page', 'invalid report'])(
         'pages through the ranking, retrying after %s only when asked, reading states once per page',
         async (failure) => {
+            let now = Date.now()
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
             const offsets: string[] = []
             const readStateBatches: string[][] = []
             const firstPage = Array.from({ length: INBOX_PAGE_SIZE }, (_, index) => reportFixture({ id: `r${index}` }))
@@ -401,7 +412,11 @@ describe('inbox hooks', () => {
                     secondPageFailures -= 1
                     return failure === 'server error'
                         ? jsonResponse({ detail: 'Server error' }, 500)
-                        : jsonResponse({ count: INBOX_PAGE_SIZE + 1, next: null })
+                        : jsonResponse({
+                              count: INBOX_PAGE_SIZE + 1,
+                              next: null,
+                              ...(failure === 'invalid report' ? { results: [{ id: 'synthetic-report' }] } : {}),
+                          })
                 }
                 return jsonResponse(
                     offset === '0'
@@ -417,6 +432,9 @@ describe('inbox hooks', () => {
 
             await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE))
             expect(result.current.hasMore).toBe(true)
+            await waitFor(() => expect(queryClient.getQueryData<SavedInbox>(inboxCacheKey(scopeOf()))).toBeDefined())
+            const firstCapture = queryClient.getQueryData<SavedInbox>(inboxCacheKey(scopeOf()))?.sourceUpdatedAt
+            now += 60_000
             act(() => result.current.loadMore())
             await waitFor(() => expect(result.current.loadMoreFailed).toBe(true))
             expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE)
@@ -428,6 +446,11 @@ describe('inbox hooks', () => {
             await waitFor(() => expect(readStateBatches).toHaveLength(2))
 
             expect(result.current.hasMore).toBe(false)
+            expect(queryClient.getQueryData<SavedInbox>(inboxCacheKey(scopeOf()))).toMatchObject({
+                sourceUpdatedAt: firstCapture,
+            })
+            expect(queryClient.getQueryState(inboxCacheKey(scopeOf()))?.dataUpdatedAt).toBe(firstCapture)
+            expect(queryClient.getQueryData<SavedInbox>(inboxCacheKey(scopeOf()))?.items).toHaveLength(INBOX_PAGE_SIZE)
             expect(offsets).toEqual(['0', String(INBOX_PAGE_SIZE), String(INBOX_PAGE_SIZE)])
             expect(readStateBatches.map((ids) => ids.length)).toEqual([INBOX_PAGE_SIZE, 1])
         }
@@ -469,5 +492,84 @@ describe('inbox hooks', () => {
         expect(result.current.isLoadingMore).toBe(false)
         expect(result.current.data?.map((item) => item.id).slice(0, 3)).toEqual(['last', 'r19', 'r18'])
         expect(result.current.data?.at(-1)?.id).toBe('r0')
+    })
+    test('preserves the first-page capture time through a delayed failed refresh', async () => {
+        let now = Date.now()
+        jest.spyOn(Date, 'now').mockImplementation(() => now)
+        let fail!: (error: Error) => void
+        let refreshing = false
+        globalThis.fetch = jest.fn(async (url: string) => {
+            if (new URL(url).pathname.endsWith('/read_state/')) return jsonResponse({ states: {} })
+            if (refreshing)
+                return new Promise<Response>((_resolve, reject) => {
+                    fail = reject
+                })
+            return jsonResponse({ count: 1, next: null, results: [reportFixture({ id: 'r1' })] })
+        }) as typeof fetch
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const hook = renderHook(() => useInboxItems(), { wrapper })
+        const savedKey = inboxCacheKey(scopeOf())
+        await waitFor(() => expect(queryClient.getQueryData<SavedInbox>(savedKey)).toBeDefined())
+        const capturedAt = queryClient.getQueryData<SavedInbox>(savedKey)?.sourceUpdatedAt
+        now += 60_000
+        refreshing = true
+        let pending: unknown
+        act(() => {
+            pending = hook.result.current.refetch()
+        })
+        await waitFor(() => expect(fail).toBeDefined())
+        expect(queryClient.getQueryData<SavedInbox>(savedKey)?.sourceUpdatedAt).toBe(capturedAt)
+        await act(async () => {
+            fail(new TypeError('Offline'))
+            await pending
+        })
+        expect(queryClient.getQueryData<SavedInbox>(savedKey)?.sourceUpdatedAt).toBe(capturedAt)
+        expect(queryClient.getQueryState(savedKey)?.dataUpdatedAt).toBe(capturedAt)
+        hook.unmount()
+        queryClient.clear()
+    })
+
+    test('shows a saved inbox offline, then replaces it with a successful live list', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const scope = scopeOf()
+        const cached = inboxFromReports([reportFixture({ id: 'saved-report', status: 'pending_input' })])
+        useSnoozeStore
+            .getState()
+            .put(snoozeKey(scope, 'saved-report'), { kind: 'signals', threshold: 10, at: new Date().toISOString() })
+        const sourceUpdatedAt = Date.now() - 60_000
+        queryClient.setQueryData<SavedInbox>(inboxCacheKey(scope), {
+            items: cached,
+            signalCounts: { 'saved-report': 12 },
+            sourceUpdatedAt,
+        })
+        globalThis.fetch = jest.fn(async () => {
+            throw new TypeError('Offline')
+        }) as typeof fetch
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const hook = renderHook(() => useInboxItems(), { wrapper })
+        await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('saved-report'))
+        expect(hook.result.current.data?.[0]).toMatchObject({ needsInput: true })
+        expect(hook.result.current.data?.[0]?.state).not.toBe('snoozed')
+        globalThis.fetch = jest.fn(async (url: string) =>
+            new URL(url).pathname.endsWith('/read_state/')
+                ? jsonResponse({ states: {} })
+                : jsonResponse({ results: [reportFixture({ id: 'live-report' })], count: 1, next: null })
+        ) as typeof fetch
+        await act(async () => {
+            await hook.result.current.refetch()
+        })
+        await waitFor(() => expect(hook.result.current.data?.[0]?.id).toBe('live-report'))
+        await waitFor(() =>
+            expect(queryClient.getQueryData<SavedInbox>(inboxCacheKey(scope))?.signalCounts).toEqual({
+                'live-report': 12,
+            })
+        )
+        hook.unmount()
+        queryClient.clear()
     })
 })
