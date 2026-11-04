@@ -140,8 +140,7 @@ def _is_over_ai_credit_budget(team: "Team") -> bool:
     try:
         return is_team_over_ai_credit_budget(team.api_token)
     except Exception:
-        # The quota cache reads Redis. An outage must not error every AI alert of a team that has
-        # credits, so the check fails open and the call goes ahead.
+        # A Redis outage must not error every AI alert of a team that has credits, so this fails open.
         logger.warning("alerts.llm_detector.ai_credit_check_failed", team_id=team.pk, exc_info=True)
         return False
 
@@ -206,8 +205,7 @@ class LLMSeriesJudge:
     ) -> LLMDetectionVerdict:
         # An alert created while the organization was in the rollout and had consent on keeps
         # being checked after either is withdrawn. Refusing here covers every path to the
-        # model, scheduled or previewed, so the flag is a real stop on spend. The refusal pauses
-        # the alert and does not disable it, so the alert resumes on its own once access returns.
+        # model, scheduled or previewed, so the flag is a real stop on spend.
         access_error = llm_detector_access_error(
             distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
         )

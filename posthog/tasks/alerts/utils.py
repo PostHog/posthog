@@ -442,8 +442,6 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             # The template drops its "review the alert settings" advice for this code, because
             # a check the AI detector could not complete is not something the owner can fix.
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-            # A paused check says in its error what turns the detector back on, so the template
-            # drops both the settings advice and the promise to try again.
             "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
         },
     )

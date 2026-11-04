@@ -360,9 +360,7 @@ class TestLLMJudgeVerdictMemo:
     "is_agent_billable,over_budget,expect_call",
     [
         (True, True, False),
-        # Not billable, so the call charges no credits.
         (False, True, True),
-        # The quota cache could not be read, so the check fails open.
         (True, RuntimeError("redis down"), True),
     ],
 )

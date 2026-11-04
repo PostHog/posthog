@@ -3308,7 +3308,6 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "llm_detector_unavailable",
             ),
-            # Trying again in a moment cannot help until the organization has credits again.
             (
                 "out_of_ai_credits",
                 LLMDetectorPausedError("No AI credits left."),

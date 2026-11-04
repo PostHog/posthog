@@ -70,8 +70,7 @@ LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
 )
 
 
-# The message of a paused check is written for the alert's owner, so this code lets it past the
-# serializer's allowlist, and the notifications drop their advice to retry or contact support.
+# Lets a paused check's owner-facing message past the serializer's allowlist.
 LLM_DETECTOR_PAUSED_ERROR_CODE = "llm_detector_paused"
 
 

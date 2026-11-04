@@ -689,13 +689,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # evaluation that never produced a value.
             raise
         except LLMDetectorPausedError as err:
-            # A withdrawn rollout or consent, or no AI credits left. Retrying cannot help, and the
-            # alert stays enabled so it resumes on its own. The errored state announces this once.
+            # Retrying cannot help, and the alert stays enabled so it resumes once access or credits return.
             record_ai_detector_check_outcome("paused")
             error = {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
-            # Same fail-loud outcome as a bad query shape below, counted apart because an alert
-            # with no creator is the owner's to fix and never a provider failure.
+            # Same fail-loud outcome as a bad query shape below, counted apart because a missing
+            # creator is the owner's to fix and never a provider failure.
             record_ai_detector_check_outcome("misconfigured")
             invalid_configuration = str(err)
         except AlertExtractionError as err:
@@ -1060,7 +1059,6 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
         )
         title = f"{alert_name[:75]} could not be evaluated"
         if error_code == LLM_DETECTOR_PAUSED_ERROR_CODE:
-            # The message already says what changes it back, and retrying or support cannot help.
             body = f"PostHog could not evaluate this alert: {error_message}."
         elif error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
             # A check the AI detector could not complete is not something the owner can fix,

@@ -776,8 +776,7 @@ def _decide(
             check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
         )
     except LLMDetectorPausedError as error:
-        # As production: a withdrawn rollout or consent, or no AI credits left, errors the check
-        # without a retry and leaves the alert enabled, so it resumes once that changes.
+        # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
         return _verdict(
             check,
             snapshot,
