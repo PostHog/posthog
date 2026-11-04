@@ -66,10 +66,12 @@ class _FakeTrino:
 
 
 def _catalog(
-    columns: dict[str, str] | None = None, failures: list[Exception] | None = None
+    columns: dict[str, str] | None = None,
+    failures: list[Exception] | None = None,
+    owned_tables: frozenset[str] = frozenset(),
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
     connection = _FakeTrino(columns, failures)
-    return TrinoBackfillCatalog(cast("Connection", connection)), connection
+    return TrinoBackfillCatalog(cast("Connection", connection), owned_tables=owned_tables), connection
 
 
 @pytest.mark.parametrize("canary", [False, True])
@@ -149,6 +151,28 @@ class TestRegisterFiles:
             action(catalog)
 
         assert connection.statements == []
+
+    @parameterized.expand(
+        [
+            (
+                "register_table",
+                lambda c: c.register_files(
+                    "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+                ),
+            ),
+            (
+                "delete_day",
+                lambda c: c.delete_rows("events", DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1))),
+            ),
+            ("replace_table", lambda c: c.replace_table("persons", COLUMNS)),
+        ]
+    )
+    def test_replaces_rows_in_a_base_table_the_team_owns(self, _name: str, action) -> None:
+        catalog, connection = _catalog(COLUMNS, owned_tables=frozenset({"events", "persons"}))
+
+        action(catalog)
+
+        assert connection.statements
 
     def test_refuses_more_files_than_one_call_registers(self) -> None:
         catalog, connection = _catalog()

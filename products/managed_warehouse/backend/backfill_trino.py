@@ -42,7 +42,8 @@ BACKFILL_TRINO_PRINCIPAL = "dagster:duckling-backfill"
 # 1,000,000 characters, and this many export paths stay well below that.
 ADD_FILES_MAX_FILES = 2_000
 # A replacement removes rows by time or by table, never by team. In a table that several teams share, it would also
-# remove the rows of the other teams.
+# remove the rows of the other teams. The guard applies unless the control plane shows that only this team writes
+# the table.
 SHARED_TABLES = frozenset({"events", "persons", "groups"})
 # DuckLake asks for the statement to be run again when another writer changed the table while it was planned or
 # committed.
@@ -78,14 +79,6 @@ def _timestamp_bound(day: date) -> str:
     return f"{day.isoformat()} 00:00:00+00"
 
 
-def _refuse_shared_table(table: str, change: str) -> None:
-    if table in SHARED_TABLES:
-        raise ValueError(
-            f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
-            "of other teams"
-        )
-
-
 def _column_definitions(columns: Mapping[str, str]) -> str:
     return ", ".join(f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items())
 
@@ -110,17 +103,27 @@ def _log_retry(state: RetryCallState) -> None:
 class TrinoBackfillCatalog:
     """The DuckLake statements of one backfill, run in the organization's Trino catalog."""
 
-    def __init__(self, connection: Connection) -> None:
+    def __init__(self, connection: Connection, *, owned_tables: frozenset[str] = frozenset()) -> None:
         self._connection = connection
+        self._owned_tables = owned_tables
         self._catalog = escape_trino_identifier(connection.catalog)
 
     @classmethod
     @contextlib.contextmanager
-    def connect(cls, organization_id: str, *, canary: bool = False) -> Iterator[TrinoBackfillCatalog]:
+    def connect(
+        cls, organization_id: str, *, canary: bool = False, owned_tables: frozenset[str] = frozenset()
+    ) -> Iterator[TrinoBackfillCatalog]:
         with connect_managed_warehouse_trino(
             organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary
         ) as connection:
-            yield cls(connection)
+            yield cls(connection, owned_tables=owned_tables)
+
+    def _refuse_shared_table(self, table: str, change: str) -> None:
+        if table in SHARED_TABLES and table not in self._owned_tables:
+            raise ValueError(
+                f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
+                "of other teams"
+            )
 
     def _table(self, table: str) -> str:
         return f"{self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}.{escape_trino_identifier(table)}"
@@ -147,7 +150,7 @@ class TrinoBackfillCatalog:
         self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
         if drop_first:
-            _refuse_shared_table(table, "drop")
+            self._refuse_shared_table(table, "drop")
             self._run(f"DROP TABLE IF EXISTS {self._table(table)}")
         if create_if_missing:
             self._run(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}")
@@ -179,7 +182,7 @@ class TrinoBackfillCatalog:
         return {str(name): str(data_type) for name, data_type in rows}
 
     def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
-        _refuse_shared_table(table, "rebuild")
+        self._refuse_shared_table(table, "rebuild")
         # Views can select a column that the export does not write, so the rebuilt table keeps it.
         kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
         self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
@@ -200,7 +203,7 @@ class TrinoBackfillCatalog:
         repeated.
         """
         if replacement is not None:
-            _refuse_shared_table(table, "replace rows in")
+            self._refuse_shared_table(table, "replace rows in")
         self.validate_file_count(files)
         options = [
             f"files => ARRAY[{', '.join(escape_trino_string(path) for path in files)}]",
@@ -221,7 +224,7 @@ class TrinoBackfillCatalog:
 
     def delete_rows(self, table: str, replacement: Replacement) -> None:
         """Remove the rows an export replaces when the export wrote no files."""
-        _refuse_shared_table(table, "replace rows in")
+        self._refuse_shared_table(table, "replace rows in")
         statement = f"DELETE FROM {self._table(table)}"
         if isinstance(replacement, DuckLakeDayReplacement):
             column = escape_trino_identifier(replacement.column)

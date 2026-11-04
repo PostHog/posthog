@@ -66,6 +66,29 @@ def resolve_groups_table(team_id: int) -> str:
     return table
 
 
+def team_owned_tables(team_id: int) -> frozenset[str]:
+    """The events, persons and groups tables that only this team writes.
+
+    A replacement removes rows by time or by table, so it is safe only on a table that no other team of the
+    organization writes. Returns an empty set when the team has no control-plane row, because ownership cannot be
+    proven. Raises :class:`CPUnavailableError` when the control plane can't answer.
+    """
+    organization_id = _get_org_id_for_team(team_id)
+    teams = cp_teams.list_org_teams(organization_id)
+    if teams is None:
+        raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
+    row = next((team for team in teams if team.team_id == team_id), None)
+    if row is None:
+        return frozenset()
+    others = {
+        table
+        for team in teams
+        if team.team_id != team_id
+        for table in (team.resolved_events_table, team.resolved_persons_table, team.resolved_groups_table)
+    }
+    return frozenset({row.resolved_events_table, row.resolved_persons_table, row.resolved_groups_table}) - others
+
+
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
 
 

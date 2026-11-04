@@ -115,6 +115,7 @@ from products.managed_warehouse.backend.facade.metrics import record_duckling_ba
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
+    team_owned_tables,
 )
 
 logger = structlog.get_logger(__name__)
@@ -1046,6 +1047,8 @@ class DucklingBackfillConfig(Config):
     dry_run: bool = False
     # Opt-in per run. A backfill never evaluates the canary feature flag.
     use_trino_canary: bool = False
+    # Opt-in per run: register through Trino even when the organization is not on the flag.
+    register_through_trino: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -2642,8 +2645,11 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
+    owned_tables = team_owned_tables(target.team_id) if register else frozenset()
     with (
-        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
+        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary, owned_tables=owned_tables)
+        if register
+        else nullcontext()
     ) as catalog:
         if catalog is not None:
             try:
@@ -2865,7 +2871,7 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
         _backfill_events_through_trino(context, config, target, dates)
         return
 
@@ -3187,7 +3193,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
         return
 

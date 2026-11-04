@@ -2752,6 +2752,7 @@ class TestBackfillThroughTrino:
         clickhouse: _FakeExportClickHouse,
         config: DucklingBackfillConfig,
         catalog: _FakeTrinoBackfillCatalog | None = None,
+        org_on_flag: bool = True,
     ):
         catalog = catalog or _FakeTrinoBackfillCatalog()
         cluster = MagicMock()
@@ -2760,7 +2761,10 @@ class TestBackfillThroughTrino:
         context.run.run_id = "0123456789abcdef-run"
         with (
             patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
-            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=True),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=org_on_flag),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.team_owned_tables", return_value=frozenset({"events_team_2"})
+            ),
             patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
             patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
             patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
@@ -2812,7 +2816,7 @@ class TestBackfillThroughTrino:
 
         catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
-        connect_catalog.assert_called_with("org-1", canary=False)
+        connect_catalog.assert_called_with("org-1", canary=False, owned_tables=frozenset({"events_team_2"}))
         assert catalog.tables == [(table, column_types)] * 2
         assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
         first, second = catalog.registered
@@ -2932,7 +2936,26 @@ class TestBackfillThroughTrino:
             run, partition_key, _FakeExportClickHouse(files_per_export=1), DucklingBackfillConfig(use_trino_canary=True)
         )
 
-        connect_catalog.assert_called_with("org-1", canary=True)
+        connect_catalog.assert_called_with("org-1", canary=True, owned_tables=frozenset({"events_team_2"}))
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_opted_in_runs_register_through_trino_when_the_org_is_not_on_the_flag(self, _name, run, partition_key):
+        catalog, connect_catalog = self._run(
+            run,
+            partition_key,
+            _FakeExportClickHouse(files_per_export=1),
+            DucklingBackfillConfig(register_through_trino=True),
+            org_on_flag=False,
+        )
+
+        connect_catalog.assert_called_with("org-1", canary=False, owned_tables=frozenset({"events_team_2"}))
+        assert catalog.registered
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_dry_runs_neither_export_nor_open_the_catalog(self):
