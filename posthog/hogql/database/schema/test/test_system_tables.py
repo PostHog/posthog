@@ -1729,6 +1729,49 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
 
 
+class TestSystemEndpointCurrentVersion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([(1,), (2,), (99,)])
+    def test_current_version_fields(self, current_version):
+        endpoint = _create_endpoint(self.team, "current")
+        endpoint.current_version = current_version
+        endpoint.save(update_fields=["current_version"])
+        for version in (1, 2):
+            EndpointVersion.objects.create(
+                endpoint=endpoint,
+                team=self.team,
+                version=version,
+                description=f"Version {version}",
+                query={"kind": "HogQLQuery", "query": f"SELECT {version}"},
+                cache_ttl_seconds=version * 60,
+                columns=[{"name": "result", "type": "integer"}],
+                created_by=self.user,
+            )
+        _create_endpoint_version(self.team, "other")
+
+        response = execute_hogql_query(
+            """
+            SELECT name, current_version, description, query.query, data_freshness_seconds,
+                   columns, version.version, version.description
+            FROM system.data_modeling_endpoints
+            WHERE name = 'ep_current'
+            """,
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:2] == ("ep_current", current_version)
+        if current_version == 99:
+            assert row[2] == ""
+        else:
+            assert row[2:5] == (f"Version {current_version}", f"SELECT {current_version}", current_version * 60)
+            assert json.loads(row[5]) == [{"name": "result", "type": "integer"}]
+            assert row[6:] == (current_version, f"Version {current_version}")
+
+
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
     """Verify the `support_tickets.tags` lazy join returns per-ticket tag names and stays team-isolated."""
 

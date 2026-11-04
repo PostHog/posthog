@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import DEFINITION_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import (
+    DEFINITION_TAGS,
+    ENDPOINT_CURRENT_VERSION,
+    TICKET_ASSIGNMENT,
+    TICKET_TAGS,
+)
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -14,6 +19,7 @@ from posthog.hogql.database.models import (
     DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -963,6 +969,38 @@ endpoint_versions: PostgresTable = PostgresTable(
     },
 )
 
+
+def endpoint_current_version_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    fields: dict[str, list[str | int]] = {
+        **join_to_add.fields_accessed,
+        "endpoint_id": ["endpoint_id"],
+        "version": ["version"],
+    }
+    return ast.JoinExpr(
+        table=ast.SelectQuery(
+            select=[ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in fields.items()],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["system", "data_modeling_endpoint_versions"])),
+        ),
+        alias=join_to_add.to_table,
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[join_to_add.from_table, source]),
+                        right=ast.Field(chain=[join_to_add.to_table, target]),
+                    )
+                    for source, target in [("id", "endpoint_id"), ("current_version", "version")]
+                ]
+            ),
+        ),
+    )
+
+
 endpoints: PostgresTable = PostgresTable(
     name="data_modeling_endpoints",
     postgres_table_name="endpoints_endpoint",
@@ -983,6 +1021,27 @@ endpoints: PostgresTable = PostgresTable(
         "current_version": IntegerDatabaseField(
             name="current_version",
             description="Version number currently served; joins to data_modeling_endpoint_versions.version.",
+        ),
+        "version": LazyJoin(
+            from_field=["id"],
+            to_field=["endpoint_id"],
+            extra_from_fields=[["current_version"]],
+            join_table="system.data_modeling_endpoint_versions",
+            resolver=ENDPOINT_CURRENT_VERSION,
+            description="Current version of this endpoint. Matches the endpoint ID and current_version number.",
+        ),
+        "description": FieldTraverser(
+            chain=["version", "description"], description="Description of the current endpoint version."
+        ),
+        "query": FieldTraverser(
+            chain=["version", "query"], description="JSON HogQL query of the current endpoint version."
+        ),
+        "data_freshness_seconds": FieldTraverser(
+            chain=["version", "data_freshness_seconds"],
+            description="Maximum cache age for the current version, in seconds.",
+        ),
+        "columns": FieldTraverser(
+            chain=["version", "columns"], description="JSON schema of the current version's output columns."
         ),
         "derived_from_insight": StringDatabaseField(
             name="derived_from_insight", description="Short id of the insight this endpoint was created from, if any."
