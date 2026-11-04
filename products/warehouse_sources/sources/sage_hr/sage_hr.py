@@ -254,9 +254,8 @@ def _get_fan_out_rows(
         has_next_parent_page = bool(next_parent_page and parents and next_parent_page > parent_page)
         first_index, first_child_page = 0, 1
         if is_resumed_page and resume is not None:
-            # The parent list can shift between attempts (an employee leaves), so the saved child page
-            # applies only to the parent with the saved id. A parent that is gone restarts at its saved
-            # index from page 1.
+            # The parent list can shift between attempts, so the saved child page applies only to the
+            # parent with the saved id. A parent that is gone restarts at its saved index from page 1.
             first_index = resume_index
             for candidate_index, parent in enumerate(parents):
                 if resume.parent_id is not None and parent.get("id") == resume.parent_id:

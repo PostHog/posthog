@@ -287,9 +287,7 @@ class TestFanOutEndpoints:
         "parent_index, parent_id, first_child_key",
         [
             pytest.param(1, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_at_saved_index"),
-            # An earlier parent left the list, so the saved parent moved down one index.
             pytest.param(2, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_moved"),
-            # The saved parent left the list, so the parent now at its index starts from page 1.
             pytest.param(1, 99, "/recruitment/positions/21/applicants?page=1", id="saved_parent_gone"),
         ],
     )
@@ -319,9 +317,7 @@ class TestFanOutEndpoints:
         bonus = {**salary, "amount": 200, "category": "Bonus"}
         pages: dict[str, tuple[list[dict], int | None]] = {
             "/employees?page=1": ([{"id": 5}, {"id": 6}], None),
-            # Identical entries under one employee must still get distinct ids.
             "/employees/5/compensations?page=1": ([salary, bonus, dict(bonus)], None),
-            # The same compensation on another employee must not collide with employee 5's row.
             "/employees/6/compensations?page=1": ([salary], None),
         }
         first = self._collect(_FakeResumableManager(), monkeypatch, pages, "compensations")
