@@ -102,8 +102,14 @@ if rawGranted < 0 or (allOrNothing == 1 and available < requested) then
 end
 -- Floor to int — the grant flows into a SQL LIMIT, which must be integer.
 -- The fractional residual stays in the pool so partial refills accumulate
--- across calls instead of being silently dropped.
+-- across calls instead of being silently dropped. An all-or-nothing grant
+-- skips the floor, because it is already exactly the requested amount, and
+-- flooring a fractional request would charge the bucket for a claim the
+-- caller reads as denied.
 local granted = math.floor(rawGranted)
+if allOrNothing == 1 then
+    granted = rawGranted
+end
 local tokensAfter = available - granted
 
 redis.call('hset', key, 'ts', now, 'pool', tokensAfter)
