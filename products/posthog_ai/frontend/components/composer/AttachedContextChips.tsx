@@ -5,12 +5,14 @@ import { IconAtSign, IconBug, IconDashboard, IconGraph, IconNotebook, IconX } fr
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
 import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 import { contextPickerLogic } from '../../logics/contextPickerLogic'
+import { QuillAttachedContextChip } from '../quill/QuillAttachedContextChip'
 
 function iconForType(type: string): JSX.Element {
     switch (type) {
@@ -89,6 +91,7 @@ export function AttachedContextChips({ leading }: AttachedContextChipsProps): JS
     const { dismissContext } = useActions(attachedContextLogic)
     const { pickedKeys } = useValues(contextPickerLogic)
     const { removePickedItem } = useActions(contextPickerLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const visibleItems = contextItems.filter((item) => !item.hidden)
     const attachments = visibleItems.filter((item) => item.previewHtml)
@@ -126,6 +129,9 @@ export function AttachedContextChips({ leading }: AttachedContextChipsProps): JS
                         const key = attachedContextItemKey(item)
                         const label = labelForItem(item)
                         const onRemove = removeItem(item)
+                        if (todayRailNav) {
+                            return <QuillAttachedContextChip key={key} item={item} label={label} onRemove={onRemove} />
+                        }
                         return (
                             <Tooltip key={key} title={label}>
                                 <LemonTag
