@@ -5872,6 +5872,25 @@ export type AiObservabilityTracesClustersRetrieveParams = {
     created_at: string
 }
 
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
+
 export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.

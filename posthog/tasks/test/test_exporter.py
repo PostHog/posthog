@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import OrganizationMembership, User
@@ -261,9 +262,18 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception_type == "QueryError"
         assert asset.failure_type == "user"
 
+    @parameterized.expand(
+        [
+            (ClickHouseAtCapacity(),),
+            (CHQueryErrorS3FileChangedDuringRead("A warehouse file changed during the read.", code=499),),
+        ]
+    )
+    @patch("posthog.tasks.exporter.posthoganalytics.capture")
     @patch("products.exports.backend.tasks.image_exporter.export_image")
-    def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
-        mock_export_direct.side_effect = ClickHouseAtCapacity()
+    def test_transient_error_records_failure_without_retry(
+        self, error: Exception, mock_export_direct: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_export_direct.side_effect = error
 
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -276,6 +286,8 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert mock_export_direct.call_count == 1
 
         asset.refresh_from_db()
-        assert asset.exception == ClickHouseAtCapacity.default_detail
-        assert asset.exception_type == "ClickHouseAtCapacity"
+        assert asset.exception == str(error)
+        assert asset.exception_type == type(error).__name__
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
+        failed_event = next(c for c in mock_capture.call_args_list if c.kwargs["event"] == "export failed")
+        assert failed_event.kwargs["properties"]["is_user_error"] is False

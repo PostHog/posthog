@@ -6,6 +6,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { navListWebUrl } from '@/features/views/webLinks'
@@ -104,6 +105,7 @@ function TabsChrome(): ReactElement {
     const [menuOpen, setMenuOpen] = useState(false)
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const scope = useProjectScope()
+    const status = usePostHogStatus(scope?.host)
     // The pinned list's tab has no menu of its own, so its Unpin toast draws from here, inside the tabs' overlay host.
     const toasts = useToasts()
 
@@ -145,10 +147,15 @@ function TabsChrome(): ReactElement {
 
     return (
         <>
-            <TabsHeader tab={tab} slot={slot} onMore={() => setMenuOpen(true)} />
+            <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}
+                status={status}
+                onOpenStatus={() => {
+                    closeMenu()
+                    Linking.openURL(status.pageUrl).catch(() => toasts.show("Couldn't open PostHog status."))
+                }}
                 navList={navList}
                 editPins={
                     editPins && {
