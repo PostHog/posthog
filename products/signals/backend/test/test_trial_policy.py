@@ -17,10 +17,12 @@ from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
 from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team, resolve_team_metadata
+from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.signals.backend.usage import trial_usage
 
 
@@ -153,6 +155,58 @@ class TestTrialPolicy(BaseTest):
         self.flag_mock.return_value = False
         assert self.policy.admit(paid_authorized=False, parent=funding) == funding
         assert self.admit().funding == "existing"
+
+    @parameterized.expand(
+        [
+            ("free", True, TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT), True),
+            ("payment_setup", True, TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT), False),
+            ("disabled", False, None, False),
+            ("unknown_flag", None, None, False),
+            ("failed_flag", RuntimeError("flag unavailable"), None, False),
+            ("paid", True, TrialBillingStatus(ready=True, continuation=TrialContinuation.PAID), False),
+            ("zero_limit", True, TrialBillingStatus(ready=True, continuation=TrialContinuation.LIMIT), False),
+            (
+                "unsubscribed_product",
+                True,
+                TrialBillingStatus(ready=True, continuation=TrialContinuation.ENABLE),
+                False,
+            ),
+            (
+                "unknown_billing",
+                True,
+                TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE),
+                False,
+            ),
+            ("unready_billing", True, TrialBillingStatus(ready=False, continuation=TrialContinuation.PAYMENT), False),
+            ("failed_billing", True, RuntimeError("billing unavailable"), False),
+        ]
+    )
+    def test_trial_scout_runtime_only_overrides_confirmed_free_customers(
+        self,
+        _name: str,
+        decision: bool | None | Exception,
+        billing: TrialBillingStatus | Exception | None,
+        use_luna: bool,
+    ) -> None:
+        self.claim()
+        if _name == "payment_setup":
+            self.team.organization.customer_id = "cus_test"
+        if isinstance(decision, Exception):
+            self.flag_mock.side_effect = decision
+        else:
+            self.flag_mock.return_value = decision
+        with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing_status:
+            if isinstance(billing, Exception):
+                billing_status.side_effect = billing
+            else:
+                billing_status.return_value = billing
+            runtime = trial_scout_runtime(self.team)
+        if use_luna:
+            assert runtime is not None
+            assert runtime.runtime_adapter == "codex"
+            assert runtime.model == "gpt-6-luna"
+        else:
+            assert runtime is None
 
     def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]

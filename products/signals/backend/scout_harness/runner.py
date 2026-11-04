@@ -26,7 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
@@ -45,7 +45,11 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_scouts_preserving_trial_model,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
@@ -98,6 +102,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
 )
 from products.signals.backend.trial.funding import without_trial_funding
+from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
@@ -498,6 +503,10 @@ async def _arun_signals_scout(
                 skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
             )
         agent_runtime = experiment.agent_runtime
+    preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
+    if trial is None and experiment is None and not preserve_trial_model:
+        free_trial_runtime = await database_sync_to_async_pool(trial_scout_runtime)(team)
+        agent_runtime = free_trial_runtime or agent_runtime
     runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
