@@ -138,7 +138,7 @@ export const MetricSuggestion: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(canvas.getByText('Suggest a better metric'))
+        await userEvent.click(await canvas.findByText('Suggest a better metric'))
         await waitFor(
             () => {
                 const input = canvas.getByRole('textbox') as HTMLTextAreaElement

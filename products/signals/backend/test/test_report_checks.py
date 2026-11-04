@@ -1437,6 +1437,8 @@ class TestReportCheckAPI(APIBaseTest):
         with time_machine.travel(now, tick=False):
             SignalReport.objects.filter(id=self.report.id).update(status=report_status)
             self.report.refresh_from_db()
+            if kind == SignalReportCheck.Kind.AGENT:
+                _seed_check_lane(self.team)
             check = self._create(
                 kind=kind,
                 config={"instructions": "Check whether checkout errors recovered."}
