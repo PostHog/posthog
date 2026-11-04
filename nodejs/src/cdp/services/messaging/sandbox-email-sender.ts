@@ -50,6 +50,26 @@ function completeDeclarations(style: string): string[] {
     return scanDeclarations(style).filter((declaration) => declaration.includes(':') && !/[{}]/.test(declaration))
 }
 
+const QUOTES = ['"', "'"]
+
+// Index scans, not regexes: the style is user content, and a backtracking pattern stalls the worker on it.
+function skipSpaces(text: string, index: number): number {
+    while (index < text.length && /\s/.test(text[index])) {
+        index++
+    }
+    return index
+}
+
+// The index of the `)` that ends an unquoted url(), or -1 when the token is a bad url.
+function unquotedUrlEnd(style: string, start: number): number {
+    let index = skipSpaces(style, start)
+    while (index < style.length && !/["'()\\\s]/.test(style[index])) {
+        index++
+    }
+    index = skipSpaces(style, index)
+    return style[index] === ')' ? index : -1
+}
+
 function scanDeclarations(style: string): string[] {
     const declarations: string[] = []
     const closers: string[] = []
@@ -71,15 +91,19 @@ function scanDeclarations(style: string): string[] {
             // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
             current += ' '
             index = end + 1
-        } else if (char === '(' && /url$/i.test(current) && !/^\s*["']/.test(style.slice(index + 1))) {
+        } else if (
+            char === '(' &&
+            current.slice(-3).toLowerCase() === 'url' &&
+            !QUOTES.includes(style[skipSpaces(style, index + 1)])
+        ) {
             // An unquoted url() is one token that ends at `)`. A quote, bracket, escape or inner space
             // makes it a bad url, which a browser reads differently from this scanner.
-            const token = /^\s*[^"'()\\\s]*\s*\)/.exec(style.slice(index + 1))
-            if (!token) {
+            const end = unquotedUrlEnd(style, index + 1)
+            if (end === -1) {
                 return declarations
             }
-            current += char + token[0]
-            index += token[0].length
+            current += style.slice(index, end + 1)
+            index = end
         } else if (char === ';' && !closers.length) {
             declarations.push(current)
             current = ''
