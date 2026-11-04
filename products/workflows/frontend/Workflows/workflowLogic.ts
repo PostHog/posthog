@@ -107,10 +107,26 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
+// A tile matches on the first event only, so each event of a linked trigger gets its own tile.
+function getEventTriggerTiles(config: TriggerAction['config']): string[] {
+    if (config.type !== 'event' && config.type !== 'internal-event') {
+        return [getTriggerDisplayType(config)]
+    }
+    const { filters } = config
+    const events: unknown[] = Array.isArray(filters?.events) ? filters.events : []
+    if (events.length < 2) {
+        return [getTriggerDisplayType(config)]
+    }
+    return events.map((event) => {
+        const singleEventConfig = { ...config, filters: { ...filters, events: [event] } }
+        return getTriggerDisplayType(singleEventConfig)
+    })
+}
+
 function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
     const templateTriggerConfig = workflow.actions.find((action) => action.type === 'trigger')?.config
-    const keepsTriggerType =
-        !!templateTriggerConfig && getTriggerDisplayType(templateTriggerConfig) === getTriggerDisplayType(config)
+    const templateTile = templateTriggerConfig ? getTriggerDisplayType(templateTriggerConfig) : null
+    const keepsTriggerType = getEventTriggerTiles(config).every((tile) => tile === templateTile)
     return {
         ...workflow,
         // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve

@@ -53,6 +53,16 @@ const linkedAccountPropertyTrigger: WorkflowTriggerConfig = {
     filters: { events: [{ id: '$account_custom_property_changed', type: 'events' }] },
 }
 
+const linkedMixedEventTrigger: WorkflowTriggerConfig = {
+    type: 'event',
+    filters: {
+        events: [
+            { id: 'user_signed_up', type: 'events' },
+            { id: '$account_custom_property_changed', type: 'events' },
+        ],
+    },
+}
+
 describe('workflowLogic template links', () => {
     beforeEach(() => {
         initKeaTests()
@@ -67,6 +77,7 @@ describe('workflowLogic template links', () => {
         ['an event trigger keeps the template frequency limit', linkedEventTrigger, template.trigger_masking],
         ['a trigger of another type clears the template frequency limit', linkedInternalEventTrigger, null],
         ['another event trigger tile clears the template frequency limit', linkedAccountPropertyTrigger, null],
+        ['a later event of another trigger tile clears the template frequency limit', linkedMixedEventTrigger, null],
     ])('opens a template on the trigger passed in the link: %s', async (_, linkedTrigger, expectedMasking) => {
         const logic = workflowLogic({
             id: 'new',
