@@ -8593,6 +8593,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
@@ -9105,6 +9106,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -9122,7 +9124,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
