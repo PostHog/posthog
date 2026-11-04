@@ -219,6 +219,11 @@ describe('sandbox email content', () => {
             '<textarea>Preview text',
         ],
         ['<body><p>Hello</p></body>', '<p>Hello</p>', '<plaintext>Preview text'],
+        [
+            '<body data-note="x>y"><p>Hello</p></body>',
+            'overflow:hidden;">Preview text</span><p>Hello</p>',
+            'Preview text',
+        ],
         ['<body><p>Hello</p><noscript><style></noscript><!--', '<p>Hello</p>', null],
         [
             '<body><p>Hello</p><noscript><style>/* </noscript><plaintext> */ p {color:blue}</style></noscript>',
