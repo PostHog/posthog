@@ -807,7 +807,7 @@ class TransactionalEmailSendMixin:
             request,
             lambda idempotency_key: send_transactional_email(
                 self.team,
-                template.id,
+                template,
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
@@ -939,7 +939,8 @@ class MessageTemplatesViewSet(
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
-            template = get_template(self.team_id, self.kwargs["pk"])
+            # A send never reads the tags, so it skips their queries.
+            template = get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
         except MessageTemplateMissing:
             raise NotFound()
         self.check_object_permissions(self.request, template)
@@ -1232,7 +1233,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             try:
-                template = get_template(self.team_id, request.validated_data["template_id"])
+                template = get_template(self.team_id, request.validated_data["template_id"], with_tags=False)
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)
