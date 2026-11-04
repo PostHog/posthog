@@ -62,19 +62,6 @@ Each rule is tagged with what catches a violation.
   Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, `build_ai_gateway_openai_client`, or `build_ai_gateway_anthropic_client`.
   Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
   Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
-  The same shape is:
-
-```python
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client
-
-client = build_ai_gateway_anthropic_client(ai_product="tasks_title", distinct_id="task-title-generator")
-response = client.messages.create(
-    model="claude-haiku-4-5-20251001",
-    messages=[{"role": "user", "content": "..."}],
-    max_tokens=50,
-)
-```
-
 - **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
   If a task asks you to change it, tell the user about the freeze in your reply.
   A change needs a documented parity blocker for an active caller and stays limited to that caller.
