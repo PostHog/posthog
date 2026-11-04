@@ -1228,7 +1228,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 empty_folder = FileSystem.objects.filter(
                     pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
-                ).filter(~Exists(self._visible_files(descendants).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)))
+                ).filter(~Exists(descendants.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)))
                 # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
                 # and the view-log cleanup signal only applies to files, so no collector is needed.
                 if not empty_folder._raw_delete(empty_folder.db):

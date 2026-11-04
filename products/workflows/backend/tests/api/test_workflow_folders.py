@@ -179,6 +179,8 @@ class TestWorkflowFolders(APIBaseTest):
         folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
         preview = self.client.post(f"{files_url}{folder['id']}/count/").json()
         self.assertEqual(preview["count"], 0)
+        refused = self.client.delete(f"{files_url}{folder['id']}/?recursive=false")
+        self.assertEqual(refused.status_code, 409, refused.content)
         deleted = self.client.delete(f"{files_url}{folder['id']}/?recursive=true")
         self.assertEqual(deleted.status_code, 204, deleted.content)
         self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/").status_code, 200)
