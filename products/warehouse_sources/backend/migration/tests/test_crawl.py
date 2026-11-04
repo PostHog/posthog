@@ -189,6 +189,16 @@ class TestCrawlMigration(BaseTest):
         assert migration.status == WarehouseMigration.Status.FAILED
         assert expected_error in migration.latest_error
 
+    def test_the_default_catalog_plans_known_connectors(self) -> None:
+        migration = self._migration()
+        with requests_mock.Mocker() as m:
+            _mock_account(m, ["conn_hubspot"])
+            crawl_migration(team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL)
+
+        item = self._items(migration)["conn_hubspot"]
+        assert item.proposal is not None
+        assert item.proposal["source_type"] == ExternalDataSourceType.HUBSPOT
+
     def test_a_replaced_crawl_changes_nothing(self) -> None:
         migration = self._migration()
         with requests_mock.Mocker() as m:

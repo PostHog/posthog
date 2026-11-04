@@ -1,5 +1,3 @@
-from collections.abc import Collection, Iterable, Mapping
-from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -9,12 +7,12 @@ from django.utils import timezone
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.warehouse_sources.backend.migration import catalog as migration_catalog
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranClient, FivetranCredentials
 from products.warehouse_sources.backend.migration.fivetran.planner import (
     CatalogLookup,
     PlannedItem,
-    TableMatchLike,
     plan_items,
     with_unique_prefixes,
 )
@@ -36,34 +34,8 @@ _AUTH_FAILED_MESSAGE = (
 _CRAWL_FAILED_MESSAGE = "Reading the Fivetran account failed. Try again."
 
 
-class _NoCatalog:
-    """Matches nothing, so every connection reports as unsupported until the Fivetran catalog lands."""
-
-    def match_source(self, provider: str, vendor_service: str) -> None:
-        return None
-
-    def match_destination(self, provider: str, vendor_service: str) -> None:
-        return None
-
-    def posthog_tables(self, source_type: ExternalDataSourceType) -> None:
-        return None
-
-    def match_tables(
-        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
-    ) -> tuple[TableMatchLike, ...]:
-        return ()
-
-    def prefill_config(
-        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {}
-
-
-PENDING_CATALOG: CatalogLookup = _NoCatalog()
-
-
 def crawl_migration(
-    *, team_id: int, migration_id: UUID, workflow_id: str, catalog: CatalogLookup = PENDING_CATALOG
+    *, team_id: int, migration_id: UUID, workflow_id: str, catalog: CatalogLookup = migration_catalog
 ) -> int:
     """Read the vendor account, plan every connection, and store the result. Returns the item count.
 
