@@ -10646,11 +10646,11 @@ Today (3): `environments`, `runs`, `workspaces`
 
 Diffed against: <https://docs.scalr.io/llms.txt>
 
-- [ ] `Users (GET /api/iacp/v3/users)` — resolve created-by, updated-by, and locked-by IDs on runs and workspaces (high)
+- [x] `Users (GET /api/iacp/v3/users)` — resolve created-by, updated-by, and locked-by IDs on runs and workspaces (high)
 - [ ] `Tags (GET /api/iacp/v3/tags)` — resolve tag IDs on imported runs and workspaces for ownership and cost grouping (high)
 - [ ] `Cost estimates (GET /api/iacp/v3/cost-estimates/{cost_estimate})` — resolve run cost-estimate IDs and compare current, proposed, and changed monthly infrastructure costs (high)
-- [ ] `Plans (GET /api/iacp/v3/plans/{plan})` — resolve run plan IDs and measure resource additions, changes, and destruction (high)
-- [ ] `State versions (GET /api/iacp/v3/state-versions)` — resolve run state-version IDs and analyze infrastructure state history (high)
+- [x] `Plans (GET /api/iacp/v3/plans/{plan})` — resolve run plan IDs and measure resource additions, changes, and destruction (high)
+- [x] `State versions (GET /api/iacp/v3/state-versions)` — resolve run state-version IDs and analyze infrastructure state history (high)
 - [ ] `Billing usages (GET /api/iacp/v3/reports/billing)` — analyze billed run usage by account, environment, workspace, and period (high)
 - [ ] `Policy checks (GET /api/iacp/v3/runs/{run}/policy-checks)` — analyze policy failures and overrides associated with infrastructure changes (medium)
 - [ ] `Drifted workspaces (GET /api/iacp/v3/reports/environments/{environment}/drifted-workspaces)` — measure infrastructure drift and identify affected workspaces and resources (medium)
@@ -10718,17 +10718,17 @@ Note: The docs page is a Scalar viewer with the full OpenAPI YAML inlined — pa
 
 ## Segment — **thin**
 
-Today (11): `audit_events`, `destinations`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `sources`, `tracking_plans`, `transformations`, `warehouses`, `workspace`
+Today (17): `audit_events`, `destination_delivery_metrics`, `destinations`, `destinations_catalog`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `reverse_etl_syncs`, `sources`, `sources_catalog`, `tracking_plan_rules`, `tracking_plans`, `transformations`, `warehouses`, `warehouses_catalog`, `workspace`
 
 Diffed against: <https://docs.segmentapis.com/ (Segment Public API OpenAPI 3.0.3, v73.0.7, extracted from the Redocly state bundle https://docs.segmentapis.com/redocly-state-bf9e006a07a5265a778ac3938ef8f8f891686c5b.js)>
 
 - [ ] `/events/volume (Get Events Volume from Workspace)` — Segment's headline usage metric — event volume by source/day, the number every Segment customer wants in a warehouse (high)
 - [ ] `/usage/mtu/daily and /usage/mtu/sources/daily` — Daily MTU usage per workspace and per source — the billing metric (high)
 - [ ] `/warehouses/{warehouseId}/syncs and /warehouses/{warehouseId}/connected-sources/{sourceId}/syncs` — Warehouse sync run history/status — the state-transition history for the warehouses table already synced (high)
-- [ ] `/reverse-etl-models/{modelId}/subscriptionId/{subscriptionId}/syncs` — Reverse ETL sync statuses (rows loaded, failures) for the reverse_etl_models already synced (high)
-- [ ] `/destinations/{destinationId}/delivery-metrics` — Per-destination delivery success/failure counts — core deliverability analysis for the destinations table (high)
-- [ ] `/catalog/destinations, /catalog/sources, /catalog/warehouses` — Lookup tables resolving the metadata IDs carried on every synced source, destination, and warehouse row (high)
-- [ ] `/tracking-plans/{trackingPlanId}/rules` — The actual event/property rules inside a tracking plan — tracking_plans alone is just a header row (high)
+- [x] `/reverse-etl-models/{modelId}/subscriptionId/{subscriptionId}/syncs` — Reverse ETL sync statuses (rows loaded, failures) for the reverse_etl_models already synced (high)
+- [x] `/destinations/{destinationId}/delivery-metrics` — Per-destination delivery success/failure counts — core deliverability analysis for the destinations table (high)
+- [x] `/catalog/destinations, /catalog/sources, /catalog/warehouses` — Lookup tables resolving the metadata IDs carried on every synced source, destination, and warehouse row (high)
+- [x] `/tracking-plans/{trackingPlanId}/rules` — The actual event/property rules inside a tracking plan — tracking_plans alone is just a header row (high)
 - [ ] `/delivery-overview/successful-delivery, /failed-delivery, /failed-on-ingest, /filtered-at-source, /filtered-at-destination` — Time-series pipeline health metrics broken down by stage; the standard Delivery Overview report (medium)
 - [ ] `/destinations/{destinationId}/subscriptions` — Action mappings per destination — explains which events reach which destination (medium)
 - [ ] `/spaces and /spaces/{spaceId}/audiences` — Engage spaces and audience definitions plus /audiences/{id}/activations; entirely absent today (medium)
