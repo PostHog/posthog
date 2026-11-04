@@ -154,8 +154,15 @@ describe('RateLimiterService', () => {
             expect(remaining).toBe(30)
         })
 
-        it('books a denied floored caller a slot after the floor refills, not just its own tokens', async () => {
+        it.each([
+            ['no caller ahead', false],
+            ['a caller without a floor ahead', true],
+        ])('books a denied floored caller a slot after the floor refills, with %s', async (_, queued) => {
             await limiter.claimUpTo({ key: KEY, requested: 50, capacity: 50, refillPerSecond: 10 })
+            if (queued) {
+                // Books a slot 100ms out, far earlier than the floored caller can claim.
+                await limiter.claimOrReserve({ key: KEY, requested: 1, capacity: 50, refillPerSecond: 10 }, 60_000)
+            }
 
             const claim = await limiter.claimOrReserve(
                 { key: KEY, requested: 5, capacity: 50, refillPerSecond: 10, reserveFloor: 20 },

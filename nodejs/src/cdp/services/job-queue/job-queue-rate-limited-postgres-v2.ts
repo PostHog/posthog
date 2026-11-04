@@ -33,6 +33,14 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
         private rateLimit: RateLimitedQueueOptions
     ) {
         super(consumerBatchSize, config)
+        // A negative floor would let this lane overspend the bucket, and one at capacity would
+        // stop it sending at all. Refusing to start surfaces a mistyped value at deploy time.
+        const floor = rateLimit.reserveFloor ?? 0
+        if (!(floor >= 0 && floor < rateLimit.capacity)) {
+            throw new Error(
+                `SES reserve floor ${floor} must be at least 0 and below the bucket capacity ${rateLimit.capacity}`
+            )
+        }
     }
 
     public override async startAsConsumer(

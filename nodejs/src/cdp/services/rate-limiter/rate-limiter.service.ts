@@ -126,15 +126,15 @@ end
 -- refilled bucket is credit the caller already earned, and waiting a full interval
 -- on top would throw that credit away (the pool caps at capacity). Behind someone:
 -- take the slot after theirs, one full token interval later.
-local slotAt
+-- Either way the slot is never earlier than this caller's own tokens can refill
+-- above its floor: a cursor booked by a caller with no floor says nothing about that.
+local deficit = requested - claimable
+if deficit < 0 then
+    deficit = 0
+end
+local slotAt = now + (deficit / refillPerSecond) * 1000
 if rawResv ~= false and tonumber(rawResv) > now then
-    slotAt = tonumber(rawResv) + (requested / refillPerSecond) * 1000
-else
-    local deficit = requested - claimable
-    if deficit < 0 then
-        deficit = 0
-    end
-    slotAt = now + (deficit / refillPerSecond) * 1000
+    slotAt = math.max(slotAt, tonumber(rawResv) + (requested / refillPerSecond) * 1000)
 end
 if slotAt - now > reserveOnDenyMaxMs then
     return {0, reserveOnDenyMaxMs, 0}
