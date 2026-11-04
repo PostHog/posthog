@@ -67,12 +67,11 @@ def sync_installation_tools_task(self: Task, installation_id: str) -> None:
         return
     try:
         upstream = sync_installation_tools(installation)
-    except ToolsFetchError as exc:
+    except ToolsFetchError:
         capture_tools_sync_outcome(
             installation,
             "mcp_store tools sync failed",
             {
-                "error": str(exc)[:300],
                 "attempt": self.request.retries + 1,
                 "will_retry": self.request.retries < (self.max_retries or 0),
             },
@@ -86,8 +85,6 @@ def sync_installation_tools_task(self: Task, installation_id: str) -> None:
 
 
 def capture_tools_sync_outcome(installation: MCPServerInstallation, event: str, properties: dict[str, Any]) -> None:
-    # Captured in this task and not in sync_installation_tools, because the scoped client flushes
-    # synchronously and the sync also runs inside requests ("Refresh tools", the re-listing on a tool call).
     template = installation.template
     with ph_scoped_capture() as capture:
         capture(

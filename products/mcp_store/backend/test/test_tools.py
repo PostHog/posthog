@@ -815,14 +815,14 @@ class TestSyncInstallationToolsTask(ClickhouseTestMixin, APIBaseTest):
                 Retry,
                 0,
                 "mcp_store tools sync failed",
-                {"attempt": 1, "will_retry": True, "error": "Upstream initialize returned status 400"},
+                {"attempt": 1, "will_retry": True},
             ),
             (
                 "failed_last_attempt",
                 ToolsFetchError,
                 5,
                 "mcp_store tools sync failed",
-                {"attempt": 6, "will_retry": False, "error": "Upstream initialize returned status 400"},
+                {"attempt": 6, "will_retry": False},
             ),
         ]
     )
