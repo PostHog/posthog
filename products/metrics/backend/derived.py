@@ -23,6 +23,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.scopes import APIScopeObject
 
 from products.metrics.backend.facade.contracts import (
     DERIVED_METRIC_PREFIX,
@@ -124,7 +125,7 @@ DERIVED_METRICS: tuple[DerivedMetric, ...] = (
 _DERIVED_METRICS_BY_NAME: dict[str, DerivedMetric] = {metric.name: metric for metric in DERIVED_METRICS}
 
 # The access-control resource and API scope object that guard each source.
-SOURCE_RESOURCES: dict[DerivedSource, str] = {
+SOURCE_RESOURCES: dict[DerivedSource, APIScopeObject] = {
     DerivedSource.SPANS: "tracing",
     DerivedSource.LOGS: "logs",
 }
@@ -174,7 +175,7 @@ def is_derived_metric_name(name: str) -> bool:
     return name.startswith(DERIVED_METRIC_PREFIX)
 
 
-def derived_metric_resources(names: Iterable[str]) -> list[str]:
+def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:
     """The access-control resources whose data the derived metrics among `names` read."""
     return sorted(
         {SOURCE_RESOURCES[_DERIVED_METRICS_BY_NAME[name].source] for name in names if name in _DERIVED_METRICS_BY_NAME}

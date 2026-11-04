@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
+from posthog.scopes import APIScopeObject
 
 from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
@@ -576,7 +577,7 @@ def is_derived_metric_name(name: str) -> bool:
     return _is_derived_metric_name(name)
 
 
-def derived_metric_resources(names: Iterable[str]) -> list[str]:
+def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:
     """The access-control resources (`logs`, `tracing`) that the derived metrics among `names` read.
 
     A caller that queries these names must also hold read access to each resource.

@@ -294,11 +294,18 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (["query:read"], 403),
-            (["query:read", "metrics:read"], 200),
+            (["query:read"], "queue_depth", 403),
+            (["query:read", "metrics:read"], "queue_depth", 200),
+            # A derived metric reads spans or logs, so the token also needs that source's scope.
+            (["query:read", "metrics:read"], "posthog.derived.spans.requests", 403),
+            (["query:read", "metrics:read", "tracing:read"], "posthog.derived.spans.requests", 200),
+            (["query:read", "metrics:read"], "posthog.derived.logs.records", 403),
+            (["query:read", "metrics:read", "logs:read"], "posthog.derived.logs.records", 200),
         ]
     )
-    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+    def test_query_endpoint_scope_parity_for_api_keys(
+        self, scopes: list[str], metric_name: str, expected_status: int
+    ) -> None:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
 
@@ -307,7 +314,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "query": {
                     "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}],
                 }
             },
             HTTP_AUTHORIZATION=f"Bearer {value}",
