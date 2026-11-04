@@ -174,7 +174,7 @@ def _record_sightings(source: SourceKind, team_id: int, seen: Sequence[SeenIdent
             record(
                 source,
                 team_id=team_id,
-                identity_key=key,
+                identity_key=sighting.identity_key,
                 kind=OccurrenceKind.REAPPEARED,
                 occurred_at=back_at,
                 first_seen_at=sighting.seen_at,
@@ -218,7 +218,8 @@ def record(
                 detail=_storable(detail),
             )
             return
-        if row.reappeared_at is not None and occurred_at <= row.reappeared_at:
+        # Older than the latest return, or than a resolve since, so it is not news.
+        if any(moment is not None and occurred_at <= moment for moment in (row.reappeared_at, row.resolved_at)):
             return
         row.reappeared_at = occurred_at
         row.resolved_at = None

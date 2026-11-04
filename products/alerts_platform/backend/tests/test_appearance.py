@@ -145,6 +145,18 @@ class TestAppearanceAlerts(BaseTest):
         assert group.firing_episode is not None and group.firing_episode.started_at == T0 - timedelta(days=3)
         assert len(deliveries) == 1
         assert again.groups == ()
+        # A reappearance from before a resolve is not news.
+        occurrences.resolve(SOURCE, team_id=self.team.id, identity_key="issue-1", at=late + timedelta(minutes=1))
+        assert record_occurrence(
+            SOURCE,
+            team_id=self.team.id,
+            identity_key="issue-1",
+            kind=OccurrenceKind.REAPPEARED,
+            occurred_at=late + timedelta(seconds=30),
+            first_seen_at=T0 - timedelta(days=3),
+            labels={"service_name": "api"},
+        )
+        assert self._tick(T0 + timedelta(minutes=50))[0].groups == ()
         # A project with no appearance alert on a source records nothing for it.
         assert not record_occurrence(
             SourceKind.INSIGHT,

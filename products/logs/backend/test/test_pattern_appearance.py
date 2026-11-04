@@ -51,10 +51,19 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
 def test_the_message_links_to_the_announced_pattern_from_before_its_first_sighting() -> None:
     url = _logs_url(
         2,
-        {"service_name": "api", "severity_text": "error"},
-        {"pattern": "Retry <N> timed out", "pattern_version": 5, "first_seen_at": T0.isoformat()},
+        {"service_name": "api…", "severity_text": "error"},
+        {
+            "pattern": "Retry <N> timed out",
+            "pattern_complete": True,
+            "pattern_version": 5,
+            "service_name": "api",
+            "severity_text": "error",
+            "first_seen_at": T0.isoformat(),
+        },
     )
 
     query = parse_qs(urlparse(url).query)
     assert json.loads(query["filterGroup"][0])["values"][0]["values"][0]["value"] == ["Retry <N> timed out"]
     assert json.loads(query["dateRange"][0])["date_from"] == (T0 - dt.timedelta(minutes=10)).isoformat()
+    # The full service name from the detail, not the label cut for display.
+    assert json.loads(query["serviceNames"][0]) == ["api"]

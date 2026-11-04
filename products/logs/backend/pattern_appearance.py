@@ -75,7 +75,14 @@ def _identity(
             "namespace": namespace,
             "pattern": pattern,
         },
-        detail={"pattern": _clipped(pattern), "pattern_version": version},
+        # The full values the logs link filters on, because labels are cut for display.
+        detail={
+            "pattern": _clipped(pattern),
+            "pattern_complete": len(pattern.encode()) <= MAX_PATTERN_DETAIL,
+            "pattern_version": version,
+            "service_name": service,
+            "severity_text": severity,
+        },
     )
 
 
@@ -116,13 +123,15 @@ def describe_logs_pattern(*, project_id: int, transition: AnnouncedTransition) -
 
 def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -> str:
     """The announced pattern's logs, from just before its first sighting."""
+    service = detail.get("service_name")
+    severity = detail.get("severity_text")
     filters: dict[str, Any] = {
-        "serviceNames": [labels["service_name"]] if labels.get("service_name") else [],
-        "severityLevels": [labels["severity_text"]] if labels.get("severity_text") else [],
+        "serviceNames": [service] if isinstance(service, str) and service else [],
+        "severityLevels": [severity] if isinstance(severity, str) and severity else [],
     }
     pattern = detail.get("pattern")
     # A pattern cut to fit the detail would match nothing, so the link then filters by service and severity only.
-    if isinstance(pattern, str) and len(pattern.encode()) < MAX_PATTERN_DETAIL and detail.get("pattern_version"):
+    if isinstance(pattern, str) and detail.get("pattern_complete") and detail.get("pattern_version"):
         filters["filterGroup"] = {
             "type": "AND",
             "values": [

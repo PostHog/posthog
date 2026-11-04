@@ -159,9 +159,13 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(SUMMARY_ON_WRITE_PATCH)
             else None
         )
-        # Patched: executions in flight when this activity shipped replay the old sequence.
-        if workflow.patched(ISSUE_CREATED_OCCURRENCE_PATCH):
-            await record_occurrence_fail_open("record_issue_created_occurrence_activity", inputs)
+        # Patched: executions in flight when this activity shipped replay the old sequence. It runs beside the
+        # side effects below, so a slow registry never delays the issue's own events.
+        occurrence = (
+            asyncio.create_task(record_occurrence_fail_open("record_issue_created_occurrence_activity", inputs))
+            if workflow.patched(ISSUE_CREATED_OCCURRENCE_PATCH)
+            else None
+        )
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
@@ -180,6 +184,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 await dispatch
             if summary is not None:
                 await summary
+            if occurrence is not None:
+                await occurrence
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,

@@ -55,6 +55,7 @@ def test_parse_inputs_accepts_cymbal_issue_reopened_notification() -> None:
 
 @pytest.mark.asyncio
 async def test_retries_and_emits_both_reopened_side_effects() -> None:
+    recorded: list[str] = []
     emitted_events: list[str] = []
     emitted_signals: list[str] = []
     summarized: list[str] = []
@@ -81,6 +82,10 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
         summarized.append(inputs.issue_id)
         return "generated"
 
+    @activity.defn(name="record_issue_reopened_occurrence_activity")
+    async def record_occurrence(inputs: IssueReopenedWorkflowInputs) -> None:
+        recorded.append(inputs.issue_id)
+
     task_queue = str(uuid.uuid4())
     inputs = _inputs()
     async with await WorkflowEnvironment.start_time_skipping() as environment:
@@ -88,7 +93,7 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueReopenedWorkflow],
-            activities=[dispatch_alert, emit_event, emit_signal, generate_summary],
+            activities=[dispatch_alert, emit_event, emit_signal, generate_summary, record_occurrence],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             result = await environment.client.execute_workflow(
@@ -102,6 +107,7 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
     assert emitted_events == [inputs.issue_id]
     assert emitted_signals == [inputs.issue_id]
     assert summarized == [inputs.issue_id]
+    assert recorded == [inputs.issue_id]
     assert signal_attempts == 2
 
 
