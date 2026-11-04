@@ -7,6 +7,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
@@ -2860,6 +2861,8 @@ async function patchWithoutClobbering(
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
 export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
+export const SANDBOX_SENDER_BROADCAST_ERROR =
+    "The sandbox sender can't send broadcasts. Choose a sender on your own domain."
 export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Choose another channel.'
 
 /** The email channel counts each address once and is held to the email sending limit. Push is not. */
@@ -2891,12 +2894,13 @@ export function getSenderLaunchError(
     if (getMissingSenderIds(from, integrations).length > 0) {
         return DELETED_SENDER_ERROR
     }
-    const allVerified = senderIds.every(
-        (id) =>
-            integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
-                ?.verified === true
+    const chosen = senderIds.map((id) =>
+        integrations.find((integration) => integration.kind === 'email' && integration.id === id)
     )
-    return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
+    if (chosen.some((integration) => integration && isSandboxEmailSender(integration))) {
+        return SANDBOX_SENDER_BROADCAST_ERROR
+    }
+    return chosen.every((integration) => integration?.config?.verified === true) ? null : UNVERIFIED_SENDER_MESSAGE
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {
