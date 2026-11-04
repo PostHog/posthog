@@ -72,6 +72,24 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
+    private static readonly messageWindowIdBytes = new Histogram({
+        name: 'recording_blob_ingestion_v2_message_window_id_bytes',
+        help: 'The size in bytes of the window ID of each message',
+        buckets: [36, 64, 128, 256, 512, 1024, 4096, 16384, 65536, Infinity],
+    })
+
+    private static readonly messageEvents = new Histogram({
+        name: 'recording_blob_ingestion_v2_message_events',
+        help: 'The number of events in each message',
+        buckets: [1, 10, 100, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, Infinity],
+    })
+
+    private static readonly messagesOverLimit = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_over_limit',
+        help: 'The number of messages past a per-message limit, whether or not the limit is enforced',
+        labelNames: ['limit'],
+    })
+
     private static readonly messageClockSkew = new Histogram({
         name: 'recording_blob_ingestion_v2_message_clock_skew_seconds',
         help: 'Absolute offset between the sender device clock at upload (sent_at) and the server clock at receipt (now), by direction. Replay skips the skew correction every other event gets, so a large offset means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
@@ -105,6 +123,15 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static observeMessageShape(windowIdBytes: number, events: number): void {
+        this.messageWindowIdBytes.observe(windowIdBytes)
+        this.messageEvents.observe(events)
+    }
+
+    public static incrementMessagesOverLimit(limit: string): void {
+        this.messagesOverLimit.labels(limit).inc()
     }
 
     public static incrementMessageClockSkewUnmeasured(): void {

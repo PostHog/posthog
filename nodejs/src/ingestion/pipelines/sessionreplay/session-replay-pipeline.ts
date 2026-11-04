@@ -22,7 +22,7 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
-import { createParseMessageStep } from './parse-message-step'
+import { MessageLimits, createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { SessionBatchContext } from './session-batch-context'
@@ -57,6 +57,7 @@ export type SessionReplayPipeline = BatchingPipeline<
 >
 
 export interface SessionReplayPipelineConfig {
+    messageLimits?: MessageLimits
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowMode: IngestionOverflowMode
@@ -140,7 +141,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                 b
                                                     // Parse message content
                                                     .pipe(
-                                                        topHogWrapper(createParseMessageStep(), [
+                                                        topHogWrapper(createParseMessageStep(config.messageLimits), [
                                                             timer('parse_time_ms_by_session_id', (input) => ({
                                                                 token: input.headers.token ?? 'unknown',
                                                                 session_id: input.headers.session_id ?? 'unknown',

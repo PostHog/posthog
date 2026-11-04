@@ -212,6 +212,81 @@ describe('createParseMessageStep', () => {
         }
     })
 
+    describe('message limits', () => {
+        const limits = { maxWindowIdBytes: 8, maxEventsPerMessage: 2 }
+        const event = { type: 2, timestamp: fixedTimeMs }
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            [
+                'the window ID',
+                'w'.repeat(9),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 9, events: 1 },
+            ],
+            [
+                'the window ID in bytes',
+                'é'.repeat(5),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 10, events: 1 },
+            ],
+            [
+                'the event count',
+                'w',
+                [event, event, event],
+                'message_too_many_events',
+                { sessionId: 'session-1', windowIdBytes: 1, events: 3 },
+            ],
+        ] as const)(
+            'drops a message past the limit on %s when enforced',
+            async (_, windowId, items, reason, details) => {
+                const payload = createSnapshotPayload({
+                    sessionId: 'session-1',
+                    distinctId: 'user-123',
+                    windowId,
+                    snapshotItems: [...items],
+                })
+
+                const result = await createParseMessageStep({ ...limits, enforce: true })(createInput(0, 1, payload))
+
+                expect(result).toMatchObject({
+                    type: PipelineResultType.DROP,
+                    reason,
+                    warnings: [{ type: reason, details }],
+                })
+            }
+        )
+
+        it.each([
+            ['past a limit, not enforced', 'w'.repeat(9), false, ['message_window_id_too_long']],
+            ['at the limits, enforced', 'w'.repeat(8), true, []],
+        ])('keeps a message %s', async (_, windowId, enforce, counted) => {
+            const overLimitSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessagesOverLimit')
+                .mockImplementation()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                distinctId: 'user-123',
+                windowId,
+                snapshotItems: [event, event],
+            })
+
+            const result = await createParseMessageStep({ ...limits, enforce })(createInput(0, 1, payload))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(overLimitSpy.mock.calls.map(([limit]) => limit)).toEqual(counted)
+        })
+    })
+
     it('should handle gzipped messages', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-gzip')
