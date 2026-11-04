@@ -102711,6 +102711,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102730,6 +102761,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
