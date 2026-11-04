@@ -53,10 +53,7 @@ Each rule is tagged with what catches a violation.
 
 ## LLM gateway
 
-- **A new LLM caller uses the Go AI gateway through `posthog/llm/gateway_client.py`.** `[review]`
-  `build_openai_client`, `build_anthropic_client`, `build_gemini_client`, and their async variants prefer `AI_GATEWAY_*` for [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway).
-  Those helpers use `LLM_GATEWAY_*` only when the Go settings are unset.
-  The caller does not use a provider API key unless the task's skill already requires one.
-  The caller does not target `services/llm-gateway` unless [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md) names a blocking gap.
-  Read `/migrating-llm-gateway-callers` to add or move a caller.
+- **Inference uses the Go AI gateway, not a provider API key.** `[review]`
+  The client is a `build_*` helper in `posthog/llm/gateway_client.py`.
+  `build_openai_client`, `build_anthropic_client`, `build_gemini_client`, and their async variants send the call to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) with `AI_GATEWAY_*`.
 - **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` If a task asks you to change it, tell the user about the freeze in your reply. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
