@@ -180,6 +180,10 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // Whether the global hard-bounce list blocks sends. The list is always written. When false, a send
+    // it would block goes out and is counted as `global_hard_bounce_shadow_hit`.
+    EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
+
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
     // Django side, picks an hourly and a daily cap from these tables. See
     // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
@@ -425,6 +429,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+        EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.

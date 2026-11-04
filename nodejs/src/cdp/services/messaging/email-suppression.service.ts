@@ -7,7 +7,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
     labelNames: ['result'],
 })
 
@@ -20,6 +20,8 @@ const toKey = (teamId: number, identifier: string): string => `${teamId}:${ident
 export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
+    // Whether the global hard-bounce list blocks sends. When false, a send it would block is only counted.
+    globalHardBounceEnforce?: boolean
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -38,10 +40,12 @@ export type SuppressionCheckOptions = {
     transactional?: boolean
 }
 
-// An active suppression. It blocks transactional email only when the address hard-bounced.
-type SuppressionEntry = { blocksTransactional: boolean }
+// An active suppression. It blocks transactional email only when the address hard-bounced. `global` marks
+// an entry that only the global hard-bounce list holds.
+type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
+const GLOBAL_HARD_BOUNCE_DIAGNOSTIC = "This address doesn't exist. An earlier email to it hard-bounced."
 
 // Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
 // rows, and the two Customer.io lists the importer maps to BOUNCE. Both writers now set the column, so
@@ -78,6 +82,7 @@ const LEGACY_HARD_BOUNCE_REASONS = [
  */
 export class EmailSuppressionService {
     private readonly threshold: number
+    private readonly globalHardBounceEnforce: boolean
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -86,6 +91,7 @@ export class EmailSuppressionService {
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
+        this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -108,9 +114,13 @@ export class EmailSuppressionService {
         }
         try {
             const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            if (entry !== false && entry.global === 'shadow') {
+                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
+                return false
+            }
             const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
             if (suppressed) {
-                cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
+                cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
             }
             return suppressed
         } catch (error) {
@@ -216,6 +226,17 @@ export class EmailSuppressionService {
             return
         }
 
+        try {
+            await this.upsertHardBounces(teamId, identifiers, diagnostic)
+            cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
+            // Only invalidate the keys we touched — cross-team entries stay warm.
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+        }
+    }
+
+    private async upsertHardBounces(teamId: number, identifiers: string[], diagnostic?: string): Promise<void> {
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
         // Params: teamId, reason, diag, then one identifier per row.
         const valueClauses: string[] = []
@@ -262,13 +283,32 @@ export class EmailSuppressionService {
                 updated_at = NOW()
         `
 
+        await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
+    }
+
+    /**
+     * Add addresses to the global hard-bounce list. Call this only for a bounce that proves the address does
+     * not exist. A bounce caused by the sender, such as a failed DMARC check, must stay on the team's own
+     * list. Otherwise one team could block valid addresses for every team.
+     */
+    public async recordGlobalHardBounces(emails: string[]): Promise<void> {
+        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        if (identifiers.length === 0) {
+            return
+        }
+        const valueClauses = identifiers.map((_, i) => `($${i + 1}, NOW(), NOW())`)
         try {
-            await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
-            cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
-            // Only invalidate the keys we touched — cross-team entries stay warm.
-            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
+                 VALUES ${valueClauses.join(', ')}
+                 ON CONFLICT (email) DO UPDATE SET last_bounced_at = NOW()`,
+                identifiers,
+                'recordGlobalHardBounces'
+            )
+            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
         } catch (error) {
-            logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+            logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
         }
     }
 
@@ -387,6 +427,25 @@ export class EmailSuppressionService {
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
         }
+
+        // A delivery proves the address exists, so it leaves the global list for every team. The same
+        // timestamp guard applies: a late delivery for an older send must not clear a fresh bounce.
+        try {
+            const result = await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM posthog_emailhardbounce
+                 WHERE email = ANY($1)
+                   AND $2::timestamptz IS NOT NULL
+                   AND last_bounced_at < $2::timestamptz`,
+                [identifiers, deliveryTimestamp ?? null],
+                'clearGlobalHardBounces'
+            )
+            if (result.rowCount) {
+                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, result.rowCount)
+            }
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })
+        }
     }
 
     private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
@@ -413,11 +472,20 @@ export class EmailSuppressionService {
         }
 
         const entries = new Map<string, SuppressionEntry>()
+        // Keys with no active row and no removed row on the team's own list. Only these can hit the global list.
+        const unlisted: { key: string; teamId: number; identifier: string }[] = []
         for (const [teamId, identifiers] of byTeam) {
-            // The reason check covers rows that hard-bounced before `hard_bounced_at` existed.
-            const result = await this.postgres.query<{ identifier: string; blocks_transactional: boolean }>(
+            // A removed row (deleted = true) is the team's choice to email the address again, so it also
+            // overrides the global list. The reason check covers rows that hard-bounced before
+            // `hard_bounced_at` existed.
+            const result = await this.postgres.query<{
+                identifier: string
+                deleted: boolean
+                blocks_transactional: boolean
+            }>(
                 PostgresUse.COMMON_READ,
                 `SELECT identifier,
+                        deleted,
                         -- A soft-bounce row carries no reason until it crosses the threshold, and
                         -- NULL = ANY(...) is NULL, so COALESCE keeps the column a real boolean.
                         COALESCE(hard_bounced_at IS NOT NULL OR (source = 'BOUNCE' AND reason = ANY($3)), false)
@@ -425,17 +493,75 @@ export class EmailSuppressionService {
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
-                   AND suppressed = true
-                   AND deleted = false`,
+                   AND (deleted = true OR suppressed = true)`,
                 [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS],
                 'loadSuppressed'
             )
+            const listed = new Set<string>()
             for (const row of result.rows) {
-                entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
+                listed.add(row.identifier)
+                if (!row.deleted) {
+                    entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
+                }
             }
+            for (const identifier of identifiers) {
+                if (!listed.has(identifier)) {
+                    unlisted.push({ key: toKey(teamId, identifier), teamId, identifier })
+                }
+            }
+        }
+
+        if (unlisted.length > 0) {
+            await this.applyGlobalHardBounces(unlisted, entries)
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
         return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
+    }
+
+    private async applyGlobalHardBounces(
+        unlisted: { key: string; teamId: number; identifier: string }[],
+        entries: Map<string, SuppressionEntry>
+    ): Promise<void> {
+        let bounced: Set<string>
+        try {
+            const result = await this.postgres.query<{ email: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT email FROM posthog_emailhardbounce WHERE email = ANY($1)`,
+                [Array.from(new Set(unlisted.map((u) => u.identifier)))],
+                'loadGlobalHardBounces'
+            )
+            bounced = new Set(result.rows.map((row) => row.email))
+        } catch (error) {
+            // Fail open, like the rest of the pre-send check, and keep the team's own list.
+            logger.error('[EmailSuppression] Failed to check global hard bounces', { error })
+            return
+        }
+
+        const hitsByTeam = new Map<number, string[]>()
+        for (const { key, teamId, identifier } of unlisted) {
+            if (!bounced.has(identifier)) {
+                continue
+            }
+            if (!this.globalHardBounceEnforce) {
+                entries.set(key, { blocksTransactional: false, global: 'shadow' })
+                continue
+            }
+            entries.set(key, { blocksTransactional: true, global: 'enforce' })
+            hitsByTeam.set(teamId, [...(hitsByTeam.get(teamId) ?? []), identifier])
+        }
+
+        // Copy each hit to the team's own list as a hard bounce. The team then sees the address there and can
+        // remove it, which overrides the global list for that team.
+        for (const [teamId, identifiers] of hitsByTeam) {
+            try {
+                await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC)
+            } catch (error) {
+                logger.error('[EmailSuppression] Failed to copy global hard bounces to the team list', {
+                    teamId,
+                    error,
+                })
+            }
+        }
     }
 }

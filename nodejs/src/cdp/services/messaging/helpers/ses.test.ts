@@ -3,7 +3,7 @@ import { register } from 'prom-client'
 import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 
-import { SesWebhookHandler, normalizeClickUrl, resolveClickDestination } from './ses'
+import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
@@ -1216,5 +1216,30 @@ describe('SesWebhookHandler', () => {
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)
         })
+    })
+    describe('nonexistentRecipients', () => {
+        // A sender-side rejection must stay on the sending team's own list. Otherwise one team's broken
+        // DNS or blocked domain would block valid addresses for every team.
+        it.each([
+            ['Permanent', 'NoEmail', undefined, undefined, true],
+            ['Permanent', 'General', '5.1.1', 'smtp; 550 5.1.1 user unknown', true],
+            ['Permanent', 'General', '5.1.10', 'smtp; 556 5.1.10 null MX', true],
+            ['Permanent', 'General', '5.7.1', 'smtp; 550 5.7.1 rejected by DMARC policy', false],
+            ['Permanent', 'General', undefined, 'smtp; 554 sender domain blocked', false],
+            ['Permanent', 'Suppressed', '5.1.1', undefined, false],
+            ['Permanent', 'OnAccountSuppressionList', undefined, undefined, false],
+            ['Transient', 'General', '5.1.1', 'smtp; 550 5.1.1 user unknown', false],
+        ] as const)(
+            '%s/%s bounce with status %s counts: %s',
+            (bounceType, bounceSubType, status, diagnosticCode, expected) => {
+                const recipients = nonexistentRecipients({
+                    bounceType,
+                    bounceSubType,
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', status, diagnosticCode }],
+                    timestamp: '2026-01-01T00:00:00.000Z',
+                })
+                expect(recipients).toEqual(expected ? ['to@example.com'] : [])
+            }
+        )
     })
 })
