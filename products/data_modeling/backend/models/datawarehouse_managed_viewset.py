@@ -154,6 +154,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             view.name: self._eligible_incremental_config(view, database) for view in expected_views
         }
 
+        if self._stored_views_match(expected_views, external_tables_by_view, incremental_config_by_view):
+            logger.info("sync_views_unchanged", team_id=self.team_id, kind=self.kind, views=len(expected_views))
+            return
+
         views_created = 0
         views_updated = 0
         saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
@@ -372,6 +376,48 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 None,
             ),
         }
+
+    def _stored_views_match(
+        self,
+        expected_views: list[ExpectedView],
+        external_tables_by_view: dict[str, list],
+        incremental_config_by_view: dict[str, dict[str, Any] | None],
+    ) -> bool:
+        """Whether the writes of this sync would leave every stored view and DAG cadence as it is.
+
+        Most calls come from a load that changed nothing, so a full sync only re-parses every query,
+        rewrites every row and reconciles the schedules to the same state. The check covers each
+        field the sync writes and the cadence it stores on the DAG node. A view with no node counts
+        as out of sync, because its DAG placement failed earlier and the sync repairs it.
+        """
+        from products.data_modeling.backend.logic.node_frequency import (  # noqa: PLC0415 node_frequency imports this module
+            get_declared_target,
+        )
+
+        stored = {saved_query.name: saved_query for saved_query in self.saved_queries.exclude(deleted=True)}
+        if set(stored) != {view.name for view in expected_views}:
+            return False
+        targets_by_saved_query: dict[str, list[timedelta | None]] = defaultdict(list)
+        for node in Node.objects.filter(
+            team_id=self.team_id, saved_query_id__in=[saved_query.id for saved_query in stored.values()]
+        ).only("saved_query_id", "properties"):
+            targets_by_saved_query[str(node.saved_query_id)].append(get_declared_target(node))
+        for view in expected_views:
+            saved_query = stored[view.name]
+            target = view.sync_frequency if view.materialized else None
+            node_targets = targets_by_saved_query[str(saved_query.id)]
+            if (
+                saved_query.query != view.query
+                or not saved_query.stores_columns(view.columns)
+                or set(saved_query.external_tables or []) != set(external_tables_by_view[view.name])
+                or saved_query.is_materialized != view.materialized
+                or saved_query.sync_frequency_interval is not None
+                or saved_query.incremental_config != incremental_config_by_view[view.name]
+                or not node_targets
+                or any(node_target != target for node_target in node_targets)
+            ):
+                return False
+        return True
 
     def _rebuild_downstream_of(self, dag: DAG, redefined_ids: set[UUID]) -> None:
         """Clear the watermark of every incremental view downstream of a redefined view.
