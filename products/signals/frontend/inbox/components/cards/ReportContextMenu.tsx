@@ -17,7 +17,6 @@ import {
     IconUndo,
 } from '@posthog/icons'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -31,7 +30,6 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -61,6 +59,7 @@ import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 import { useReportCardSelection } from './useReportCardSelection'
 
@@ -177,26 +176,18 @@ function ReportContextMenuItems({
     const teammate = teammateClaimHolder(report, currentUserUuid)
     const claimSaving = claimSavingReportIds.includes(report.id)
 
-    // Taking a teammate's claim asks first, because the server tells them their work moved to you.
-    const openTakeoverDialog = (holderName: string): void => {
-        onOpenDialog()
-        const holderLabel = report.assignee?.kind === 'agent' ? `${holderName}'s agent` : holderName
-        LemonDialog.open({
-            title: 'Take over this report?',
-            description: `${holderLabel} is working on this report. If you take it over, we let ${holderName} know.`,
-            primaryButton: {
-                children: 'Take over',
-                onClick: () => setReportClaimed(report, true, 'context_menu', true),
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
-    }
-
     const claimItem = teammate ? (
         <ContextMenuItem asChild disabled={claimSaving}>
             <ButtonPrimitive
                 menuItem
-                onClick={() => openTakeoverDialog(fullNameOrEmail(teammate))}
+                onClick={() => {
+                    onOpenDialog()
+                    openTakeOverReportDialog({
+                        report,
+                        holder: teammate,
+                        onConfirm: () => setReportClaimed(report, true, 'context_menu', true),
+                    })
+                }}
                 disabledReasons={claimSaving ? { 'Updating…': true } : undefined}
                 data-attr="inbox-report-context-menu-takeover"
             >

@@ -723,8 +723,12 @@ export interface inboxReportDetailLogicActions {
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
-    setReportClaimed: (claimed: boolean) => {
+    setReportClaimed: (
+        claimed: boolean,
+        takeover?: boolean
+    ) => {
         claimed: boolean
+        takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
         saving: boolean
@@ -906,7 +910,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setPrioritySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
-        setReportClaimed: (claimed: boolean) => ({ claimed }),
+        setReportClaimed: (claimed: boolean, takeover: boolean = false) => ({ claimed, takeover }),
         setClaimSaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -1655,7 +1659,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 slotClaim
                     ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
                     : holder
-                      ? `${fullNameOrEmail(holder)} is working on this report. Right-click it in the list to take it over.`
+                      ? `${fullNameOrEmail(holder)} is working on this report. Take it over to implement it.`
                       : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
@@ -1765,7 +1769,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
         },
-        setReportClaimed: async ({ claimed }) => {
+        setReportClaimed: async ({ claimed, takeover }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
             if (!teamId || !currentReport || values.claimSaving) {
@@ -1776,13 +1780,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 report: currentReport,
                 actionType: claimed ? 'claim' : 'unclaim',
                 surface: 'detail_pane',
+                extra: takeover ? { takeover: true } : undefined,
             })
             const scene = inboxSceneLogic.findMounted()
             const outcome = await requestReportClaim(
                 String(teamId),
                 { id: props.reportId, assignee: currentReport.assignee },
                 claimed,
-                { currentUserUuid: userLogic.values.user?.uuid ?? null }
+                { currentUserUuid: userLogic.values.user?.uuid ?? null, takeover }
             )
             if (!outcome.ok) {
                 if (inboxReportDetailLogic.isMounted(props)) {

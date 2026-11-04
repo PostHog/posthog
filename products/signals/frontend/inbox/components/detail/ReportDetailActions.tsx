@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -18,6 +18,7 @@ import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { useReportResolve } from './useReportResolve'
 
 /**
@@ -40,8 +41,8 @@ export interface ReportDetailAction {
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { changeReportState } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks } = useValues(detailLogic)
+    const { changeReportState, setReportClaimed } = useActions(detailLogic)
+    const { reportStateSaving, reportChecks, teammateClaimHolder, claimSaving } = useValues(detailLogic)
     const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -183,6 +184,23 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
+        ...(teammateClaimHolder
+            ? [
+                  {
+                      key: 'takeover',
+                      label: 'Take over',
+                      icon: <IconPerson />,
+                      loading: claimSaving,
+                      tooltip: 'Take over the claim to work on this report',
+                      onClick: () =>
+                          openTakeOverReportDialog({
+                              report,
+                              holder: teammateClaimHolder,
+                              onConfirm: () => setReportClaimed(true, true),
+                          }),
+                  },
+              ]
+            : []),
         ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
             ? [
                   {

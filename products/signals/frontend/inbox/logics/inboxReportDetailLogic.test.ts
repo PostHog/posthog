@@ -364,7 +364,14 @@ describe('inboxReportDetailLogic', () => {
                 responsible_user: null,
             }) as unknown as NonNullable<SignalReport['assignee']>
 
-        it.each([
+        it.each<{
+            name: string
+            serverAssignee: NonNullable<SignalReport['assignee']>
+            expectedBodies: unknown[]
+            expectedToast: string | null
+            shownAssignee?: SignalReport['assignee']
+            takeover?: boolean
+        }>([
             {
                 name: 'takes over the task claim the list row did not show',
                 serverAssignee: claimBy('task', 'claim-task'),
@@ -383,7 +390,15 @@ describe('inboxReportDetailLogic', () => {
                 expectedBodies: [{ takeover: false }],
                 expectedToast: 'Someone else is already working on this report.',
             },
-        ])('$name', async ({ serverAssignee, expectedBodies, expectedToast }) => {
+            {
+                name: "takes over a teammate's claim the person confirmed",
+                serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                shownAssignee: claimBy('user', 'claim-person', 'other-user'),
+                takeover: true,
+                expectedBodies: [{ takeover: true, takeover_claim_id: 'claim-person' }],
+                expectedToast: null,
+            },
+        ])('$name', async ({ serverAssignee, expectedBodies, expectedToast, shownAssignee, takeover }) => {
             const myClaim = claimBy('user', 'claim-mine', 'me')
             const bodies: unknown[] = []
             const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
@@ -406,11 +421,14 @@ describe('inboxReportDetailLogic', () => {
             })
             initKeaTests()
             const errorToast = jest.spyOn(lemonToast, 'error')
-            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, assignee: null } })
+            const logic = inboxReportDetailLogic({
+                reportId: REPORT.id,
+                report: { ...REPORT, assignee: shownAssignee },
+            })
             logic.mount()
             try {
                 await expectLogic(logic).toFinishAllListeners()
-                logic.actions.setReportClaimed(true)
+                logic.actions.setReportClaimed(true, takeover)
                 await waitFor(() => expect(logic.values.claimSaving).toBe(false))
 
                 expect(bodies).toEqual(expectedBodies)
