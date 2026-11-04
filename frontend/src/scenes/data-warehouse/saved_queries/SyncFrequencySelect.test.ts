@@ -254,6 +254,7 @@ describe('SyncFrequencySelect', () => {
                 bounds({
                     options: [
                         { cadence: '15min', allowed: false, blocked_by: 'source', blocker: null },
+                        { cadence: '1hour', allowed: false, blocked_by: 'plan', blocker: null },
                         { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: null },
                     ],
                 } as Partial<SyncFrequencyBoundsApi>)
@@ -261,6 +262,9 @@ describe('SyncFrequencySelect', () => {
 
             expect(options.find((option) => option.value === '15min')?.disabledReason).toBe(
                 'More often than the upstream sources sync'
+            )
+            expect(options.find((option) => option.value === '1hour')?.disabledReason).toBe(
+                'More often than your plan allows'
             )
             expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(
                 'Too slow for a downstream view'

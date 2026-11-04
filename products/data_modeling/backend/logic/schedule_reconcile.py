@@ -222,6 +222,7 @@ def apply_saved_query_frequency_target(
                         source_intervals=graph.source_intervals,
                         names=visible_names or {},
                         pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
+                        plan_floor=graph.plan_floor,
                     )
                     if pin:
                         validate_pin(
@@ -261,6 +262,7 @@ def check_saved_query_frequency_target(
             source_intervals=graph.source_intervals,
             names=visible_names or {},
             pinned=graph.pinned,
+            plan_floor=graph.plan_floor,
         )
 
 

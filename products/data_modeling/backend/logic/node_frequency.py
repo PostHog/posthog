@@ -20,6 +20,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_W
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     ClampedCadence,
+    ClampReason,
     TargetBounds,
     TargetOption,
     all_source_floors,
@@ -35,6 +36,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
+from products.data_modeling.backend.logic.refresh_floor import plan_refresh_floor_for_team
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
@@ -291,6 +293,8 @@ class FrequencyGraph:
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
+    schedule_plan_floor: timedelta | None  # finest cadence the scheduler runs a view at on the team's plan
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -319,6 +323,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
+    plan_floor = plan_refresh_floor_for_team(dag.team_id)
 
     return FrequencyGraph(
         nodes=schedulable,
@@ -330,7 +335,27 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         best_effort_source_ids=best_effort,
         names={str(node.id): node.name for node in nodes},
         identities={str(node.id): node_identity(node) for node in nodes},
+        plan_floor=plan_floor.min_interval if plan_floor is not None else None,
+        schedule_plan_floor=plan_floor.schedule_floor if plan_floor is not None else None,
     )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class EffectiveCadence:
+    """How often the scheduler runs a view, and what holds it back when something does."""
+
+    cadence: timedelta
+    reason: ClampReason | None  # None when nothing coarsened the cadence the view would otherwise run at
+
+
+def effective_cadence(node_id: str, graph: FrequencyGraph) -> EffectiveCadence | None:
+    """The cadence the scheduler runs `node_id` at, or None when nothing schedules it."""
+    scheduled, clamped = scheduled_cadences(graph)
+    cadence = scheduled.get(node_id)
+    if cadence is None:
+        return None
+    clamp = next((change for change in clamped if change.node_id == node_id), None)
+    return EffectiveCadence(cadence=cadence, reason=clamp.reason if clamp is not None else None)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -344,6 +369,7 @@ class SavedQueryFrequencyBounds:
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
     pinned: bool
+    effective: EffectiveCadence | None  # None when nothing schedules the view
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -365,6 +391,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
+    effective: list[EffectiveCadence] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -379,6 +406,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
                 declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
                 pinned=graph.pinned,
+                plan_floor=graph.plan_floor,
             )
         )
         names.update(graph.names)
@@ -390,6 +418,8 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         for cadence, sped_up in _speeds_up_by_cadence(team_id, str(node.id), graph, ancestors, candidates).items():
             speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
+        if (runs_at := effective_cadence(str(node.id), graph)) is not None:
+            effective.append(runs_at)
 
     return SavedQueryFrequencyBounds(
         bounds=intersect_target_bounds(per_dag),
@@ -399,6 +429,8 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
+        # A saved query with nodes in several DAGs runs at the finest cadence any of them asks for
+        effective=min(effective, key=lambda runs_at: runs_at.cadence, default=None),
     )
 
 
@@ -547,7 +579,7 @@ def scheduled_cadences(
     declared_targets: Mapping[str, timedelta] | None = None,
     pinned: Collection[str] | None = None,
 ) -> tuple[dict[str, timedelta | None], list[ClampedCadence]]:
-    """The cadence the scheduler runs each node at: effective cadences, then the source-floor clamp.
+    """The cadence the scheduler runs each node at: effective cadences, then the source and plan floor clamp.
 
     The one place this pair is spelled out, so the scheduler, the tier reports and the pickers can't
     disagree about pins. `declared_targets` and `pinned` override the graph's own for what-if reads.
@@ -555,7 +587,13 @@ def scheduled_cadences(
     declared = dict(graph.declared_targets if declared_targets is None else declared_targets)
     pins = graph.pinned if pinned is None else pinned
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared, pinned=pins)
-    return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
+    return clamp_to_source_floor(
+        effective,
+        edges=graph.edges,
+        source_intervals=graph.source_intervals,
+        pinned=pins,
+        plan_floor=graph.schedule_plan_floor,
+    )
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:

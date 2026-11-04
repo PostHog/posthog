@@ -7,13 +7,14 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_pin,
@@ -50,11 +51,20 @@ from products.data_modeling.backend.test.helpers import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
+FLAG_RESULT = "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result"
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
+
+
+def _free_plan_floor(payload):
+    def evaluate(key, distinct_id, *, person_properties=None, **_kwargs):
+        enabled = (person_properties or {}).get("organization_plan") == "free"
+        return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
+
+    return evaluate
 
 
 def _listing(schedule_id, workflow="data-modeling-execute-dag"):
@@ -517,6 +527,83 @@ class TestMaybeReconcileDag(BaseTest):
         )
         upstream.refresh_from_db()
         self.assertEqual(get_declared_target(upstream), DAY)
+
+    @parameterized.expand(
+        [
+            (
+                "free_plan_runs_at_the_floor",
+                False,
+                _free_plan_floor({"min_interval": "6hour", "clamp_existing": True}),
+                H6,
+            ),
+            (
+                "paid_plan_is_not_floored",
+                True,
+                _free_plan_floor({"min_interval": "6hour", "clamp_existing": True}),
+                M15,
+            ),
+            ("flag_error_sets_no_floor", False, mock.Mock(side_effect=RuntimeError("flags down")), M15),
+            (
+                "existing_cadence_kept_until_clamp_existing",
+                False,
+                _free_plan_floor({"min_interval": "6hour", "clamp_existing": False}),
+                M15,
+            ),
+        ]
+    )
+    def test_plan_floor_coarsens_the_schedule_and_keeps_the_saved_cadence(
+        self, _name, has_active_subscription, flag, expected_tier
+    ):
+        self.organization.has_active_subscription = has_active_subscription
+        self.organization.save(update_fields=["has_active_subscription"])
+        dag = self._dag_with_target()
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=flag),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        self.assertEqual(
+            [call.kwargs["id"] for call in create.call_args_list], [tier_schedule_id(str(dag.id), expected_tier)]
+        )
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        self.assertEqual(get_declared_target(endpoint), M15)
+
+    def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, DAY)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour"})),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            self.assertRaisesMessage(UnsatisfiableFrequencyError, "on your plan"),
+        ):
+            apply_saved_query_frequency_target(node.saved_query, M15)
+
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), DAY)
+
+    def test_resaving_a_cadence_saved_before_the_plan_floor_is_accepted(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour"})),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+        ):
+            apply_saved_query_frequency_target(node.saved_query, M15)
+
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), M15)
 
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)

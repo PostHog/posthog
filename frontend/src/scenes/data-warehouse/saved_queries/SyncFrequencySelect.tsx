@@ -459,6 +459,9 @@ function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds
     if (option.blocked_by === 'source' && bounds.floor) {
         return name ? `More often than upstream source ${name} syncs` : 'More often than the upstream sources sync'
     }
+    if (option.blocked_by === 'plan') {
+        return 'More often than your plan allows'
+    }
     if (option.blocked_by === 'consumer' && bounds.ceiling) {
         return name ? `Too slow for downstream view ${name}` : 'Too slow for a downstream view'
     }
