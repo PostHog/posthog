@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
+from urllib.parse import urlsplit
 
 import orjson
 import stripe as stripe_lib
@@ -84,6 +85,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_ATTEMPT_RESOURCE_NAME,
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
+    STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -106,6 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     DEFAULT_PRIMARY_KEYS,
     NON_PARTITIONED_ENDPOINTS,
     PRIMARY_KEYS,
+    V2_LIST_PATHS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS,
 )
@@ -120,6 +123,9 @@ if TYPE_CHECKING:
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Stripe's v2 Money Management list endpoints (V2_LIST_PATHS) cap `limit` at 50, unlike the v1
+# lists' 100 — requesting DEFAULT_LIMIT against one raises "Limit must be between 1 and 50".
+V2_LIST_PAGE_LIMIT = 50
 # Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
 # discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
 # objects can grow past the size that reliably transfers intact, and the response then arrives
@@ -218,6 +224,16 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     return _head_mentions_list_object(raw, start)
 
 
+def _is_truncated_json_object(body: Any) -> bool:
+    """True when ``body`` opens a JSON object but never closes it. API v2 lists carry no
+    ``"object": "list"`` marker, so this is the only shape check that applies to them."""
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
+        return False
+    raw, start, end = bounds
+    return raw[start] == _OPEN_BRACE and raw[end] != _CLOSE_BRACE
+
+
 def _is_non_list_stripe_response(body: Any) -> bool:
     """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
 
@@ -272,6 +288,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
+    _last_request_is_v2: bool = False
 
     def __init__(
         self,
@@ -295,6 +312,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         post_data: Any = None,
     ) -> tuple[bytes, int, Mapping[str, str]]:
         self._last_request_method = (method or "").lower()
+        self._last_request_is_v2 = urlsplit(url).path.startswith("/v2/")
         if self._before_request is not None:
             self._before_request()
         return super().request(method, url, headers, post_data)
@@ -329,6 +347,8 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if not (200 <= status_code < 300):
             return False
+        if self._last_request_is_v2:
+            return self._last_request_method == "get" and _is_truncated_json_object(body)
         if _is_truncated_stripe_list_response(body):
             return True
         # A complete but non-list body identifies a corrupt list read only for a GET — a write
@@ -477,6 +497,39 @@ class _SingleObjectList:
         yield self._obj
 
 
+class _V2ListPage:
+    """A fetched API v2 list page behind the ``auto_paging_iter`` interface of the v1 lists.
+
+    API v2 pages by following `next_page_url`, not by object-id cursors, so the first page is
+    requested up front (a probe surfaces its error there) and later pages are fetched lazily.
+    """
+
+    def __init__(self, client: StripeClient, page: dict[str, Any]) -> None:
+        self._client = client
+        self._page = page
+
+    def auto_paging_iter(self) -> Iterator[dict[str, Any]]:
+        page = self._page
+        while True:
+            data = page.get("data")
+            # A page without `data` is a corrupt response, not the end of the list. Raise so the sync
+            # retries rather than finishing with a truncated table.
+            if not isinstance(data, list):
+                raise stripe_lib.APIError("Stripe returned an API v2 list page without a data array")
+            yield from data
+            next_page_url = page.get("next_page_url")
+            if not next_page_url:
+                return
+            page = self._client.raw_request("get", next_page_url).data
+
+
+def _v2_lister(client: StripeClient, path: str) -> Callable[..., ListObject[Any]]:
+    def _list(params: dict[str, Any]) -> ListObject[Any]:
+        return cast(ListObject[Any], _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data))
+
+    return _list
+
+
 def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
     """`/v1/billing/credit_balance_summary` is a retrieve, not a list: it returns the balance for one
     customer under a required `filter`. We scope it to a single credit grant so each row is the
@@ -569,6 +622,9 @@ class StripeResumeConfig:
     warehouse_row_offset: int | None = None
     warehouse_table_uri: str | None = None
     warehouse_version: int | None = None
+    # The parent's Delta table id. A reset purges and rebuilds the table at the same URI with
+    # versions from 0, so the URI and version alone can name a different table.
+    warehouse_table_id: str | None = None
 
 
 def _scrub_client_secrets(obj: Any) -> Any:
@@ -611,8 +667,10 @@ class _WarehouseParentRows:
         schema_name: str,
         parent_name: str,
         start_position: Optional["ScanPosition"],
+        table_id: Optional[str] = None,
     ) -> None:
         self._table = table
+        self.table_id = table_id
         self._columns = columns
         self._parent_name = parent_name
         self._page_size = page_size
@@ -664,7 +722,9 @@ def _flush_staging_state(
         yield table
 
 
-def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) -> StripeResumeConfig:
+def _resume_state(
+    position: Optional["ScanPosition"], parent_id: Optional[str], parent_pages: Optional[_WarehouseParentRows] = None
+) -> StripeResumeConfig:
     """Resume state in whichever coordinate system this sweep is walking."""
     if position is not None:
         return StripeResumeConfig(
@@ -672,6 +732,7 @@ def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) 
             warehouse_row_offset=position.row_offset,
             warehouse_table_uri=position.table_uri,
             warehouse_version=position.version,
+            warehouse_table_id=parent_pages.table_id if parent_pages else None,
         )
     return StripeResumeConfig(starting_after=parent_id)
 
@@ -699,9 +760,9 @@ def _nested_checkpoint(
         # Without an id there is no cursor into the parent's own pages, so the sweep can only move
         # past it. The one resource in this shape returns a single row per parent, which is
         # therefore finished by the time that row is written.
-        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent)
+        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent, parent_pages)
     return dataclasses.replace(
-        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent),
+        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent, parent_pages),
         nested_parent_id=chunk_parent,
         nested_starting_after=py_table.column("id")[-1].as_py(),
     )
@@ -734,7 +795,8 @@ def _warehouse_start_position(
     Discards state saved against another table, version or coordinate system — including
     `starting_after` cursors from a run that took the API path, which name a place in Stripe's
     ordering and mean nothing here. A discarded position restarts the sweep rather than
-    resuming somewhere arbitrary.
+    resuming somewhere arbitrary. `_reconcile_warehouse_resume` drops such state before the
+    pipeline reads it, so that restart overwrites the table instead of appending to it.
     """
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
         ScanPosition,
@@ -933,6 +995,7 @@ def _build_resources(
             parent=StripeResource(method=client.setup_intents.list),
             parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
+        **{name: StripeResource(method=_v2_lister(client, path)) for name, path in V2_LIST_PATHS.items()},
     }
 
 
@@ -978,6 +1041,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
+    warehouse_table_id: Optional[str] = None,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1000,9 +1064,23 @@ def get_rows(
         logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
         return
 
+    if endpoint in V2_LIST_PATHS and api_version not in STRIPE_V2_MONEY_MANAGEMENT_VERSIONS:
+        raise StripeUnsupportedVersionError(endpoint, api_version)
+
     resource = resources.get(endpoint, None)
     if not resource:
         raise Exception(f"Stripe endpoint does not exist: {endpoint}")
+
+    if endpoint in V2_LIST_PATHS:
+        # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
+        # save no resume state. An interrupted sync reads the list again and overwrites the table.
+        yield from _batch_and_yield(
+            _iter_cleaning_errors(
+                _call_stripe(resource.method, params={"limit": V2_LIST_PAGE_LIMIT}).auto_paging_iter()
+            ),
+            batcher,
+        )
+        return
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
@@ -1043,6 +1121,7 @@ def get_rows(
                     schema_name=endpoint,
                     parent_name=converted.schema,
                     start_position=warehouse_start,
+                    table_id=warehouse_table_id,
                 )
                 parent_rows = parent_pages
             else:
@@ -1097,7 +1176,7 @@ def get_rows(
                     or time.monotonic() - last_checkpoint_at >= NESTED_SWEEP_CHECKPOINT_SECONDS
                 )
                 if checkpoint_due and last_finished_parent is not None:
-                    position = _resume_state(last_finished_position, last_finished_parent)
+                    position = _resume_state(last_finished_position, last_finished_parent, parent_pages)
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
@@ -1215,7 +1294,7 @@ def get_rows(
                 last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
             else:
                 last_cur = py_table.column("id")[-1].as_py()
-            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
+            return _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur, parent_pages)
 
         yield from _flush_staging_state(batcher, resumable_source_manager, trailing_state)
 
@@ -1496,6 +1575,76 @@ def _resolve_warehouse_parent(
     )
 
 
+def _reconcile_warehouse_resume(
+    endpoint: str,
+    warehouse_parent: Optional["ParentTableRef"],
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> tuple[Optional["ParentTableRef"], Optional[str]]:
+    """The parent table this attempt sweeps and its Delta table id, after making the stored resume
+    state agree with them.
+
+    The pipeline appends every batch of an attempt that finds resume state to what the earlier
+    attempts wrote, and only an attempt that finds none overwrites the table. So a sweep that
+    restarts from its first parent while the state is still there writes every row from before the
+    interruption a second time, once per restart.
+
+    The usual cause is the parent moving on: a webhook-synced Customer table commits every drain,
+    so the next attempt resolves a newer version than its checkpoint names. That attempt is pinned
+    back to the checkpointed version while it is still readable, so the position applies again.
+    Any other state the sweep would discard — another or a rebuilt table, a version past the vacuum
+    window, a cursor from the other parent path — is dropped here, at build time, before the
+    pipeline checks for it, so the restart runs as a fresh attempt that overwrites the table.
+    """
+    if endpoint not in WAREHOUSE_PARENT_FANOUT:
+        return warehouse_parent, None
+
+    table_id: Optional[str] = None
+    if warehouse_parent is not None:
+        # noqa reason: keeps deltalake/pyarrow off the import path of every Stripe import.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            parent_table_id,
+            pin_parent_table_version,
+        )
+
+        table_id = parent_table_id(warehouse_parent)
+
+    if not resumable_source_manager.can_resume():
+        return warehouse_parent, table_id
+    resume_config = resumable_source_manager.load_state()
+    if resume_config is None:
+        return warehouse_parent, table_id
+
+    if warehouse_parent is None:
+        if resume_config.warehouse_fragment_index is None:
+            return None, None
+    elif (
+        table_id is not None
+        and resume_config.warehouse_table_id == table_id
+        and resume_config.warehouse_table_uri == warehouse_parent.uri
+        and resume_config.warehouse_version is not None
+    ):
+        pinned = pin_parent_table_version(warehouse_parent, resume_config.warehouse_version)
+        if pinned is not None and _warehouse_start_position(resume_config, pinned) is not None:
+            logger.info(
+                "Stripe: resuming the sweep on the parent version it checkpointed against",
+                endpoint=endpoint,
+                pinned_version=pinned.version,
+                latest_version=warehouse_parent.version,
+                fragment_index=resume_config.warehouse_fragment_index,
+                row_offset=resume_config.warehouse_row_offset,
+            )
+            return pinned, table_id
+
+    logger.info(
+        "Stripe: dropping resume state the sweep cannot continue from, so this attempt rewrites the table",
+        endpoint=endpoint,
+        parent_source="warehouse" if warehouse_parent is not None else "api",
+    )
+    resumable_source_manager.clear_state()
+    return warehouse_parent, table_id
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -1529,6 +1678,11 @@ def stripe_source(
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
+    warehouse_table_id: Optional[str] = None
+    if not webhook_enabled:
+        warehouse_parent, warehouse_table_id = _reconcile_warehouse_resume(
+            endpoint, warehouse_parent, resumable_source_manager, logger
+        )
 
     def items():
         if webhook_enabled:
@@ -1569,6 +1723,7 @@ def stripe_source(
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
+            warehouse_table_id=warehouse_table_id,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
@@ -1617,6 +1772,16 @@ class StripeTransientError(Exception):
     def __init__(self, stripe_message: str):
         self.stripe_message = stripe_message
         super().__init__(stripe_message)
+
+
+class StripeUnsupportedVersionError(Exception):
+    """A table was synced under a pinned API version that does not serve its endpoint."""
+
+    def __init__(self, endpoint: str, api_version: str):
+        super().__init__(
+            f"Stripe {endpoint} is not available on Stripe API version {api_version}. "
+            f"It needs one of: {', '.join(STRIPE_V2_MONEY_MANAGEMENT_VERSIONS)}."
+        )
 
 
 class StripeValidationError(Exception):
@@ -1678,13 +1843,19 @@ def validate_credentials(
     api_key: str,
     endpoints: Optional[list[str]] = None,
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> bool:
     """Validate Stripe credentials.
 
     - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
     - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     if endpoints is None:
@@ -1732,12 +1903,18 @@ def check_endpoint_permissions(
     api_key: str,
     endpoints: list[str],
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
     """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
     Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     results: dict[str, str | None] = {}

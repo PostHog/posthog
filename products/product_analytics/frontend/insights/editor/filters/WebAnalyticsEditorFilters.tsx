@@ -11,8 +11,8 @@ import { PathCleaningToggle } from 'scenes/web-analytics/PathCleaningToggle'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
+import { isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
-import { isWebStatsTableQuery } from '~/queries/utils'
 
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery

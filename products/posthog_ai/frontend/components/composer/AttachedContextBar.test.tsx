@@ -2,10 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { attachedContextLogic } from '../../logics/attachedContextLogic'
 import { AttachedContextBar } from './AttachedContextBar'
 
 describe('AttachedContextBar', () => {

@@ -5,8 +5,8 @@ import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDe
 
 import { ActivityScope, InsightShortId } from '~/types'
 
+import { describerFor, ensureActivityDescribersLoaded } from './activityLogLogic'
 import { ActivityLogRow } from './ActivityLogRow'
-import { describerFor } from './describers'
 import { ActivityLogItem, humanize } from './humanizeActivity'
 
 const dashboardEvents: ActivityLogItem[] = [
@@ -269,6 +269,7 @@ const productEvents: ActivityLogItem[] = [
 ]
 
 export const AcrossProducts: Story = {
+    loaders: [ensureActivityDescribersLoaded],
     parameters: {
         testOptions: {
             // Anonymous actors keep their unknown lettermark, which the runner otherwise treats as a loader.

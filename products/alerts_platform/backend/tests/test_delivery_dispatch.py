@@ -15,7 +15,7 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -304,14 +304,22 @@ class TestDeliveryDispatch(SimpleTestCase):
             == lag_before + 1
         )
 
-    def test_a_provider_outage_is_counted_as_a_failed_delivery(self) -> None:
-        transport = FakeTransport(error=ConnectionError("slack unreachable"))
+    @parameterized.expand(
+        [
+            ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed"),
+            ("misconfigured", DestinationMisconfigured("not_in_channel"), "not_in_channel", "misconfigured"),
+        ]
+    )
+    def test_a_failed_send_is_counted_by_whose_fix_it_is(
+        self, _name: str, error: Exception, logged: str, outcome: str
+    ) -> None:
+        transport = FakeTransport(error=error)
 
         with (
             patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded,
             recorded_metrics() as metrics,
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(type(error)):
                 deliver(
                     transport=transport,
                     thread_store=NullThreadStore(),
@@ -324,9 +332,9 @@ class TestDeliveryDispatch(SimpleTestCase):
                 )
 
         assert recorded.call_args.kwargs["succeeded"] is False
-        # Its text can carry a credential URL, so only the class reaches the person's log.
-        assert recorded.call_args.kwargs["error"] == "ConnectionError"
-        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == ["failed"]
+        # An outage's text can carry a credential URL, so only its class reaches the person's log.
+        assert recorded.call_args.kwargs["error"] == logged
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()

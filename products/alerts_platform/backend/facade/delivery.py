@@ -10,6 +10,7 @@ from products.alerts_platform.backend.delivery import (
     describers,
     destinations,
     legacy_webhook,
+    recipients,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescriber,
     SourceImageResolver,
     SourceKind,
+    SourceRecipients,
     SourceSlackRenderer,
 )
 
@@ -29,6 +31,10 @@ if TYPE_CHECKING:
 
 def register_destination_resolver(resolver: DestinationResolver) -> None:
     destinations.register(resolver)
+
+
+def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
+    recipients.register(source, lookup)
 
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:

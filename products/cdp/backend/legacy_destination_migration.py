@@ -119,6 +119,7 @@ def _build_hog_function(plugin_config: Mapping[str, Any], drop_unmapped_inputs: 
             team_id=team_id,
             type=HogFunctionType.LEGACY_DESTINATION,
             template_id=template.template_id,
+            hog_function_template=template,
             name=plugin_config["plugin__name"],
             description=template.description or "",
             icon_url=template.icon_url,

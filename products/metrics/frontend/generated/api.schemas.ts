@@ -998,7 +998,7 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+    /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
      *
      * * `none` - none
      * * `sum` - sum
@@ -1048,6 +1048,12 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
+    /**
+     * PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.
+     * @maxLength 8192
+     * @nullable
+     */
+    promql?: string | null
     /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
     dateFrom?: string
     /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
@@ -1308,6 +1314,152 @@ export interface _MetricVariableOptionsRequestApi {
 export interface _MetricVariableOptionsResponseApi {
     /** The options of the variable, at most 1,000. */
     results: string[]
+}
+
+/**
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
+ */
+export type MetricsAlertDestinationTypeEnumApi =
+    (typeof MetricsAlertDestinationTypeEnumApi)[keyof typeof MetricsAlertDestinationTypeEnumApi]
+
+export const MetricsAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `firing` - firing
+ * * `resolved` - resolved
+ * * `errored` - errored
+ * * `broken` - broken
+ */
+export type MetricsAlertDestinationEventKindEnumApi =
+    (typeof MetricsAlertDestinationEventKindEnumApi)[keyof typeof MetricsAlertDestinationEventKindEnumApi]
+
+export const MetricsAlertDestinationEventKindEnumApi = {
+    Firing: 'firing',
+    Resolved: 'resolved',
+    Errored: 'errored',
+    Broken: 'broken',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface MetricsAlertDestinationApi {
+    /** ID of the destination. Send it to the delete endpoint to remove it. */
+    id: string
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
+    /** Whether the destination is sent to. */
+    enabled: boolean
+    /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+    event_kinds: MetricsAlertDestinationEventKindEnumApi[]
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface MetricsAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+     * @minItems 1
+     */
+    event_kinds?: MetricsAlertDestinationEventKindEnumApi[]
+}
+
+export interface MetricsAlertDeleteDestinationApi {
+    /**
+     * IDs of the destinations to delete, as the list endpoint returns them.
+     * @minItems 1
+     * @maxItems 100
+     */
+    destination_ids: string[]
 }
 
 export type MetricsAttributeValuesRetrieveParams = {

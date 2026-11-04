@@ -40,7 +40,15 @@ from posthog.api.cohort import (
 )
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.constants import AvailableFeature
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+    AvailableFeature,
+)
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -50,8 +58,8 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -84,10 +92,11 @@ from products.experiments.backend.logic.timeseries_text import ExperimentTimeser
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     build_primary_calculation_configs,
+    get_metric_calculation_config,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -369,13 +378,32 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
     )
 
 
+def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
+    """Returns the first action, event or data warehouse entry of a legacy insight filter, with its `type` set."""
+    entities: list[dict[str, Any]] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = filter_data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        entities.extend({**entity, "type": entity_type} for entity in raw)
+    # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
+    return min(
+        entities,
+        key=lambda entity: (int(entity["order"]) if entity.get("order") is not None else 0) or -1,
+        default=None,
+    )
+
+
 def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
     # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
     # string on `:`, so every field is present, empty when the finding has none.
-    reason = finding.evidence.get("reason")
-    return ":".join(
-        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
-    )
+    return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
 
 
 class ExperimentVersionConflict(APIException):
@@ -4264,9 +4292,7 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_entities: list[Entity] = []
-        if exposure_filter_data:
-            exposure_entities = parse_entities(exposure_filter_data)
+        entity = _first_legacy_filter_entity(exposure_filter_data) if exposure_filter_data else None
 
         target_entities: Sequence[int | str]
         target_entity_type = "events"
@@ -4279,20 +4305,19 @@ class ExperimentService:
             }
         ]
 
-        entity = exposure_entities[0] if exposure_entities else None
-        if entity is not None and entity.id:
-            if entity.type == "actions":
+        if entity is not None and entity.get("id"):
+            if entity["type"] == "actions":
                 target_entity_type = "actions"
                 try:
-                    target_entities = [int(entity.id)]
+                    target_entities = [int(entity["id"])]
                 except ValueError:
                     raise ValidationError("Invalid action ID")
             else:
-                target_entities = exposure_event_names(str(entity.id))
+                target_entities = exposure_event_names(str(entity["id"]))
 
             target_filters = [
                 prop.to_dict()
-                for prop in entity.property_groups.flat
+                for prop in parse_property_group_data(entity.get("properties")).flat
                 if prop.type in ("event", "feature", "element", "hogql")
             ]
         else:
@@ -4562,14 +4587,13 @@ class ExperimentService:
     # Timeseries
     # ------------------------------------------------------------------
 
-    def get_timeseries_results(
-        self,
-        experiment: Experiment,
-        *,
-        metric_uuid: str,
-        fingerprint: str,
-    ) -> dict:
-        """Retrieve timeseries results for an experiment-metric combination."""
+    def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Retrieve timeseries results for an experiment-metric combination.
+
+        The calculation key comes from the metric's current calculation config, never from the client, so the chart
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
+        """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
         if not experiment.start_date:
@@ -4588,8 +4612,12 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
-            metric_uuid, fingerprint, timezone=project_tz
+        # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        stored = (
+            MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
+            if calculation_config is not None
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4632,14 +4660,9 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        active_recalculation = (
+            self._active_timeseries_backfill(experiment, metric_uuid) if calculation_config is not None else None
+        )
 
         response = {
             "experiment_id": experiment.id,
@@ -4660,51 +4683,66 @@ class ExperimentService:
         ).format()
         return response
 
-    def request_timeseries_recalculation(
-        self,
-        experiment: Experiment,
-        *,
-        metric: dict,
-        fingerprint: str,
-    ) -> dict:
-        """Create an idempotent recalculation request for experiment timeseries data."""
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Create an idempotent recalculation request for experiment timeseries data.
+
+        The backfill computes the metric's current definition and files the days under its calculation key, both
+        from the experiment, so the chart finds them.
+        """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
+            raise ValidationError(
+                "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
+                "Pick a metric from the experiment's metrics."
+            )
+        metric = calculation_config.definition
+        fingerprint = calculation_config.calculation_key()
 
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
         validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
-        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        with transaction.atomic():
+            # Serialize supersession with each backfill's status check and result write.
+            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
+            # a retry must not run beside it or recompute the days again.
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=calculation_config.metric_id,
+                status=ExperimentTimeseriesRecalculation.Status.FAILED,
+            ).update(status=ExperimentTimeseriesRecalculation.Status.CANCELED)
+            existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
 
-        if existing_recalculation:
-            return {
-                "id": existing_recalculation.id,
-                "experiment_id": experiment.id,
-                "metric_uuid": existing_recalculation.metric.get("uuid"),
-                "fingerprint": fingerprint,
-                "status": existing_recalculation.status,
-                "created_at": existing_recalculation.created_at.isoformat(),
-                "is_existing": True,
-            }
+            if existing_recalculation and existing_recalculation.fingerprint != fingerprint:
+                existing_recalculation.status = ExperimentTimeseriesRecalculation.Status.CANCELED
+                existing_recalculation.save(update_fields=["status"])
+                existing_recalculation = None
 
-        metric_uuid = metric.get("uuid")
-        if metric_uuid:
-            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
+            if existing_recalculation:
+                return {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": existing_recalculation.fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                    "is_existing": True,
+                }
 
-        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
-            team=experiment.team,
-            experiment=experiment,
-            metric=metric,
-            fingerprint=fingerprint,
-            status=ExperimentTimeseriesRecalculation.Status.PENDING,
-        )
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(
+                calculation_config.metric_id, fingerprint
+            )
+
+            recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+                team=experiment.team,
+                experiment=experiment,
+                metric=metric,
+                fingerprint=fingerprint,
+                status=ExperimentTimeseriesRecalculation.Status.PENDING,
+            )
 
         return {
             "id": recalculation_request.id,
@@ -4715,6 +4753,28 @@ class ExperimentService:
             "created_at": recalculation_request.created_at.isoformat(),
             "is_existing": False,
         }
+
+    @staticmethod
+    def _active_timeseries_backfill(
+        experiment: Experiment, metric_uuid: str
+    ) -> ExperimentTimeseriesRecalculation | None:
+        """The pending or running backfill of the metric with this uuid, under any key.
+
+        A different key must be canceled before its replacement starts. Workers check this status under the
+        experiment lock before writing, so a superseded query cannot overwrite the replacement's results.
+        """
+        return (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=metric_uuid,
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     # ------------------------------------------------------------------
     # Velocity stats

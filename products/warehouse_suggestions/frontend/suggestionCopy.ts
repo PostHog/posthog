@@ -1,3 +1,4 @@
+import { isNotNil } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import type {
@@ -30,12 +31,19 @@ const SURFACE_LABELS: Record<string, string> = {
     app: 'Other pages',
     unknown: 'Other',
 }
+export const MAIN_SAVING_KINDS: MainSavingKind[] = ['waiting', 'background', 'scanned']
+const MAIN_SAVING_LABELS: Record<MainSavingKind, string> = {
+    waiting: 'less waiting',
+    background: 'less background work',
+    scanned: 'less scanned',
+}
 export const UNKNOWN_SOURCES_CAVEAT = 'Some sources have no sync schedule, so their age is unknown.'
 
 export interface SavingHighlight {
     amount: string
     detail: string | null
     narrowLabel: string
+    tooltip?: string[]
 }
 
 export interface SurfaceSegment {
@@ -47,6 +55,30 @@ export interface SurfaceSegment {
 export interface SavingsSummary {
     views: number
     saving: MonthlySaving
+    split: SavingSplit | null
+}
+
+export interface SavingSplit {
+    waiting: number
+    background: number
+}
+
+export interface BannerSaving {
+    amount: string
+    label: string
+}
+
+export interface SummarySavings {
+    waiting: string | null
+    headline: string | null
+    detail: string
+}
+
+export type MainSavingKind = NonNullable<WarehouseSuggestionMaterializePayloadApi['main_saving']>
+
+export interface MainSaving {
+    kind: MainSavingKind
+    amount: number
 }
 
 export interface MonthlySaving {
@@ -84,6 +116,18 @@ export function isDeprecatePayload(
 
 export function materializeSaving(payload: WarehouseSuggestionMaterializePayloadApi): MonthlySaving {
     return { seconds: payload.saves_seconds_per_month, bytes: payload.saves_bytes_per_month }
+}
+
+export function savingSplit(payload: WarehouseSuggestionApi['payload']): SavingSplit | null {
+    if (isUnmaterializePayload(payload)) {
+        return { waiting: -payload.live_seconds_per_month, background: payload.refresh_seconds_per_month }
+    }
+    if (!isMaterializePayload(payload)) {
+        return null
+    }
+    const waiting = payload.waiting_seconds_saved_per_month
+    const background = payload.background_seconds_saved_per_month
+    return waiting == null || background == null ? null : { waiting, background }
 }
 
 export function unmaterializeSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MonthlySaving {
@@ -166,6 +210,136 @@ export function savingHighlight(saving: MonthlySaving): SavingHighlight {
     }
 }
 
+export function mainSaving(payload: WarehouseSuggestionApi['payload']): MainSaving | null {
+    if (isMaterializePayload(payload)) {
+        return materializeMainSaving(payload)
+    }
+    return isUnmaterializePayload(payload) ? unmaterializeMainSaving(payload) : null
+}
+
+export function materializeHighlight(payload: WarehouseSuggestionMaterializePayloadApi): SavingHighlight {
+    if (!payload.main_saving) {
+        return savingHighlight(materializeSaving(payload))
+    }
+    const main = materializeMainSaving(payload)
+    const notes: Record<MainSavingKind, string | null> = {
+        waiting: waitingText(payload.waiting_seconds_saved_per_month ?? 0),
+        background: backgroundText(payload.background_seconds_saved_per_month ?? 0),
+        scanned: scannedText(payload.saves_bytes_per_month),
+    }
+    return headlineHighlight(
+        main,
+        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => perMonth(notes[kind]))
+    )
+}
+
+export function unmaterializeHighlight(payload: WarehouseSuggestionUnmaterializePayloadApi): SavingHighlight {
+    const main = unmaterializeMainSaving(payload)
+    return headlineHighlight(main, [
+        perMonth(
+            main.kind === 'scanned'
+                ? backgroundText(payload.refresh_seconds_per_month)
+                : scannedText(unmaterializeSaving(payload).bytes)
+        ),
+        payload.live_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
+            ? `Without the stored copy, reads would take ~${spokenDuration(payload.live_seconds_per_month, 1)} a month`
+            : null,
+    ])
+}
+
+export function materializeSavingLines(payload: WarehouseSuggestionMaterializePayloadApi): string[] {
+    const highlight = materializeHighlight(payload)
+    const readTime = payload.read_seconds != null ? `${readTimeLabel(payload.read_seconds)} today` : null
+    return [`${highlight.amount} ${highlight.narrowLabel}`, ...(highlight.tooltip ?? []), readTime].filter(isNotNil)
+}
+
+export function summarySavings(summary: SavingsSummary): SummarySavings | null {
+    if (!summary.split) {
+        return null
+    }
+    const { waiting, background } = summary.split
+    const views = countOf(summary.views, 'view', 'views')
+    const others = [backgroundText(background), scannedText(summary.saving.bytes)].filter(isNotNil)
+    if (waiting >= MIN_SECONDS_WORTH_NAMING) {
+        return {
+            waiting: `~${spokenDuration(waiting, 1)}`,
+            headline: null,
+            detail: others.length > 0 ? `Also ${others.join(' and ')}, across ${views}` : `Across ${views}`,
+        }
+    }
+    const parts = [waitingText(waiting), ...others].filter(isNotNil)
+    return parts.length > 0
+        ? { waiting: null, headline: `${parts.join(' and ')} a month`, detail: `Across ${views}` }
+        : null
+}
+
+export function bannerSavings(summary: SavingsSummary): BannerSaving[] {
+    const { time, bytes } = namedSaving(summary.saving, 1)
+    return [
+        time ? { amount: `~${time}`, label: 'of query time' } : null,
+        bytes ? { amount: bytes, label: 'of scanning' } : null,
+    ].filter(isNotNil)
+}
+
+function materializeMainSaving(payload: WarehouseSuggestionMaterializePayloadApi): MainSaving {
+    switch (payload.main_saving) {
+        case 'waiting':
+            return { kind: 'waiting', amount: payload.waiting_seconds_saved_per_month ?? 0 }
+        case 'background':
+            return { kind: 'background', amount: payload.background_seconds_saved_per_month ?? 0 }
+        case 'scanned':
+            return { kind: 'scanned', amount: payload.saves_bytes_per_month }
+        default:
+            return timeOrBytes(materializeSaving(payload), 'waiting')
+    }
+}
+
+function unmaterializeMainSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MainSaving {
+    const saving = unmaterializeSaving(payload)
+    if (!savesTime(saving)) {
+        return { kind: 'scanned', amount: saving.bytes }
+    }
+    return { kind: 'background', amount: payload.refresh_seconds_per_month }
+}
+
+function timeOrBytes(saving: MonthlySaving, timeKind: MainSavingKind): MainSaving {
+    return savesTime(saving) ? { kind: timeKind, amount: saving.seconds } : { kind: 'scanned', amount: saving.bytes }
+}
+
+function headlineHighlight(main: MainSaving, notes: (string | null)[]): SavingHighlight {
+    const amount = main.kind === 'scanned' ? humanizeBytes(main.amount) : spokenDuration(main.amount, 1)
+    const label = MAIN_SAVING_LABELS[main.kind]
+    return {
+        amount: `~${amount}`,
+        detail: label,
+        narrowLabel: `${label} a month`,
+        tooltip: notes.filter(isNotNil),
+    }
+}
+
+function perMonth(text: string | null): string | null {
+    return text && `${text} a month`
+}
+
+function waitingText(seconds: number): string | null {
+    return changeText(seconds, 'waiting')
+}
+
+function backgroundText(seconds: number): string | null {
+    return changeText(seconds, 'background work')
+}
+
+function changeText(seconds: number, noun: string): string | null {
+    if (Math.abs(seconds) < MIN_SECONDS_WORTH_NAMING) {
+        return null
+    }
+    return `~${spokenDuration(Math.abs(seconds), 1)} ${seconds > 0 ? 'less' : 'more'} ${noun}`
+}
+
+function scannedText(bytes: number): string | null {
+    return bytes >= MIN_BYTES_WORTH_NAMING ? `~${humanizeBytes(bytes)} less scanned` : null
+}
+
 export function savingSentence(saving: MonthlySaving): string {
     const { time, bytes } = namedSaving(saving, 1)
     const parts = [time && `${time} of query time`, bytes && `${bytes} of scanning`].filter(Boolean)
@@ -221,6 +395,13 @@ export function daysReadLabel(evidence: WarehouseSuggestionEvidenceApi, windowDa
 
 export function noReadsLabel(windowDays: number): string {
     return `No reads recorded in ${windowDays} days`
+}
+
+export function deleteDisabledReason(evidence: WarehouseSuggestionEvidenceApi, windowDays: number): string | undefined {
+    if ((evidence.days_with_data ?? 0) >= windowDays) {
+        return undefined
+    }
+    return `Some of the last ${windowDays} days have no read data, so a view read only on those days would look unread. Mark it deprecated instead.`
 }
 
 export function refreshCostLabel(
@@ -291,7 +472,7 @@ export function countOf(count: number, singular: string, plural: string): string
 export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; description: string }> = {
     materialize: {
         title: 'Materialize',
-        description: 'These views run their full query every time someone reads them.',
+        description: 'Store these views so reads and other refreshes can reuse their results.',
     },
     unmaterialize: {
         title: 'Stop materializing',

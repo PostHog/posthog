@@ -154,6 +154,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         copyGroupToDashboard,
         changeTileGroupDisplay,
+        renameTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -278,6 +279,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
+    const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -543,7 +545,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -598,14 +600,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -851,6 +846,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            onRenameTileGroup={onRenameTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
@@ -874,6 +870,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        onRenameGroup={onRenameTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}

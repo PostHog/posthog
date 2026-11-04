@@ -2,13 +2,21 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import {
     SetupSection,
     marketingAnalyticsLogic,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
-import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+import {
+    CONFIG_WRITE_OPS,
+    setupPlanLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CAPABILITY_COPY } from './ReadinessHeader'
 import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
@@ -77,6 +85,9 @@ export function SuggestionRow({
     isDismissed?: boolean
 }): JSX.Element {
     const { applyingIds } = useValues(setupPlanLogic)
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { dismissSuggestion, restoreSuggestion } = useActions(setupPlanLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
 
@@ -90,6 +101,7 @@ export function SuggestionRow({
     const settlesInTab = suggestion.apply?.op === 'open_settings' && !!section
     const ctaLabel = suggestion.apply && !settlesInTab ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     const sectionCta = !ctaLabel && section && section !== currentSection ? section : null
+    const writesConfig = !!suggestion.apply && CONFIG_WRITE_OPS.has(suggestion.apply.op)
 
     return (
         <div className="flex items-start gap-3 py-3 px-3 border-b last:border-b-0">
@@ -129,7 +141,13 @@ export function SuggestionRow({
 
             <div className="flex items-center gap-1 shrink-0">
                 {ctaLabel && (
-                    <LemonButton type="primary" size="small" loading={isApplying} onClick={() => onReview(suggestion)}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        loading={isApplying}
+                        disabledReason={writesConfig ? editDisabledReason : undefined}
+                        onClick={() => onReview(suggestion)}
+                    >
                         {ctaLabel}
                     </LemonButton>
                 )}

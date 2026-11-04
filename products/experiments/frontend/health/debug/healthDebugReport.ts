@@ -177,8 +177,8 @@ function splitChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     if (finding.subcode === 'not_checked') {
         return evidence.change_count == null
-            ? `Not checked: ${evidence.reason}.`
-            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+            ? `Not checked: ${finding.reason}.`
+            : `Not checked: ${finding.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
     }
     return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. ${exposedBeforeFirst(finding)}`
 }
@@ -187,7 +187,7 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} saves changed ${evidence.changed_settings}.`
     return finding.subcode === 'not_checked'
-        ? `Not checked: ${evidence.reason}. ${changed}`
+        ? `Not checked: ${finding.reason}. ${changed}`
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
@@ -195,13 +195,13 @@ function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
     if (finding.subcode === 'not_checked') {
-        return `Not checked: ${evidence.reason}. ${changed}`
+        return `Not checked: ${finding.reason}. ${changed}`
     }
     const pinnedShare = share(evidence.pinned_share)
     const removedOverride = pinnedShare
         ? `Removed override share ${pinnedShare}.`
-        : typeof evidence.reason === 'string'
-          ? `Removed override share unknown: ${evidence.reason}.`
+        : finding.reason
+          ? `Removed override share unknown: ${finding.reason}.`
           : null
     return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
 }
@@ -220,8 +220,8 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     if (remoteShare) {
         parts.push(`${remoteShare} of calls evaluated by the flag service.`)
     }
-    if (typeof evidence.reason === 'string') {
-        parts.push(`Share unknown: ${evidence.reason}.`)
+    if (finding.reason) {
+        parts.push(`Share unknown: ${finding.reason}.`)
     }
     return parts.join(' ')
 }
@@ -247,6 +247,16 @@ function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string
     return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
 }
 
+function metricAllZeroNote({ evidence }: ExperimentHealthFindingApi): string {
+    const metrics = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+$/.test(key))
+        .map(([key, value]) => {
+            const side = evidence[`${key}_side`]
+            return `${value}${side ? ` ${side}` : ''} (${evidence[`${key}_cause`] ?? 'no cause shown'})`
+        })
+    return `Zero in every variant: ${metrics.join(', ')}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     if (subcode === 'filter_on_another_flag') {
         return `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -257,27 +267,18 @@ function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi)
     return `Not received: ${evidence.event}.`
 }
 
-const EXPOSURE_FILTERS_FINDING_CODES: ReadonlySet<ExperimentHealthFindingApi['code']> = new Set([
-    'exposure_filter_on_dynamic_cohort',
-    'exposure_filter_excludes_events',
-])
-
 function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = input.health?.findings.find(({ code }) => EXPOSURE_FILTERS_FINDING_CODES.has(code)) ?? null
+    const finding = findingOf(input, 'exposure_filter_on_dynamic_cohort')
     return {
         check: 'exposure_filters',
         source: 'health endpoint',
         reads: ['experiment', 'flag', 'project'],
-        ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
+        ...serverResult('exposure_filters', input.health, (code) => code === 'exposure_filter_on_dynamic_cohort'),
         browser: null,
         browserLabel: BROWSER_RULES,
         ...NO_TIMES,
         difference: null,
-        note: !finding
-            ? null
-            : finding.code === 'exposure_filter_on_dynamic_cohort'
-              ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.`
-              : `Leaves out events by: ${finding.evidence.properties}.`,
+        note: finding ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.` : null,
     }
 }
 
@@ -353,6 +354,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck(
+            'test_account_filter_removes_exposures',
+            ['experiment', 'exposures', 'project'],
+            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
+        ),
+        exposureCheck(
             'srm',
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
@@ -370,6 +376,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         flagStateCheck(input),
+        serverOnlyCheck(input, 'flag_shared', null),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
@@ -380,9 +387,11 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
         serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'metric_all_zero', metricAllZeroNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
+        serverOnlyCheck(input, 'metrics_not_matured', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

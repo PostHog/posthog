@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { BIField, BIHierarchy } from '~/queries/schema/schema-business-intelligence'
-import { isBIVisualizationNode } from '~/queries/utils'
 
 import { insightsList, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 

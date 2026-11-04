@@ -2,8 +2,7 @@ import './RenderQuery.scss'
 
 import { useEffect, useState } from 'react'
 
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-
+import { useThemedHtml } from '~/layout/useThemedHtml'
 import { Query } from '~/queries/Query/Query'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'

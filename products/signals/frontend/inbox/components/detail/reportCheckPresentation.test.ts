@@ -85,7 +85,7 @@ describe('reportCheckPresentation', () => {
             expect(markup).not.toContain('Window end:')
         })
 
-        it.each(['resolved', 'ready', 'suppressed', 'potential'] as const)(
+        it.each(['resolved', 'closed', 'ready', 'suppressed', 'potential'] as const)(
             'pauses open checks on a %s report without hiding historical verdicts',
             (reportStatus) => {
                 const checks = [
@@ -351,15 +351,18 @@ describe('reportCheckPresentation', () => {
     })
 
     describe('lifecycle log entries', () => {
-        it('gives a dated check its run date and the scout that answers it', () => {
+        it.each([false, true])('gives a dated check its run date with monitoring enabled: %s', (monitoringEnabled) => {
             expect(
-                checkScheduledEntry({
-                    kind: 'agent',
-                    next_run_at: '2026-09-27T09:00:00Z',
-                    arms_on_resolve: false,
-                    skill_name: 'signals-scout-error-tracking',
-                    runs: 2,
-                })
+                checkScheduledEntry(
+                    {
+                        kind: 'agent',
+                        next_run_at: '2026-09-27T09:00:00Z',
+                        arms_on_resolve: false,
+                        skill_name: 'signals-scout-error-tracking',
+                        runs: 2,
+                    },
+                    monitoringEnabled
+                )
             ).toEqual({
                 tag: { label: 'Runs Sep 27', type: 'primary' },
                 detail: 'Error tracking scout runs it · 2 runs',
@@ -388,6 +391,21 @@ describe('reportCheckPresentation', () => {
                 })
             }
         )
+
+        it.each([
+            ['metric_threshold', 480, 'Final evaluation after 8 hours of monitoring'],
+            ['metric_threshold', 720, 'Final evaluation after 12 hours of monitoring'],
+            ['metric_threshold', 95, 'Final evaluation after 1 hour 35 minutes of monitoring'],
+            ['metric_threshold', 0, 'Final evaluation when monitoring starts'],
+            ['metric_threshold', null, 'Final evaluation during monitoring'],
+            ['agent', 480, 'Final evaluation after 8 hours of monitoring · The follow-up scout runs it'],
+            ['agent', 0, 'Final evaluation when monitoring starts · The follow-up scout runs it'],
+        ])('describes final evaluation for a pending %s check (soak_minutes=%s)', (kind, soakMinutes, detail) => {
+            expect(checkScheduledEntry({ kind, arms_on_resolve: true, soak_minutes: soakMinutes }, true)).toEqual({
+                tag: { label: 'Runs during monitoring', type: 'muted' },
+                detail,
+            })
+        })
 
         it('separates a check that never ran from one that ran and never settled', () => {
             expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')

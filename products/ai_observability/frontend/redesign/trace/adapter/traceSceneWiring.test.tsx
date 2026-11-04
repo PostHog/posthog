@@ -1,10 +1,14 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
@@ -21,6 +25,7 @@ import {
     makeFeedbackScore,
     makeFeedbackText,
     makeNodeDetail,
+    makeSurveyResponse,
     makeTrace,
     makeTraceCluster,
     makeTraceResource,
@@ -28,6 +33,8 @@ import {
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
+const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
+const TRACE_NAVIGATION_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -41,6 +48,8 @@ const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/eval
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
+const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
@@ -82,7 +91,10 @@ const generation = makeEvent({
     },
 })
 
-function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof render> {
+function renderNewView(
+    flags: Record<string, boolean> = {},
+    params: Record<string, string> = {}
+): ReturnType<typeof render> {
     initKeaTests()
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags(
@@ -93,7 +105,7 @@ function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof r
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
-    router.actions.push(urls.aiObservabilityTrace('trace-1'))
+    router.actions.push(urls.aiObservabilityTrace('trace-1', params))
     return render(<TraceScene />)
 }
 
@@ -102,7 +114,10 @@ describe('TraceScene', () => {
         clusters = []
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        resumeKeaLoadersErrors()
+    })
 
     describe('the new view', () => {
         beforeEach(() => {
@@ -119,12 +134,128 @@ describe('TraceScene', () => {
             })
         })
 
-        it('opens on the default node without the legacy trace query', async () => {
-            const { findAllByText, findByText } = renderNewView()
+        it('opens on the default node without the legacy trace or neighbours queries', async () => {
+            const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
+            const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
 
             expect((await findAllByText('answer-billing-question')).length).toBeGreaterThan(0)
             expect(await findByText('Two seats were added.')).toBeTruthy()
+            await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
+            expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
+            apiQuery.mockRestore()
+        })
+
+        it('starts another trace with an empty search, its own timestamp and Spans', async () => {
+            const timestampHints: Record<string, string | null> = {}
+            useMocks({
+                get: {
+                    [TRACE_URL]: ({ params, request }) => {
+                        const traceId = decodeIdSegment(String(params.id))
+                        timestampHints[traceId] = new URL(request.url).searchParams.get('timestamp_hint')
+                        return [
+                            200,
+                            makeTraceResource({
+                                defaultNodeId: 'gen-2',
+                                name: traceId === 'trace-2' ? 'answer-refund-question' : 'answer-billing-question',
+                            }),
+                        ]
+                    },
+                },
+            })
+            const { container, findAllByText, findByText } = renderNewView({}, { search: 'invoice' })
+            const treeRow = (): Element | null => container.querySelector('[data-attr="trace-view-tree-node"]')
+            const searchInput = (): HTMLInputElement | null =>
+                container.querySelector<HTMLInputElement>('input[data-attr="trace-view-search-input"]')
+
+            fireEvent.click(await findByText('Thread'))
+            await waitFor(() => expect(treeRow()).toBeNull())
+            expect(searchInput()?.value).toBe('invoice')
+
+            router.actions.push(urls.aiObservabilityTrace('trace-2', { timestamp: '2026-09-02T08:00:00Z' }))
+
+            expect((await findAllByText('answer-refund-question')).length).toBeGreaterThan(0)
+            expect(timestampHints['trace-2']).toBe('2026-09-02T08:00:00Z')
+            expect(searchInput()?.value).toBe('')
+            expect(treeRow()).not.toBeNull()
+        })
+
+        it.each([
+            [
+                'the header',
+                200,
+                (view: ReturnType<typeof render>): Promise<HTMLElement> =>
+                    view.findByLabelText('Back to generations', { selector: '[data-attr="trace-view-back"]' }),
+            ],
+            [
+                'the error screen',
+                500,
+                (view: ReturnType<typeof render>): Promise<HTMLElement> => view.findByText('Back to generations'),
+            ],
+        ])('links back to the list the trace came from on %s', async (_name, status, findBackLink) => {
+            silenceKeaLoadersErrors()
+            useMocks({
+                get: {
+                    [TRACE_URL]: () =>
+                        status === 200 ? [200, makeTraceResource()] : [status, { detail: 'Server error.' }],
+                },
+            })
+
+            const link = (await findBackLink(renderNewView({}, { back_to: 'generations' }))).closest('a')
+
+            expect(link?.getAttribute('href')?.endsWith(urls.aiObservabilityGenerations())).toBe(true)
+        })
+
+        it('selects the step named in the URL', async () => {
+            const { container } = renderNewView({}, { event: 'span-1' })
+
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('span-1')
+            )
+        })
+
+        it('opens Summary from a tab=summary link', async () => {
+            useMocks({
+                get: {
+                    [SUMMARY_URL]: () => [
+                        200,
+                        {
+                            status: 'ready',
+                            content: {
+                                title: 'Invoice question answered',
+                                bullets: [{ text: 'Context is retrieved first.', nodeId: 'span-1' }],
+                                notes: [],
+                                flow: 'retrieve → answer',
+                                model: 'gpt-4.1-mini',
+                                generatedAt: '2026-09-01T10:20:00Z',
+                            },
+                            failure: null,
+                        },
+                    ],
+                },
+            })
+            const { findByText } = renderNewView({}, { tab: 'summary' })
+
+            expect(await findByText('Context is retrieved first.')).toBeTruthy()
+        })
+
+        it('seeds the search box from the URL', async () => {
+            const { container, findByText } = renderNewView({}, { search: 'invoice' })
+
+            expect(await findByText('1 match')).toBeTruthy()
+            expect(container.querySelector<HTMLInputElement>('input[data-attr="trace-view-search-input"]')?.value).toBe(
+                'invoice'
+            )
+        })
+
+        it('writes a clicked step to the URL', async () => {
+            const { findByText } = renderNewView()
+
+            fireEvent.click(await findByText('span-1'))
+
+            await waitFor(() => expect(router.values.searchParams.event).toBe('span-1'))
         })
 
         it('starts reading a step when the pointer rests on its row', async () => {
@@ -256,18 +387,77 @@ describe('TraceScene', () => {
             expect(await findByText('Cites a source')).toBeTruthy()
         })
 
-        it('shows the trace git branch in the summary bar', async () => {
+        it.each([
+            [true, urls.engineeringAnalyticsPullRequest('acme', 'app', 42)],
+            [false, null],
+        ])(
+            'shows the trace git branch, linked to its pull request when engineering analytics is on (%s)',
+            async (enabled, expectedHref) => {
+                useMocks({
+                    get: {
+                        [TRACE_URL]: () => [
+                            200,
+                            makeTraceResource({
+                                defaultNodeId: 'gen-2',
+                                git: { branch: 'feat/rag', repo: 'acme/app' },
+                            }),
+                        ],
+                        [PULL_REQUEST_URL]: () => [
+                            200,
+                            { pullRequest: { repoOwner: 'acme', repoName: 'app', number: 42, title: null } },
+                        ],
+                    },
+                })
+                const { findByText, container } = renderNewView({ [ENGINEERING_ANALYTICS_FLAG]: enabled })
+
+                expect(await findByText('feat/rag')).toBeTruthy()
+                await waitFor(() =>
+                    expect(
+                        container
+                            .querySelector('[data-attr="trace-view-git-pull-request-link"]')
+                            ?.getAttribute('href') ?? null
+                    ).toBe(expectedHref && addProjectIdIfMissing(expectedHref))
+                )
+            }
+        )
+
+        it('exports the trace with its time and shows the button as busy until the export starts', async () => {
+            let releaseExport = (): void => {}
+            const exportStarted = new Promise<void>((resolve) => {
+                releaseExport = resolve
+            })
+            const exportBodies: unknown[] = []
             useMocks({
-                get: {
-                    [TRACE_URL]: () => [
-                        200,
-                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
-                    ],
+                post: {
+                    [EXPORT_URL]: async ({ request }) => {
+                        exportBodies.push(await request.json())
+                        await exportStarted
+                        return [
+                            201,
+                            {
+                                id: 7,
+                                status: 'pending',
+                                filename: 'trace-1.json',
+                                createdAt: '2026-09-01T10:20:00Z',
+                                expiresAfter: null,
+                                exception: null,
+                            },
+                        ]
+                    },
                 },
             })
             const { findByText } = renderNewView()
+            const button = (await findByText('Export')).closest('button')
+            if (!button) {
+                throw new Error('expected the export action to render as a button')
+            }
 
-            expect(await findByText('feat/rag')).toBeTruthy()
+            fireEvent.click(button)
+
+            await waitFor(() => expect(exportBodies).toEqual([{ timestamp_hint: '2026-09-01T10:15:00Z' }]))
+            expect(button.classList.contains('LemonButton--loading')).toBe(true)
+            releaseExport()
+            await waitFor(() => expect(button.classList.contains('LemonButton--loading')).toBe(false))
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
@@ -304,6 +494,27 @@ describe('TraceScene', () => {
             fireEvent.click(await findByText('helpfulness 0'))
             expect(await findByText('What users said')).toBeTruthy()
         })
+
+        it('shows thumbs in the header chip and the survey answers in the feedback', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [],
+                            responses: [makeSurveyResponse()],
+                            summary: { total: 1, thumbsUp: 1, thumbsDown: 0 },
+                        }),
+                    ],
+                },
+            })
+            const { findByLabelText, findByText } = renderNewView()
+
+            fireEvent.click(await findByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total'))
+
+            expect(await findByText('Answer quality')).toBeTruthy()
+            expect(await findByText('Thumbs up')).toBeTruthy()
+        })
     })
 
     describe('behind the flag gate', () => {
@@ -333,20 +544,14 @@ describe('TraceScene', () => {
             return render(<TraceRoute />)
         }
 
-        it('switches to the old view and back when the flag is on', async () => {
-            const { findByText } = await renderTraceRoute(true)
+        it.each([
+            ['new', true, '[data-attr="trace-view-tree-node"]', '.AIObservabilityTraceScene__wrapper'],
+            ['old', false, '.AIObservabilityTraceScene__wrapper', '[data-attr="trace-view-tree-node"]'],
+        ])('renders only the %s view when the flag is %s', async (_view, flagEnabled, shown, hidden) => {
+            const { container } = await renderTraceRoute(flagEnabled)
 
-            fireEvent.click(await findByText('Switch to the old view'))
-            fireEvent.click(await findByText('Switch to the new view'))
-
-            expect(await findByText('Switch to the old view')).toBeTruthy()
-        })
-
-        it('offers no switch on the old view when the flag is off', async () => {
-            const { container, queryByText } = await renderTraceRoute(false)
-
-            await waitFor(() => expect(container.querySelector('.AIObservabilityTraceScene__wrapper')).not.toBeNull())
-            expect(queryByText('Switch to the new view')).toBeNull()
+            await waitFor(() => expect(container.querySelector(shown)).not.toBeNull())
+            expect(container.querySelector(hidden)).toBeNull()
         })
     })
 })
