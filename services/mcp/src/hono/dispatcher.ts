@@ -47,6 +47,12 @@ import { GuidanceEngine } from './guidance/engine'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
+import {
+    acceptsEventStream,
+    progressStreamResponse,
+    readProgressToken,
+    type ToolCallStreamHooks,
+} from './progress-stream'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
@@ -333,6 +339,21 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
+            const request = requests[0]!
+            const origin = getPublicUrl(req).origin
+            const progressToken =
+                this.surface.streamProgress && request.method === Method.ToolsCall && acceptsEventStream(req.headers)
+                    ? readProgressToken(request.params)
+                    : undefined
+            if (progressToken !== undefined) {
+                return progressStreamResponse({
+                    requestId: request.id,
+                    progressToken,
+                    headers,
+                    requestSignal: req.signal,
+                    run: (stream) => this.dispatch(request, props, state, origin, carriedContextHandle, stream),
+                })
+            }
             let elicitation: JSONRPCRequest | undefined
             const canStream =
                 !singleModern &&
@@ -341,14 +362,15 @@ class McpDispatcher {
                     ?.split(',')
                     .some((value) => value.trim().split(';')[0] === 'text/event-stream')
             const result = await this.dispatch(
-                requests[0]!,
+                request,
                 props,
                 state,
-                getPublicUrl(req).origin,
+                origin,
                 carriedContextHandle,
+                { signal: req.signal },
                 canStream
-                    ? (request) => {
-                          elicitation = request
+                    ? (message) => {
+                          elicitation = message
                       }
                     : undefined
             )
@@ -378,7 +400,8 @@ class McpDispatcher {
                         props,
                         withoutStepUp(state),
                         getPublicUrl(req).origin,
-                        carriedContextHandle
+                        carriedContextHandle,
+                        { signal: req.signal }
                     )
                 }
                 const itemProps = { ...props }
@@ -402,7 +425,8 @@ class McpDispatcher {
                     itemProps,
                     withoutStepUp(itemState),
                     getPublicUrl(req).origin,
-                    Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId)
+                    Boolean(itemProps.mcpSessionId || itemProps.mcpConversationId),
+                    { signal: req.signal }
                 )
             })
         )
@@ -415,6 +439,7 @@ class McpDispatcher {
         state: ResolvedState | undefined,
         requestOrigin: string,
         carriedContextHandle: boolean,
+        stream: ToolCallStreamHooks,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
@@ -434,6 +459,7 @@ class McpDispatcher {
                 id,
                 requestOrigin,
                 carriedContextHandle,
+                stream,
                 onLegacyElicitation
             )
             if (result === METHOD_NOT_FOUND) {
@@ -463,6 +489,7 @@ class McpDispatcher {
         requestId: string | number,
         requestOrigin: string,
         carriedContextHandle: boolean,
+        stream: ToolCallStreamHooks,
         onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
@@ -523,7 +550,8 @@ class McpDispatcher {
                                   }
                               },
                           }
-                        : undefined
+                        : undefined,
+                    stream
                 )
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()

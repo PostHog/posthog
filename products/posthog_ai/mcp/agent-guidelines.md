@@ -18,15 +18,19 @@ Do local code edits yourself. Use the answer and the plan from PostHog Agent as 
 2. If the response of `posthog-agent-run` is lost, call it again with the same `client_request_id`.
    You then get the same operation, and no second run starts.
 3. Call `posthog-agent-status` with the `operation_id`, the `project_id` of the operation, and the last `cursor`.
-   Continue until the state is `succeeded`, `failed`, `cancelled`, or `expired`.
-   A status request waits up to 50 seconds. That limit applies to one request, not to the task.
+   When your client receives progress updates, one status request follows the run and reports each step.
+   It returns when the run finishes or needs the user, or after 10 minutes.
+   Otherwise a status request waits up to 50 seconds.
+   Call it again until the state is `succeeded`, `failed`, `cancelled`, or `expired`.
    A status timeout does not mean that the task failed. The operation continues.
 4. When the state is `needs_input`, show the question to the user.
    Then call `posthog-agent-reply` with the answer of the user and a new `client_request_id`.
    The same operation continues.
    If the state reason is `approval_required`, PostHog AI asks to run a tool.
-   The user can approve it in the PostHog Agent view, if your host shows it.
+   If your host shows the PostHog Agent view, tell the user to approve it there, then call `posthog-agent-status`.
+   The status request waits while the user decides.
    Otherwise ask the user, then reply with `allow`, `allow all`, or `deny`.
+   If a reply says the approval was already answered, the user answered in the view. Do not ask again.
 5. When the state is `succeeded`, show the answer, the assumptions, and the links to the user.
 6. To stop an operation, call `posthog-agent-cancel`.
    Closing the conversation or losing the connection does not cancel an operation.

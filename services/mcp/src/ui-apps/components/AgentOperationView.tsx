@@ -57,9 +57,6 @@ import {
 import { Markdown } from '../lib/Markdown'
 import { PostHogLogo } from './PostHogLogo'
 
-/** `run` is the live view of the whole operation. `update` is the compact card on a status, reply or cancel call. */
-export type AgentOperationVariant = 'run' | 'update'
-
 type Phase = 'starting' | 'working' | 'approval' | 'question' | 'stopping' | 'done' | 'failed' | 'canceled' | 'expired'
 
 const TERMINAL_STATES: ReadonlySet<AgentOperationState> = new Set(['succeeded', 'failed', 'cancelled', 'expired'])
@@ -192,10 +189,9 @@ function formatElapsed(ms: number): string {
     return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
 }
 
-/** A live timer for the run view. An update card is a snapshot, so its time does not move. */
-function useElapsed(operation: AgentOperation, live: boolean): string {
+function useElapsed(operation: AgentOperation): string {
     const [now, setNow] = useState(() => Date.now())
-    const ticking = live && !isTerminal(operation)
+    const ticking = !isTerminal(operation)
     useEffect(() => {
         if (!ticking) {
             return
@@ -294,13 +290,11 @@ function Header({
     operation,
     phase,
     elapsed,
-    subtitle,
     action,
 }: {
     operation: AgentOperation
     phase: Phase
     elapsed: string
-    subtitle: string
     action?: ReactNode
 }): ReactElement {
     return (
@@ -308,7 +302,7 @@ function Header({
             <AgentMark active={isWorking(phase)} />
             <div className="flex min-w-0 flex-1 flex-col">
                 <Text size="xs" variant="muted" className="truncate">
-                    {subtitle} · {operation.project.name}
+                    PostHog Agent · {operation.project.name}
                 </Text>
                 <StatusLine phase={phase} elapsed={elapsed} />
             </div>
@@ -704,19 +698,12 @@ function ResultSection({
 function Footer({
     operation,
     onOpenLink,
-    stepsTotal,
 }: {
     operation: AgentOperation
     onOpenLink: (url: string) => void
-    stepsTotal: number
 }): ReactElement {
     return (
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-            {stepsTotal > 0 && (
-                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                    {stepsTotal === 1 ? '1 step' : `${stepsTotal} steps`}
-                </Text>
-            )}
             {operation.repository && (
                 <Text size="xs" variant="muted" render={<span />} className="break-all">
                     {operation.repository}
@@ -733,7 +720,6 @@ function Footer({
 
 export interface AgentOperationViewProps {
     operation: AgentOperation
-    variant?: AgentOperationVariant
     onOpenLink: (url: string) => void
     canControl: boolean
     pollError: string | null
@@ -745,12 +731,13 @@ export interface AgentOperationViewProps {
     replyError: string | null
     /** The last reply sent from this view, shown as a confirmation once the run moves on. */
     answered?: string | null
+    /** The approval that this view answered. It stays hidden while the run log catches up. */
+    answeredApprovalId?: string | null
     onAskFollowUp?: (text: string) => void
 }
 
 export function AgentOperationView({
-    operation,
-    variant = 'run',
+    operation: received,
     onOpenLink,
     canControl,
     pollError,
@@ -761,23 +748,25 @@ export function AgentOperationView({
     pendingReply,
     replyError,
     answered,
+    answeredApprovalId,
     onAskFollowUp,
 }: AgentOperationViewProps): ReactElement {
+    const operation: AgentOperation =
+        received.approval && received.approval.request_id === answeredApprovalId
+            ? { ...received, state: 'running', state_reason: null, approval: null }
+            : received
     const phase = phaseOf(operation)
     const working = isWorking(phase)
     const terminal = isTerminal(operation)
-    const isUpdate = variant === 'update'
-    const elapsed = useElapsed(operation, !isUpdate)
-    const feed = useStepFeed(operation)
+    const elapsed = useElapsed(operation)
+    const steps = useStepFeed(operation)
     const celebrating = useCelebration(operation)
-    const steps = isUpdate ? operation.new_steps : feed
     const stepsTotal = Math.max(operation.steps_total, steps.length)
     const question = operation.result?.question ?? operation.question
     const canReply = canControl && operation.state === 'needs_input'
-    const canCancel = !isUpdate && canControl && !terminal && operation.state !== 'cancelling'
+    const canCancel = canControl && !terminal && operation.state !== 'cancelling'
     const reason = operation.state_reason ? REASON_LABELS[operation.state_reason] : undefined
     const error = cancelError ?? replyError ?? pollError
-    const latestStep = steps[steps.length - 1] ?? operation.plan.find((item) => item.status === 'in_progress')?.content
 
     return (
         <Card className="relative m-2 flex flex-col gap-4 overflow-hidden p-4">
@@ -786,7 +775,6 @@ export function AgentOperationView({
                 operation={operation}
                 phase={phase}
                 elapsed={elapsed}
-                subtitle={isUpdate ? 'PostHog Agent update' : 'PostHog Agent'}
                 action={
                     canCancel ? (
                         <Button variant="default" size="sm" loading={cancelling} onClick={onCancel}>
@@ -795,7 +783,7 @@ export function AgentOperationView({
                     ) : undefined
                 }
             />
-            {!isUpdate && <RequestTitle goal={operation.goal} />}
+            <RequestTitle goal={operation.goal} />
 
             {operation.approval ? (
                 <ApprovalCard
@@ -818,8 +806,8 @@ export function AgentOperationView({
                 )
             )}
 
-            {answered && operation.state !== 'needs_input' && (
-                <div className="flex items-center gap-2">
+            {answered && operation.state !== 'needs_input' && !terminal && (
+                <div className="agent-attention flex items-center gap-2">
                     <CircleCheck className="size-4 shrink-0 text-success-foreground" />
                     <Text size="sm">
                         {ANSWERED_LABELS[answered] ?? 'PostHog AI got your answer and is continuing.'}
@@ -827,26 +815,30 @@ export function AgentOperationView({
                 </div>
             )}
 
-            {isUpdate && working && (
-                <div className="flex flex-col gap-2">
-                    <CurrentStep label={latestStep ?? 'Getting started'} />
-                    {operation.plan.length > 0 && (
-                        <PlanList plan={operation.plan} live={!terminal} defaultOpen={false} />
-                    )}
+            {reason && (
+                <div
+                    className={`flex flex-col gap-0.5 rounded-lg border p-3 ${phase === 'canceled' ? '' : 'border-destructive-foreground/30 bg-destructive'}`}
+                >
+                    <Text size="sm" weight="semibold">
+                        {PHASE_LABELS[phase]}
+                    </Text>
+                    <Text size="sm" variant={phase === 'canceled' ? 'muted' : 'default'}>
+                        {reason}
+                        {operation.result?.answer ? ' What it found is below.' : ''}
+                    </Text>
                 </div>
             )}
 
-            {!isUpdate && operation.plan.length > 0 && (
+            {operation.plan.length > 0 && (
                 <PlanList plan={operation.plan} live={!terminal} defaultOpen={!operation.result} />
             )}
-            {!isUpdate &&
-                steps.length > 0 &&
+            {steps.length > 0 &&
                 (operation.plan.length > 0 || operation.result ? (
                     <ActivityLog steps={steps} total={stepsTotal} working={working} />
                 ) : (
                     <StepList steps={steps} total={stepsTotal} working={working} />
                 ))}
-            {!isUpdate && working && steps.length === 0 && operation.plan.length === 0 && (
+            {working && steps.length === 0 && operation.plan.length === 0 && (
                 <CurrentStep label={phase === 'starting' ? 'Starting a sandbox for PostHog AI' : 'Getting started'} />
             )}
 
@@ -860,18 +852,13 @@ export function AgentOperationView({
                 <ResultSection result={operation.result} onOpenLink={onOpenLink} onAskFollowUp={onAskFollowUp} />
             )}
 
-            {reason && (
-                <Text size="sm" variant={phase === 'canceled' ? 'muted' : 'destructive'}>
-                    {reason}
-                </Text>
-            )}
             {error && (
                 <Text size="xs" variant="destructive">
                     {error}
                 </Text>
             )}
 
-            <Footer operation={operation} onOpenLink={onOpenLink} stepsTotal={isUpdate ? stepsTotal : 0} />
+            <Footer operation={operation} onOpenLink={onOpenLink} />
         </Card>
     )
 }

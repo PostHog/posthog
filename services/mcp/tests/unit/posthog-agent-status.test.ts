@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     type AgentOperation,
     type AgentOperationState,
+    followAgentOperation,
     formatAgentOperationText,
     waitForAgentOperationChange,
     type WaitClock,
@@ -158,5 +159,64 @@ describe('waitForAgentOperationChange', () => {
         expect(text).toContain('"allow", "allow all" or "deny"')
         expect(text).not.toContain('Question for the user')
         expect(text).not.toContain('ask the user the question above')
+    })
+})
+
+describe('followAgentOperation', () => {
+    const approval = {
+        request_id: 'req-1',
+        title: 'Execute SQL query',
+        detail: null,
+        options: [{ option_id: 'allow', kind: 'allow_once', name: 'Allow' }],
+    }
+
+    it.each([
+        [
+            'waits through an approval in the view and returns the result with every step',
+            [
+                operation({ new_steps: ['Read data schema'], cursor: 'c1', approvals: 'client' }),
+                operation({ state: 'needs_input', approval, cursor: 'c1', approvals: 'client' }),
+                operation({ new_steps: ['Execute SQL query'], cursor: 'c2', approvals: 'client' }),
+                operation({ state: 'succeeded', cursor: 'c2', approvals: 'client' }),
+            ],
+            'succeeded',
+            ['Read data schema', 'Execute SQL query'],
+            [
+                'Read data schema',
+                'Waiting for the user to approve in the PostHog Agent view: Execute SQL query',
+                'Execute SQL query',
+            ],
+        ],
+        [
+            'returns at a question, which only the chat can answer',
+            [
+                operation({ new_steps: ['Read data schema'], cursor: 'c1' }),
+                operation({ state: 'needs_input', question: 'Which plan?', cursor: 'c1' }),
+                operation({ state: 'succeeded', cursor: 'c1' }),
+            ],
+            'needs_input',
+            ['Read data schema'],
+            ['Read data schema'],
+        ],
+        [
+            'returns at an approval when no view can show it',
+            [operation({ state: 'needs_input', approval, cursor: 'c1', approvals: 'none' })],
+            'needs_input',
+            [],
+            ['PostHog AI is working'],
+        ],
+    ] as const)('%s', async (_label, responses, state, steps, messages) => {
+        const api = scripted([...responses])
+        const reported: string[] = []
+
+        const result = await followAgentOperation(api.fetch, undefined, {
+            seconds: 600,
+            report: (message) => reported.push(message),
+            clock: fakeClock(),
+        })
+
+        expect(result.state).toBe(state)
+        expect(result.new_steps).toEqual(steps)
+        expect(reported).toEqual(messages)
     })
 })
