@@ -380,6 +380,13 @@ describe('WorkflowsScene', () => {
             })
         })
 
+        it('shows workflow descriptions inside a folder as the flat list does', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
+                'Greets new sign-ups'
+            )
+        })
+
         it('opens the template chooser on the kind facet from the folder toolbar', async () => {
             window.POSTHOG_APP_CONTEXT = {
                 ...window.POSTHOG_APP_CONTEXT!,

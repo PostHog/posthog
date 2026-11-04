@@ -81,6 +81,7 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
             <LemonTableLink
                 to={archived ? undefined : workflowUrl}
                 title={archived ? <Tooltip title="Restore this workflow to make changes">{name}</Tooltip> : title}
+                description={description}
                 truncateTitle
             />
         </div>
