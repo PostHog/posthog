@@ -16,7 +16,7 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
-import { INBOX_PANE_WIDTH, NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
+import { NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
 import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -77,7 +77,7 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
-    const { rail, railSide, paired, reportNavigation: navigation } = useAppLayout()
+    const { rail, railSide, paired, inboxExtent, paneAxis, paneGap, reportNavigation: navigation } = useAppLayout()
     return (
         <OverlayHost>
             <View
@@ -88,13 +88,13 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                     paddingRight: rail && railSide === 'right' ? NAV_RAIL_WIDTH : 0,
                 }}
             >
-                <View style={{ flex: 1, flexDirection: 'row' }}>
+                <View style={{ flex: 1, flexDirection: paneAxis, gap: paired ? paneGap : 0 }}>
                     <SceneFrame
                         style={{
                             flexGrow: 0,
                             flexShrink: 0,
-                            flexBasis: INBOX_PANE_WIDTH,
-                            width: INBOX_PANE_WIDTH,
+                            flexBasis: inboxExtent,
+                            ...(paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }),
                             display: paired ? 'flex' : 'none',
                         }}
                     >

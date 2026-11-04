@@ -1,0 +1,114 @@
+import { useRouter } from 'expo-router'
+import { type ReactElement, useState } from 'react'
+import { Linking, Platform } from 'react-native'
+import { useAuthStore } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
+import { useViewer } from '@/auth/useViewer'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
+import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
+import { navListWebUrl } from '@/features/views/webLinks'
+import { track } from '@/lib/analytics'
+import { useMobileProductFlags } from '@/lib/featureFlags'
+import { safeHttpsUrl } from '@/lib/urls'
+import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
+import { NativeTabChrome } from './NativeTabChrome'
+import { NavMenu } from './NavMenu'
+import { changeNavPin } from './navPinActions'
+import { useNavPins } from './navPinStore'
+import { TabsHeader } from './TabsHeader'
+import { useFocusedTabHeader } from './tabHeaderStore'
+
+export function TabsChrome(): ReactElement {
+    const router = useRouter()
+    const viewer = useViewer()
+    const { tab, slot } = useFocusedTabHeader()
+    const signedIn = useAuthStore((state) => state.signedIn)
+    const exitDemo = useExitDemo()
+    const signOut = useSignOutAction()
+    const [menuOpen, setMenuOpen] = useState(false)
+    const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+    const scope = useProjectScope()
+    const status = usePostHogStatus(scope?.host)
+    // The pinned list's tab has no menu of its own, so its Unpin toast draws from here, inside the tabs' overlay host.
+    const toasts = useToasts()
+
+    const closeMenu = (): void => {
+        if (signOut.pending) {
+            return
+        }
+        setMenuOpen(false)
+        setConfirmingSignOut(false)
+    }
+    const startSignOut = (): void => {
+        if (signedIn) {
+            setConfirmingSignOut(true)
+            return
+        }
+        setMenuOpen(false)
+        exitDemo()
+    }
+    const editPins = slot?.editPins ?? null
+    const pins = useNavPins()
+    const productFlags = useMobileProductFlags()
+    // A list unpinned from its own tab keeps its slot until the person leaves, but no longer offers Unpin.
+    const list = (tab === 'errors' || tab === 'replay') && productFlags[tab] && pins.includes(tab) ? tab : null
+    const listUrl = list ? navListWebUrl(scope, list) : undefined
+    const webUrl = listUrl ? safeHttpsUrl(listUrl) : undefined
+    const navList = list && {
+        onUnpin: () => {
+            setMenuOpen(false)
+            changeNavPin(list, false, 'list_menu', toasts.show)
+        },
+        onOpenWeb: webUrl
+            ? () => {
+                  setMenuOpen(false)
+                  track('mobile_nav_tab_web_opened', { tab: list })
+                  Linking.openURL(webUrl).catch(() => undefined)
+              }
+            : null,
+    }
+
+    return (
+        <>
+            {Platform.OS === 'ios' ? (
+                <NativeTabChrome tab={tab} slot={slot} onMore={() => setMenuOpen(true)} />
+            ) : (
+                <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
+            )}
+            <NavMenu
+                visible={menuOpen}
+                projectName={viewer.projectName}
+                status={status}
+                onOpenStatus={() => {
+                    closeMenu()
+                    Linking.openURL(status.pageUrl).catch(() => toasts.show("Couldn't open PostHog status."))
+                }}
+                navList={navList}
+                editPins={
+                    editPins && {
+                        disabled: editPins.disabled,
+                        onPress: () => {
+                            setMenuOpen(false)
+                            editPins.onPress()
+                        },
+                    }
+                }
+                onClose={closeMenu}
+                onSettings={() => {
+                    setMenuOpen(false)
+                    router.push('/settings')
+                }}
+                onSignOut={startSignOut}
+                confirmingSignOut={confirmingSignOut}
+                signOutPending={signOut.pending}
+                signOutError={signOut.error}
+                onCancelSignOut={() => {
+                    signOut.clearError()
+                    setConfirmingSignOut(false)
+                }}
+                onConfirmSignOut={() => void signOut.run()}
+            />
+            <ViewsToast toast={toasts.toast} onHide={toasts.hide} />
+        </>
+    )
+}

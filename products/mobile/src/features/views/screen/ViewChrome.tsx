@@ -1,4 +1,6 @@
+import { Stack } from 'expo-router'
 import type { ReactElement } from 'react'
+import { Platform } from 'react-native'
 
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
@@ -22,6 +24,16 @@ export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactEle
             onBack={onBack}
             backTestID="view-back"
             title={title}
+            nativeActions={
+                Platform.OS === 'ios' ? (
+                    <Stack.Toolbar.Button
+                        icon="ellipsis"
+                        accessibilityLabel="More"
+                        disabled={!onMore}
+                        onPress={onMore}
+                    />
+                ) : null
+            }
             right={
                 <PillControl height={screenLayout.rowHeight}>
                     <Pressable44

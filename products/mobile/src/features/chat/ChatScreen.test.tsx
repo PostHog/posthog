@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
-import { TextInput } from 'react-native'
+import { Platform, TextInput } from 'react-native'
 import { ChatScreen } from './ChatScreen'
 import { queueActions, queueReducer } from './messageQueue'
 import { useSession } from './session/useSession'
@@ -370,4 +370,12 @@ describe('chat send preparation', () => {
         expect(session.send).not.toHaveBeenCalled()
         expect(screen.getByText('Keep this question')).toBeTruthy()
     })
+})
+
+const originalPlatform = Platform.OS
+beforeAll(() => {
+    Platform.OS = 'android'
+})
+afterAll(() => {
+    Platform.OS = originalPlatform
 })

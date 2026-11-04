@@ -112,11 +112,11 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   It retries the reveal as rows are measured, and stops if the reader starts scrolling.
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
   The report's inbox pane only prefetches while it is visible and its screen is focused.
-- Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
-  It requires at least 600pt of safe width; narrow cover displays keep the phone navigation and full reading width.
-  The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
-  without adding a second navigation bar below its actions.
-  Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
+- iOS uses Expo SDK 58 native tabs and stack toolbars. The system places these controls in Duo's reserved rail;
+  the app does not add a second rail. Safe-area padding belongs to each scene, so navigation backgrounds reach the edges.
+  Android retains the custom navigation, with a rail in sufficiently tall, wide windows and horizontal navigation in short windows.
+- Active division regions determine the inbox and report boundary, including a horizontal fold. Each pane must have enough
+  reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
 - Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
   The report action bar stays in the page layout when the keyboard opens or the window rotates.
   With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.
@@ -128,11 +128,13 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
   The chosen pin stays anchored through deferred row measurements until the user scrolls.
 - Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
-  Their floating presentation uses the full safe window width, even when opened from a narrow report pane.
+  Their floating presentation uses a safe pane, even when opened from a narrow report list. Active folds and occlusions keep sheets and picker cards on one side without resetting their form state.
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
   Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
   Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
+  The native iOS toolbar offers Close while an overlay is open. Row menus convert window measurements into overlay coordinates
+  and close when their measured frame or reserved regions change, so a stale anchor cannot survive rotation.
 - Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.
 
 ## Component inventory

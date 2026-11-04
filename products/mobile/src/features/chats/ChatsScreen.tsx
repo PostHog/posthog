@@ -17,7 +17,7 @@ import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { toChatError } from '../chat/chatErrors'
 import type { ChatSheetEntry } from '../chat/chatSheetEvents'
@@ -215,13 +215,13 @@ export function ChatsScreen(): ReactElement {
                 renderItem={renderItem}
                 renderSectionHeader={renderSectionHeader}
                 stickySectionHeadersEnabled={false}
-                ListHeaderComponent={listHeader}
-                ListEmptyComponent={empty}
+                ListHeaderComponent={listHeader ?? undefined}
+                ListEmptyComponent={empty ?? undefined}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 contentContainerStyle={[
                     styles.content,
-                    { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
+                    { paddingTop: contentTop, paddingBottom: tabBottomOffset(insets) },
                 ]}
                 refreshControl={
                     <RefreshControl

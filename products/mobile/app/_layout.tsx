@@ -6,7 +6,8 @@ import { type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { ReservedRegionsProvider } from 'react-native-reserved-regions'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { queryClient } from '@/api/queryClient'
 import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
@@ -14,6 +15,7 @@ import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGat
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
 import { installOfflineCache } from '@/features/offlineCache'
+import { MobileScene } from '@/ui/MobileScene'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
@@ -30,6 +32,10 @@ import { SceneFrame } from '@/ui/SceneFrame'
 import { createStyles, useTheme } from '@/ui/theme'
 
 export { RouteErrorBoundary as ErrorBoundary }
+
+function renderMobileScene({ children, route }: { children: ReactElement; route: { name: string } }): ReactElement {
+    return route.name === '(tabs)' ? children : <MobileScene>{children}</MobileScene>
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
 SplashScreen.setOptions({ fade: true, duration: 250 })
@@ -92,7 +98,7 @@ export default function RootLayout(): ReactElement {
     return (
         <GestureHandlerRootView style={styles.root}>
             <SafeAreaProvider>
-                <SafeAreaView style={styles.root} edges={['left', 'right']}>
+                <ReservedRegionsProvider style={styles.root}>
                     <SceneFrame>
                         <KeyboardProvider>
                             <QueryClientProvider client={queryClient}>
@@ -100,6 +106,7 @@ export default function RootLayout(): ReactElement {
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (
                                     <Stack
+                                        screenLayout={renderMobileScene}
                                         screenOptions={{
                                             headerShown: false,
                                             contentStyle: { backgroundColor: colors.background },
@@ -123,7 +130,7 @@ export default function RootLayout(): ReactElement {
                             </QueryClientProvider>
                         </KeyboardProvider>
                     </SceneFrame>
-                </SafeAreaView>
+                </ReservedRegionsProvider>
             </SafeAreaProvider>
         </GestureHandlerRootView>
     )

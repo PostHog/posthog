@@ -1,10 +1,11 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { View } from 'react-native'
+import { Platform, View } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { BackChip } from './BackChip'
 import { BlurEdge } from './BlurEdge'
 import { FadeEdge } from './FadeEdge'
+import { NativeScreenChrome } from './NativeScreenChrome'
 import { screenLayout } from './screenLayout'
 import { scrollTitleOpacity } from './scrollTitleOpacity'
 import { createStyles } from './theme'
@@ -12,14 +13,19 @@ import { layout, type } from './tokens'
 import { topOffset, useScreenInsets } from './useScreenInsets'
 import type { ScrollTitle } from './useScrollTitle'
 
-interface ScreenChromeProps {
+export interface ScreenChromeProps {
     onBack: () => void
     backTestID: string
     title?: ScrollTitle
     right?: ReactNode
+    nativeActions?: ReactNode
 }
 
-export function ScreenChrome({ onBack, backTestID, title, right }: ScreenChromeProps): ReactElement {
+export function ScreenChrome(props: ScreenChromeProps): ReactElement {
+    return Platform.OS === 'ios' ? <NativeScreenChrome {...props} /> : <CustomScreenChrome {...props} />
+}
+
+function CustomScreenChrome({ onBack, backTestID, title, right }: ScreenChromeProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
     const [leftWidth, setLeftWidth] = useState(0)

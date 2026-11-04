@@ -5,7 +5,6 @@ import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
-import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -13,7 +12,7 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { useAppLayout } from '@/ui/useAppLayout'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
@@ -34,7 +33,7 @@ function keyFor(item: InboxItem): string {
 
 export function InboxScreen(): ReactElement {
     const styles = useStyles()
-    const { paired } = useAppLayout()
+    const { paired, inboxExtent, paneAxis, paneGap } = useAppLayout()
     const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
@@ -175,12 +174,12 @@ export function InboxScreen(): ReactElement {
     )
 
     return (
-        <View style={[styles.screen, { flexDirection: 'row' }]} testID="inbox-screen">
+        <View style={[styles.screen, { flexDirection: paneAxis, gap: paired ? paneGap : 0 }]} testID="inbox-screen">
             <View
                 style={{
                     flexGrow: paired ? 0 : 1,
                     flexShrink: paired ? 0 : 1,
-                    width: paired ? INBOX_PANE_WIDTH : undefined,
+                    ...(paired ? (paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }) : {}),
                     minWidth: 0,
                 }}
             >
@@ -189,7 +188,7 @@ export function InboxScreen(): ReactElement {
                     data={query.data ?? []}
                     keyExtractor={keyFor}
                     renderItem={renderItem}
-                    ListEmptyComponent={empty}
+                    ListEmptyComponent={empty ?? undefined}
                     ListFooterComponent={
                         <InboxListFooter
                             isLoadingMore={query.isLoadingMore}
@@ -203,7 +202,7 @@ export function InboxScreen(): ReactElement {
                     viewabilityConfig={prefetch.viewabilityConfig}
                     contentContainerStyle={[
                         styles.content,
-                        { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
+                        { paddingTop: contentTop, paddingBottom: tabBottomOffset(insets) },
                     ]}
                     refreshControl={
                         <RefreshControl

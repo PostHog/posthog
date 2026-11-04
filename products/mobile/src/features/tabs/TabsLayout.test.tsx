@@ -1,6 +1,6 @@
 import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
 import { type ReactElement, useState } from 'react'
-import { Button, Dimensions, Text, View } from 'react-native'
+import { Button, Dimensions, Platform, Text, View } from 'react-native'
 
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
@@ -107,7 +107,14 @@ function InboxWithMenuStub(): ReactElement {
 
 const ORIGINAL_WINDOW = Dimensions.get('window')
 
-describe('TabsLayout', () => {
+describe('TabsLayout (Android custom navigation)', () => {
+    const originalPlatform = Platform.OS
+    beforeAll(() => {
+        Platform.OS = 'android'
+    })
+    afterAll(() => {
+        Platform.OS = originalPlatform
+    })
     beforeEach(() => {
         restoreNavPins([])
         setFeatureFlags({ [FEATURE_FLAGS.errorTracking]: true, [FEATURE_FLAGS.sessionReplay]: true })
@@ -119,8 +126,8 @@ describe('TabsLayout', () => {
         setFeatureFlags({})
     })
 
-    test('exposes the regional status update from the main menu', () => {
-        renderRouter(
+    test('exposes the regional status update from the main menu', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -138,11 +145,11 @@ describe('TabsLayout', () => {
 
     test.each(['inbox', 'chats', 'views'] as const)(
         'uses the %s logo as the refresh indicator only while the focused page refreshes',
-        (tab) => {
+        async (tab) => {
             useTabHeaderStore.setState({
                 slots: { inbox: LIST_SLOT, chats: LIST_SLOT, views: LIST_SLOT, errors: null, replay: null },
             })
-            renderRouter(
+            await renderRouter(
                 {
                     '(tabs)/_layout': TabsLayout,
                     '(tabs)/inbox': (): ReactElement => <RefreshingTabStub tab="inbox" />,
@@ -166,10 +173,10 @@ describe('TabsLayout', () => {
         }
     )
 
-    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', (pin) => {
+    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', async (pin) => {
         setNavPinned(pin, true)
         setFeatureFlags({})
-        renderRouter(
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -194,12 +201,12 @@ describe('TabsLayout', () => {
         { width: 402, height: 874 },
         { width: 951, height: 669 },
         { width: 669, height: 951 },
-    ])('switches Inbox, Chats and Views under one bar at $width × $height', ({ width, height }) => {
+    ])('switches Inbox, Chats and Views under one bar at $width × $height', async ({ width, height }) => {
         const previous = Dimensions.get('window')
         Dimensions.set({ window: { ...previous, width, height } })
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
-        const router = renderRouter(
+        const router = await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -235,8 +242,8 @@ describe('TabsLayout', () => {
         ])
     })
 
-    test('keeps one More button across tabs, its menu offers Edit pins only on Views, and the filter shows only on Inbox', () => {
-        renderRouter(
+    test('keeps one More button across tabs, its menu offers Edit pins only on Views, and the filter shows only on Inbox', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': PublishingInboxStub,
@@ -279,10 +286,10 @@ describe('TabsLayout', () => {
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
     })
 
-    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', () => {
+    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', async () => {
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
-        const router = renderRouter(
+        const router = await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxStub,
@@ -316,8 +323,8 @@ describe('TabsLayout', () => {
         ])
     })
 
-    test('draws a screen overlay outside the tab scene, so it covers the bar', () => {
-        renderRouter(
+    test('draws a screen overlay outside the tab scene, so it covers the bar', async () => {
+        await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
                 '(tabs)/inbox': InboxWithMenuStub,

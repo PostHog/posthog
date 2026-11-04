@@ -81,15 +81,14 @@ The dummy's normal development shortcut can choose the latest project; the expli
 
 ## Duo and resizable windows
 
-Use Xcode 27.1 or newer with an iPhone Duo runtime. Simulator checks supplement the required
-physical iOS and Android before-and-after screenshots.
+Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native before-and-after screens on iOS and Android; simulators and emulators qualify, as described in `../AGENTS.md`.
 
 1. Open a report unfolded, scroll it, open Resolve and enter a note. Fold, unfold, rotate and
-   enter Split View on either side. Verify the report, scroll position and note remain.
+   enter Split View on either side. Include a half-open pose with an active fold. Verify the report, scroll position and note remain, and sheets stay within one safe pane.
 2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
    data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
 3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
-   Check pinned Errors and Sessions slots, larger text and shorter windows too.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too. On iOS, header actions and tabs belong to the native toolbar and tab bar; verify that opening a sheet replaces background header actions with Close.
 4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
    keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
 5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin
