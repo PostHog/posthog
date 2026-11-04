@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -462,14 +463,15 @@ class TestAgentOperationsAPI(APIBaseTest):
         ]
     )
     def test_deadline_expires_once_the_run_stop_is_sent(self, _name, outcomes, state_after_read, stop_calls):
-        operation_id = self._start().json()["id"]
-        AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
-            deadline_at=timezone.now() - timedelta(minutes=1)
-        )
+        with time_machine.travel("2026-11-04T12:00:00Z", tick=False):
+            operation_id = self._start().json()["id"]
+            AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
+                deadline_at=timezone.now() - timedelta(minutes=1)
+            )
 
-        with patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", side_effect=outcomes) as cancel:
-            body = self.client.get(f"{self.url}{operation_id}/").json()
-            reconcile_unwatched_operations()
+            with patch(f"{SERVICE}.tasks_cancellation.cancel_task_run", side_effect=outcomes) as cancel:
+                body = self.client.get(f"{self.url}{operation_id}/").json()
+                reconcile_unwatched_operations()
 
         operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
         assert (body["state"], body["state_reason"]) == (state_after_read, "deadline")

@@ -120740,14 +120740,6 @@ export namespace Schemas {
     version?: number;
     };
 
-    export type AgentOperationsRetrieveParams = {
-    /**
-     * The cursor from the previous response. The response then has only the steps after it.
-     * @minLength 1
-     */
-    cursor?: string;
-    };
-
     export type AeoPromptsOverviewParams = {
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
@@ -120755,6 +120747,14 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    };
+
+    export type AgentOperationsRetrieveParams = {
+    /**
+     * The cursor from the previous response. The response then has only the steps after it.
+     * @minLength 1
+     */
+    cursor?: string;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
