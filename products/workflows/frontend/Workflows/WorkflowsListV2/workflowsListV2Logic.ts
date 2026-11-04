@@ -392,9 +392,11 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     // A row action that lands while the pages load is newer than what the server sent.
                     const changes: RowChange[] = []
                     cache.rowChangesDuringLoad = changes
-                    const workflows = await loadAllPages((offset) =>
-                        hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
-                    )
+                    const workflows = await loadAllPages((offset) => {
+                        // Stops paging once a newer load starts or the list closes.
+                        breakpoint()
+                        return hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
+                    })
                     breakpoint()
                     return changes.reduce(applyRowChange, workflows)
                 },
