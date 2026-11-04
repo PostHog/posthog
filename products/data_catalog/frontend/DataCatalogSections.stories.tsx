@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -152,4 +153,21 @@ export const Overview: Story = {}
 
 export const OverviewNarrow: Story = {
     decorators: [inMainContent('w-128')],
+}
+
+export const OverviewWithoutWarehouseAccess: Story = {
+    beforeEach: () => {
+        const context = window.POSTHOG_APP_CONTEXT!
+        const previous = context.resource_access_control
+        context.resource_access_control = {
+            ...previous,
+            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.None,
+        }
+        return () => {
+            context.resource_access_control = previous
+        }
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Access denied')
+    },
 }

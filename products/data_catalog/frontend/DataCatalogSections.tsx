@@ -32,6 +32,7 @@ import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { relationshipsLogic } from './relationshipsLogic'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
+import { WarehouseAccessGate } from './WarehouseAccessGate'
 
 const VISIBLE_SECTIONS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics']
 
@@ -44,6 +45,8 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     certifications: 'Certifications',
     usage: 'Usage',
 }
+
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'usage']
 
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
@@ -82,7 +85,7 @@ function SceneActions(): JSX.Element {
 }
 
 export function DataCatalogSections(): JSX.Element {
-    const { activeTab, availableTabs, defaultTab } = useValues(dataCatalogSceneLogic)
+    const { activeTab, availableTabs, defaultTab, lineageVisited } = useValues(dataCatalogSceneLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
     const moreSections = availableTabs.filter((tab) => !VISIBLE_SECTIONS.includes(tab))
     const activeMoreSection = moreSections.includes(activeTab) ? activeTab : null
@@ -136,11 +139,22 @@ export function DataCatalogSections(): JSX.Element {
                 </div>
                 {availableTabs.map((tab) => {
                     const Content = SECTION_CONTENT[tab]
-                    return Content ? (
-                        <TabsContent key={tab} value={tab} className="pt-4">
-                            {tab === activeTab && <Content />}
+                    if (!Content) {
+                        return null
+                    }
+                    const keepMounted = tab === 'lineage' && lineageVisited
+                    return (
+                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4">
+                            {(tab === activeTab || keepMounted) &&
+                                (WAREHOUSE_SECTIONS.includes(tab) ? (
+                                    <WarehouseAccessGate>
+                                        <Content />
+                                    </WarehouseAccessGate>
+                                ) : (
+                                    <Content />
+                                ))}
                         </TabsContent>
-                    ) : null
+                    )
                 })}
             </Tabs>
         </SceneContent>

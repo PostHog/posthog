@@ -28,6 +28,7 @@ export interface dataCatalogSceneLogicValues {
     activeTab: DataCatalogTab
     availableTabs: DataCatalogTab[]
     defaultTab: DataCatalogTab
+    lineageVisited: boolean
     restructureEnabled: boolean
 }
 
@@ -68,6 +69,12 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
             'metrics' as DataCatalogTab,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
+        lineageVisited: [
+            false,
+            {
+                setActiveTab: (visited, { activeTab }) => visited || activeTab === 'lineage',
             },
         ],
     }),
