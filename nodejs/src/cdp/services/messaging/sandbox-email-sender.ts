@@ -174,7 +174,12 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
     return {
         // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
-        connection: { ...connection, exitOnRepeatedErrors: false },
+        // A call that gets no answer ends at the capture deadline, so a stalled store frees its slot.
+        connection: {
+            ...connection,
+            options: { ...connection.options, commandTimeout: EVENT_CAPTURE_TIMEOUT_MS },
+            exitOnRepeatedErrors: false,
+        },
         poolMinSize: 0,
         poolMaxSize: MAX_OPEN_STORE_CALLS,
     }
@@ -262,7 +267,7 @@ export class SandboxEmailSender {
             timer = setTimeout(resolve, EVENT_CAPTURE_TIMEOUT_MS)
         })
         const captureNow = (): Promise<void> => this.captureEventNow(teamId, event, properties, storeCheck)
-        const capture = storeCheck ? this.withStoreSlot(deadline, captureNow) : captureNow()
+        const capture = storeCheck ? this.storeSlots.run(deadline, captureNow) : captureNow()
         try {
             if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
@@ -273,10 +278,6 @@ export class SandboxEmailSender {
         } finally {
             clearTimeout(timer)
         }
-    }
-
-    private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
-        await this.storeSlots.run(deadline, work)
     }
 
     private async captureEventNow(

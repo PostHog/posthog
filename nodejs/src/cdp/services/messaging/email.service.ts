@@ -5,7 +5,7 @@ import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -132,6 +132,17 @@ type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: Dat
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
+// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
+// does not make a send a workflow email step.
+function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
+    return (
+        !!hogFlow &&
+        hogFlow.trigger?.type !== 'batch' &&
+        invocation.state.globals.event?.event !== TRANSACTIONAL_EMAIL_EVENT
+    )
+}
+
 // Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
@@ -677,11 +688,11 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !isTest && !('hogFlow' in invocation)) {
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
                 this.skipSandboxSend(
                     result,
                     isTest,
-                    'Skipping send: the sandbox sender is only available for workflows and test sends.',
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                     'sending_suspended'
                 )
                 return result
