@@ -1,5 +1,3 @@
-import { LemonButton } from '@posthog/lemon-ui'
-
 import type { TraceReviewStatusApi } from '../../../generated/api.schemas'
 import { ReviewQueuePickerModal } from '../../../reviewQueues/ReviewQueuePickerModal'
 import { TraceReviewButton } from '../../../traceReviews/TraceReviewButton'
@@ -11,37 +9,27 @@ export interface TraceReviewActionsProps {
     onQueueChanged: () => void
 }
 
+// No queue id goes to the review button: saving a review then clears whichever queue holds the trace, so a stale status
+// can never point the save at the wrong queue.
 export function TraceReviewActions({
     traceId,
     status,
     failed,
     onQueueChanged,
 }: TraceReviewActionsProps): JSX.Element | null {
-    if (failed) {
-        return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                disabledReason="Couldn't load this trace's review. Reload the page to try again."
-            >
-                Review
-            </LemonButton>
-        )
-    }
-    if (!status) {
+    if (!status && !failed) {
         return null
     }
-    const { review, queue } = status
+    const queue = status?.queue ?? null
     return (
         <>
             <TraceReviewButton
                 traceId={traceId}
-                queueId={queue?.id ?? null}
                 buttonType="secondary"
                 buttonSize="small"
-                buttonLabel={review ? 'Edit review' : 'Review'}
+                buttonLabel={status ? (status.review ? 'Edit review' : 'Review') : undefined}
             />
-            {review ? null : (
+            {status && !failed && !status.review ? (
                 <ReviewQueuePickerModal
                     traceId={traceId}
                     queueItemId={queue?.itemId ?? null}
@@ -51,7 +39,7 @@ export function TraceReviewActions({
                     buttonSize="small"
                     onSuccess={onQueueChanged}
                 />
-            )}
+            ) : null}
         </>
     )
 }

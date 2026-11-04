@@ -531,7 +531,7 @@ describe('TraceScene', () => {
             }
         })
 
-        it('disables Review when a reload of the review status fails, keeping the last chip', async () => {
+        it('keeps Review and an open review modal through a failed status reload, and hides the queue picker', async () => {
             let reviewStatus = 200
             useMocks({
                 get: {
@@ -541,16 +541,17 @@ describe('TraceScene', () => {
                             : [500, { detail: 'nope' }],
                 },
             })
-            const { findByText } = renderNewView({}, {}, AccessControlLevel.Editor)
-            expect((await findByText('Review')).closest('button')?.getAttribute('aria-disabled')).not.toBe('true')
+            const { findByText, queryByText } = renderNewView({}, {}, AccessControlLevel.Editor)
+            expect(await findByText('Change queue')).toBeTruthy()
+            fireEvent.click(await findByText('Review'))
+            expect(await findByText('Review trace')).toBeTruthy()
 
             silenceKeaLoadersErrors()
             reviewStatus = 500
             traceReviewLogic({ traceId: 'trace-1' }).actions.loadReviewStatus()
 
-            await waitFor(async () =>
-                expect((await findByText('Review')).closest('button')?.getAttribute('aria-disabled')).toBe('true')
-            )
+            await waitFor(() => expect(queryByText('Change queue')).toBeNull())
+            expect(queryByText('Review trace')).toBeTruthy()
             expect(await findByText('Support QA')).toBeTruthy()
         })
 
