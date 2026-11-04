@@ -12,7 +12,7 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { useAppLayout } from '@/ui/useAppLayout'
-import { tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
@@ -39,6 +39,7 @@ export function InboxScreen(): ReactElement {
     const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const [focused, setFocused] = useState(false)
     useFocusEffect(
@@ -206,10 +207,7 @@ export function InboxScreen(): ReactElement {
                     onEndReachedThreshold={0.5}
                     onViewableItemsChanged={prefetch.onViewableItemsChanged}
                     viewabilityConfig={prefetch.viewabilityConfig}
-                    contentContainerStyle={[
-                        styles.content,
-                        { paddingTop: contentTop, paddingBottom: tabBottomOffset(insets) },
-                    ]}
+                    contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: tabBottom }]}
                     refreshControl={
                         <RefreshControl
                             refreshing={query.isRefetching}

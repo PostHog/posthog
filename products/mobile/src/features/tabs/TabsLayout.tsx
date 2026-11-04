@@ -1,40 +1,24 @@
-import { useRouter } from 'expo-router'
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
-import { type ReactElement, useEffect, useLayoutEffect, useMemo } from 'react'
-import { View } from 'react-native'
-import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { type ReactElement, useEffect, useLayoutEffect } from 'react'
+import { Platform, View } from 'react-native'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
-import { useMobileProductFlags } from '@/lib/featureFlags'
 import { NAV_RAIL_WIDTH } from '@/ui/adaptiveLayout'
 import { MobileScene } from '@/ui/MobileScene'
 import { OverlayHost, OverlayPortal } from '@/ui/OverlayPortal'
 import { SceneFrame } from '@/ui/SceneFrame'
 import { useColors } from '@/ui/theme'
 import { useAppLayout } from '@/ui/useAppLayout'
-import { BottomBar, type BottomBarSlot } from './BottomBar'
-import { MAX_NAV_PINS, type NavPin, useNavPins } from './navPinStore'
+import { NativeTabsLayout } from './NativeTabsLayout'
 import { TabsChrome } from './TabsChrome'
+import { TabsNavigation } from './TabsNavigation'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
 
 function tabFor(route: string | undefined): TabKey {
     return route === 'chats' || route === 'views' || route === 'errors' || route === 'replay' ? route : 'inbox'
 }
 
-function selectedSlot(tab: TabKey): BottomBarSlot {
-    return tab === 'inbox' ? 'home' : tab
-}
-
-/**
- * The pinned lists, plus the focused one when it was unpinned from its own screen, so its slot stays until the person
- * leaves it and the toast's Undo has something to come back to.
- */
-function visiblePins(pins: readonly NavPin[], tab: TabKey): readonly NavPin[] {
-    return (tab === 'errors' || tab === 'replay') && !pins.includes(tab) ? [...pins, tab].slice(-MAX_NAV_PINS) : pins
-}
-
 function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
-    const router = useRouter()
     const focused = state.routes[state.index]?.name
     const goTo = (route: TabKey): void => {
         const key = state.routes.find((item) => item.name === route)?.key
@@ -43,12 +27,6 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
 
     // A layout effect, so the header shows the new tab's title in the same frame as the new scene.
     const tab = tabFor(focused)
-    const pins = useNavPins()
-    const { errors, replay } = useMobileProductFlags()
-    const shownPins = useMemo(
-        () => visiblePins(pins, tab).filter((pin) => (pin === 'errors' ? errors : replay)),
-        [pins, tab, errors, replay]
-    )
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setFocused(tab)
     }, [tab])
@@ -67,17 +45,7 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
 
     return (
         <OverlayPortal>
-            <BottomBar
-                selected={selectedSlot(tab)}
-                pins={shownPins}
-                onHome={() => goTo('inbox')}
-                onChats={() => goTo('chats')}
-                onViews={() => goTo('views')}
-                onPin={goTo}
-                onNewChat={() =>
-                    router.push({ pathname: '/chat', params: { entry: 'compose' satisfies ChatSheetEntry } })
-                }
-            />
+            <TabsNavigation tab={tab} onNavigate={goTo} />
         </OverlayPortal>
     )
 }
@@ -125,7 +93,9 @@ function CustomTabsLayout(): ReactElement {
 }
 
 export function TabsLayout(): ReactElement {
-    return (
+    return Platform.OS === 'ios' ? (
+        <NativeTabsLayout />
+    ) : (
         <MobileScene>
             <CustomTabsLayout />
         </MobileScene>

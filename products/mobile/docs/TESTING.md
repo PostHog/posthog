@@ -88,7 +88,7 @@ Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native befo
 2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
    data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
 3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
-   Check pinned Errors and Sessions slots, larger text and shorter windows too. Verify the original icon-only navigation and separate Chat button on both platforms. Opening a sheet must block the header and navigation behind its scrim.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too. On Duo with a vertical system rail, verify the original icons and Chat action occupy native tabs and toolbars, without tab labels or a second app rail. On a regular iPhone and on Android, verify the original floating pill and Chat button. Opening a sheet must block the header and navigation behind its scrim.
 4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
    keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
 5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin

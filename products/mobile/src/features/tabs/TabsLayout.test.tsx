@@ -7,6 +7,7 @@ import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
 import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
+import { TabScene } from './TabScene'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
 
@@ -35,23 +36,43 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))
 
 function InboxStub(): ReactElement {
-    return <View testID="inbox-screen" />
+    return (
+        <TabScene tab="inbox">
+            <View testID="inbox-screen" />
+        </TabScene>
+    )
 }
 
 function ChatsStub(): ReactElement {
-    return <View testID="chats-screen" />
+    return (
+        <TabScene tab="chats">
+            <View testID="chats-screen" />
+        </TabScene>
+    )
 }
 
 function ViewsStub(): ReactElement {
-    return <View testID="views-screen" />
+    return (
+        <TabScene tab="views">
+            <View testID="views-screen" />
+        </TabScene>
+    )
 }
 
 function ErrorsStub(): ReactElement {
-    return <View testID="errors-screen" />
+    return (
+        <TabScene tab="errors">
+            <View testID="errors-screen" />
+        </TabScene>
+    )
 }
 
 function ReplayStub(): ReactElement {
-    return <View testID="replay-screen" />
+    return (
+        <TabScene tab="replay">
+            <View testID="replay-screen" />
+        </TabScene>
+    )
 }
 
 // The layout always registers the pinnable lists' tabs.
@@ -69,21 +90,31 @@ function RefreshingTabStub({ tab }: { tab: TabKey }): ReactElement {
     const [refreshing, setRefreshing] = useState(false)
     useTabHeader(tab, { ...LIST_SLOT, refreshing })
     return (
-        <View testID={`${tab}-screen`}>
-            <Button title="Start refresh" testID="start-refresh" onPress={() => setRefreshing(true)} />
-            <Button title="Finish refresh" testID="finish-refresh" onPress={() => setRefreshing(false)} />
-        </View>
+        <TabScene tab={tab}>
+            <View testID={`${tab}-screen`}>
+                <Button title="Start refresh" testID="start-refresh" onPress={() => setRefreshing(true)} />
+                <Button title="Finish refresh" testID="finish-refresh" onPress={() => setRefreshing(false)} />
+            </View>
+        </TabScene>
     )
 }
 
 function PublishingInboxStub(): ReactElement {
     useTabHeader('inbox', { ...LIST_SLOT, filter: { active: true, onPress: () => undefined } })
-    return <View testID="inbox-screen" />
+    return (
+        <TabScene tab="inbox">
+            <View testID="inbox-screen" />
+        </TabScene>
+    )
 }
 
 function PublishingChatsStub(): ReactElement {
     useTabHeader('chats', LIST_SLOT)
-    return <View testID="chats-screen" />
+    return (
+        <TabScene tab="chats">
+            <View testID="chats-screen" />
+        </TabScene>
+    )
 }
 
 function PublishingViewsStub(): ReactElement {
@@ -92,16 +123,22 @@ function PublishingViewsStub(): ReactElement {
         status: 'Updated 2 min ago',
         editPins: { disabled: false, onPress: () => undefined },
     })
-    return <View testID="views-screen" />
+    return (
+        <TabScene tab="views">
+            <View testID="views-screen" />
+        </TabScene>
+    )
 }
 
 function InboxWithMenuStub(): ReactElement {
     return (
-        <View testID="inbox-screen">
-            <OverlayPortal>
-                <Text testID="scene-menu">Menu</Text>
-            </OverlayPortal>
-        </View>
+        <TabScene tab="inbox">
+            <View testID="inbox-screen">
+                <OverlayPortal>
+                    <Text testID="scene-menu">Menu</Text>
+                </OverlayPortal>
+            </View>
+        </TabScene>
     )
 }
 
@@ -163,12 +200,12 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
             act(() => useTabHeaderStore.getState().setSlot(otherTab, { ...LIST_SLOT, refreshing: true }))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
 
-            fireEvent.press(screen.getByTestId('start-refresh'))
+            fireEvent.press(within(screen.getByTestId(`${tab}-screen`)).getByTestId('start-refresh'))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(true)
             expect(screen.queryByTestId(`${tab}-refresh`)).toBeNull()
             expect(screen.getByTestId('tabs-more')).toBeTruthy()
 
-            fireEvent.press(screen.getByTestId('finish-refresh'))
+            fireEvent.press(within(screen.getByTestId(`${tab}-screen`)).getByTestId('finish-refresh'))
             expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
         }
     )
@@ -217,7 +254,6 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
             { initialUrl: '/inbox' }
         )
         expect(router.getSegments()).toEqual(['(tabs)', 'inbox'])
-        const bar = screen.getByTestId('inbox-nav-views')
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
@@ -225,7 +261,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(router.getSegments()).toEqual(['(tabs)', 'chats'])
         expect(screen.getByTestId('chats-screen')).toBeTruthy()
         expect(screen.getByTestId('inbox-nav-chat').props.accessibilityState).toEqual({ selected: true })
-        expect(screen.getByTestId('inbox-nav-views')).toBe(bar)
+        expect(screen.getAllByTestId('inbox-nav-views')).toHaveLength(1)
 
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
@@ -253,7 +289,6 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
             },
             { initialUrl: '/inbox' }
         )
-        const more = screen.getByTestId('tabs-more')
         const menuItems = (): { editPins: boolean; inbox: boolean } => {
             fireEvent.press(screen.getByTestId('tabs-more'))
             const menu = screen.getByTestId('nav-menu')
@@ -274,14 +309,14 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Views')
-        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
         expect(menuItems()).toEqual({ editPins: true, inbox: false })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Chats')
-        expect(screen.getByTestId('tabs-more')).toBe(more)
+        expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
         expect(menuItems()).toEqual({ editPins: false, inbox: false })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
     })

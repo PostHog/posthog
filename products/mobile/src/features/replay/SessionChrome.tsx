@@ -1,7 +1,9 @@
+import { Stack } from 'expo-router'
 import type { ReactElement } from 'react'
-import { View } from 'react-native'
+import { Platform, View } from 'react-native'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
+import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { ScreenChrome } from '@/ui/ScreenChrome'
@@ -26,6 +28,26 @@ export function SessionChrome({ onBack, onOpenFull, onMore, title }: SessionChro
             onBack={onBack}
             backTestID="replay-back"
             title={title}
+            nativeActions={
+                Platform.OS === 'ios' ? (
+                    <>
+                        {onOpenFull !== undefined ? (
+                            <Stack.Toolbar.Button
+                                icon={nativeIcons.external}
+                                accessibilityLabel="Open full replay"
+                                disabled={!onOpenFull}
+                                onPress={() => onOpenFull?.()}
+                            />
+                        ) : null}
+                        <Stack.Toolbar.Button
+                            icon={nativeIcons.more}
+                            accessibilityLabel="More"
+                            disabled={!onMore}
+                            onPress={() => onMore?.()}
+                        />
+                    </>
+                ) : null
+            }
             right={
                 <PillControl height={screenLayout.rowHeight}>
                     {onOpenFull !== undefined ? (

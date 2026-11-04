@@ -23,7 +23,7 @@ import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, type } from '@/ui/tokens'
-import { bottomOffset, tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { useScrollTitle } from '@/ui/useScrollTitle'
 
 import { useReplayContext, useSessionList } from './hooks'
@@ -62,6 +62,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const scrollTitle = useScrollTitle('Sessions')
     const back = useViewBack()
     const now = useNow()
@@ -105,7 +106,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const safeWebUrl = webUrl ? safeHttpsUrl(webUrl) : undefined
 
     const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
-    const contentBottom = chrome === 'tab' ? tabBottomOffset(insets) : bottomOffset(insets, STACK_BOTTOM)
+    const contentBottom = chrome === 'tab' ? tabBottom : bottomOffset(insets, STACK_BOTTOM)
     const header =
         chrome === 'stack' ? (
             <View style={styles.titleBlock}>

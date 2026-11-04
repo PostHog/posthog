@@ -10,7 +10,8 @@ export function adaptiveLayout(
     height: number,
     left: number,
     right: number,
-    regions: readonly ReservedRegion[] = []
+    regions: readonly ReservedRegion[] = [],
+    nativeRail = false
 ): {
     rail: boolean
     railSide: 'left' | 'right'
@@ -24,7 +25,10 @@ export function adaptiveLayout(
     const safeWidth = Math.max(0, width - left - right)
     const enoughHeight = height >= 480
     const rail =
-        enoughHeight && safeWidth >= 600 && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
+        !nativeRail &&
+        enoughHeight &&
+        safeWidth >= 600 &&
+        (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
     const contentWidth = Math.max(0, safeWidth - (rail ? NAV_RAIL_WIDTH : 0))
     const railSide = left > right ? 'left' : 'right'
     const panes = displayPanes(
@@ -53,7 +57,7 @@ export function adaptiveLayout(
         railSide,
         contentWidth,
         paired: detail ? foldPair : enoughHeight && contentWidth >= INBOX_PANE_WIDTH + REPORT_MIN_WIDTH,
-        reportNavigation: enoughHeight && (rail || contentWidth >= 600),
+        reportNavigation: !nativeRail && enoughHeight && (rail || contentWidth >= 600),
         inboxExtent: foldPair && primary ? (vertical ? primary.width : primary.height) : INBOX_PANE_WIDTH,
         paneGap: foldPair && primary && detail ? (vertical ? detail.x - primary.width : detail.y - primary.height) : 0,
         paneAxis: foldPair && !vertical ? 'column' : 'row',

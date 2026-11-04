@@ -18,7 +18,7 @@ import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
-import { tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
 import { openNavTarget } from '../../tabs/navPinRoutes'
@@ -126,6 +126,7 @@ export function ViewsScreen(): ReactElement {
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     useTabHeader('views', {
         hint: null,
         status: null,
@@ -136,10 +137,7 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     return (
         <View style={styles.screen} testID="views-screen">
             <View
-                style={[
-                    styles.fill,
-                    { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottomOffset(insets) },
-                ]}
+                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
             >
                 <ViewsReauthState access={access} />
             </View>
@@ -154,6 +152,7 @@ function ViewsBody(): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const context = useViewsContext()
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
@@ -813,7 +812,7 @@ function ViewsBody(): ReactElement {
         [startEditing, styles, colors]
     )
 
-    const contentBottom = tabBottomOffset(insets)
+    const contentBottom = tabBottom
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null

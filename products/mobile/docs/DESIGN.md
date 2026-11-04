@@ -112,10 +112,12 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   It retries the reveal as rows are measured, and stops if the reader starts scrolling.
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
   The report's inbox pane only prefetches while it is visible and its screen is focused.
-- iOS and Android retain the app's icon-only navigation pill, original glyphs, and separate Chat button.
-  In sufficiently tall, wide windows these controls form a rail; shorter windows keep horizontal navigation.
-  Tab titles keep the 28pt screen-title token and 18pt logomark. Headers use the app's existing blur and background palette.
-  Safe-area padding belongs to each scene, so backgrounds reach the edges while controls avoid system UI.
+- iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
+  They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
+  The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
+  Page titles, the logomark, and header backgrounds keep the app's original styling in every pose.
+  Regenerate native glyph images from their SVG components with `node scripts/make-navigation-icons.mjs` (`rsvg-convert` required).
 - Active division regions determine the inbox and report boundary, including a horizontal fold. Each pane must have enough
   reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
   Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
@@ -136,6 +138,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
   Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
   Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
+  Native rail actions switch to Close while an overlay is open, and native tabs are disabled.
   Row menus convert window measurements into overlay coordinates
   and close when their measured frame or reserved regions change, so a stale anchor cannot survive rotation.
 - Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.

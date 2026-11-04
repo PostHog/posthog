@@ -49,6 +49,7 @@ interface TabsHeaderProps {
     slot: TabHeaderSlot | null
     status: PostHogStatus
     onMore: () => void
+    nativeRail?: boolean
 }
 
 /**
@@ -61,6 +62,7 @@ export function TabsHeader({
     slot,
     status: { summary: statusUpdate, indicatorColor },
     onMore,
+    nativeRail = false,
 }: TabsHeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
@@ -108,7 +110,7 @@ export function TabsHeader({
                     </Text>
                 ) : null}
             </View>
-            {editing ? (
+            {nativeRail ? null : editing ? (
                 <Pressable44
                     onPress={editing.onDone}
                     accessibilityLabel="Done"

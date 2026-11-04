@@ -49,3 +49,12 @@ test('accounts for a leading navigation rail when positioning the fold', () => {
         ])
     ).toMatchObject({ rail: true, railSide: 'left', paired: true, inboxExtent: 320, paneGap: 20 })
 })
+
+test.each([0, 84])('leaves the rail to native navigation with a %spt leading safe area', (left) => {
+    expect(adaptiveLayout(951, 669, left, 84 - left, [], true)).toMatchObject({
+        rail: false,
+        contentWidth: 867,
+        reportNavigation: false,
+        paired: true,
+    })
+})

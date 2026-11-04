@@ -10,7 +10,9 @@ import { navListWebUrl } from '@/features/views/webLinks'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
+import { useNativeRail } from '@/ui/useNativeRail'
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
+import { NativeTabChrome } from './NativeTabChrome'
 import { NavMenu } from './NavMenu'
 import { changeNavPin } from './navPinActions'
 import { useNavPins } from './navPinStore'
@@ -18,6 +20,7 @@ import { TabsHeader } from './TabsHeader'
 import { useFocusedTabHeader } from './tabHeaderStore'
 
 export function TabsChrome(): ReactElement {
+    const nativeRail = useNativeRail()
     const router = useRouter()
     const viewer = useViewer()
     const { tab, slot } = useFocusedTabHeader()
@@ -69,7 +72,14 @@ export function TabsChrome(): ReactElement {
 
     return (
         <>
-            <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
+            {nativeRail ? <NativeTabChrome slot={slot} onMore={() => setMenuOpen(true)} /> : null}
+            <TabsHeader
+                tab={tab}
+                slot={slot}
+                status={status}
+                nativeRail={nativeRail}
+                onMore={() => setMenuOpen(true)}
+            />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}
