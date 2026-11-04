@@ -83,9 +83,9 @@ from products.cdp.backend.validation import (
     SecretBinding,
     added_duplicate_input_keys,
     compile_hog,
+    credential_move_needs_reauth,
     exposes_secret_dictionary_keys,
     generate_template_bytecode,
-    integration_link_needs_reauth,
     masked_dictionary_secret,
     masked_secret_input_keys,
     require_viewer_access_to_added_actions,
@@ -889,14 +889,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
-        self._require_recent_authentication_for_integration_links(attrs, instance)
+        self._require_recent_authentication_for_credential_moves(attrs, instance)
         return attrs
 
-    def _require_recent_authentication_for_integration_links(
-        self, attrs: dict, instance: Optional[HogFunction]
-    ) -> None:
-        # A stolen session cookie alone must not be enough to send a connected integration's
-        # credentials somewhere new.
+    def _require_recent_authentication_for_credential_moves(self, attrs: dict, instance: Optional[HogFunction]) -> None:
         current = SecretBinding(
             code=attrs.get("hog", instance.hog if instance else None),
             inputs=attrs.get("inputs") or {},
@@ -908,8 +904,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else None
         )
         inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-        if self.context.get("secret_binding_enforced") and integration_link_needs_reauth(
-            stored, current, inputs_schema
+        if self.context.get("secret_binding_enforced") and credential_move_needs_reauth(
+            stored,
+            current,
+            inputs_schema,
+            self.context.get("secret_bindings"),
+            self.context.get("kept_secret_keys", set()),
         ):
             require_recent_authentication(self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
 

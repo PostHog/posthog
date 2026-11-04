@@ -3,16 +3,14 @@ import { Locator, Page } from '@playwright/test'
 import { LOGIN_PASSWORD } from '../utils/playwright-test-core'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
-// A stored secret, and a linked integration's credentials, stay bound to the address they were
-// saved for. The backend decides that; these tests cover the part only a browser proves.
+// A stored secret, and a linked integration's credentials, move to a new address only from a
+// recent login. The backend decides that; these tests cover the part only a browser proves.
 //
-// Three things live above the API and nothing below this layer exercises them. The destination
-// editor must put the refusal on the field the person has to retype, not only in a toast that
-// loses which input it meant, and must not leave the rejected URL on screen as though it saved.
-// The workflow builder saves leniently, so there the stored secret is dropped rather than refused,
-// and the check is that it does not travel to the new address. And a save refused for a stale
-// session has to reach the shared re-authentication modal and come back from it, which spans the
-// kea error handler, the modal, the login endpoint and the retried save at once.
+// A save refused for a stale session has to reach the shared re-authentication modal and come back
+// from it, which spans the kea error handler, the modal, the login endpoint and the retried save
+// at once. That path has to work from both editors, because the workflow builder saves leniently
+// and could swallow the refusal, and the destination editor must leave the credential stored
+// rather than blank it after the retry.
 //
 // The templates below carry a real `fetch` call because the backend traces the template code to
 // work out which inputs reach a URL. A template whose code never fetches has no URL inputs to
@@ -24,9 +22,7 @@ const INTEGRATION_TEMPLATE_ID = 'template-integration-reauth-e2e'
 const ORIGINAL_URL = 'https://example.com/hooks'
 const REBOUND_URL = 'https://rebound.example.com/hooks'
 const SECRET_HEADER_VALUE = 'Bearer e2e-secret-binding-token-0000'
-const RETYPED_HEADER_VALUE = 'Bearer e2e-secret-binding-token-1111'
 
-const REBOUND_ERROR = 'The code or address that receives this secret changed. Enter the secret again.'
 const MASKED_MESSAGE = 'This value is secret and is not displayed here.'
 const REAUTH_TITLE = 'Re-authenticate for security'
 
@@ -40,10 +36,21 @@ function urlInput(page: Page): Locator {
     return page.getByTestId('cyclotron-job-input-url').getByRole('textbox')
 }
 
-function fieldError(page: Page, message: string): Locator {
-    // The save failure also raises a toast carrying the same sentence. Scoping to the errored field
-    // is the point of the check: the person has to know which input to retype.
-    return page.locator('.Field--error').filter({ hasText: message })
+async function reauthenticate(page: Page): Promise<void> {
+    await expect(page.getByRole('heading', { name: REAUTH_TITLE })).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('password').fill(LOGIN_PASSWORD)
+    await page.getByRole('button', { name: 'Re-authenticate' }).click()
+    await expect(page.getByRole('heading', { name: REAUTH_TITLE })).toBeHidden({ timeout: 30000 })
+}
+
+async function expireSession(
+    page: Page,
+    playwrightSetup: { expireSessionReauth: (key: string) => Promise<void> }
+): Promise<void> {
+    const cookies = await page.context().cookies()
+    const sessionCookie = cookies.find((cookie) => cookie.name.endsWith('sessionid'))
+    expect(sessionCookie, 'session cookie should be set after login').toBeTruthy()
+    await playwrightSetup.expireSessionReauth(sessionCookie!.value)
 }
 
 async function addSecretHeader(page: Page, value: string): Promise<void> {
@@ -184,8 +191,9 @@ test.describe('CDP secret binding', () => {
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
     })
 
-    test('a destination refuses a stored secret once its URL changes, and takes it again when retyped', async ({
+    test('a destination keeps its stored secret when a re-authenticated save moves it', async ({
         page,
+        playwrightSetup,
     }) => {
         await test.step('create a destination with a secret header', async () => {
             await page.goto(`/functions/new/${SECRET_TEMPLATE_ID}`)
@@ -198,31 +206,22 @@ test.describe('CDP secret binding', () => {
             await expect(page.getByText(MASKED_MESSAGE)).toBeVisible({ timeout: 15000 })
         })
 
-        await test.step('changing the URL while keeping the stored secret is refused on the field', async () => {
+        await test.step('changing the URL from a stale session asks for the password', async () => {
+            await expireSession(page, playwrightSetup)
             await urlInput(page).fill(REBOUND_URL)
             await page.getByRole('button', { name: /^Save/ }).first().click()
-            await expect(fieldError(page, REBOUND_ERROR)).toBeVisible({ timeout: 15000 })
+            await reauthenticate(page)
         })
 
-        await test.step('the refused URL was not stored', async () => {
-            await page.reload()
-            await expect(urlInput(page)).toHaveValue(ORIGINAL_URL, { timeout: 30000 })
-            await expect(page.getByText(MASKED_MESSAGE)).toBeVisible()
-        })
-
-        await test.step('retyping the secret lets the same change through', async () => {
-            await urlInput(page).fill(REBOUND_URL)
-            // The stored entries are not shown behind "Edit", so retyping means entering them again.
-            await page.getByRole('button', { name: 'Edit', exact: true }).click()
-            await addSecretHeader(page, RETYPED_HEADER_VALUE)
-            await page.getByRole('button', { name: /^Save/ }).first().click()
-            await expect(fieldError(page, REBOUND_ERROR)).toHaveCount(0, { timeout: 15000 })
+        await test.step('the new URL is stored and the secret is still there', async () => {
             await page.reload()
             await expect(urlInput(page)).toHaveValue(REBOUND_URL, { timeout: 30000 })
+            // Blanking the secret here would silently disable the webhook's auth on the next save.
+            await expect(page.getByText(MASKED_MESSAGE)).toBeVisible({ timeout: 15000 })
         })
     })
 
-    test('a workflow step drops its stored secret once its URL changes', async ({ page }) => {
+    test('a lenient workflow save surfaces the refusal instead of swallowing it', async ({ page, playwrightSetup }) => {
         const workflow = await postJson(
             page,
             `/api/environments/${workspace!.team_id}/hog_flows/`,
@@ -238,22 +237,19 @@ test.describe('CDP secret binding', () => {
             await expect(page.getByTestId('workflow-save')).toBeDisabled({ timeout: 15000 })
         })
 
-        await test.step('the stored secret does not follow the step to a new URL', async () => {
-            await page.reload()
-            await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 30000 })
-            await page.locator(`[data-testid="rf__node-${WEBHOOK_NODE_ID}"]`).click()
-            await expect(page.getByText(MASKED_MESSAGE)).toBeVisible({ timeout: 15000 })
+        await test.step('moving the step from a stale session asks for the password', async () => {
+            await expireSession(page, playwrightSetup)
             await urlInput(page).fill(REBOUND_URL)
             await page.getByTestId('workflow-save').click()
-            await expect(page.getByTestId('workflow-save')).toBeDisabled({ timeout: 15000 })
+            await reauthenticate(page)
         })
 
-        await test.step('the step kept the new URL and lost the secret', async () => {
+        await test.step('the step kept the new URL and its secret', async () => {
             await page.reload()
             await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 30000 })
             await page.locator(`[data-testid="rf__node-${WEBHOOK_NODE_ID}"]`).click()
             await expect(urlInput(page)).toHaveValue(REBOUND_URL, { timeout: 30000 })
-            await expect(page.getByText(MASKED_MESSAGE)).toHaveCount(0)
+            await expect(page.getByText(MASKED_MESSAGE)).toBeVisible({ timeout: 15000 })
         })
     })
 
@@ -275,25 +271,16 @@ test.describe('CDP secret binding', () => {
             inputs: { url: { value: ORIGINAL_URL }, connection: { value: integration.integration_id } },
         })
 
-        await test.step('age the session past the sensitive-action window', async () => {
-            const cookies = await page.context().cookies()
-            const sessionCookie = cookies.find((cookie) => cookie.name.endsWith('sessionid'))
-            expect(sessionCookie, 'session cookie should be set after login').toBeTruthy()
-            await playwrightSetup.expireSessionReauth(sessionCookie!.value)
-        })
-
         await test.step('redirecting the linked destination asks for the password again', async () => {
+            await expireSession(page, playwrightSetup)
             await page.goto(`/functions/${destination.id}`)
             await expect(urlInput(page)).toHaveValue(ORIGINAL_URL, { timeout: 30000 })
             await urlInput(page).fill(REBOUND_URL)
             await page.getByRole('button', { name: /^Save/ }).first().click()
-            await expect(page.getByRole('heading', { name: REAUTH_TITLE })).toBeVisible({ timeout: 15000 })
+            await reauthenticate(page)
         })
 
         await test.step('the save lands once the password is entered', async () => {
-            await page.getByTestId('password').fill(LOGIN_PASSWORD)
-            await page.getByRole('button', { name: 'Re-authenticate' }).click()
-            await expect(page.getByRole('heading', { name: REAUTH_TITLE })).toBeHidden({ timeout: 30000 })
             await page.reload()
             await expect(urlInput(page)).toHaveValue(REBOUND_URL, { timeout: 30000 })
         })

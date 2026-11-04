@@ -7280,8 +7280,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
             # A client that merges its new value into the masked object it read back must win over
             # the stored value - silently keeping the old token makes rotations appear to succeed.
             ("mask_with_new_value_replaces", {"secret": True, "value": "ROTATED"}, "ROTATED"),
-            ("new_url_drops_mask", {"secret": True}, None, "https://attacker.example.com"),
-            ("new_url_with_new_value_replaces", {"value": "ROTATED"}, "ROTATED", "https://attacker.example.com"),
+            # A fresh session may move the stored secret, so the mask still resolves to it.
+            ("new_url_keeps_mask", {"secret": True}, "SUPER-SECRET", "https://new.example.com"),
+            ("new_url_with_new_value_replaces", {"value": "ROTATED"}, "ROTATED", "https://new.example.com"),
         ]
     )
     def test_secret_update(self, _name, api_key_input, expected_stored, url=None):
@@ -7310,8 +7311,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("remove_entry", {"A": "********"}, None, {"A": "a-old"}),
             # A failed validation keeps the raw inputs, so the masks must still turn back into stored values.
             ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, "headers", {"A": "a-old", "C": "c-new"}),
-            # Unless the URL changed: the stored entries were never meant for the new address.
-            ("add_entry_lenient_save_new_url", {"A": "********", "C": "c-new"}, "url", {"C": "c-new"}),
+            (
+                "add_entry_lenient_save_new_url",
+                {"A": "********", "C": "c-new"},
+                "url",
+                {"A": "a-old", "C": "c-new"},
+            ),
         ]
     )
     def test_secret_header_edit_keeps_the_entries_it_does_not_change(
@@ -7345,11 +7350,21 @@ class TestHogFlowSecretInputs(APIBaseTest):
         [
             ("create", None, 403),
             ("headers_change", {"headers": {"value": {"X-Note": "changed"}}}, 200),
-            ("url_change", {"url": {"value": "https://attacker.example.com"}}, 403),
-            ("unlink", {"connection": {"value": None}, "url": {"value": "https://new.example.com"}}, 200),
+            ("url_change", {"url": {"value": "https://new.example.com"}}, 403),
+            ("unlink", {"connection": {"value": None}}, 200),
+            # Nothing is linked any more, but the step's own stored secret still moves.
+            (
+                "unlink_and_redirect",
+                {
+                    "connection": {"value": None},
+                    "url": {"value": "https://new.example.com"},
+                    "api_key": {"secret": True},
+                },
+                403,
+            ),
         ]
     )
-    def test_integration_link_needs_recent_authentication(
+    def test_credential_move_needs_recent_authentication(
         self, _name: str, input_changes: Optional[dict], expected_status: int
     ) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})

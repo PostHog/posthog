@@ -275,7 +275,7 @@ from products.workflows.backend.facade.schedules import (
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     action_bindings,
-    action_integration_link_needs_reauth,
+    action_credential_move_needs_reauth,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
@@ -2284,27 +2284,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                        kept_secret_keys = function_config_serializer.context.get("kept_secret_keys", set())
                     else:
-                        recover_or_drop_masked_inputs(
+                        kept_secret_keys = recover_or_drop_masked_inputs(
                             inputs,
                             {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
                             (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
-                            bindings=(self.context.get("existing_secret_bindings") or {}).get(data.get("id"))
-                            if enforced
-                            else None,
-                            code=template.code,
                         )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    kept_secret_keys = function_config_serializer.context.get("kept_secret_keys", set())
 
-                # A stolen session cookie alone must not be enough to send a connected
-                # integration's credentials somewhere new.
-                if enforced and action_integration_link_needs_reauth(
+                if enforced and action_credential_move_needs_reauth(
                     (self.context.get("stored_action_bindings") or {}).get(data.get("id")),
                     template.code,
                     data["config"].get("inputs"),
                     input_schema,
+                    (self.context.get("existing_secret_bindings") or {}).get(data.get("id")),
+                    kept_secret_keys,
                 ):
                     require_recent_authentication(
                         self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE

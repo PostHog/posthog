@@ -3,12 +3,10 @@ from typing import Any, Optional
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.validation import (
-    MASKED_SECRET_VALUE,
     SecretBinding,
+    credential_move_needs_reauth,
     exposes_secret_dictionary_keys,
-    integration_link_needs_reauth,
     masked_dictionary_secret,
-    rebound_secret_keys,
     restore_masked_dictionary_entries,
     secret_binding_enforced,  # noqa: F401 - re-exported through the facade
 )
@@ -128,42 +126,34 @@ def action_bindings(actions: Any, template_cache: Optional[TemplateCache] = None
     return result
 
 
-def action_integration_link_needs_reauth(
-    stored: Optional[SecretBinding], code: Optional[str], inputs: Any, inputs_schema: Any
+def action_credential_move_needs_reauth(
+    stored: Optional[SecretBinding],
+    code: Optional[str],
+    inputs: Any,
+    inputs_schema: Any,
+    bindings: Optional[dict[str, SecretBinding]] = None,
+    kept_secret_keys: Optional[set[str]] = None,
 ) -> bool:
     current = SecretBinding(code=code, inputs=inputs if isinstance(inputs, dict) else {})
-    return integration_link_needs_reauth(stored, current, inputs_schema)
+    return credential_move_needs_reauth(stored, current, inputs_schema, bindings, kept_secret_keys)
 
 
-def recover_or_drop_masked_inputs(
-    inputs: Any,
-    secret_keys: set[str],
-    existing: dict,
-    bindings: Optional[dict[str, SecretBinding]] = None,
-    code: Optional[str] = None,
-) -> None:
+def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> set[str]:
     # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
     # read-back marker in that raw payload must never persist as a stored value - the worker would
     # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
     # reject every request). Swap it for the stored secret, or drop the key when there is none.
+    # Returns the keys that took a stored value back.
+    kept: set[str] = set()
     if not isinstance(inputs, dict):
-        return
-    # A secret saved for another code or address is dropped rather than recovered, so the draft does
-    # not carry it to where it was never meant to go.
-    rebound = rebound_secret_keys(inputs, [{"key": key, "secret": True} for key in secret_keys], bindings or {}, code)
+        return kept
     for key in secret_keys:
         value = inputs.get(key)
-        if key in rebound and isinstance(value, dict):
-            entries = value.get("value")
-            if isinstance(entries, dict):
-                value["value"] = {entry: v for entry, v in entries.items() if v != MASKED_SECRET_VALUE}
-            elif value.get("secret") and ("value" not in value or entries == MASKED_SECRET_VALUE):
-                inputs.pop(key, None)
-            continue
         if isinstance(value, dict) and value.get("secret") and "value" not in value:
             stored = existing.get(key)
             if stored:
                 inputs[key] = stored
+                kept.add(key)
             else:
                 inputs.pop(key, None)
         elif isinstance(value, dict):
@@ -173,7 +163,10 @@ def recover_or_drop_masked_inputs(
             if isinstance(restored.get("value"), dict):
                 for entry in missing:
                     restored["value"].pop(entry, None)
+            if restored != value:
+                kept.add(key)
             inputs[key] = restored
+    return kept
 
 
 def mask_secret_action_inputs(

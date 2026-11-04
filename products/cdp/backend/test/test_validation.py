@@ -21,6 +21,7 @@ from products.cdp.backend.validation import (
     RecordAliasRewriter,
     SecretBinding,
     compile_hog,
+    credential_move_needs_reauth,
     fetch_url_input_keys,
     generate_template_bytecode,
     integration_link_needs_reauth,
@@ -1701,3 +1702,26 @@ class TestSecretBinding(SimpleTestCase):
         stored = SecretBinding(code=self.CODE, inputs={**self.STORED.inputs, "connection": {"value": 1}})
         current = SecretBinding(code=code or self.CODE, inputs={**stored.inputs, **input_changes}, mappings=mappings)
         assert integration_link_needs_reauth(stored, current, self.INTEGRATION_SCHEMA) is expected
+
+    SECRET_SCHEMA = [
+        {"key": "host", "type": "string"},
+        {"key": "body", "type": "string"},
+        {"key": "api_key", "type": "string", "secret": True},
+    ]
+
+    @parameterized.expand(
+        [
+            ("body_change", {"body": {"value": "b"}}, {"api_key"}, False),
+            ("host_change_keeping_the_secret", {"host": {"value": "new.example.com"}}, {"api_key"}, True),
+            # Entering the secret again in this save moves nothing, so it asks for no login.
+            ("host_change_entering_the_secret", {"host": {"value": "new.example.com"}}, set(), False),
+            ("host_change_nothing_stored", {"host": {"value": "new.example.com"}}, {"other"}, False),
+        ]
+    )
+    def test_moving_a_typed_secret_needs_reauth_without_any_integration(
+        self, _name: str, input_changes: dict, kept: set[str], expected: bool
+    ) -> None:
+        stored = SecretBinding(code=self.CODE, inputs=self.STORED.inputs)
+        current = SecretBinding(code=self.CODE, inputs={**self.STORED.inputs, **input_changes})
+
+        assert credential_move_needs_reauth(stored, current, self.SECRET_SCHEMA, {"api_key": stored}, kept) is expected
