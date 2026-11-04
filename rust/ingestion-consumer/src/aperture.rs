@@ -9,30 +9,33 @@
 //! what keeps sub-batches consolidated. Modeled on Finagle's deterministic
 //! aperture.
 //!
-//! The ring is measured in units: each worker spans `peer_count` units, so the
-//! ring is `ring_len x peer_count` units long. Peer `i`'s arc starts at unit
-//! `i x ring_len` and is `m x ring_len` units long, where
-//! `m = ceil(min_width x peer_count / ring_len)`. So the arcs start at equal
-//! distances, every unit is under exactly `m` arcs, and every worker gets the
-//! same total weight, `m x peer_count`, from the fleet. A worker gets the
-//! weight of the units of it that the arc covers, so a worker at an end of the
-//! arc gets a smaller share of this consumer's requests.
+//! The ring is measured in units: each worker spans `peer_count` units. Peer
+//! `i`'s arc starts at unit `i x ring_len`, so the arcs start at equal
+//! distances, and its length is a multiple of `ring_len` units. So every unit
+//! is under the same number of arcs. A worker's weight is the number of its
+//! units under the arc, so every worker gets the same total weight from the
+//! fleet. With 7 workers, 3 peers, and arcs of 7 units:
+//!
+//! | peer | arc   | weights          |
+//! |------|-------|------------------|
+//! | 0    | 0-7   | w0 3, w1 3, w2 1 |
+//! | 1    | 7-14  | w2 2, w3 3, w4 2 |
+//! | 2    | 14-21 | w4 1, w5 3, w6 3 |
 //!
 //! Unroutable ring positions (unhealthy or draining workers) are skipped and
 //! the arc extends further around the ring, so the *effective* width holds
 //! under partial failure.
 
 use std::collections::HashSet;
+use std::iter;
 use std::num::NonZeroU64;
 
 use crate::routing::Candidate;
 use crate::worker_registry::WorkerId;
 
-/// The weighted candidate workers for one assignment round: walk the ring
-/// from the start of this dispatcher's arc, giving each healthy worker the
-/// units of it that the arc covers, until the arc is used up or the ring is
-/// exhausted. `ring` is the canonically sorted full worker set; `healthy` the
-/// subset this dispatcher may route to.
+/// The weighted candidate workers for one assignment round. `ring` is the
+/// canonically sorted full worker set; `healthy` the subset this dispatcher
+/// may route to.
 ///
 /// Returns `None` (caller falls back to the full healthy pool) when the
 /// slice can't be computed: no peers known yet, an out-of-range index, or an
@@ -48,52 +51,73 @@ pub fn ring_slice(
     if ring.is_empty() || peer_count == 0 || index >= peer_count || min_width == 0 {
         return None;
     }
+    let arc = Arc::new(ring.len(), peer_count, index, min_width);
+    let healthy: HashSet<&WorkerId> = healthy.iter().collect();
 
-    let ring_len = ring.len() as u64;
-    let peers = peer_count as u64;
-    let multiple = (min_width as u64 * peers)
-        .div_ceil(ring_len)
-        .clamp(1, peers);
-    let start = index as u64 * ring_len;
-    let first = (start / peers) as usize;
-    let mut remaining = multiple * ring_len;
-
-    let full_weight = NonZeroU64::new(peers)?;
-    let healthy_set: HashSet<&WorkerId> = healthy.iter().collect();
-    let mut candidates: Vec<Candidate> = Vec::new();
-    // One step past a full turn: an arc that ends in its first worker covers
-    // the units of that worker before the start.
-    for offset in 0..=ring.len() {
-        if remaining == 0 {
+    let mut weights: Vec<(usize, u64)> = Vec::new();
+    let mut units_left = arc.len;
+    for (position, span) in arc.spans(ring.len()) {
+        if units_left == 0 {
             break;
         }
-        let worker = &ring[(first + offset) % ring.len()];
-        if !healthy_set.contains(worker) {
+        if !healthy.contains(&ring[position]) {
             continue;
         }
-        let span = if offset == 0 {
-            peers - start % peers
-        } else if offset == ring.len() {
-            start % peers
-        } else {
-            peers
-        };
-        let Some(weight) = NonZeroU64::new(span.min(remaining)) else {
-            continue;
-        };
-        remaining -= weight.get();
-        match candidates.first_mut() {
-            Some(head) if offset == ring.len() && head.worker == *worker => {
-                head.weight = head.weight.saturating_add(weight.get());
-            }
-            _ => candidates.push(Candidate::new(worker.clone(), weight, full_weight)),
+        let units = span.min(units_left);
+        units_left -= units;
+        match weights.first_mut() {
+            Some((first, first_units)) if *first == position => *first_units += units,
+            _ => weights.push((position, units)),
         }
     }
 
-    if candidates.is_empty() {
-        return None;
+    let full_weight = NonZeroU64::new(arc.units_per_worker)?;
+    let candidates: Vec<Candidate> = weights
+        .into_iter()
+        .filter_map(|(position, units)| {
+            let weight = NonZeroU64::new(units)?;
+            Some(Candidate::new(ring[position].clone(), weight, full_weight))
+        })
+        .collect();
+    (!candidates.is_empty()).then_some(candidates)
+}
+
+/// One peer's arc of the ring, in units.
+struct Arc {
+    units_per_worker: u64,
+    start: u64,
+    len: u64,
+}
+
+impl Arc {
+    /// The arc is the smallest multiple of `ring_len` units that covers
+    /// `min_width` workers, and at most the whole ring.
+    fn new(ring_len: usize, peer_count: usize, index: usize, min_width: usize) -> Self {
+        let units_per_worker = peer_count as u64;
+        let spacing = ring_len as u64;
+        let multiple = (min_width as u64 * units_per_worker)
+            .div_ceil(spacing)
+            .clamp(1, units_per_worker);
+        Self {
+            units_per_worker,
+            start: index as u64 * spacing,
+            len: multiple * spacing,
+        }
     }
-    Some(candidates)
+
+    /// The ring positions in walk order from the worker that holds `start`,
+    /// each with its units from the walk point on. That worker comes again
+    /// last with its units before `start`. Only an arc as long as the ring
+    /// gets to them.
+    fn spans(&self, ring_len: usize) -> impl Iterator<Item = (usize, u64)> + '_ {
+        let first = (self.start / self.units_per_worker) as usize;
+        let before_start = self.start % self.units_per_worker;
+        let whole =
+            (1..ring_len).map(move |offset| ((first + offset) % ring_len, self.units_per_worker));
+        iter::once((first, self.units_per_worker - before_start))
+            .chain(whole)
+            .chain(iter::once((first, before_start)))
+    }
 }
 
 /// The canonical worker ring: the full registered set, sorted. All dispatchers
