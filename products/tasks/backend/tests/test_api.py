@@ -128,6 +128,7 @@ from products.tasks.backend.presentation.serializers import (
 )
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
@@ -2296,6 +2297,33 @@ class TestTaskAPI(BaseTaskAPITest):
         assert run.state["reasoning_effort"] == "high"
         mock_warm.assert_not_called()
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("explicit_list", ["feature_flag:read", "feature_flag_rollout_plan:write"]),
+            ("run_source_default", None),
+        ]
+    )
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    def test_scheduled_resume_keeps_the_scopes_server_code_chose(self, _name, scopes):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        result = tasks_facade.run_task(
+            task.id,
+            self.team.id,
+            self.user.id,
+            validated_data={
+                "mode": "background",
+                "resume_from_run_id": str(previous_run.id),
+                "scheduled_at": django_timezone.now() + timedelta(days=1),
+            },
+            posthog_mcp_scopes=scopes,
+        )
+
+        run = TaskRun.objects.get(id=result.run_id)
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == (scopes if scopes is not None else "full")
+        assert dispatched_run_scopes(task, run.state) == (scopes if scopes is not None else "full")
 
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     @patch(

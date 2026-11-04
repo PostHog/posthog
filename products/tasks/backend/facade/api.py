@@ -63,7 +63,7 @@ from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, PosthogMcpScopes
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -6675,6 +6675,7 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
+    posthog_mcp_scopes: PosthogMcpScopes | None = None,
 ) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
@@ -6688,8 +6689,8 @@ def _trigger_task_processing_workflow(
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
+    if posthog_mcp_scopes is None:
+        posthog_mcp_scopes = mcp_scopes_for_run_source(parse_run_state(run.state).run_source)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -9577,10 +9578,12 @@ def run_task(
     warm_retry_token: str | None = None,
     pipeline_rerun: bool = False,
     free_trial_enabled: bool | None = None,
+    posthog_mcp_scopes: PosthogMcpScopes | None = None,
 ) -> contracts.TaskRunResult | None:
     """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
     The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
+    ``posthog_mcp_scopes`` replaces the scopes the run source would give the run. Only server code sets it.
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -9729,6 +9732,7 @@ def run_task(
         None
         if pipeline_rerun
         or scheduled_at is not None
+        or posthog_mcp_scopes is not None
         or run_source == RunSource.AGENT
         or validated_data.get("client_platform") == "mobile"
         else _idling_warm_run_for_task(task)
@@ -10101,7 +10105,9 @@ def run_task(
         extra_state["pending_dispatch"] = {
             "user_id": user_id,
             "create_pr": True,
-            "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
+            "posthog_mcp_scopes": posthog_mcp_scopes
+            if posthog_mcp_scopes is not None
+            else mcp_scopes_for_run_source(run_source),
         }
     try:
         with transaction.atomic():
@@ -10166,9 +10172,12 @@ def run_task(
             initial_message=initial_message,
             initial_artifact_ids=pending_user_artifact_ids,
             raise_on_error=False,
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
     else:
-        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(
+            task, task_run, user_id, raise_on_error=False, posthog_mcp_scopes=posthog_mcp_scopes
+        )
 
     try:
         if run_error is None:
