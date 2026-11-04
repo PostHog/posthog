@@ -28,10 +28,10 @@ from products.alerts.backend.platform_cutover import insight_state_of_platform
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY
 from products.alerts_platform.backend.facade.api import (
-    check_page_by_legacy_id,
-    checks_with_detail_by_legacy_id,
-    last_check_by_legacy_id,
-    runtime_by_legacy_id,
+    check_page_by_public_id,
+    checks_with_detail_by_public_id,
+    last_check_by_public_id,
+    runtime_by_public_id,
     source_suppressed_holds_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
@@ -61,9 +61,9 @@ def moved_alert_statuses(*, team_id: int, alert_ids: Sequence[UUID], now: dateti
     if not snoozed_until:
         return {}
     moved = list(snoozed_until)
-    runtime = runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=moved)
+    runtime = runtime_by_public_id(team_id=team_id, public_ids=moved)
     try:
-        last_checks = last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=moved)
+        last_checks = last_check_by_public_id(team_id=team_id, public_ids=moved)
     except Exception as error:
         capture_exception(error, additional_properties={"team_id": team_id})
         last_checks = {}
@@ -104,9 +104,9 @@ def moved_alert_check_page(
     if not AlertConfiguration.objects.filter(team_id=team_id, id=alert_id, owner=PlatformAlertOwner.PLATFORM).exists():
         return None
     try:
-        page = check_page_by_legacy_id(
+        page = check_page_by_public_id(
             team_id=team_id,
-            legacy_configuration_id=alert_id,
+            public_id=alert_id,
             since=since or _EARLIEST,
             # The platform's window leaves out its end, and the API's keeps a check made at that moment.
             until=until + timedelta(microseconds=1) if until is not None else _LATEST,
@@ -163,9 +163,9 @@ def moved_alert_fired_checks(
         return {}
     since = {alert_id: max(at, not_before) if not_before is not None else at for alert_id, at in moved_at.items()}
     try:
-        checks = checks_with_detail_by_legacy_id(
+        checks = checks_with_detail_by_public_id(
             team_id=team_id,
-            legacy_configuration_ids=list(since),
+            public_ids=list(since),
             detail_paths=[(FIRED_DATES_KEY,), *([AI_REASON_PATH] if ai_verdicts_only else [])],
             since=min(since.values()),
             limit=limit,

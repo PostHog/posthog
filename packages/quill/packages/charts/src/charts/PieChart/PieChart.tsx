@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useRef } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
@@ -191,14 +191,6 @@ function PieChartInner<Meta = unknown>({
     // drawHover for why it can't be read straight off hoverProgress.
     const dimRef = useRef(0)
 
-    const drawStatic = useCallback((args: ChartDrawArgs) => {
-        const layout = getLayoutFromArgs<Meta>(args)
-        if (!layout) {
-            return
-        }
-        drawSlices(args.ctx, layout, { outerRadiusBoost: 0 })
-    }, [])
-
     const drawHover = useCallback(
         (args: ChartDrawArgs): boolean => {
             const layout = getLayoutFromArgs<Meta>(args)
@@ -240,24 +232,20 @@ function PieChartInner<Meta = unknown>({
         [effectiveHoverGrowth]
     )
 
-    const renderTooltip = useMemo(
-        () =>
-            tooltip ??
-            ((ctx: TooltipContext<Meta>): React.ReactNode => (
-                <PieTooltip ctx={ctx} valueFormatter={valueFormatter} isPercent={isPercent} />
-            )),
-        [tooltip, valueFormatter, isPercent]
-    )
-
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
             <RadialChart<Meta>
                 series={visibleSeries}
                 theme={theme}
                 buildLayout={buildLayout}
-                drawStatic={drawStatic}
+                drawStatic={drawPieStatic}
                 drawHover={drawHover}
-                tooltip={renderTooltip}
+                tooltip={
+                    tooltip ??
+                    ((ctx: TooltipContext<Meta>): React.ReactNode => (
+                        <PieTooltip ctx={ctx} valueFormatter={valueFormatter} isPercent={isPercent} />
+                    ))
+                }
                 showTooltip={showTooltip}
                 onSliceClick={onSliceClick}
                 hitOuterSlack={effectiveHoverGrowth}
@@ -296,6 +284,14 @@ function PieCenterLabel({ children }: { children: React.ReactNode }): React.Reac
 function getLayoutFromArgs<Meta>(args: ChartDrawArgs): PieLayout<Meta> | null {
     const priv = args.scales._private as { __radialChart?: { layout: PieLayout<Meta> } } | undefined
     return priv?.__radialChart?.layout ?? null
+}
+
+function drawPieStatic(args: ChartDrawArgs): void {
+    const layout = getLayoutFromArgs(args)
+    if (!layout) {
+        return
+    }
+    drawSlices(args.ctx, layout, { outerRadiusBoost: 0 })
 }
 
 interface DrawSlicesOptions {
