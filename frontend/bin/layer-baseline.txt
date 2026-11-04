@@ -5,8 +5,6 @@
 # Fixed one? Run `hogli lint:frontend-layers --prune-baseline` to drop it.
 frontend/src/layout/ErrorProjectUnavailable.tsx -> frontend/src/scenes/organization/CreateOrganizationModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/authentication/two-factor-setup/TwoFactorSetupModal.tsx
-frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
-frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
@@ -102,7 +100,6 @@ frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend
 frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/Alerting/AlertWizard/steps/DestinationStep.tsx -> frontend/src/scenes/hog-functions/configuration/HogFunctionIcon.tsx
 frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> products/annotations/frontend/components/AnnotationModal.tsx
 frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> products/annotations/frontend/logics/annotationModalLogic.ts
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightVizDataLogic.ts
@@ -319,7 +316,6 @@ frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters
 frontend/src/models/cohortsModel.ts -> products/persons/frontend/logics/personsLogic.tsx
 frontend/src/models/insightsModel.tsx -> frontend/src/scenes/insights/utils/api.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/analytics/analyticsBackLink.ts
-frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/Notebook/notebookLogic.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookTemplates/notebookTemplates.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/types.ts

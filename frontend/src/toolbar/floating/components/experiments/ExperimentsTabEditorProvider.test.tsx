@@ -52,4 +52,21 @@ describe('WebExperimentVariant', () => {
         expect(secondPanel).toHaveAttribute('aria-expanded', 'true')
         expect(within(secondPanel).getByText('Select element')).toBeInTheDocument()
     })
+
+    it('scopes the variant to the url you type', async () => {
+        setVariantTransforms(['.headline'])
+
+        // The renders of the tests above stay in the document, so the query takes this container only.
+        const { container } = render(
+            <ExperimentsTabEditorProvider>
+                <WebExperimentVariant variant="test" />
+            </ExperimentsTabEditorProvider>
+        )
+        await userEvent.type(within(container).getByPlaceholderText('https://example.com/pricing'), '/pricing')
+
+        expect(experimentsTabLogic.values.experimentForm.variants?.test.conditions).toEqual({
+            url: '/pricing',
+            urlMatchType: 'icontains',
+        })
+    })
 })

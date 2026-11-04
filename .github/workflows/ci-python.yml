@@ -777,7 +777,15 @@ jobs:
                       read -ra vendors <<< "$VENDORS"
                       targets=("${vendors[@]/#/$plugin_dir/}")
                   fi
-                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short
+                  status=0
+                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short || status=$?
+                  # Exit code 5 means pytest collected no tests. A scaffolded vendor stub has none yet,
+                  # so a vendors run that selects only stubs passes. A full run must still find tests.
+                  if [ "$status" -eq 5 ] && [ "$MODE" = "vendors" ]; then
+                      echo "The selected vendors have no tests: $VENDORS"
+                      exit 0
+                  fi
+                  exit "$status"
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always
