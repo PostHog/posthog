@@ -5508,28 +5508,41 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(name="No Start", feature_flag_key="ts-no-start")
 
         with self.assertRaises(ValidationError) as ctx:
-            service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+            service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert "not been started" in str(ctx.exception)
 
-    def test_get_timeseries_results_pending_when_no_records(self):
-        self._create_flag(key="ts-pending")
+    @parameterized.expand([("metric_on_the_experiment", True), ("metric_not_on_the_experiment", False)])
+    def test_get_timeseries_results_pending_when_no_records(self, _name: str, metric_on_experiment: bool) -> None:
+        self._create_flag(key=f"ts-pending-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Pending",
-            feature_flag_key="ts-pending",
+            feature_flag_key=f"ts-pending-{_name}",
             start_date=timezone.now() - timedelta(days=2),
             end_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if metric_on_experiment else None,
+            allow_unknown_events=True,
         )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert result["status"] == "pending"
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert len(result["timeseries"]) == 3
 
-    def test_get_timeseries_results_completed(self):
+    @parameterized.expand(
+        [
+            ("current_rows", ("current", "current"), "completed"),
+            # Rows under the inactive key version of the config render where no current row covers a day.
+            ("rows_of_the_other_key_version", ("other_version", "current"), "completed"),
+            ("rows_of_earlier_settings", ("earlier_settings", "current"), "partial"),
+        ]
+    )
+    def test_get_timeseries_results_completed(
+        self, _name: str, day_keys: tuple[str, str], expected_status: str
+    ) -> None:
         self._create_flag(key="ts-completed")
         service = self._service()
         now = timezone.now()
@@ -5541,14 +5554,23 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-completed",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
+        calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=experiment.pk), "m1")
+        assert calculation_config is not None
+        keys = {
+            "current": calculation_config.calculation_key(),
+            "other_version": calculation_config.key_for_version(2),
+            "earlier_settings": "a" * 64,
+        }
 
         # Create results whose query_to is midnight (exclusive end of each day)
-        for day_offset in range(2):
+        for day_offset, key_family in enumerate(day_keys):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=keys[key_family],
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5556,9 +5578,9 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
-        assert result["status"] == "completed"
+        assert result["status"] == expected_status
         assert result["computed_at"] is not None
 
     def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
@@ -5572,6 +5594,8 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-strip",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
@@ -5601,7 +5625,7 @@ class TestExperimentService(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=_calculation_key(experiment, "m1"),
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5609,7 +5633,7 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         for day_payload in result["timeseries"].values():
             if day_payload is None:
