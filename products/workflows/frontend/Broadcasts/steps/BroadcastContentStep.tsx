@@ -20,6 +20,7 @@ import {
     DEFAULT_BROADCAST_EMAIL,
     broadcastWizardLogic,
     getMissingSenderIds,
+    getSandboxSenderIds,
     getSenderIds,
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
@@ -46,10 +47,12 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = ownEmailIntegrations.length > 0
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
-    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
-    const missingSenderIds = integrations ? getMissingSenderIds(email.from, integrations) : []
-    const remainingSenderIds = getSenderIds(email.from).filter((id) => !missingSenderIds.includes(id))
-    const editorValue = missingSenderIds.length
+    // A deleted or sandbox sender would otherwise show as its bare id, so the picker leaves it out.
+    const hiddenSenderIds = integrations
+        ? [...getMissingSenderIds(email.from, integrations), ...getSandboxSenderIds(email.from, integrations)]
+        : []
+    const remainingSenderIds = getSenderIds(email.from).filter((id) => !hiddenSenderIds.includes(id))
+    const editorValue = hiddenSenderIds.length
         ? {
               ...email,
               from: {
