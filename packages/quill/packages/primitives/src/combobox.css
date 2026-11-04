@@ -132,8 +132,10 @@
      * keeps Button's own padding. The gutter is the row's padding, an icon and
      * the item's gap, so an option's content starts exactly where an action
      * row's label does. The gap lives in one variable, so the two cannot drift.
+     * A Combobox can also sit in a menu's submenu, with no popup of its own.
      */
-    .quill-combobox__content .quill-combobox__item:not([data-action]) {
+    :is(.quill-combobox__content, .quill-menu__content, .quill-menu__sub-content)
+        .quill-combobox__item:not([data-action]) {
         /* Button's row padding and row icon size, then the item's gap. */
         padding-inline-start: calc(0.5rem + 0.875rem + var(--quill-combobox-item-gap));
     }
