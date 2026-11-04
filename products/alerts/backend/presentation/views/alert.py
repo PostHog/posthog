@@ -92,9 +92,11 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLMAlertWrite,
     LLMDetectorError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
     assign_alert_owner,
@@ -599,7 +601,12 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in ("email_unavailable", "invalid_configuration", LLM_DETECTOR_UNAVAILABLE_ERROR_CODE):
+        if code in (
+            "email_unavailable",
+            "invalid_configuration",
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            LLM_DETECTOR_PAUSED_ERROR_CODE,
+        ):
             return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
@@ -2094,6 +2101,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 alert_id=alert_id,
             )
         except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
+            raise ValidationError(str(e))
+        except LLMDetectorPausedError as e:
+            # A 503 tells the user to try again in a moment, which cannot help until access or credits return.
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)

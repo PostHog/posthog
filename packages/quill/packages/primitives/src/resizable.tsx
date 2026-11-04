@@ -1,8 +1,9 @@
+import './resizable.css'
+
 import * as React from 'react'
 import * as ResizablePrimitive from 'react-resizable-panels'
 
 import { cn } from './lib/utils'
-import './resizable.css'
 
 function ResizablePanelGroup({ className, ...props }: ResizablePrimitive.GroupProps): React.ReactElement {
     return (
@@ -61,14 +62,20 @@ function ResizableHandle({
  */
 const ResizeGrip = React.forwardRef<
     HTMLDivElement,
-    React.ComponentProps<'div'> & { orientation?: 'vertical' | 'horizontal'; withHandle?: boolean }
->(function ResizeGrip({ orientation = 'vertical', withHandle = true, className, ...props }, ref) {
+    React.ComponentProps<'div'> & {
+        orientation?: 'vertical' | 'horizontal'
+        withHandle?: boolean
+        /** `sm` is a shorter, thinner handle for a tight edge, such as a table header. */
+        size?: 'default' | 'sm'
+    }
+>(function ResizeGrip({ orientation = 'vertical', withHandle = true, size = 'default', className, ...props }, ref) {
     return (
         <div
             ref={ref}
             role="separator"
             aria-orientation={orientation}
             data-slot="resize-grip"
+            data-size={size}
             className={cn(
                 'quill-resizable__handle flex items-center justify-center',
                 orientation === 'vertical' ? 'cursor-col-resize' : 'cursor-row-resize',
