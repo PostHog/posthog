@@ -34,6 +34,10 @@ _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 # metric names picker uses.
 _DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
+# Value search probes `attribute_value` with ILIKE %search%, which scans far more rows than the
+# key-only path. Require a meaningfully specific term, as logs and traces do.
+MIN_VALUE_SEARCH_LENGTH = 4
+
 # Autocomplete tolerates partial results, so reads break at the budget instead
 # of erroring the way the chart queries do.
 _QUERY_SETTINGS = HogQLGlobalSettings(
@@ -67,6 +71,7 @@ class MetricAttributeKeysQueryRunner:
         *,
         metric_name: str = "",
         search: str = "",
+        search_values: bool = False,
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
         limit: int = 100,
@@ -74,11 +79,21 @@ class MetricAttributeKeysQueryRunner:
         self.team = team
         self.metric_name = metric_name.strip()
         self.search = search.strip()
+        self.search_values = search_values
         self.bucket_date_from, self.date_to = _resolve_window(date_from, date_to)
         self.date_from = self.bucket_date_from + _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
 
+    def _should_search_values(self) -> bool:
+        return self.search_values and len(self.search) >= MIN_VALUE_SEARCH_LENGTH
+
     def run(self) -> list[dict[str, Any]]:
+        results = self._key_results()
+        if self._should_search_values():
+            results = self._with_value_matches(results)
+        return results
+
+    def _key_results(self) -> list[dict[str, Any]]:
         query = self._series_query() if self.metric_name else self._aggregate_query()
 
         response = execute_hogql_query(
@@ -94,6 +109,85 @@ class MetricAttributeKeysQueryRunner:
         if not results and (search_lower in "service_name" or search_lower in "service.name"):
             results.append({"name": "service_name", "value_count": 0})
         return results
+
+    def _with_value_matches(self, key_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # Keys whose name matches the search rank above keys that only match on a value, and a key
+        # the name search already found keeps that plain row, so it is not listed twice.
+        response = execute_hogql_query(
+            query_type="MetricAttributeValueSearchQuery",
+            query=self._value_matches_query(),
+            team=self.team,
+            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            settings=_QUERY_SETTINGS,
+        )
+
+        known_keys = {row["name"] for row in key_results}
+        value_results = [
+            {
+                "name": row[0],
+                "value_count": int(row[2]),
+                "matchedOn": "value",
+                "matchedValue": row[1] or None,
+            }
+            for row in response.results
+            if row[0] not in known_keys
+        ]
+        return (key_results + value_results)[: self.limit]
+
+    def _value_matches_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Keys whose *values* match the search, which the key-only queries cannot find. The
+        # synthetic service key is never an attribute row, so it gets its own branch.
+        return parse_select(
+            """
+                SELECT attribute_key, sample_value, value_count
+                FROM (
+                    SELECT
+                        attribute_key,
+                        argMax(attribute_value, attribute_count) AS sample_value,
+                        uniq(attribute_value) AS value_count
+                    FROM posthog.metric_attributes
+                    WHERE time_bucket >= {date_from}
+                      AND {metric_name_filter}
+                      AND attribute_key NOT IN ('service_name', 'service.name')
+                      AND attribute_value ILIKE {search_pattern}
+                    GROUP BY attribute_key
+
+                    UNION ALL
+
+                    SELECT
+                        if(has_dotted_service_name, 'service.name', 'service_name') AS attribute_key,
+                        any(service_name) AS sample_value,
+                        uniq(service_name) AS value_count
+                    FROM (
+                        SELECT service_name,
+                            max(attribute_type = 'resource' AND attribute_key = 'service.name') AS has_dotted_service_name
+                        FROM posthog.metric_attributes
+                        WHERE time_bucket >= {date_from}
+                          AND {metric_name_filter}
+                        GROUP BY metric_name, service_name
+                    )
+                    WHERE service_name ILIKE {search_pattern}
+                    GROUP BY attribute_key
+                )
+                ORDER BY value_count DESC, attribute_key ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.bucket_date_from),
+                "metric_name_filter": self._metric_name_filter(),
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
+
+    def _metric_name_filter(self) -> ast.Expr:
+        if not self.metric_name:
+            return ast.Constant(value=True)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["metric_name"]),
+            right=ast.Constant(value=self.metric_name),
+        )
 
     def _aggregate_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # Like the series query, the window end is not enforced: keys come from recent data.
@@ -156,11 +250,7 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
-                "metric_name_filter": ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["metric_name"]),
-                    right=ast.Constant(value=self.metric_name),
-                ),
+                "metric_name_filter": self._metric_name_filter(),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },
