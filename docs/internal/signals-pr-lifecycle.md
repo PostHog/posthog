@@ -154,6 +154,8 @@ The Monitoring schema includes both outcome and tracker-delivery metadata. Nulla
 
 The check coordinator dispatches one report-level assessment workflow per requested attempt. The worker uses the existing agent task machinery with read-only tools and saved final results. Each technical execution has a unique task origin key; collectors reconnect to its first run and reuse saved structured output. Up to three technical executions are allowed, each bounded to 30 minutes. A valid assessment ends the judgment loop even when it cannot establish success. Collector failures also have bounded retries and never launch a competing judgment while an earlier task may still run.
 
+Assessment MCP sessions remain read-only. Their separate runtime credential carries server-only `internal_run:write` for the registered sandbox's own run: log uploads, run summaries, schema-validated structured output, and restricted lifecycle updates. It cannot edit task configuration, create child tasks, cancel runs, or write inbox state. Summary tags stay on the run instead of changing task tags. The assessment consumer retains the current-attempt and evidence guards when deciding the report outcome.
+
 Assessment dispatch requires organization AI consent and uses at most a quarter of the coordinator's remaining budget, with a two-second connection/RPC cap per dispatch. Assessment tokens grant reads and their own run lifecycle only. The acting user's metric permissions filter the private task prompt. Tasks use that user's personal channel, which restricts commands and traces to that user. Assessment notes containing agent reasoning also require that user and their current source-data permissions, because additional evidence may come from beyond the original checks. Public task descriptions contain no metric evidence.
 
 Protected assessment notes are excluded from shared Today figure-mark sources.
@@ -624,6 +626,8 @@ After research completes, actionable reports can include a `Verification plan` n
 This final request is optional: if generation or note conversion fails, research still completes without the note.
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
+
+With Monitoring enabled, research authoring uses the fixed observation window for titles, verification prose, agent instructions, comparisons, and minimum sample requirements. `soak_hours` covers the entire interval from the recorded Monitoring start through start + `soak_hours`. PR completion uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts. Deployment uncertainty does not create an excluded buffer or a shorter trailing query. Baseline and target reference periods retain their independently measured durations.
 
 Verification proposals can name `existing_check_id` to revise an open check while preserving its remaining recurrence. An unchanged rounded `soak_hours` preserves the original minute precision; an explicitly changed wait replaces it. Equivalent default-valued config fields do not reset approval. Invalid stored configs do not prevent a valid proposal from replacing them. Presentation receives current checks as untrusted evidence, and verification can align the final Expected impact prose with its proposed metric goals.
 

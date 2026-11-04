@@ -38,10 +38,10 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
