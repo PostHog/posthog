@@ -742,8 +742,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -803,8 +804,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -966,8 +968,10 @@ def team_api_test_factory():
 
             self.team.refresh_from_db()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response_data["secret_api_token"], "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+            # Nothing was minted, so the response hides the primary like every other read.
+            self.assertIsNone(response_data["secret_api_token"])
             self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
             self._assert_activity_log(
                 [
@@ -4360,34 +4364,23 @@ class TestSecretApiTokenVisibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", None, [], True, True),
-            ("personal_api_key_project_read", "personal_api_key", ["project:read"], True, False),
+            ("session", None, []),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"]),
             (
-                "personal_api_key_mirrored_scopes_legacy_tokens_on",
+                "personal_api_key_mirrored_scopes",
                 "personal_api_key",
                 ["project:read", "feature_flag:read", "support_ticket:read"],
-                True,
-                False,
             ),
-            (
-                "personal_api_key_mirrored_scopes_legacy_tokens_off",
-                "personal_api_key",
-                ["project:read", "feature_flag:read", "support_ticket:read"],
-                False,
-                True,
-            ),
-            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True, True),
-            ("oauth_project_read", "oauth", ["project:read"], True, False),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"]),
+            ("oauth_project_read", "oauth", ["project:read"]),
         ]
     )
     @patch("posthog.event_usage.report_user_action")
-    def test_secret_api_tokens_are_visible_only_to_callers_that_hold_their_authority(
+    def test_secret_api_tokens_are_hidden_from_every_caller(
         self,
         _name: str,
         credential: str | None,
         scopes: list[str],
-        accept_team_secret_tokens: bool,
-        visible: bool,
         _mock_report_user_action: MagicMock,
     ) -> None:
         headers: dict[str, str] = {}
@@ -4400,14 +4393,32 @@ class TestSecretApiTokenVisibility(APIBaseTest):
             headers["authorization"] = f"Bearer {token}"
             self.client.logout()
 
-        with override_settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            responses = self._read_both_serializers(headers)
+        responses = self._read_both_serializers(headers)
 
-        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
         for serializer_name, response in responses.items():
             assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
             body = response.json()
-            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == (None, None), serializer_name
+
+    @patch("posthog.event_usage.report_user_action")
+    def test_project_rotation_shows_the_minted_token_once(self, _mock_report_user_action: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        old_primary = self.team.secret_api_token
+
+        rotate = self.client.patch(f"/api/projects/{self.project.id}/rotate_secret_token/")
+
+        assert rotate.status_code == status.HTTP_200_OK, rotate.json()
+        body = rotate.json()
+        assert body["secret_api_token"] is not None and body["secret_api_token"].startswith("phs_")
+        assert body["secret_api_token"] != old_primary
+        # The demoted backup stays hidden even in the show-once response.
+        assert body["secret_api_token_backup"] is None
+        self.team.refresh_from_db()
+        assert self.team.secret_api_token_backup == old_primary
+
+        read = self.client.get(f"/api/projects/{self.project.id}/")
+        assert (read.json()["secret_api_token"], read.json()["secret_api_token_backup"]) == (None, None)
 
     def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
         return {

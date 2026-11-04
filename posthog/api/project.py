@@ -52,7 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
-    hide_secret_api_tokens_from_unscoped_caller,
+    hide_secret_api_tokens,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -1018,7 +1018,7 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        hide_secret_api_tokens(representation)
         return representation
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
@@ -1970,7 +1970,11 @@ class ProjectViewSet(
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
-        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+        data = ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data
+        # Show-once: this response is the only read of the token this request minted; every other
+        # response nulls it. The demoted backup stays hidden because rotation often answers a leak.
+        data["secret_api_token"] = project.passthrough_team.secret_api_token
+        return response.Response(data)
 
     @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
     @action(

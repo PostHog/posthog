@@ -93,17 +93,13 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
 }
 
 export function FlagsSecureApiKeys(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    const hasLegacyKey = !!(currentTeam?.secret_api_token || currentTeam?.secret_api_token_backup)
-
     return (
         <LemonBanner type="warning">
             <p className="mb-1">
                 The feature flags secure API key is deprecated. Create a <strong>project secret API key</strong> with
                 the <strong>feature_flag:read</strong> scope (the "Local feature flag evaluation" preset) instead. It's
-                hashed at rest, scoped, and rotatable.
-                {hasLegacyKey && ' Your existing key keeps working, but it can no longer be viewed or rotated here.'}
+                hashed at rest, scoped, and rotatable. Existing keys keep working, but they can no longer be viewed or
+                rotated here.
             </p>
             <Link to={urls.settings('environment-secret-api-keys')}>Create a project secret API key</Link>
         </LemonBanner>
