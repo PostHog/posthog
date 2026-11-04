@@ -4,8 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
@@ -27,6 +27,7 @@ import {
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
+import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
 
 describe('inboxTaskKickoffLogic', () => {
@@ -600,10 +601,13 @@ describe('inboxTaskKickoffLogic', () => {
         it.each([
             [true, FREE_TRIAL_PR_DISABLED_REASON],
             [false, null],
-        ])('with the free trial flag %s, Create PR carries %s', (enabled, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL], {
-                [FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]: enabled,
+        ])('with the trial API restriction %s, Create PR carries %s', async (enabled, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/trial/': { legacy_pr_restricted: enabled },
+                },
             })
+            await selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).asyncActions.loadTrial()
             expect(logic.values.freeTrialDisabledReason).toBe(expected)
         })
     })

@@ -8,6 +8,7 @@ from products.signals.backend.presentation.onboarding import InboxOnboardingView
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.presentation.spend import SignalSourceSpendViewSet, SignalSpendViewSet
+from products.signals.backend.presentation.trial import SelfDrivingTrialViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
@@ -29,6 +30,7 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/source_spend", SignalSourceSpendViewSet, "project_signals_source_spend", ["team_id"]
     )
     routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(r"signals/trial", SelfDrivingTrialViewSet, "project_signals_trial", ["team_id"])
     routers.projects.register(
         r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
     )
