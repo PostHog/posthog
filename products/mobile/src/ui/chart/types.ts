@@ -1,6 +1,7 @@
 import type { Accent } from '@/model/types'
 
 export type ChartKind = 'line' | 'bar'
+export type BarLayout = 'grouped' | 'stacked'
 
 export type ChartInterval = 'hour' | 'day' | 'week' | 'month'
 
@@ -73,6 +74,7 @@ export interface ChartCanvasSlot {
 
 interface MetricChartBaseProps {
     kind: ChartKind
+    barLayout?: BarLayout
     interval: ChartInterval
     /** The chart's name, for the accessibility summary. With `points`, also the tooltip row label. */
     label: string
