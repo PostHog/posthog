@@ -968,6 +968,48 @@ class TestWorktreeAutoProvision:
         root = Path("/work") / worktree_name
         assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
 
+    @pytest.mark.parametrize(
+        "source_arg, enabled, expected_starts",
+        [
+            pytest.param("t3code", "t3code", 1, id="tool-hook-declares-an-enabled-source"),
+            pytest.param(None, "t3code", 0, id="husky-hook-sees-only-the-folder"),
+            pytest.param("t3code", "claude", 0, id="declared-source-not-enabled"),
+        ],
+    )
+    def test_auto_starts_at_most_one_box_per_worktree(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source_arg: str | None,
+        enabled: str,
+        expected_starts: int,
+    ) -> None:
+        root = tmp_path / "wt"
+        (root / "admin").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        devbox_config.save_worktree_auto_sources([enabled])
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        monkeypatch.setattr(devbox_worktree, "worktree_source", lambda root: "other")
+        starts: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def fake_popen(command: list[str], *args: object, **kwargs: object) -> object:
+            if "devbox:worktree" not in command:
+                return real_popen(command, *args, **kwargs)
+            starts.append(command)
+            return MagicMock()
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "Popen", fake_popen)
+        args = ["devbox:worktree:auto", *(["--source", source_arg] if source_arg else [])]
+
+        for _ in range(2):
+            result = runner.invoke(cli, args)
+            assert result.exit_code == 0, result.output
+
+        assert len(starts) == expected_starts
+
 
 class TestDevboxWorktreeCommand:
     @pytest.fixture

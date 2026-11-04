@@ -213,6 +213,9 @@ devbox:
     devbox:worktree:prune:
         click: hogli_commands.devbox.worktree:devbox_worktree_prune
         description: Stop or delete the devboxes of worktrees that t3code, herdr or git already removed
+    devbox:worktree:teardown:
+        click: hogli_commands.devbox.worktree:devbox_worktree_teardown
+        description: Stop the sync mirror and the devbox of this worktree before a tool removes it
     devbox:worktree:auto:
         click: hogli_commands.devbox.worktree:devbox_worktree_auto
         description: Start devbox:worktree in the background for a new worktree, if auto-provisioning is on
@@ -1328,4 +1331,8 @@ environment:
     lint:semgrep-ratchet:
         bin_script: semgrep_ratchet.py
         description: 'Compare semgrep findings per file with a checked-in baseline'
+        hidden: true
+    devbox:worktree:hook:
+        bin_script: devbox-worktree-hook
+        description: 'TODO: add description for devbox-worktree-hook'
         hidden: true

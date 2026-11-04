@@ -201,19 +201,23 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 ### Provision a box for every new worktree
 
 `hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
-The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code` (`$T3CODE_HOME/worktrees`, by default `~/.t3/worktrees`), `herdr` (`~/.herdr/worktrees`), and `other` for a worktree outside those folders.
-A t3code or herdr worktree in a custom folder set in that tool's settings counts as `other`.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, and `other` for a plain `git worktree add`.
 It only saves the setting, so run it from any checkout.
-After that, the husky `post-checkout` hook runs `hogli devbox:worktree -y` in the background each time `git worktree add` creates a worktree from one of those sources.
-That covers `claude -w`, Codex, PostHog Desktop, `phw`, t3code worktree threads, herdr worktrees, and a plain `git worktree add`.
-`worktrees:clean` never removes t3code or herdr worktrees, because those tools track and remove their own.
+Two triggers start `hogli devbox:worktree -y` in the background, and the first one for a worktree wins:
+
+- The husky `post-checkout` hook, for `claude`, `codex`, `posthog-code` and `phw`, which it recognizes by their worktree folders, and for `other`.
+- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for t3code (`t3.json`), Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`), Conductor (`.conductor/settings.toml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once.
+
+The script runs the main checkout's hogli, so pull the main checkout after a change to these commands.
 
 - Claude subagent worktrees (`.claude/worktrees/agent-*`) never get a box, so a fan-out of agents doesn't create one box per agent.
 - The hook returns at once. Output goes to `hogli-devbox-worktree.log` in the worktree's git directory. Read it with `cat "$(git rev-parse --git-dir)/hogli-devbox-worktree.log"`.
 - The hook skips the box when the main checkout has no Python environment to borrow, or when this worktree's `uv.lock` differs from the main checkout's.
 - Turn it off with `hogli devbox:worktree --auto off` or `hogli devbox:config:rm worktree-auto`.
 - Boxes keep running until `hogli worktrees:clean` removes their worktree, so pair this with `--on-clean stop`.
-- A worktree that another tool removes keeps its box running until `hogli devbox:worktree:prune` runs. herdr users can run it automatically: `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` installs a plugin that runs `devbox:worktree:prune --path <worktree>` on each `worktree.removed` event. t3code has no removal hook, so run `devbox:worktree:prune` by hand.
+- Superset, Emdash, Orca, Conductor and worktrunk run `bin/devbox-worktree-hook removing` before they delete or archive a worktree. It runs `hogli devbox:worktree:teardown --background`, which stops the mirror while the files still exist and then stops the box in the background (log: `~/.config/posthog/hogli-devbox-teardown.log`). Emdash also runs it when a task is archived and the worktree stays on disk.
+- herdr reports a removal only after the folder is gone, so its plugin runs `devbox:worktree:prune --path <worktree>`. t3code has no removal hook, so run `hogli devbox:worktree:prune` by hand.
+- A t3code worktree restored from a cleaned-up thread skips setup scripts, so it gets a box only when `other` is enabled.
 
 ## Other tasks
 

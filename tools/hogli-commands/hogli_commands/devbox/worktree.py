@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import hashlib
@@ -14,7 +15,7 @@ from typing import Any
 
 import click
 
-from ..worktrees import prune_boxes_of_removed_worktrees, worktree_source
+from ..worktrees import clean_registered_box, prune_boxes_of_removed_worktrees, teardown_worktree_box, worktree_source
 from . import hogland, mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
@@ -39,6 +40,7 @@ from .config import (
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
     ensure_worktree_id,
+    get_worktree_boxes_path,
     load_worktree_boxes,
     record_worktree_box,
     save_worktree_auto_sources,
@@ -57,6 +59,8 @@ _BRANCH_PREFIXES_TO_DROP = ("worktree-", "worktree/")
 _RESERVED_SUFFIXES = tuple(suffix for suffix in REGION_NAME_SUFFIXES.values() if suffix)
 _AUTO_OFF = "off"
 _AUTO_LOG_NAME = "hogli-devbox-worktree.log"
+_AUTO_STARTED_NAME = "hogli-devbox-worktree.auto-started"
+_TEARDOWN_LOG_NAME = "hogli-devbox-teardown.log"
 _SUBAGENT_WORKTREE_PREFIX = "agent-"
 
 
@@ -540,18 +544,92 @@ def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_ru
 
 
 @click.command(
+    name="devbox:worktree:teardown",
+    help="Stop the sync mirror and the devbox of this worktree before a tool such as Superset or Emdash removes it",
+)
+@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the box")
+@click.option("--delete", "action", flag_value="delete", help="Delete the box, including its disk")
+@click.option(
+    "--background",
+    is_flag=True,
+    help="Stop the mirror now and act on the box in a background process, to stay inside a tool's hook time limit",
+)
+@click.option("--box-of", "box_of", type=click.Path(path_type=Path), default=None, hidden=True)
+@click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
+def devbox_worktree_teardown(action: str | None, background: bool, box_of: Path | None, dry_run: bool) -> None:
+    box_action = action or saved_worktree_box_cleanup() or "stop"
+    if box_of is not None:
+        clean_registered_box(box_of, box_action)
+        return
+    root = _detect_local_posthog_checkout()
+    if not _is_linked_worktree(root):
+        return
+    act_on_box = _act_on_box_in_background if background else None
+    if teardown_worktree_box(root, _git_dir(root), box_action, dry_run, act_on_box) is None:
+        click.echo("This worktree has no devbox from `hogli devbox:worktree`.")
+
+
+def _act_on_box_in_background(worktree_path: Path, box_action: str) -> None:
+    # The worktree and its git directory are about to be deleted, so the process runs
+    # from the main checkout and logs next to the box records.
+    main_checkout = _git_dir(worktree_path).parent.parent.parent
+    log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
+    with log_path.open("ab") as log:
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-P",
+                "-m",
+                "hogli",
+                "devbox:worktree:teardown",
+                f"--{box_action}",
+                "--box-of",
+                str(worktree_path),
+            ],
+            cwd=main_checkout,
+            env={**os.environ, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    click.echo(
+        f"hogli: the sync mirror is stopped. The devbox {box_action} continues in the background. Log: {log_path}"
+    )
+
+
+def _claim_auto_start(git_dir: Path) -> bool:
+    # Both the husky post-checkout hook and a tool's own create hook can fire for
+    # one new worktree. The first caller creates this file and starts the box.
+    try:
+        (git_dir / _AUTO_STARTED_NAME).open("x").close()
+    except FileExistsError:
+        return False
+    return True
+
+
+@click.command(
     name="devbox:worktree:auto",
     help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
 )
-def devbox_worktree_auto() -> None:
+@click.option(
+    "--source",
+    type=click.Choice(WORKTREE_AUTO_SOURCES),
+    default=None,
+    help="The tool that created the worktree. Defaults to the tool whose folder holds it.",
+)
+def devbox_worktree_auto(source: str | None) -> None:
     enabled = saved_worktree_auto_sources()
     if not enabled:
         return
     root = _detect_local_posthog_checkout()
-    if not _is_linked_worktree(root) or not should_auto_provision(root, worktree_source(root), enabled):
+    if not _is_linked_worktree(root) or not should_auto_provision(root, source or worktree_source(root), enabled):
+        return
+    git_dir = _git_dir(root)
+    if not _claim_auto_start(git_dir):
         return
 
-    log_path = _git_dir(root) / _AUTO_LOG_NAME
+    log_path = git_dir / _AUTO_LOG_NAME
     with log_path.open("ab") as log:
         subprocess.Popen(
             # -P keeps the worktree off sys.path, so a `hogli` package committed to the

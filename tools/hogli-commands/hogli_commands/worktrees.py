@@ -72,24 +72,13 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
-# Roots of tools that remove and recreate their own worktrees. They name the
-# source for automatic devboxes, but `worktrees:clean` never scans them, because
-# deleting a worktree under such a tool breaks the thread that tracks it.
-def _self_managed_worktree_roots() -> list[tuple[str, Path]]:
-    t3code_home = os.environ.get("T3CODE_HOME") or str(Path.home() / ".t3")
-    return [
-        ("t3code", Path(t3code_home).expanduser() / "worktrees"),
-        ("herdr", Path.home() / ".herdr" / "worktrees"),
-    ]
-
-
 def worktree_source(path: Path) -> str:
     """Name the tool whose worktree root holds *path*, or ``other`` for a worktree made elsewhere."""
     return _source_under(_resolve(path), _resolve_repo(str(path)))
 
 
 def _source_under(resolved_path: Path, repo_root: Path) -> str:
-    for source, root in [*_worktree_roots(repo_root), *_self_managed_worktree_roots()]:
+    for source, root in _worktree_roots(repo_root):
         if _is_under(resolved_path, root):
             return source
     return "other"
@@ -485,6 +474,44 @@ def prune_boxes_of_removed_worktrees(
     else:
         _clean_worktree_boxes(boxes, box_action)
     return boxes
+
+
+def teardown_worktree_box(
+    worktree_path: Path,
+    git_dir: Path,
+    box_action: str,
+    dry_run: bool,
+    act_on_box: Callable[[Path, str], None] | None = None,
+) -> WorktreeBox | None:
+    """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
+
+    The mirror stops first, while the files still exist, for the reason in
+    `_stop_worktree_mirrors`. A record saved for an earlier worktree at the
+    same path does not match, so its box is left alone. *act_on_box* replaces
+    the box action, so a caller can move it out of a tool's hook time limit.
+    """
+    record = load_worktree_boxes().get(str(worktree_path))
+    if record is None or not record.tracks_worktree(git_dir):
+        return None
+    box = WorktreeBox(worktree_path=worktree_path, record=record)
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would stop the sync mirror and {box_action} {box.workspace}.")
+        return box
+    _stop_worktree_mirrors([box])
+    if act_on_box is None:
+        _clean_worktree_boxes([box], box_action)
+    else:
+        act_on_box(worktree_path, box_action)
+    return box
+
+
+def clean_registered_box(worktree_path: Path, box_action: str) -> bool:
+    """Act on the box registered for *worktree_path*, whose worktree a teardown already checked."""
+    record = load_worktree_boxes().get(str(worktree_path))
+    if record is None:
+        return False
+    _clean_worktree_boxes([WorktreeBox(worktree_path=worktree_path, record=record)], box_action)
+    return True
 
 
 def _clean_boxes_of_removed_worktrees(

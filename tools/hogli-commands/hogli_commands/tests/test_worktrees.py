@@ -168,33 +168,6 @@ class TestWorktreeRoots:
 
         assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
-    @pytest.mark.parametrize(
-        "t3code_home, relative_path, expected",
-        [
-            (None, ".t3/worktrees/posthog/t3-1a2b3c4d", "t3code"),
-            ("custom-t3", "custom-t3/worktrees/posthog/feat-x", "t3code"),
-            (None, ".herdr/worktrees/posthog/brave-river-1a2b", "herdr"),
-            (None, "elsewhere/posthog-feat", "other"),
-        ],
-        ids=["t3code-default-home", "t3code-home-override", "herdr", "unknown-tool"],
-    )
-    def test_self_managed_worktrees_name_their_tool_but_are_never_cleaned(
-        self, tmp_path, monkeypatch, t3code_home: str | None, relative_path: str, expected: str
-    ) -> None:
-        home = tmp_path / "home"
-        monkeypatch.setattr(Path, "home", lambda: home)
-        monkeypatch.delenv("POSTHOG_WORKTREE_BASE", raising=False)
-        if t3code_home is None:
-            monkeypatch.delenv("T3CODE_HOME", raising=False)
-        else:
-            monkeypatch.setenv("T3CODE_HOME", str(home / t3code_home))
-        worktree = home / relative_path
-        worktree.mkdir(parents=True)
-        repo = tmp_path / "repo"
-
-        assert worktrees._source_under(worktree.resolve(), repo) == expected
-        assert not any(_is_under(worktree.resolve(), root) for _, root in _worktree_roots(repo))
-
 
 class TestCollectDepsItems:
     def test_never_escapes_worktree_via_symlinked_parent(self, tmp_path) -> None:
@@ -483,6 +456,42 @@ class TestWorktreeBoxes:
         )
 
         assert cleaned == [(expected_workspaces, "stop")]
+
+    @pytest.mark.parametrize(
+        ("same_worktree", "background", "expected_calls"),
+        [
+            (True, False, ["mirror", "stop"]),
+            (True, True, ["mirror", "background:stop"]),
+            (False, False, []),
+        ],
+        ids=["own-box", "own-box-in-the-background", "box-of-an-earlier-worktree-at-the-path"],
+    )
+    def test_teardown_stops_the_mirror_before_acting_on_its_own_box(
+        self, tmp_path, monkeypatch, same_worktree: bool, background: bool, expected_calls: list[str]
+    ) -> None:
+        worktree = tmp_path / "wt"
+        admin = tmp_path / "admin"
+        admin.mkdir()
+        worktree_id = devbox_config.ensure_worktree_id(admin)
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(
+            worktree,
+            _box(
+                "devbox-test-user-wt",
+                git_dir=admin,
+                worktree_id=worktree_id if same_worktree else "id-of-an-earlier-worktree",
+            ),
+        )
+        calls: list[str] = []
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: calls.append("mirror"))
+        monkeypatch.setattr(worktrees, "_clean_worktree_boxes", lambda boxes, action: calls.append(action))
+
+        act_on_box = (lambda path, action: calls.append(f"background:{action}")) if background else None
+
+        box = worktrees.teardown_worktree_box(worktree, admin, "stop", dry_run=False, act_on_box=act_on_box)
+
+        assert (box is not None) is same_worktree
+        assert calls == expected_calls
 
     @pytest.mark.parametrize(
         ("action", "status", "live_id", "last_used_at", "expected_calls"),
