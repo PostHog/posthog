@@ -112,10 +112,10 @@ export interface broadcastPerformanceLogicActions {
         errorObject?: any
     }
     loadLatestErrorLogSuccess: (
-        latestErrorLog: string | null,
+        latestErrorLog: string,
         payload?: any
     ) => {
-        latestErrorLog: string | null
+        latestErrorLog: string
         payload?: any
     }
     loadLinks: () => any
