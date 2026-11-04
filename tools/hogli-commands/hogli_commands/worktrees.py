@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import fcntl
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -33,6 +34,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import IO
 
 import click
 from hogli.manifest import REPO_ROOT
@@ -285,7 +287,7 @@ def worktrees_clean(
     mode = mode.lower()
     if unattended:
         if not _unattended_run_due(mode, dry_run):
-            click.echo(f"Skipped: an unattended --mode {mode} run happened in the last 24 hours.")
+            click.echo(f"Skipped: an unattended --mode {mode} run is in progress or happened in the last 24 hours.")
             return
         yes = True
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
@@ -652,9 +654,27 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 _UNATTENDED_INTERVAL_S = 24 * 60 * 60
 
 
+_unattended_locks: dict[str, IO[str]] = {}
+
+
 def _unattended_run_due(mode: str, dry_run: bool) -> bool:
     """Allow one --unattended run per mode per day. Flox activation calls this on
-    every shell, so the stamp is what keeps it from rescanning worktrees each time."""
+    every shell, so the stamp is what keeps it from rescanning worktrees each time.
+
+    Two shells can activate in the same second, before either has written the
+    stamp. The lock is held for the rest of the process so the second one sees
+    the run in progress and backs off instead of deleting the same paths."""
+
+    if mode not in _unattended_locks:
+        lock_path = hints._get_state_path().with_name(f"worktrees-clean-{mode}.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = lock_path.open("a")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.close()
+            return False
+        _unattended_locks[mode] = lock
 
     stamp = f"worktrees:clean:{mode}"
     last = hints.last_check_run(stamp)

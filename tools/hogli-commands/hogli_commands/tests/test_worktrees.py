@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import fcntl
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -66,6 +67,9 @@ class TestUnattendedRunDue:
     def _isolated_hints_state(self, tmp_path):
         with patch.object(hints, "_get_state_path", return_value=tmp_path / "hogli_hints.json") as state:
             yield state.return_value
+        for lock in worktrees._unattended_locks.values():
+            lock.close()
+        worktrees._unattended_locks.clear()
 
     def test_second_run_same_day_is_refused_per_mode(self) -> None:
         assert _unattended_run_due("full", dry_run=False)
@@ -75,6 +79,12 @@ class TestUnattendedRunDue:
     def test_dry_run_does_not_consume_the_day(self) -> None:
         assert _unattended_run_due("full", dry_run=True)
         assert _unattended_run_due("full", dry_run=False)
+
+    def test_concurrent_run_holding_the_lock_is_refused(self, _isolated_hints_state: Path) -> None:
+        with (_isolated_hints_state.with_name("worktrees-clean-full.lock")).open("a") as other_shell:
+            fcntl.flock(other_shell, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert not _unattended_run_due("full", dry_run=False)
+            assert _unattended_run_due("deps", dry_run=False)
 
     def test_run_older_than_a_day_is_due(self, _isolated_hints_state: Path) -> None:
         stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
