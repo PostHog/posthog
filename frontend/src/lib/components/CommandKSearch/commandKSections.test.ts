@@ -557,6 +557,21 @@ describe('buildSections', () => {
 
     const SETTING_ROWS: SearchItem[] = [
         {
+            id: 'settings-project-max',
+            name: 'PostHog AI',
+            category: 'settings',
+            parentName: 'Project settings',
+            href: '/settings/project-max',
+        },
+        {
+            id: 'settings-project-customization-custom-bots',
+            name: 'Custom bots',
+            category: 'settings',
+            parentName: 'Project settings › Customization',
+            searchKeywords: ['ai', 'user agent'],
+            href: '/settings/project-customization#custom-bots',
+        },
+        {
             id: 'settings-project-surveys',
             name: 'Surveys',
             category: 'settings',
@@ -593,6 +608,7 @@ describe('buildSections', () => {
             ['surveys', 'settings-project-surveys'],
             ['rename project', 'settings-project-customization-display-name'],
             ['project timezone', 'settings-project-customization-date-and-time'],
+            ['ai', 'settings-project-customization-custom-bots'],
         ].flatMap(([query, id]) => [
             [query, id, false],
             [query, id, true],

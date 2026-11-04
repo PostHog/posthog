@@ -71,7 +71,7 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
             groupKey === 'settings' && item.parentName
                 ? [...(item.searchKeywords ?? []), [name, ...(item.searchKeywords ?? []), item.parentName].join(' ')]
                 : item.searchKeywords
-        const ranked = rankLocalItem(query, name, aliases, !!item.parentName)
+        const ranked = rankLocalItem(query, name, aliases, !!item.parentName, groupKey === 'settings')
         return ranked
             ? [
                   {
