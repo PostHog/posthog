@@ -4,7 +4,6 @@ import {
   ANONYMOUS_AUTH_STATE,
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
-import type { FeatureFlags } from "@posthog/ui/features/feature-flags/identifiers";
 import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
 import { describe, expect, it, vi } from "vitest";
 import { ServerTaskDefaultsContribution } from "./serverTaskDefaults.contribution";
@@ -22,11 +21,6 @@ const setMyTaskDefaults = vi.fn().mockResolvedValue(undefined);
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   createAuthenticatedClient: () => ({ getMyTaskRunConfig, setMyTaskDefaults }),
 }));
-
-const flags = {
-  isEnabled: () => true,
-  onFlagsLoaded: () => () => {},
-} as unknown as FeatureFlags;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -50,7 +44,7 @@ const openProject = (projectId: number) =>
 
 describe("ServerTaskDefaultsContribution", () => {
   it("does not carry a project's value into the next project when the person switches mid-sync", async () => {
-    const inSync = { autoPublishCloudRuns: true, planModeOffered: true };
+    const inSync = { autoPublishCloudRuns: true, startInPlanMode: true };
     useSettingsStore.setState({
       _hasHydrated: true,
       autoPublishCloudRuns: true,
@@ -70,7 +64,7 @@ describe("ServerTaskDefaultsContribution", () => {
     );
     openProject(1);
 
-    new ServerTaskDefaultsContribution({} as HostTrpcClient, flags).start();
+    new ServerTaskDefaultsContribution({} as HostTrpcClient).start();
     openProject(2);
     await flush();
     // Project 1 was changed on web while its request ran.
@@ -85,5 +79,42 @@ describe("ServerTaskDefaultsContribution", () => {
 
     expect(useSettingsStore.getState().autoPublishCloudRuns).toBe(true);
     expect(setMyTaskDefaults).not.toHaveBeenCalledWith(2, expect.anything());
+  });
+
+  it("does not upload plan mode it took from another project when the person switches back", async () => {
+    setMyTaskDefaults.mockClear();
+    const off = { autoPublishCloudRuns: true, startInPlanMode: false };
+    useSettingsStore.setState({
+      _hasHydrated: true,
+      autoPublishCloudRuns: true,
+      defaultInitialTaskMode: "last_used",
+      taskDefaultsOnServer: { "3": off, "4": off },
+    });
+    getMyTaskRunConfig.mockImplementation((projectId: number) =>
+      Promise.resolve({
+        taskDefaults: {
+          start_in_plan_mode: projectId === 3,
+          auto_publish_cloud_runs: true,
+        },
+      }),
+    );
+    openProject(3);
+
+    new ServerTaskDefaultsContribution({} as HostTrpcClient).start();
+    await flush();
+    await flush();
+    expect(useSettingsStore.getState().defaultInitialTaskMode).toBe("plan");
+
+    openProject(4);
+    await flush();
+    await flush();
+
+    expect(useSettingsStore.getState().defaultInitialTaskMode).toBe(
+      "last_used",
+    );
+    expect(setMyTaskDefaults).not.toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ start_in_plan_mode: true }),
+    );
   });
 });

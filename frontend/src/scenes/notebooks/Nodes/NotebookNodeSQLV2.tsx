@@ -2,10 +2,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNotebookJupyterCommands } from 'lib/components/MarkdownNotebook/jupyterMode'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
@@ -152,7 +150,6 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { nodeId, notebookLogic, expanded, sqlV2ReturnVariable, sqlV2ReturnVariableUsage, isEditable } =
         useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
@@ -439,36 +436,33 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
             </div>
-            {(featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ||
-                featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) && (
-                <NotebookCellOutputNameFooter
-                    returnVariable={returnVariable}
-                    onChange={(returnVariable) => updateAttributes({ returnVariable })}
-                    inputRef={setReturnVariableInput}
-                >
-                    <NotebookDataframeHintPopover
-                        nodeId={nodeId}
-                        notebookShortId={notebookShortId}
-                        referenceElement={returnVariableInput}
-                    />
-                    {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
-                    {sqlV2ReturnVariableUsage.length > 0 ? (
-                        <span className="text-muted">
-                            Used in{' '}
-                            {sqlV2ReturnVariableUsage.map((usage) => (
-                                <button
-                                    key={usage.nodeId}
-                                    type="button"
-                                    className="text-muted hover:text-default underline underline-offset-2 ml-1"
-                                    onClick={() => navigateToNode(usage.nodeId)}
-                                >
-                                    {usageLabel(usage.nodeIndex, usage.title)}
-                                </button>
-                            ))}
-                        </span>
-                    ) : null}
-                </NotebookCellOutputNameFooter>
-            )}
+            <NotebookCellOutputNameFooter
+                returnVariable={returnVariable}
+                onChange={(returnVariable) => updateAttributes({ returnVariable })}
+                inputRef={setReturnVariableInput}
+            >
+                <NotebookDataframeHintPopover
+                    nodeId={nodeId}
+                    notebookShortId={notebookShortId}
+                    referenceElement={returnVariableInput}
+                />
+                {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
+                {sqlV2ReturnVariableUsage.length > 0 ? (
+                    <span className="text-muted">
+                        Used in{' '}
+                        {sqlV2ReturnVariableUsage.map((usage) => (
+                            <button
+                                key={usage.nodeId}
+                                type="button"
+                                className="text-muted hover:text-default underline underline-offset-2 ml-1"
+                                onClick={() => navigateToNode(usage.nodeId)}
+                            >
+                                {usageLabel(usage.nodeIndex, usage.title)}
+                            </button>
+                        ))}
+                    </span>
+                ) : null}
+            </NotebookCellOutputNameFooter>
         </div>
     )
 }

@@ -4,9 +4,10 @@ import { buttonVariants } from './button'
 import './kbd.css'
 import { cn } from './lib/utils'
 
-function Kbd({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {
+const Kbd = React.forwardRef<HTMLElement, React.ComponentProps<'kbd'>>(function Kbd({ className, ...props }, ref) {
     return (
         <kbd
+            ref={ref}
             data-quill
             data-slot="kbd"
             className={cn(
@@ -17,20 +18,29 @@ function Kbd({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactE
             {...props}
         />
     )
-}
+})
 
-function KbdText({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const KbdText = React.forwardRef<HTMLElement, React.ComponentProps<'span'>>(function KbdText(
+    { className, ...props },
+    ref
+) {
     return (
         <kbd
+            ref={ref}
             data-slot="kbd-text"
             className={cn('quill-kbd-text inline-flex w-fit items-center justify-center gap-1', className)}
             {...props}
         />
     )
-}
+})
 
-function KbdGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <kbd data-slot="kbd-group" className={cn('inline-flex items-center gap-1', className)} {...props} />
-}
+const KbdGroup = React.forwardRef<HTMLElement, React.ComponentProps<'div'>>(function KbdGroup(
+    { className, ...props },
+    ref
+) {
+    return (
+        <kbd ref={ref} data-slot="kbd-group" className={cn('inline-flex items-center gap-1', className)} {...props} />
+    )
+})
 
 export { Kbd, KbdGroup, KbdText }

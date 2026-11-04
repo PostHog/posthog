@@ -3,7 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -12,13 +12,13 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.fork import process_slack_app_fork_thread_payload
 
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
 from products.slack_app.backend.services.slack_fork_context import PendingFork, get_pending_fork, store_pending_fork
+from products.slack_app.backend.temporal.activities.fork import process_slack_app_fork_thread_payload
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
-_FORK_MODULE = "posthog.temporal.ai.slack_app.activities.fork"
+_FORK_MODULE = "products.slack_app.backend.temporal.activities.fork"
 
 
 class TestForkThreadPayload(TestCase):
@@ -296,7 +296,7 @@ class TestForkMenuDispatch(TestCase):
         mock_connect.assert_not_called()
 
 
-class TestForkMenuBlock(TestCase):
+class TestForkMenuBlock(SimpleTestCase):
     def test_menu_is_a_bare_overflow_element_carrying_the_integration(self):
         # Bare, not wrapped in an `actions` block, so it can be the footer's accessory
         # and share its line. The integration in the option value is what lets the

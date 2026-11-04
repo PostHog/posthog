@@ -23,10 +23,10 @@ _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 _LLM_MARKER_RE = re.compile(
     r"</?\s*(?:"
     r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
-    # AI subscription synthesis prompt framing tags — sanitize so a crafted event name
-    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<plan_intent>` /
+    # AI subscription prompt framing tags. Strip them so that a crafted event name or prompt can't
+    # escape the `<user_prompt>` / `<event_names>` / `<project_context>` / `<plan_intent>` /
     # `<query_results>` envelope and inject instruction-shaped content into the LLM context.
-    r"|user_prompt|project_context|plan_intent|query_results"
+    r"|user_prompt|event_names|project_context|plan_intent|query_results"
     r")\b[^>]*>?",
     re.IGNORECASE,
 )
@@ -63,6 +63,7 @@ def sanitize_user_text(
     none_placeholder: str = "",
     truncate_marker: str = "",
     preserve_newlines: bool = False,
+    strip_tags: bool = True,
 ) -> str:
     if not value:
         return none_placeholder
@@ -71,7 +72,8 @@ def sanitize_user_text(
     while previous != cleaned:
         previous = cleaned
         cleaned = _LLM_MARKER_RE.sub("", cleaned)
-        cleaned = _TAG_RE.sub("", cleaned)
+        if strip_tags:
+            cleaned = _TAG_RE.sub("", cleaned)
     if preserve_newlines:
         cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028", "\n").replace("\u2029", "\n")
         cleaned = "\n".join(_WHITESPACE_RUN_RE.sub(" ", line).strip() for line in cleaned.split("\n")).strip()

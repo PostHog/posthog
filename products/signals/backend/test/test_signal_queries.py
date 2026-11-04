@@ -2,20 +2,47 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from itertools import islice, product
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
+
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+
+from posthog.schema import EmbeddingModelName
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.models import Integration, Team
 
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+    SignalSpend,
+)
+from products.signals.backend.report_monitoring_provenance import (
+    monitoring_repository_allowed,
+    monitoring_repository_sources,
+)
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -26,13 +53,21 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
+from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
+    SourceSignalMatch,
+    fetch_live_source_signal_matches,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_signals_for_report_activity,
+    fetch_source_signal_matches,
+    retract_source_signals,
 )
+from products.signals.backend.temporal.types import SignalData
 
-_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
-_EMBEDDING = [0.0] * 1536
+_MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -48,6 +83,10 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         content: str = "the signal content",
         skill_name: str | None = None,
         extra: dict | None = None,
+        source_id: str | None = None,
+        model: EmbeddingModelName = EMBEDDING_MODEL,
+        spend_metadata: dict | None = None,
+        embedding: list[float] | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -58,14 +97,16 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
             "report_id": report_id,
             "source_product": source_product,
             "source_type": source_type,
-            "source_id": f"src-{document_id}",
+            "source_id": source_id or f"src-{document_id}",
             "deleted": deleted,
         }
         if skill_name is not None or extra is not None:
             metadata["extra"] = {**(extra or {}), **({"skill_name": skill_name} if skill_name is not None else {})}
+        metadata.update(spend_metadata or {})
+        table = f"distributed_posthog_document_embeddings_{model.value.replace('-', '_')}"
         sync_execute(
             f"""
-            INSERT INTO {_MODEL_TABLE} (
+            INSERT INTO {table} (
                 team_id, product, document_type, rendering, document_id,
                 timestamp, inserted_at, content, metadata, embedding,
                 _timestamp, _offset, _partition
@@ -82,7 +123,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
                     inserted_at,
                     content,
                     json.dumps(metadata),
-                    _EMBEDDING,
+                    embedding if embedding is not None else [0.0] * int(model.value.rsplit("-", 1)[1]),
                     inserted_at,
                     0,
                     0,
@@ -105,15 +146,27 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
         assert fetch_source_products_for_reports(self.team, []) == {}
 
-    def test_maps_each_report_to_its_sorted_distinct_source_products(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_maps_each_report_to_its_sorted_distinct_source_products(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
         self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d2", report_id="rA", source_product="replay", inserted_at=self.base)
         # duplicate source_product within a report collapses to one entry
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        with self.assertNumQueries(FuzzyInt(0, 1)):
-            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+        # +1 each for the projection kill-switch and properties-narrowing instance settings the HogQL
+        # compile reads, cold-cache here but TTL-cached per worker in production.
+        with (
+            self.assertNumQueries(FuzzyInt(1, 3)),
+            patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
+        ):
+            result = fetch_source_products_for_reports(
+                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            )
+
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
@@ -301,6 +354,127 @@ class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
         ]
 
 
+class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
+    @parameterized.expand(
+        [
+            ("direct", False, False, False),
+            ("nested", True, False, False),
+            ("missing_origin", False, True, False),
+            ("unknown_origin", False, False, True),
+            ("nested_unknown_origin", True, False, True),
+            ("mixed_nested_public_origin", True, False, False, True),
+            ("mixed_nested_selected_origin", True, False, False, True, True),
+        ]
+    )
+    def test_retains_original_repository_restrictions(
+        self,
+        _name: str,
+        nested: bool,
+        missing: bool,
+        unknown: bool,
+        mixed_parent: bool = False,
+        selected_parent: bool = False,
+    ) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="error_tracking" if unknown else "github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": f"https://github.com/example/{'public' if mixed_parent else 'private'}/issues/1"},
+        )
+        if unknown:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=origin,
+                type="repo_selection",
+                content='{"repository": null, "reason": "No repository"}',
+            )
+        source_id = str(origin.id)
+        if nested:
+            parent = SignalReport.objects.create(team=self.team, status="closed")
+            self._emit_version(
+                document_id="previous-monitoring",
+                report_id=str(parent.id),
+                source_product="signals_check",
+                source_type="monitoring_unresolved",
+                inserted_at=self.base,
+                extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+            )
+            if mixed_parent:
+                self._emit_version(
+                    document_id="intermediate-exception",
+                    report_id=str(parent.id),
+                    source_product="error_tracking",
+                    source_type="exception",
+                    inserted_at=self.base,
+                )
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=parent,
+                    type="repo_selection",
+                    content=json.dumps({"repository": "example/public" if selected_parent else None}),
+                )
+            source_id = str(parent.id)
+        if missing:
+            source_id = str(uuid.uuid4())
+        signal = SignalData(
+            signal_id=str(uuid.uuid4()),
+            content="Unresolved monitoring",
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(uuid.uuid4()),
+            weight=1.0,
+            timestamp=self.base,
+            extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+        )
+        public_signal = replace(
+            signal,
+            source_product="github",
+            source_type="issue",
+            extra={"html_url": "https://github.com/example/public/issues/1"},
+        )
+        sources = monitoring_repository_sources(self.team.id, [signal, public_signal])
+        assert sources is not None
+        assert sources.repositories == frozenset(
+            {"example/public"} if missing or unknown or mixed_parent else {"example/public", "example/private"}
+        )
+        assert sources.require_private_destination is (missing or unknown or (mixed_parent and not selected_parent))
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra=signal.extra,
+        )
+        self._emit_version(
+            document_id="receiving-public-issue",
+            report_id=str(receiving.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra=public_signal.extra,
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public") is (
+            mixed_parent and selected_parent
+        )
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
+
+
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
     def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
         # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
@@ -428,6 +602,50 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
 
         assert self._signal_ids(query_report) == expected_ids
 
+    @parameterized.expand([(True, True, False), (False, True, False), (True, False, False), (True, True, True)])
+    def test_research_snapshot_keeps_required_and_pending_signals_beyond_the_row_cap(
+        self, pending_visible: bool, required_visible: bool, same_marker: bool
+    ) -> None:
+        signal_ids = [str(uuid.uuid4()) for _ in range(120)]
+        pending_id = signal_ids[-1] if pending_visible else str(uuid.uuid4())
+        required_id = pending_id if same_marker else signal_ids[-2] if required_visible else str(uuid.uuid4())
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.IN_PROGRESS,
+            triggering_signal_id=required_id,
+            pending_triggering_signal_id=pending_id,
+        )
+        for index, signal_id in enumerate(signal_ids):
+            self._emit_version(
+                document_id=signal_id,
+                report_id=str(report.id),
+                source_product="errors",
+                inserted_at=self.base + timedelta(minutes=index),
+            )
+        request = FetchSignalsForReportInput(
+            team_id=self.team.id, report_id=str(report.id), required_signal_id=required_id
+        )
+        if not required_visible:
+            with self.assertRaisesRegex(ApplicationError, "not visible"):
+                async_to_sync(fetch_signals_for_report_activity)(request)
+            report.refresh_from_db()
+            assert str(report.pending_triggering_signal_id) == pending_id
+            return
+        result = async_to_sync(fetch_signals_for_report_activity)(request)
+        fetched_ids = {signal.signal_id for signal in result.signals}
+        assert len(result.signals) == 100
+        assert required_id in fetched_ids
+        assert (pending_id in fetched_ids) is pending_visible
+        assert result.processed_pending_signal_id == (pending_id if pending_visible else None)
+        assert [signal.timestamp for signal in result.signals] == sorted(signal.timestamp for signal in result.signals)
+        report.refresh_from_db()
+        if same_marker:
+            assert report.pending_triggering_signal_id is None
+            retry = async_to_sync(fetch_signals_for_report_activity)(request)
+            assert required_id in {signal.signal_id for signal in retry.signals}
+        else:
+            assert str(report.pending_triggering_signal_id) == pending_id
+
     def test_returns_latest_content_for_a_revised_signal(self) -> None:
         # The dedup must surface the newest version's content, not an arbitrary one.
         self._emit_version(
@@ -444,6 +662,152 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         signals = fetch_signals_for_report_sync(self.team, "rA")
 
         assert [s["content"] for s in signals] == ["new text"]
+
+
+class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
+    @parameterized.expand(
+        [
+            ("spend", SignalMetadataChange()),
+            ("move", SignalMetadataChange(report_id="new-report", expected_report_id="example-report")),
+            ("delete", SignalMetadataChange(deleted=True, expected_report_id="example-report")),
+            ("retract", SignalMetadataChange(deleted=True, clear_content=True)),
+        ]
+    )
+    def test_delayed_spend_preserves_latest_total_and_metadata(self, _name: str, change: SignalMetadataChange) -> None:
+        driver = str(uuid.uuid4())
+        signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
+        now = timezone.now().replace(microsecond=0)
+        for model in EmbeddingModelName:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=now - timedelta(seconds=2),
+                model=model,
+                embedding=[0.125] * int(model.value.rsplit("-", 1)[1]),
+            )
+        producer = MagicMock()
+
+        def deliver(payload: dict, version: int) -> None:
+            self._emit_version(
+                document_id=driver,
+                report_id="example-report",
+                source_product="errors",
+                inserted_at=datetime.fromtimestamp(version, UTC),
+                model=EmbeddingModelName(payload["model_name"]),
+                spend_metadata=json.loads(payload["metadata"]),
+                content=payload["content"],
+                embedding=payload["embedding"],
+            )
+
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
+        ):
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability")
+            first = publish_signal_spend_metadata(signal)
+            first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            for payload in first_payloads:
+                deliver(payload, first.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(first)
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend(token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization")
+            second = publish_signal_spend_metadata(
+                SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
+            )
+            assert all(second.versions[key] > version for key, version in first.versions.items())
+            second_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            assert not confirm_signal_spend_metadata(second)
+            for payload in second_payloads:
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(second)
+            producer.__enter__.return_value.produce.reset_mock()
+            clock.shift(timedelta(seconds=2))
+            record_llm_spend(token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            third = publish_signal_spend_metadata(
+                SignalSpendUpdate(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    changes=[
+                        SignalMetadataChange(deleted=True, expected_report_id="example-report")
+                        if change.report_id
+                        else SignalMetadataChange(report_id="must-not-move", expected_report_id="stale-report")
+                    ],
+                )
+            )
+            for call in producer.__enter__.return_value.produce.call_args_list:
+                payload = call.kwargs["data"]
+                metadata = json.loads(payload["metadata"])
+                assert metadata["total_spend"] == 0.06
+                assert metadata["report_id"] == (change.report_id or "example-report")
+                assert metadata["deleted"] is change.deleted
+                assert payload["content"] == ("" if change.clear_content else "the signal content")
+                assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
+                deliver(payload, third.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
+            for payload in second_payloads:
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
+
+
+class TestFetchLiveSourceSignalMatches(_SignalEmbeddingsTestBase):
+    def test_returns_the_latest_live_signal_for_the_exact_source(self) -> None:
+        self._emit_version(
+            document_id="older",
+            report_id="old-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base,
+        )
+        self._emit_version(
+            document_id="newer",
+            report_id="new-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=1),
+        )
+        self._emit_version(
+            document_id="other-type",
+            report_id="other-report",
+            source_product="github",
+            source_type="pull_request",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=2),
+        )
+
+        result = fetch_live_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {
+            "issue-1": [
+                SourceSignalMatch(signal_id="newer", report_id="new-report"),
+                SourceSignalMatch(signal_id="older", report_id="old-report"),
+            ]
+        }
+
+
+class TestFetchSourceSignalMatches(APIBaseTest):
+    def test_returns_durable_association_without_retained_embedding(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        SignalEmissionRecord.objects.create(
+            team=self.team,
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            emitted_at=timezone.now() - timedelta(days=100),
+            signal_id="durable-signal",
+            report_id=str(report.id),
+        )
+
+        with patch(
+            "products.signals.backend.temporal.signal_queries.fetch_live_source_signal_matches"
+        ) as retained_lookup:
+            result = fetch_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {"issue-1": [SourceSignalMatch(signal_id="durable-signal", report_id=str(report.id))]}
+        retained_lookup.assert_not_called()
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
@@ -572,3 +936,167 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
             (str(newer.id), "newer", "potential"),
             (str(older.id), "older", "potential"),
         ]
+
+
+class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
+    @patch("products.signals.backend.temporal.signal_queries._RETRACT_PAGE_SIZE", 2)
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_retracts_every_page_of_the_source(self, connect: AsyncMock) -> None:
+        client = connect.return_value
+        client.start_workflow = AsyncMock()
+        for document_id in ("a", "b", "c"):
+            self._emit_version(
+                document_id=document_id,
+                report_id="rA",
+                source_product="conversations",
+                source_type="ticket",
+                source_id="ticket-1",
+                inserted_at=self.base,
+            )
+        self._emit_version(
+            document_id="other",
+            report_id="rA",
+            source_product="conversations",
+            source_type="ticket",
+            source_id="ticket-2",
+            inserted_at=self.base,
+        )
+
+        retracted = retract_source_signals(
+            team=self.team, source_product="conversations", source_type="ticket", source_id="ticket-1"
+        )
+
+        assert retracted == 3
+        calls = client.start_workflow.call_args_list
+        assert sorted(call.args[1].signal_id for call in calls) == ["a", "b", "c"]
+        assert all(
+            call.kwargs["start_signal_args"] == [SignalMetadataChange(deleted=True, clear_content=True)]
+            for call in calls
+        )
+
+
+class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
+    def test_source_usage_includes_groups_beyond_the_default_query_limit(self) -> None:
+        groups = list(islice(product(SignalSourceProduct, SignalSourceType), 101))
+        for index, (source_product, source_type) in enumerate(groups):
+            self._emit_version(
+                document_id=f"usage-group-{index}",
+                report_id="report",
+                source_product=source_product,
+                source_type=source_type,
+                inserted_at=self.base,
+                spend_metadata={"total_spend": index + 1},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        assert response.status_code == 200, response.content
+        rows = response.json()
+        assert len(rows) == 101
+        assert {(row["source_product"], row["source_type"]) for row in rows} == set(groups)
+        assert sum(row["spend"]["total_spend"] for row in rows) == sum(range(1, 102))
+
+    @parameterized.expand([False, True])
+    def test_sources_use_latest_receipt_and_distinguish_missing_spend(self, child_environment: bool) -> None:
+        if child_environment:
+            self.team = Team.objects.create(organization=self.organization, parent_team=self.team)
+        for inserted_at, amount in [(self.base, 2.5), (self.base + timedelta(hours=1), 17.125)]:
+            self._emit_version(
+                document_id="source-spend",
+                report_id="report",
+                source_product="github",
+                inserted_at=inserted_at,
+                spend_metadata={"total_spend": amount},
+            )
+        self._emit_version(
+            document_id="untracked",
+            report_id="report",
+            source_product="github",
+            inserted_at=self.base,
+            spend_metadata={"total_spend": None},
+        )
+        self._emit_version(
+            document_id="old",
+            report_id="report",
+            source_product="linear",
+            inserted_at=self.base - timedelta(days=40),
+            spend_metadata={"total_spend": 999},
+        )
+        self._emit_version(
+            document_id="other-model",
+            report_id="report",
+            source_product="linear",
+            inserted_at=self.base,
+            model=EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072,
+            spend_metadata={"total_spend": 999},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        assert response.status_code == 200, response.content
+        with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
+            cached = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        query.assert_not_called()
+        assert cached.json() == response.json()
+        assert response.json() == [
+            {
+                "source_product": "github",
+                "source_type": "some_type",
+                "signal_count": 2,
+                "spend": {"total_spend": 17.125, "incomplete": True},
+            }
+        ]
+
+    @parameterized.expand([False, True])
+    def test_report_prices_only_current_signals_and_own_implementation(self, child_environment: bool) -> None:
+        if child_environment:
+            self.team = Team.objects.create(organization=self.organization, parent_team=self.team)
+        report = SignalReport.objects.create(team=self.team)
+        other_report = SignalReport.objects.create(team=self.team)
+        signal_id, moved_id = str(uuid.uuid4()), str(uuid.uuid4())
+        for signal, owner, inserted_at in [
+            (signal_id, report.id, self.base),
+            (moved_id, report.id, self.base),
+            (moved_id, other_report.id, self.base + timedelta(hours=1)),
+        ]:
+            self._emit_version(
+                document_id=signal, report_id=str(owner), source_product="github", inserted_at=inserted_at
+            )
+        amounts = [(signal_id, 12.125), (moved_id, 999)]
+        for _ in range(100):
+            extra_id = str(uuid.uuid4())
+            self._emit_version(
+                document_id=extra_id, report_id=str(report.id), source_product="github", inserted_at=self.base
+            )
+            amounts.append((extra_id, 1))
+        receipt_team = self.team.parent_team or self.team
+        SignalSpend.objects.for_team(self.team.id).bulk_create(
+            [
+                SignalSpend(
+                    team=receipt_team, kind="ad-hoc", signal_id=signal, spend=amount, finalized_at=timezone.now()
+                )
+                for signal, amount in amounts
+            ]
+        )
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind="research",
+            signal_id=signal_id,
+            task_run_id=uuid.uuid4(),
+            spend=20,
+            accounting_failed=True,
+        )
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind="reviewer_triggered_implementation",
+            report=report,
+            task_run_id=uuid.uuid4(),
+            spend=50,
+            finalized_at=timezone.now(),
+        )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
+        assert response.status_code == 200, response.content
+        assert all(SignalReportArtefact._meta.db_table not in query["sql"] for query in queries.captured_queries)
+        assert response.json() == {
+            "generation": {"total_spend": 132.125, "incomplete": True},
+            "implementation": {"total_spend": 50, "incomplete": False},
+            "shared_scout_runs": {"total_spend": None, "incomplete": False},
+        }

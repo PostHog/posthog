@@ -13,7 +13,6 @@
 
 use posthog_replay_anonymizer::{
     anonymize_kafka_payload_opts, anonymize_line_with_ctx, AllowLists, AnonymizeOpts, Ctx,
-    ImagePolicy,
 };
 use serde_json::{json, Value};
 
@@ -32,11 +31,12 @@ fn img_line(value: &str, attr: &str) -> Value {
 
 fn canvas_line(value: &str) -> Value {
     json!(["w", { "type": 3, "timestamp": TS0, "data": {
-        "source": 9, "id": 5, "type": 0, "commands": [{
-            "property": "drawImage",
-            "args": [{ "rr_type": "ImageBitmap", "args": [{
+        "source": 9, "id": 5, "type": 0, "commands": [
+            { "property": "clearRect", "args": [0, 0, 8, 8] },
+            { "property": "drawImage",
+              "args": [{ "rr_type": "ImageBitmap", "args": [{
                 "rr_type": "Blob", "type": "image/png",
-                "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }] }] } }])
+                "data": [{ "rr_type": "ArrayBuffer", "base64": value }] }] }, 0, 0, 8, 8] }] } }])
 }
 
 fn css_line(reference: &str) -> Value {
@@ -93,7 +93,7 @@ fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
         &mut bytes,
         AnonymizeOpts {
             byte_walk,
-            image_policy: ImagePolicy::Parallel,
+            ..Default::default()
         },
         None,
     )
@@ -127,8 +127,8 @@ fn a_namespaced_url_ref_survives_only_a_trusted_rescrub() {
     for url_ref in [URL_REF, LEGACY_URL_REF] {
         let mut line = img_line(url_ref, "data-anon-image-ref-src");
         let attrs = &mut line[1]["data"]["adds"][0]["node"]["attributes"];
-        attrs["src"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
-        attrs["srcset"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
+        attrs["src"] = json!("data:image/svg+xml;base64,bm90IHN2Zw==");
+        attrs["srcset"] = json!("data:image/svg+xml;base64,bm90IHN2Zw==");
         assert!(scrub_trusted(&line).contains(url_ref));
         assert!(!scrub_default(&line).contains("data-anon-image-ref-src"));
         for byte_walk in [true, false] {

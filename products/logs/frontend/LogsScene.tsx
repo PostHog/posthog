@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -91,7 +92,11 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 should not replay the initial loading animation. */}
             <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
+                    <LogsViewer
+                        id={LOGS_SCENE_VIEWER_ID}
+                        showSavedViewsButton
+                        keyboardShortcutsEnabled={activeTab === 'viewer'}
+                    />
                 </div>
             </div>
             {showServices && showServicesV2 && <LogsServicesV2 />}
@@ -113,6 +118,15 @@ const LogsSceneTabbedContent = (): JSX.Element => {
 }
 
 const LogsSceneFeedbackButton = (): JSX.Element => {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return (
+            <Button variant="outline" onClick={() => posthog.displaySurvey('019a7d95-3810-0000-34dc-404a58075f17')}>
+                <IconFeedback />
+                Feedback
+            </Button>
+        )
+    }
     return (
         <LemonButton
             size="small"

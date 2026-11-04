@@ -3,20 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../auth/auth";
 import type { AuthState } from "../auth/schemas";
 import {
+  GATEWAY_ACTION_RECHECK_MS,
   GATEWAY_BLOCKED_RECHECK_MS,
-  GATEWAY_LEGACY_RECHECK_MS,
   GATEWAY_MINT_TIMEOUT_MS,
-  GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
-  GATEWAY_REFRESH_RETRY_MS,
   GATEWAY_REMINT_MIN_INTERVAL_MS,
+  GATEWAY_THROTTLED_RECHECK_MS,
   GATEWAY_TOKEN_MIN_REFRESH_SKEW_MS,
   GATEWAY_TOKEN_REFRESH_SKEW_MS,
+  GATEWAY_TRANSIENT_MAX_RECHECK_MS,
+  GATEWAY_TRANSIENT_RECHECK_MS,
   GatewayTokenService,
+  transientRecheckMs,
 } from "./gateway-token";
 import type { GatewayTokenHost, LlmGatewayHost } from "./identifiers";
 
 const API_HOST = "https://us.posthog.com";
 const MINT_URL = `${API_HOST}/api/projects/42/desktop/gateway_token/`;
+const TRANSIENT = "Couldn't reach PostHog AI. Retrying shortly.";
+const UNAVAILABLE = "PostHog AI isn't available for this project right now.";
+const SIGN_IN = "Sign in to PostHog again to use PostHog AI.";
 
 function minted(token: string, expiresInMs = 3_600_000) {
   return {
@@ -126,9 +131,12 @@ describe("GatewayTokenService.getRoute", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+    // Jitter at its ceiling, so a first transient re-check is exactly 30s.
+    vi.spyOn(Math, "random").mockReturnValue(1);
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("mints once and serves the Go route from the cache", async () => {
@@ -174,51 +182,168 @@ describe("GatewayTokenService.getRoute", () => {
       200,
       { enabled: false, reason: "unconfigured" },
       "unconfigured",
-      GATEWAY_LEGACY_RECHECK_MS,
+      403,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
     ],
     [
       200,
       { enabled: false, reason: "not_rolled_out" },
       "not_rolled_out",
-      GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
+      403,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
     ],
     [
       403,
       { enabled: false, reason: "desktop_access_blocked" },
       "desktop_access_blocked",
-      GATEWAY_LEGACY_RECHECK_MS,
+      403,
+      "PostHog Desktop access is required.",
+      GATEWAY_BLOCKED_RECHECK_MS,
+    ],
+    [
+      403,
+      { enabled: false, reason: "email_unverified" },
+      "email_unverified",
+      403,
+      "Verify your email to use PostHog AI.",
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    // Django's billing-limit 429: without its row this would read as throttled.
+    [
+      429,
+      {
+        type: "billing_limit",
+        code: "organization_deactivated",
+        error: "Organization is deactivated.",
+      },
+      "organization_deactivated",
+      403,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [
+      403,
+      { enabled: false, reason: "oauth_required", detail: "Sign in." },
+      "oauth_required",
+      401,
+      "Sign in.",
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [
+      429,
+      { enabled: false, reason: "throttled", detail: "Try later." },
+      "throttled",
+      429,
+      "Too many PostHog AI sign-in attempts. Try again in a few minutes.",
+      GATEWAY_THROTTLED_RECHECK_MS,
+    ],
+    [
+      503,
+      { enabled: false, reason: "mint_failed", detail: "mint failed" },
+      "mint_failed",
+      503,
+      TRANSIENT,
+      GATEWAY_TRANSIENT_RECHECK_MS,
+    ],
+    [
+      403,
+      { enabled: false, reason: "unauthorized", detail: "Not this project." },
+      "unauthorized",
+      401,
+      "Not this project.",
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [
+      403,
+      { enabled: false, reason: "blocked", detail: "No AI for you." },
+      "blocked",
+      403,
+      "No AI for you.",
+      GATEWAY_BLOCKED_RECHECK_MS,
+    ],
+    [
+      403,
+      { enabled: false, reason: "org_deactivated" },
+      "org_deactivated",
+      403,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [
+      200,
+      { enabled: false, reason: "credit_state_unknown" },
+      "credit_state_unknown",
+      503,
+      TRANSIENT,
+      GATEWAY_TRANSIENT_RECHECK_MS,
     ],
     [
       402,
       { enabled: false, reason: "payment_required" },
       "payment_required",
-      GATEWAY_LEGACY_RECHECK_MS,
+      402,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
     ],
-    [404, { detail: "Not found." }, "http_404", GATEWAY_LEGACY_RECHECK_MS],
-    [429, { detail: "org deactivated" }, "http_429", GATEWAY_LEGACY_RECHECK_MS],
-    [503, null, "http_503", GATEWAY_LEGACY_RECHECK_MS],
+    [
+      401,
+      { enabled: false, reason: "token_revoked", detail: "Revoked." },
+      "token_revoked",
+      401,
+      "Revoked.",
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [
+      429,
+      { type: "billing_limit", code: "usage_limit_reached" },
+      "usage_limit_reached",
+      429,
+      "Too many PostHog AI sign-in attempts. Try again in a few minutes.",
+      GATEWAY_THROTTLED_RECHECK_MS,
+    ],
+    [
+      404,
+      { detail: "Not found." },
+      "http_404",
+      403,
+      "Not found.",
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    // `constructor` is an inherited key, not a table entry.
+    [
+      403,
+      { enabled: false, reason: "constructor" },
+      "constructor",
+      403,
+      UNAVAILABLE,
+      GATEWAY_ACTION_RECHECK_MS,
+    ],
+    [503, null, "http_503", 503, TRANSIENT, GATEWAY_TRANSIENT_RECHECK_MS],
   ])(
-    "treats a %s as legacy and re-checks after the negative cache",
-    async (status, body, reason, recheckMs) => {
+    "blocks a %s refusal with its reason and re-mints after the re-check",
+    async (status, body, reason, blockedStatus, detail, recheckMs) => {
       const t = setup();
       t.mintResponses.push(() => json(body, status));
       t.mintResponses.push(() => json(minted("phe_one"), 201));
 
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
+      expect(await t.service.getRoute()).toEqual({
+        mode: "blocked",
+        reason,
+        detail,
+        status: blockedStatus,
+      });
       vi.setSystemTime(Date.now() + recheckMs - 1);
-      expect(await t.service.getRoute()).toMatchObject({ mode: "legacy" });
+      expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
       expect(t.mintCalls()).toBe(1);
       vi.setSystemTime(Date.now() + 2);
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
-      expect(t.mintCalls()).toBe(2);
-      await vi.waitFor(async () =>
-        expect(await t.service.getRoute()).toMatchObject({ mode: "go" }),
-      );
+      expect(await t.service.getRoute()).toMatchObject({ mode: "go" });
       expect(t.mintCalls()).toBe(2);
     },
   );
 
-  it("serves a known refusal to callers while its re-check is in flight", async () => {
+  it("serves a known refusal while its re-check is in flight to a caller that will not wait", async () => {
     const t = setup();
     t.mintResponses.push(() =>
       json({ enabled: false, reason: "not_rolled_out" }, 200),
@@ -226,17 +351,16 @@ describe("GatewayTokenService.getRoute", () => {
     t.mintResponses.push(() => new Promise<Response>(() => undefined));
 
     await t.service.getRoute();
-    vi.setSystemTime(Date.now() + GATEWAY_NOT_ROLLED_OUT_RECHECK_MS);
-    await t.service.getRoute();
+    vi.setSystemTime(Date.now() + GATEWAY_ACTION_RECHECK_MS);
+    await t.service.getRoute(42, { awaitRecheck: false });
     await vi.waitFor(() => expect(t.mintCalls()).toBe(2));
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
-      reason: "not_rolled_out",
-    });
+    expect(await t.service.getRoute(42, { awaitRecheck: false })).toMatchObject(
+      { mode: "blocked", reason: "not_rolled_out" },
+    );
   });
 
-  it("waits for the re-check when a session start asks for it", async () => {
+  it("waits for a due re-check by default", async () => {
     const t = setup();
     t.mintResponses.push(() =>
       json({ enabled: false, reason: "not_rolled_out" }, 200),
@@ -244,9 +368,9 @@ describe("GatewayTokenService.getRoute", () => {
     t.mintResponses.push(() => json(minted("phe_one"), 201));
 
     await t.service.getRoute();
-    vi.setSystemTime(Date.now() + GATEWAY_NOT_ROLLED_OUT_RECHECK_MS);
+    vi.setSystemTime(Date.now() + GATEWAY_ACTION_RECHECK_MS);
 
-    expect(await t.service.getRoute(42, { awaitRecheck: true })).toMatchObject({
+    expect(await t.service.getRoute()).toMatchObject({
       mode: "go",
       token: "phe_one",
     });
@@ -254,11 +378,11 @@ describe("GatewayTokenService.getRoute", () => {
 
   it.each([
     [
-      "a session start on a legacy route",
+      "a caller on a refused route",
       { enabled: false, reason: "not_rolled_out" },
       200,
-      GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
-      { awaitRecheck: true },
+      GATEWAY_ACTION_RECHECK_MS,
+      {},
     ],
     [
       "any caller on a blocked route",
@@ -307,7 +431,7 @@ describe("GatewayTokenService.getRoute", () => {
     });
   });
 
-  it("treats an exhausted credit bucket as final, not as legacy", async () => {
+  it("treats an exhausted credit bucket as a 402 that only clears on a refill", async () => {
     const t = setup();
     const sentence =
       "Your organization has reached its PostHog Desktop usage limit";
@@ -323,6 +447,7 @@ describe("GatewayTokenService.getRoute", () => {
       mode: "blocked",
       reason: "credit_bucket_exhausted",
       detail: sentence,
+      status: 402,
     });
     vi.setSystemTime(Date.now() + GATEWAY_BLOCKED_RECHECK_MS - 1);
     expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
@@ -335,32 +460,89 @@ describe("GatewayTokenService.getRoute", () => {
     expect(await t.service.getRoute()).toMatchObject({ mode: "go" });
   });
 
-  it.each([
-    [403, { enabled: false, reason: "email_unverified" }, "email_unverified"],
-    [
-      403,
-      {
-        detail: "Organization is deactivated.",
-        code: "organization_deactivated",
-      },
-      "organization_deactivated",
-    ],
-    [429, { enabled: false, reason: "throttled" }, "throttled"],
-    [
-      503,
-      { enabled: false, reason: "desktop_access_unavailable" },
-      "desktop_access_unavailable",
-    ],
-    [503, { enabled: false, reason: "mint_failed" }, "mint_failed"],
-  ])(
-    "keeps a %s refusal on legacy with its reason",
-    async (status, body, reason) => {
-      const t = setup();
-      t.mintResponses.push(() => json(body, status));
+  it("keeps a refusal other than an exhausted bucket when usage reports a refill", async () => {
+    const t = setup();
+    t.mintResponses.push(() =>
+      json({ enabled: false, reason: "throttled" }, 429),
+    );
 
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
-    },
-  );
+    await t.service.getRoute();
+    t.service.clearBlocked();
+
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
+      reason: "throttled",
+    });
+    expect(t.mintCalls()).toBe(1);
+  });
+
+  it("backs off on consecutive transient refusals and resets after a mint", async () => {
+    const t = setup();
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(minted("phe_one"), 201));
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(minted("phe_two"), 201));
+
+    await t.service.getRoute();
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    expect(t.mintCalls()).toBe(2);
+    vi.setSystemTime(Date.now() + 2 * GATEWAY_TRANSIENT_RECHECK_MS - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    expect(t.mintCalls()).toBe(2);
+    vi.setSystemTime(Date.now() + 1);
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_one" });
+
+    // The mint reset the count, so this wait is 30s.
+    vi.setSystemTime(Date.now() + 3_600_000);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    expect(t.mintCalls()).toBe(4);
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS);
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_two" });
+  });
+
+  it("backs off when the early refresh fails twice in a row", async () => {
+    const t = setup();
+    // An hourly token refreshes 2 minutes early, leaving room for 30s + 60s.
+    t.mintResponses.push(() => json(minted("phe_one"), 201));
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(minted("phe_two"), 201));
+
+    await t.service.getRoute();
+    vi.setSystemTime(Date.now() + 3_600_000 - 120_000);
+    await t.service.getRoute();
+    await vi.waitFor(() => expect(t.mintCalls()).toBe(2));
+    // Let the refused refresh settle and schedule its re-check.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS);
+    await t.service.getRoute();
+    await vi.waitFor(() => expect(t.mintCalls()).toBe(3));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    vi.setSystemTime(Date.now() + 2 * GATEWAY_TRANSIENT_RECHECK_MS - 1_000);
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_one" });
+    expect(t.mintCalls()).toBe(3);
+    vi.setSystemTime(Date.now() + 1_000);
+    await t.service.getRoute();
+    await vi.waitFor(async () =>
+      expect(await t.service.getRoute()).toMatchObject({ token: "phe_two" }),
+    );
+  });
+
+  it("shortens a transient re-check by the jitter draw", async () => {
+    const t = setup();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    t.mintResponses.push(() => json(null, 503));
+    t.mintResponses.push(() => json(minted("phe_one"), 201));
+
+    await t.service.getRoute();
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS / 2 - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    vi.setSystemTime(Date.now() + 1);
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_one" });
+  });
 
   it("feeds a desktop access denial into the auth state", async () => {
     const t = setup();
@@ -369,22 +551,24 @@ describe("GatewayTokenService.getRoute", () => {
       json({ enabled: false, reason: "desktop_access_blocked", access }, 403),
     );
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "desktop_access_blocked",
     });
     expect(t.reportDesktopAccessBlocked).toHaveBeenCalledWith(42, access);
   });
 
-  it("falls back to legacy when the mint request fails", async () => {
+  it("blocks briefly when the mint request fails", async () => {
     const t = setup();
     t.mintResponses.push(() => {
       throw new Error("offline");
     });
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
       reason: "mint_failed",
+      detail: TRANSIENT,
+      status: 503,
     });
   });
 
@@ -401,8 +585,8 @@ describe("GatewayTokenService.getRoute", () => {
       json({ ...minted("phe_bad"), gateway_url: gatewayUrl }, 201),
     );
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "invalid_gateway_url",
     });
   });
@@ -436,11 +620,11 @@ describe("GatewayTokenService.getRoute", () => {
   });
 
   it("pins the re-check, re-mint and refresh windows", () => {
-    expect(GATEWAY_LEGACY_RECHECK_MS).toBe(600_000);
-    expect(GATEWAY_NOT_ROLLED_OUT_RECHECK_MS).toBe(1_800_000);
+    expect(GATEWAY_ACTION_RECHECK_MS).toBe(600_000);
     expect(GATEWAY_BLOCKED_RECHECK_MS).toBe(1_800_000);
+    expect(GATEWAY_THROTTLED_RECHECK_MS).toBe(300_000);
+    expect(GATEWAY_TRANSIENT_RECHECK_MS).toBe(30_000);
     expect(GATEWAY_REMINT_MIN_INTERVAL_MS).toBe(5_000);
-    expect(GATEWAY_REFRESH_RETRY_MS).toBe(30_000);
     expect(GATEWAY_TOKEN_REFRESH_SKEW_MS).toBe(120_000);
     expect(GATEWAY_TOKEN_MIN_REFRESH_SKEW_MS).toBe(30_000);
     expect(GATEWAY_MINT_TIMEOUT_MS).toBe(15_000);
@@ -475,12 +659,12 @@ describe("GatewayTokenService.getRoute", () => {
       json({ ...minted("phe_one"), expires_at: "soon" }, 201),
     );
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "invalid_expiry",
     });
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "invalid_expiry",
     });
     expect(t.mintCalls()).toBe(1);
@@ -508,7 +692,10 @@ describe("GatewayTokenService.getRoute", () => {
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(await pending).toEqual({ mode: "legacy", reason: "mint_failed" });
+    expect(await pending).toMatchObject({
+      mode: "blocked",
+      reason: "mint_failed",
+    });
   });
 
   it("gives up on a mint whose body does not arrive in time", async () => {
@@ -531,8 +718,8 @@ describe("GatewayTokenService.getRoute", () => {
     const pending = t.service.getRoute();
     await vi.advanceTimersByTimeAsync(GATEWAY_MINT_TIMEOUT_MS);
 
-    expect(await pending).toEqual({
-      mode: "legacy",
+    expect(await pending).toMatchObject({
+      mode: "blocked",
       reason: "invalid_mint_response",
     });
   });
@@ -541,8 +728,8 @@ describe("GatewayTokenService.getRoute", () => {
     const t = setup();
     t.mintResponses.push(() => json({ ...minted("sk-not-phe") }, 201));
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "invalid_mint_response",
     });
   });
@@ -566,15 +753,21 @@ describe("GatewayTokenService.getRoute", () => {
   });
 
   it.each([
-    ["a network error", () => Promise.reject(new Error("offline"))],
-    ["a 503", () => json(null, 503)],
+    // Non-transient refusals wait for expiry, 59,999ms after the refresh.
+    [
+      "a network error",
+      () => Promise.reject(new Error("offline")),
+      GATEWAY_TRANSIENT_RECHECK_MS,
+    ],
+    ["a 503", () => json(null, 503), GATEWAY_TRANSIENT_RECHECK_MS],
     [
       "a flag-off refusal",
       () => json({ enabled: false, reason: "not_rolled_out" }, 200),
+      60_000 - 1,
     ],
   ])(
     "keeps the unexpired token when the early refresh hits %s",
-    async (_label, failure) => {
+    async (_label, failure, retryAfterMs) => {
       const t = setup();
       t.mintResponses.push(() => json(minted("phe_one", 10 * 60_000), 201));
       t.mintResponses.push(failure);
@@ -588,7 +781,11 @@ describe("GatewayTokenService.getRoute", () => {
       expect(await t.service.getRoute()).toMatchObject({ token: "phe_one" });
       expect(t.mintCalls()).toBe(2);
 
-      vi.setSystemTime(Date.now() + GATEWAY_REFRESH_RETRY_MS);
+      // A second of slack: only Date is faked, so real milliseconds still pass.
+      vi.setSystemTime(Date.now() + retryAfterMs - 1_000);
+      expect(await t.service.getRoute()).toMatchObject({ token: "phe_one" });
+      expect(t.mintCalls()).toBe(2);
+      vi.setSystemTime(Date.now() + 1_000);
       await t.service.getRoute();
       await vi.waitFor(async () =>
         expect(await t.service.getRoute()).toMatchObject({ token: "phe_two" }),
@@ -611,22 +808,26 @@ describe("GatewayTokenService.getRoute", () => {
     );
   });
 
-  it("answers legacy without minting on a host that cannot reach Go", async () => {
+  it("blocks without minting on a host that cannot reach Go", async () => {
     const t = setup({ config: { goEnabled: false } });
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
       reason: "host_unsupported",
+      detail: "PostHog AI helpers aren't available in the web app yet.",
+      status: 403,
     });
     expect(t.authenticatedFetch).not.toHaveBeenCalled();
   });
 
-  it("answers legacy with no selected project", async () => {
+  it("blocks with no selected project", async () => {
     const t = setup({ state: baseState({ currentProjectId: null }) });
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
       reason: "no_project",
+      detail: "Select a project to use PostHog AI.",
+      status: 403,
     });
   });
 
@@ -656,9 +857,12 @@ describe("GatewayTokenService.remint", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-23T12:00:00Z"));
+    // Jitter at its ceiling, so a first transient re-check is exactly 30s.
+    vi.spyOn(Math, "random").mockReturnValue(1);
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   async function primed() {
@@ -801,37 +1005,47 @@ describe("GatewayTokenService.remint", () => {
     ).toMatchObject({ token: "phe_two" });
   });
 
-  it("falls back to legacy when Go refuses the re-minted token too", async () => {
+  it("blocks briefly when Go refuses the re-minted token too", async () => {
     const t = await primed();
     t.mintResponses.push(() => json(minted("phe_two"), 201));
     await t.service.remint("unauthorized", "phe_one", undefined);
 
     t.service.fallBack("phe_two", undefined);
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "gateway_unauthorized",
+      status: 503,
     });
-    vi.setSystemTime(Date.now() + GATEWAY_LEGACY_RECHECK_MS - 1);
-    expect(await t.service.getRoute()).toMatchObject({ mode: "legacy" });
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
     expect(t.mintCalls()).toBe(2);
     t.mintResponses.push(() => json(minted("phe_three"), 201));
     vi.setSystemTime(Date.now() + 1);
-    await t.service.getRoute();
-    await vi.waitFor(async () =>
-      expect(await t.service.getRoute()).toMatchObject({ token: "phe_three" }),
-    );
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_three" });
   });
 
-  it("falls back only the named project", async () => {
+  it("schedules a Go 401 block through the jittered backoff", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const t = await primed();
+    t.service.fallBack("phe_one", undefined);
+
+    vi.setSystemTime(Date.now() + GATEWAY_TRANSIENT_RECHECK_MS / 2 - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    t.mintResponses.push(() => json(minted("phe_two"), 201));
+    vi.setSystemTime(Date.now() + 1);
+    expect(await t.service.getRoute()).toMatchObject({ token: "phe_two" });
+  });
+
+  it("blocks only the named project", async () => {
     const t = await primed();
     t.mintResponses.push(() => json(minted("phe_other"), 201));
     expect(await t.service.getRoute(43)).toMatchObject({ token: "phe_other" });
 
     t.service.fallBack("phe_other", 43);
 
-    expect(await t.service.getRoute(43)).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute(43)).toMatchObject({
+      mode: "blocked",
       reason: "gateway_unauthorized",
     });
     expect(await t.service.getRoute(42)).toMatchObject({ token: "phe_one" });
@@ -847,7 +1061,7 @@ describe("GatewayTokenService.remint", () => {
     expect(await t.service.getRoute()).toMatchObject({ token: "phe_two" });
   });
 
-  it("falls back instead of re-minting on a 401 inside the minimum interval", async () => {
+  it("blocks instead of re-minting on a 401 inside the minimum interval", async () => {
     const t = setup();
     t.mintResponses.push(() => json(minted("phe_one"), 201));
     await t.service.getRoute();
@@ -855,8 +1069,8 @@ describe("GatewayTokenService.remint", () => {
     expect(
       await t.service.remint("unauthorized", "phe_one", undefined),
     ).toBeNull();
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
       reason: "gateway_unauthorized",
     });
     expect(t.mintCalls()).toBe(1);
@@ -945,7 +1159,7 @@ describe("GatewayTokenService identity changes", () => {
     expect(t.mintCalls()).toBe(1);
   });
 
-  it("answers legacy without minting while signed out", async () => {
+  it("blocks without minting while signed out", async () => {
     const t = setup();
     t.mintResponses.push(() => json(minted("phe_one"), 201));
     await t.service.getRoute();
@@ -953,17 +1167,19 @@ describe("GatewayTokenService identity changes", () => {
     t.setState(baseState({ status: "anonymous", currentProjectId: 42 }));
 
     expect(await t.service.getRoute(42)).toEqual({
-      mode: "legacy",
+      mode: "blocked",
       reason: "signed_out",
+      detail: SIGN_IN,
+      status: 401,
     });
     expect(t.mintCalls()).toBe(1);
   });
 
-  it("answers legacy before any identity exists", async () => {
+  it("blocks before any identity exists", async () => {
     const t = setup({ state: baseState({ status: "restoring" }) });
 
-    expect(await t.service.getRoute(42)).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute(42)).toMatchObject({
+      mode: "blocked",
       reason: "signed_out",
     });
     expect(t.mintCalls()).toBe(0);
@@ -1005,8 +1221,8 @@ describe("GatewayTokenService identity changes", () => {
       change(t);
       release(json(minted("phe_one"), 201));
 
-      expect(await pending).toEqual({
-        mode: "legacy",
+      expect(await pending).toMatchObject({
+        mode: "blocked",
         reason: "identity_changed",
       });
       t.setState(baseState());
@@ -1021,8 +1237,8 @@ describe("GatewayTokenService identity changes", () => {
         return { accessToken: "pha_x", apiHost: API_HOST };
       });
 
-      expect(await t.service.getRoute()).toEqual({
-        mode: "legacy",
+      expect(await t.service.getRoute()).toMatchObject({
+        mode: "blocked",
         reason: "identity_changed",
       });
       expect(t.mintCalls()).toBe(0);
@@ -1079,4 +1295,19 @@ describe("GatewayTokenService identity changes", () => {
     t.mintResponses.push(() => json(minted("phe_two"), 201));
     expect(await t.service.getRoute(42)).toMatchObject({ token: "phe_two" });
   });
+});
+
+describe("transientRecheckMs", () => {
+  it.each([
+    [1, 1, GATEWAY_TRANSIENT_RECHECK_MS],
+    [1, 0, GATEWAY_TRANSIENT_RECHECK_MS / 2],
+    [2, 1, 2 * GATEWAY_TRANSIENT_RECHECK_MS],
+    [3, 1, 4 * GATEWAY_TRANSIENT_RECHECK_MS],
+    [20, 1, GATEWAY_TRANSIENT_MAX_RECHECK_MS],
+  ])(
+    "waits up to the doubled 30s for failure %i (random %s)",
+    (failures, random, expected) => {
+      expect(transientRecheckMs(failures, random)).toBe(expected);
+    },
+  );
 });

@@ -1,4 +1,4 @@
-import ipaddress
+import base64
 from types import SimpleNamespace
 
 import time_machine
@@ -9,6 +9,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import authentication
+from rest_framework.serializers import Serializer
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -17,6 +18,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.model_catalogue import GatewayModel
@@ -29,6 +31,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
+    TaskRunLivingArtifactEditRequestSerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
 )
@@ -81,6 +84,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             # internally funded inference under a per-run cap.
             ("signals_chat", True),
             ("scout_suggestions", True),
+            ("account_audit", True),
             ("user_created", False),
         ]
     )
@@ -145,7 +149,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         ]
     )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")})
+    @mock_anti_ssrf_dns_lookup()
     def test_schedule_rejects_unsupported_inputs(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"scheduled_at": "2026-09-19T12:00:00", **payload})
         with patch(
@@ -246,10 +250,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         if not accepted:
             assert "claude_model_access" in serializer.errors
 
-    @patch(
-        "posthog.security.url_validation.resolve_host_ips",
-        return_value={ipaddress.ip_address("93.184.216.34")},
-    )
+    @mock_anti_ssrf_dns_lookup()
     def test_deduplicates_imported_mcp_server_host_resolution(self, mock_resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(
             data={
@@ -303,6 +304,65 @@ class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
         if not expected_valid:
             megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
             assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])
+
+
+INDENTED_CONTENT = "\n    def main():\n        pass\n\n"
+
+
+class TestArtifactContentWhitespace(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "inline_upload",
+                TaskRunArtifactUploadSerializer,
+                {"name": "main.py", "type": "output", "content": INDENTED_CONTENT, "content_encoding": "utf-8"},
+                "content_bytes",
+                INDENTED_CONTENT.encode("utf-8"),
+            ),
+            (
+                "inline_upload_base64_with_trailing_newline",
+                TaskRunArtifactUploadSerializer,
+                {
+                    "name": "main.py",
+                    "type": "output",
+                    "content": base64.b64encode(INDENTED_CONTENT.encode("utf-8")).decode("ascii") + "\n",
+                    "content_encoding": "base64",
+                },
+                "content_bytes",
+                INDENTED_CONTENT.encode("utf-8"),
+            ),
+            (
+                "living_artifact_create",
+                TaskRunLivingArtifactCreateRequestSerializer,
+                {"name": "main.py", "content": INDENTED_CONTENT},
+                "content",
+                INDENTED_CONTENT,
+            ),
+            (
+                "living_artifact_edit",
+                TaskRunLivingArtifactEditRequestSerializer,
+                {"content": INDENTED_CONTENT},
+                "content",
+                INDENTED_CONTENT,
+            ),
+        ]
+    )
+    def test_content_keeps_leading_and_trailing_whitespace(
+        self, _name: str, serializer_class: type[Serializer], data: dict, field: str, expected: str | bytes
+    ) -> None:
+        serializer = serializer_class(data=data)
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data[field] == expected
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", " \n")])
+    def test_blank_base64_content_is_rejected(self, _name: str, content: str) -> None:
+        serializer = TaskRunArtifactUploadSerializer(
+            data={"name": "main.py", "type": "output", "content": content, "content_encoding": "base64"}
+        )
+
+        assert not serializer.is_valid()
+        assert "content" in serializer.errors
 
 
 class TestCredentialResponseSerializer(SimpleTestCase):

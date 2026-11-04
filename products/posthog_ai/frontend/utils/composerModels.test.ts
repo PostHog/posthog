@@ -5,6 +5,7 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER, MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
@@ -240,11 +241,14 @@ describe('composerModels', () => {
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather
     // than a hardcoded list — a runtime the gateway stops serving must stop being offered.
-    it("derives the harness list and each harness's models from the catalogue", () => {
-        expect(listRuntimeAdapters(CATALOGUE)).toEqual(['claude', 'codex'])
-        expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex).map((o) => o.model)).toEqual([
-            'gpt-5.6-luna',
-        ])
+    it.each([
+        [TaskRuntimeEnumApi.Acp, ['claude', 'codex'], ['gpt-5.6-luna']],
+        [TaskRuntimeEnumApi.Pi, [], ['claude-opus-4-8', 'gpt-5.6-luna']],
+    ])("derives the harness list and each harness's models from the catalogue for %s", (runtime, adapters, models) => {
+        expect(listRuntimeAdapters(CATALOGUE, runtime)).toEqual(adapters)
+        expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex, runtime).map((o) => o.model)).toEqual(
+            models
+        )
     })
 
     describe('pickerModels', () => {

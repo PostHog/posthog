@@ -14,7 +14,7 @@ export const FRICTION_GROUP_LABELS: Record<FrictionGroupEnumApi, string> = {
 }
 
 export const FRICTION_GROUP_DESCRIPTIONS: Record<FrictionGroupEnumApi, string> = {
-    queue: 'time in the merge queue from 30 minutes up to 4 hours, and up to 3 kickouts per pull request',
+    queue: 'time in the merge queue from 30 minutes up to 4 hours, and up to 3 failed queue attempts per pull request',
     review: 'the wait for the first approval',
     ci: 'red CI by cause and re-runs that failed again, up to 3 of each per pull request, and CI time from 10 minutes up to 2 hours per push',
     rework: 'own failures fixed by a push (up to 3 per pull request), extra pushes, and pushes after approval',
@@ -40,7 +40,7 @@ export function pullRequestFrictionFacts(pr: PullRequestFrictionBreakdownApi): F
     const ciSeconds = pr.ci_wait_seconds.reduce((sum, seconds) => sum + seconds, 0)
     const facts: [FrictionGroupEnumApi, string, string | null][] = [
         ['queue', 'Time in the merge queue', duration(pr.queue_seconds)],
-        ['queue', 'Kicked out of the merge queue', count(pr.kickout_count)],
+        ['queue', 'Failed merge queue attempts', count(pr.kickout_count)],
         ['review', 'Wait for the first approval', duration(pr.first_approval_wait_seconds)],
         ['ci', 'Red, passed on a re-run', count(pr.flake_red_count)],
         ['ci', 'Red, the default branch was failing', count(pr.master_red_count)],

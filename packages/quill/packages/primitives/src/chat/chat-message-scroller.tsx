@@ -25,85 +25,85 @@ function ChatMessageScrollerProvider(
     return <MessageScrollerPrimitive.Provider {...props} />
 }
 
-function ChatMessageScroller({
-    className,
-    ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Root>): React.ReactElement {
+const ChatMessageScroller = React.forwardRef<
+    React.ComponentRef<typeof MessageScrollerPrimitive.Root>,
+    React.ComponentProps<typeof MessageScrollerPrimitive.Root>
+>(function ChatMessageScroller({ className, ...props }, ref) {
     return (
         <MessageScrollerPrimitive.Root
+            ref={ref}
             data-quill
             data-slot="chat-message-scroller"
             className={cn('quill-chat-message-scroller group/chat-message-scroller', className)}
             {...props}
         />
     )
-}
+})
 
-function ChatMessageScrollerViewport({
-    className,
-    ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>): React.ReactElement {
+const ChatMessageScrollerViewport = React.forwardRef<
+    React.ComponentRef<typeof MessageScrollerPrimitive.Viewport>,
+    React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>
+>(function ChatMessageScrollerViewport({ className, ...props }, ref) {
     return (
         <MessageScrollerPrimitive.Viewport
+            ref={ref}
             data-slot="chat-message-scroller-viewport"
             className={cn('quill-chat-message-scroller__viewport', className)}
             {...props}
         />
     )
-}
+})
 
 type ChatMessageScrollerContentProps = React.ComponentProps<typeof MessageScrollerPrimitive.Content> & {
     /** Row spacing: `dense` 0.5rem, `default` 1rem, `loose` 1.5rem. */
     density?: 'dense' | 'default' | 'loose'
 }
 
-function ChatMessageScrollerContent({
-    className,
-    density = 'default',
-    ...props
-}: ChatMessageScrollerContentProps): React.ReactElement {
+const ChatMessageScrollerContent = React.forwardRef<
+    React.ComponentRef<typeof MessageScrollerPrimitive.Content>,
+    ChatMessageScrollerContentProps
+>(function ChatMessageScrollerContent({ className, density = 'default', ...props }, ref) {
     return (
         <MessageScrollerPrimitive.Content
+            ref={ref}
             data-slot="chat-message-scroller-content"
             data-density={density}
             className={cn('quill-chat-message-scroller__content', className)}
             {...props}
         />
     )
-}
+})
 
 /**
  * One transcript row. `scrollAnchor` marks turn boundaries (the engine pins anchored rows near the
  * viewport top on new turns). Off-screen size estimate is tuned in `chat-message-scroller.css`.
  */
-function ChatMessageScrollerItem({
-    className,
-    scrollAnchor = false,
-    ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Item>): React.ReactElement {
+const ChatMessageScrollerItem = React.forwardRef<
+    React.ComponentRef<typeof MessageScrollerPrimitive.Item>,
+    React.ComponentProps<typeof MessageScrollerPrimitive.Item>
+>(function ChatMessageScrollerItem({ className, scrollAnchor = false, ...props }, ref) {
     return (
         <MessageScrollerPrimitive.Item
+            ref={ref}
             data-slot="chat-message-scroller-item"
             scrollAnchor={scrollAnchor}
             className={cn('quill-chat-message-scroller__item', className)}
             {...props}
         />
     )
-}
+})
 
 /**
  * Scroll-to-edge control. The engine toggles `data-active` from imperative scroll tracking;
  * visibility/animation is pure CSS off that attribute.
  */
-function ChatMessageScrollerButton({
-    direction = 'end',
-    className,
-    children,
-    render,
-    ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Button>): React.ReactElement {
+const ChatMessageScrollerButton = React.forwardRef<
+    React.ComponentRef<typeof MessageScrollerPrimitive.Button>,
+    React.ComponentProps<typeof MessageScrollerPrimitive.Button>
+>(function ChatMessageScrollerButton({ direction = 'end', className, children, render, ...props }, ref) {
     return (
         <MessageScrollerPrimitive.Button
+            ref={ref}
             data-slot="chat-message-scroller-button"
             data-direction={direction}
             direction={direction}
@@ -119,7 +119,7 @@ function ChatMessageScrollerButton({
             )}
         </MessageScrollerPrimitive.Button>
     )
-}
+})
 
 export {
     ChatMessageScrollerProvider,

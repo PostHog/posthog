@@ -21,6 +21,7 @@ from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
+from posthog.workload_identity.trust_policy import WorkloadTrustPolicyViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -48,7 +49,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    internal_feedback,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -69,7 +69,6 @@ from . import (
     search,
     sharing,
     tagged_item,
-    team,
     uploaded_media,
     user,
     user_facet_settings,
@@ -83,12 +82,13 @@ from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, user_product_list
+from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OrganizationOAuthApplicationViewSet
+from .oauth import OAuthDeviceViewSet, OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
+from .team import viewsets
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -106,7 +106,7 @@ routers.set_root(router)
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
-projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", viewsets.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
@@ -231,13 +231,6 @@ projects_router.register(
     ["team_id"],
 )
 
-
-projects_router.register(
-    r"user_product_list",
-    user_product_list.UserProductListViewSet,
-    "project_user_product_list",
-    ["team_id"],
-)
 
 projects_router.register(
     r"event_definitions",
@@ -421,9 +414,9 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
-router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
 # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
+router.register(r"oauth_device", OAuthDeviceViewSet, "oauth_device")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
@@ -435,7 +428,6 @@ from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
-from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -444,7 +436,6 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
-projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
 projects_router.register(
@@ -478,16 +469,8 @@ projects_router.register(
 projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"groups", GroupsViewSet, "project_groups", ["team_id"])
-    group_types_router = projects_router.register(
-        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
-    )
-    group_types_router.register(
-        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
-    )
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
     vercel_installations_router = router.register(
@@ -562,6 +545,10 @@ projects_router.register(
     project_secret_api_key.ProjectSecretAPIKeyViewSet,
     "project_project_secret_api_keys",
     ["team_id"],
+)
+
+projects_router.register(
+    r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"]
 )
 
 projects_router.register(

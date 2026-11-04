@@ -5,7 +5,7 @@ Tests for the WorkOS Radar integration.
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -25,7 +25,7 @@ from posthog.workos_radar import (
 )
 
 
-class TestRadarHelpers(TestCase):
+class TestRadarHelpers(SimpleTestCase):
     def test_hash_email_produces_consistent_hash(self):
         email = "test@example.com"
         hash1 = _hash_email(email)
@@ -42,7 +42,7 @@ class TestRadarHelpers(TestCase):
         assert _get_raw_user_agent(request) == "Mozilla/5.0 TestBrowser"
 
 
-class TestRadarApiCall(TestCase):
+class TestRadarApiCall(SimpleTestCase):
     @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_allow_verdict(self, mock_post):
@@ -149,7 +149,7 @@ class TestRadarApiCall(TestCase):
         assert verdict == RadarVerdict.ERROR
 
 
-class TestRadarEventLogging(TestCase):
+class TestRadarEventLogging(SimpleTestCase):
     @patch("posthog.workos_radar.posthoganalytics.capture")
     def test_log_radar_event_captures_posthog_event(self, mock_capture):
         _log_radar_event(
@@ -242,7 +242,7 @@ class TestRadarEventLogging(TestCase):
         assert props["bypass_source"] == ("rule" if was_bypassed else None)
 
 
-class TestEvaluateAuthAttempt(TestCase):
+class TestEvaluateAuthAttempt(SimpleTestCase):
     @override_settings(WORKOS_RADAR_ENABLED=False)
     def test_returns_none_when_radar_disabled(self):
         factory = RequestFactory()

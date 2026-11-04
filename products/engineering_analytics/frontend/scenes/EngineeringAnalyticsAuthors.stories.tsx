@@ -109,13 +109,13 @@ type Story = StoryObj<typeof meta>
 
 export const AuthorFriction: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsAuthors() },
+    parameters: { pageUrl: urls.engineeringAnalyticsAuthors('PostHog/posthog') },
 }
 
 export const AuthorFrictionNotReady: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsAuthors(),
+        pageUrl: urls.engineeringAnalyticsAuthors('PostHog/posthog'),
         testOptions: { waitForSelector: '[data-attr="engineering-analytics-friction-not-ready"]' },
     },
     decorators: [

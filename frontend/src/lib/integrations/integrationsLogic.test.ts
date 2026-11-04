@@ -7,11 +7,19 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType } from '~/types'
+import {
+    IntegrationKind,
+    IntegrationType,
+    PreflightStatus,
+    Region,
+    SLACK_INTEGRATION_SCOPES,
+    SLACK_INTEGRATION_SCOPES_IN_REVIEW,
+} from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
 import type {
@@ -138,6 +146,7 @@ describe('integrationsLogic', () => {
             logic.actions.loadGithubAvailableInstallations()
             await waitFor(() => expect(logic.values.githubAvailableInstallations).toHaveLength(1))
             request.mockRejectedValueOnce(new Error('synthetic failure'))
+            logic.actions.invalidateGithubSuggestions()
             logic.actions.loadGithubAvailableInstallations()
             expect(logic.values.githubAvailableInstallations).toBeNull()
             await waitFor(() => expect(logic.values.githubDiscoveryFailed).toBe(true))
@@ -337,6 +346,18 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('warehouse source credentials rows', () => {
+        it('keeps them in the full list but out of the lists that pick a connection by kind', async () => {
+            const sourceRow = githubIntegration({ id: 43, config: { warehouse_source_type: 'Github' } })
+            integrationsPayload = [githubIntegration(), sourceRow]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            expect(logic.values.integrations?.map((integration) => integration.id)).toEqual([42, 43])
+            expect(logic.values.githubIntegrations.map((integration) => integration.id)).toEqual([42])
+            expect(logic.values.getIntegrationsByKind(['github']).map((integration) => integration.id)).toEqual([42])
+        })
+    })
+
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()
@@ -455,19 +476,26 @@ describe('integrationsLogic', () => {
             }
         })
 
-        it('does not create the integration when the OAuth state token no longer matches the cookie', async () => {
-            // A stale/expired flow: the cookie minted at authorize time is gone or changed, so the token
-            // carried in the state can't match. The callback must recover by redirecting back rather than
-            // POST a create, so an expired (or forged) state can never link an integration.
+        // A stale/expired flow: the cookie minted at authorize time is gone or changed, so the token
+        // carried in the state can't match. The callback must recover by redirecting back rather than
+        // POST a create, so an expired (or forged) state can never link an integration. A crafted hex
+        // state that does not decode to text must take the same path instead of breaking the callback.
+        it.each([
+            [
+                'a stale token',
+                'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok',
+                '/project/228502/settings/project-integrations',
+            ],
+            ['a hex state that is not valid UTF-8', 'ff80', `/project/${MOCK_TEAM_ID}/settings/project-integrations`],
+        ])('does not create the integration for %s', async (_name, state, expectedPathname) => {
             document.cookie = 'ph_oauth_state=a-different-token'
-            const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
 
             await expectLogic(logic, () => {
                 logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
             }).toFinishAllListeners()
 
             expect(createSpy).not.toHaveBeenCalled()
-            expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
+            expect(router.values.location.pathname).toBe(expectedPathname)
 
             document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
         })
@@ -500,15 +528,17 @@ describe('integrationsLogic', () => {
 
         describe('integration create team scoping', () => {
             let requestedTeamIds: string[]
+            let createdConfig: Record<string, unknown>
 
             beforeEach(() => {
                 requestedTeamIds = []
+                createdConfig = {}
                 document.cookie = 'ph_oauth_state=csrf-tok'
                 useMocks({
                     post: {
                         '/api/environments/:team_id/integrations/': ({ params }) => {
                             requestedTeamIds.push(String(params.team_id))
-                            return [201, { id: 7, kind: 'slack' }]
+                            return [201, { id: 7, kind: 'slack', config: createdConfig }]
                         },
                     },
                 })
@@ -518,17 +548,26 @@ describe('integrationsLogic', () => {
                 document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
             })
 
-            it('creates the integration against the team carried in the OAuth state', async () => {
+            const plainState =
+                'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
+
+            // Providers that do not return the state verbatim get it hex-encoded at authorize time, and
+            // the callback must decode it before it checks the token or posts the state.
+            it.each([
+                ['a plain state', plainState],
+                ['a hex-encoded state', Buffer.from(plainState).toString('hex')],
+            ])('creates the integration against the team carried in %s', async (_name, state) => {
                 // The callback is a full-page round-trip on a non-project-scoped URL, so the SPA's
                 // current team is the user's default team here (MOCK_TEAM_ID) — not team 228502,
                 // which the state says initiated the flow.
-                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
-
                 await expectLogic(logic, () => {
                     logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
                 }).toFinishAllListeners()
 
-                expect(createSpy).toHaveBeenCalledWith({ kind: 'slack', config: { state, code: 'oauth-code' } }, 228502)
+                expect(createSpy).toHaveBeenCalledWith(
+                    { kind: 'slack', config: { state: plainState, code: 'oauth-code' } },
+                    228502
+                )
                 expect(requestedTeamIds).toEqual(['228502'])
                 expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
                 expect(router.values.searchParams.integration_id).toBe(7)
@@ -548,6 +587,46 @@ describe('integrationsLogic', () => {
                 )
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
             })
+
+            const approvedScopes = SLACK_INTEGRATION_SCOPES.join(',')
+            const allScopes = [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW].join(',')
+            it.each([
+                ['US', 'every requested scope', approvedScopes, null],
+                [
+                    'US',
+                    'fewer scopes than requested',
+                    SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
+                        ','
+                    ),
+                    ['files:write', 'users:read'],
+                ],
+                ['US', 'no recorded scopes', undefined, null],
+                ['DEV', 'every requested scope', allScopes, null],
+                ['DEV', 'only the approved scopes', approvedScopes, [...SLACK_INTEGRATION_SCOPES_IN_REVIEW]],
+            ])(
+                'reports a Slack install on %s that granted %s',
+                async (region, _name, grantedScope, expectedMissing) => {
+                    preflightLogic.mount()
+                    preflightLogic.actions.loadPreflightSuccess({
+                        ...preflightLogic.values.preflight,
+                        is_debug: false,
+                        region: region as Region,
+                    } as PreflightStatus)
+                    createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
+                    const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                    const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
+                    const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+                    await expectLogic(logic, () => {
+                        logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+                    }).toFinishAllListeners()
+
+                    expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
+                        expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
+                    )
+                    expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
+                }
+            )
         })
     })
 })

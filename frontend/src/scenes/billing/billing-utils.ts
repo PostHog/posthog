@@ -2,18 +2,15 @@ import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
-import { membershipLevelToName } from 'lib/utils/permissioning'
-import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
+import { wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { billingProductDisplayName } from './billingProductDisplayName'
 import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -42,6 +39,17 @@ export const calculateFreeTier = (product: BillingProductV2Type | BillingProduct
     return product.free_allocation || 0
 }
 
+// Add-ons never carry the flag, and older billing omits it, so both count as allowing a limit.
+export const canHaveBillingLimit = (product: BillingProductV2Type | BillingProductV2AddonType): boolean =>
+    !('no_billing_limit' in product && product.no_billing_limit === true)
+
+// Whether the product card shows its billing limit block.
+export const isBillingLimitShown = (product: BillingProductV2Type, billing: BillingType | null): boolean =>
+    billing?.billing_period?.interval === 'month' &&
+    !!product.subscribed &&
+    !product.inclusion_only &&
+    canHaveBillingLimit(product)
+
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     options: {
@@ -55,7 +63,8 @@ export const createGaugeItems = (
         // Billing limit (only for main products, excl. product variants setup)
         options.billingLimitAsUsage &&
         options.billing?.discount_percent !== 100 &&
-        !isProductVariantPrimary(product.type)
+        !isProductVariantPrimary(product.type) &&
+        canHaveBillingLimit(product)
             ? {
                   type: BillingGaugeItemKind.BillingLimit,
                   text: 'Billing limit',
@@ -95,14 +104,6 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
-}
-
-export const isUsageAtOrOverLimit = (percentageUsage: number | null | undefined): boolean => {
-    return (percentageUsage ?? 0) >= 1
-}
-
-export const isUsageApproachingLimit = (percentageUsage: number | null | undefined, threshold: number): boolean => {
-    return (percentageUsage ?? 0) > threshold && !isUsageAtOrOverLimit(percentageUsage)
 }
 
 /**
@@ -440,57 +441,6 @@ export const currencyFormatter = (value: number): string => {
 }
 
 /**
- * Returns the minimum membership level required to access billing.
- * When ownerOnlyBilling is true (via the owner-only-billing feature flag), only org owners can access billing.
- */
-export function getMinimumBillingAccessLevel(ownerOnlyBilling: boolean): OrganizationMembershipLevel {
-    return ownerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
-}
-
-/**
- * Determines if the user has sufficient permissions to access billing based on their org membership level.
- */
-export function canAccessBilling(membershipLevel: number | null | undefined, ownerOnlyBilling: boolean): boolean {
-    if (!membershipLevel) {
-        return false
-    }
-    return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
-}
-
-/** Whether the member-level read grant for usage and spend is in effect. */
-export function isMemberUsageSpendReadAccessEnabled(featureFlags: FeatureFlagsSet): boolean {
-    return !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]
-}
-
-/**
- * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
- * The member-billing-usage-spend-read-access feature flag lowers it to Member, but owner-only-billing takes precedence.
- */
-export function getMinimumUsageSpendReadAccessLevel(
-    memberUsageSpendReadAccess: boolean,
-    ownerOnlyBilling: boolean
-): OrganizationMembershipLevel {
-    if (ownerOnlyBilling) {
-        return OrganizationMembershipLevel.Owner
-    }
-    return memberUsageSpendReadAccess ? OrganizationMembershipLevel.Member : OrganizationMembershipLevel.Admin
-}
-
-/**
- * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
- */
-export function canViewUsageAndSpend(
-    membershipLevel: number | null | undefined,
-    memberUsageSpendReadAccess: boolean,
-    ownerOnlyBilling: boolean
-): boolean {
-    if (!membershipLevel) {
-        return false
-    }
-    return membershipLevel >= getMinimumUsageSpendReadAccessLevel(memberUsageSpendReadAccess, ownerOnlyBilling)
-}
-
-/**
  * Synchronizes URL search parameters with billing filter state.
  * Returns the appropriate router action format for kea-router.
  * Only updates the URL if parameters have actually changed.
@@ -658,124 +608,6 @@ export const formatTierPrice = (
         return `$${formatWithDecimals(price * product.display_divisor, 8)}`
     }
     return `$${formatWithDecimals(price)}`
-}
-
-/**
- * Build a human-readable list of product names (e.g., "A, B and C")
- */
-export function formatProductNames(names: string[]): string {
-    if (names.length === 0) {
-        return ''
-    }
-    if (names.length === 1) {
-        return names[0]
-    }
-    return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
-}
-
-/**
- * Get the consequence message for a product when it reaches its usage limit
- */
-export function getUsageLimitConsequence(productName: string): string {
-    if (productName === 'Data warehouse') {
-        return 'data will not be synced'
-    }
-    if (productName === 'Feature flags & Experiments') {
-        return 'feature flags will not evaluate'
-    }
-    if (productName === 'PostHog AI') {
-        return 'PostHog AI will be unavailable'
-    }
-    if (productName === 'Self-driving inbox') {
-        return 'self-driving agents will be paused'
-    }
-    return 'data loss may occur'
-}
-
-/**
- * Build a consolidated message for products that have reached their usage limits
- */
-export function buildUsageLimitReachedMessage(
-    products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
-    hasBillingAccess: boolean = true,
-    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin,
-    billingManagedByPartnerNotice: string | null = null
-): {
-    title: string
-    message: string
-} {
-    if (products.length === 0) {
-        return { title: '', message: '' }
-    }
-
-    const productNames = products.map(billingProductDisplayName)
-    const allSubscribed = products.every((p) => p.subscribed === true)
-
-    // Build consequence message, deduplicating common consequences
-    const consequences = [...new Set(productNames.map(getUsageLimitConsequence))]
-
-    const productListText = formatProductNames(productNames)
-    const consequenceText = consequences.join(' and ')
-    const title = products.length === 1 ? 'Usage limit reached' : 'Usage limits reached'
-
-    if (billingManagedByPartnerNotice && !allSubscribed) {
-        return {
-            title,
-            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${billingManagedByPartnerNotice}`,
-        }
-    }
-
-    let actionText: string
-    if (hasBillingAccess) {
-        actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
-    } else {
-        const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
-        actionText = allSubscribed
-            ? `ask an organization ${roleName} to increase the billing limit`
-            : `ask an organization ${roleName} to upgrade the plan`
-    }
-
-    return {
-        title,
-        message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
-    }
-}
-
-/**
- * Build a consolidated message for products approaching their usage limits
- */
-export function buildUsageLimitApproachingMessage(
-    products: Array<{
-        type?: string | null
-        name: string
-        percentage_usage: number
-        usage_key?: string | null
-    }>,
-    hasBillingAccess: boolean = true,
-    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
-): { title: string; message: string } {
-    if (products.length === 0) {
-        return { title: '', message: '' }
-    }
-
-    const usageDetails = products.map((p) => {
-        const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
-        const productName = (p.name && billingProductDisplayName(p)) || p.usage_key?.toLowerCase() || 'usage'
-        return `${percentage}% of your ${productName} allocation`
-    })
-
-    const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
-    const adminSuffix = hasBillingAccess ? '' : ` Please ask an organization ${roleName} to increase the billing limit.`
-
-    const message =
-        products.length === 1
-            ? `You have currently used ${usageDetails[0]}.${adminSuffix}`
-            : `You are approaching your usage limits: ${usageDetails.join(', ')}.${adminSuffix}`
-
-    return {
-        title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',
-        message,
-    }
 }
 
 /**

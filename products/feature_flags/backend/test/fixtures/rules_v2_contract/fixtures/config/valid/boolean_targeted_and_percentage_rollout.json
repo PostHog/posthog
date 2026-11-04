@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": null,
+  "rules": [
+    {
+      "id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
+      "rule_type": "targeted_release",
+      "targeting": {
+        "properties": [
+          {
+            "key": "account_tier",
+            "type": "person",
+            "operator": "exact",
+            "value": "preview"
+          }
+        ]
+      },
+      "value": true
+    },
+    {
+      "id": "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": true,
+      "rollout_percentage": 33.33,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-preview"
+    },
+    {
+      "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": false,
+      "rollout_percentage": 100,
+      "on_rollout_miss": "return_default",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-fallback",
+      "assign_by": "person"
+    },
+    {
+      "id": "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": true,
+      "rollout_percentage": 0,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-disabled"
+    }
+  ]
+}

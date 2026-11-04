@@ -4,7 +4,86 @@ import { ChartDisplayType } from '~/types'
 
 import { buildBIComparisonRows, getBIComparisonValues } from './biComparisonResults'
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
-import { getBIVisualizationResponse } from './biQueryResults'
+import { getBIResultSummary, getBIVisualizationResponse } from './biQueryResults'
+
+it.each([0, 99, 100, 101, 50000])(
+    'reports result limits without claiming a complete population for %s rows',
+    (count) => {
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            limit: count === 50000 ? (50000 as const) : (100 as const),
+            rows: [
+                {
+                    id: 'event',
+                    name: 'event',
+                    expression: 'event',
+                    type: 'string' as const,
+                    source: { table: 'events' },
+                },
+            ],
+        }
+        const query = { ...buildBIQuery(config)!.node, kind: NodeKind.BIVisualizationNode as const, config }
+        const response: HogQLQueryResponse = {
+            columns: ['event', 'count'],
+            types: [],
+            results: Array.from({ length: count }, (_, index) => [`item-${index}`, index === 0 ? null : 2]),
+        }
+        const summary = getBIResultSummary(query, response)!
+        expect(summary.groups).toBe(Math.min(count, config.limit))
+        expect(summary.marks).toBe(Math.max(0, Math.min(count, config.limit) - 1))
+        expect(summary.limited).toBe(count > config.limit)
+        expect(!!summary.possiblyLimited).toBe(count === 50000)
+    }
+)
+
+it('does not report one group or discard comparison rows when a dimension column is missing', () => {
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        source: { table: 'events' },
+        compareFilter: { compare: true },
+        rows: [
+            { id: 'event', name: 'event', expression: 'event', type: 'string' as const, source: { table: 'events' } },
+        ],
+    }
+    const query = { ...buildBIQuery(config)!.node, kind: NodeKind.BIVisualizationNode as const, config }
+    const response: HogQLQueryResponse = {
+        columns: ['unexpected', 'count', 'bi_comparison'],
+        types: [],
+        results: [
+            ['alpha', 3, 'Current period'],
+            ['beta', 4, 'Previous period'],
+        ],
+    }
+    expect(getBIResultSummary(query, response)).toMatchObject({ groups: null, marks: 2 })
+    expect((getBIVisualizationResponse(query, response) as HogQLQueryResponse).results).toEqual(response.results)
+})
+
+it('counts groups and nonempty marks separately from source rows, excluding totals and the probe', () => {
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        source: { table: 'events' },
+        limit: 100 as const,
+        rows: [
+            { id: 'event', name: 'event', expression: 'event', type: 'string' as const, source: { table: 'events' } },
+        ],
+    }
+    const query: BIVisualizationNode = {
+        kind: NodeKind.BIVisualizationNode,
+        config,
+        source: buildBIQuery(config)!.node.source,
+    }
+    const response: HogQLQueryResponse = {
+        columns: ['event', 'count', 'bi_grouping'],
+        types: [],
+        results: [
+            ...Array.from({ length: 99 }, (_, i) => [`group-${i}`, i === 0 ? null : 1000, 0]),
+            [null, 99000, 1],
+            ['probe', 3, 0],
+        ],
+    }
+    expect(getBIResultSummary(query, response)).toEqual({ groups: 99, marks: 98, limited: true })
+})
 
 it.each([
     ['positive', 150, 100, 50, 0.5],

@@ -41,6 +41,27 @@ export function authorizedIntegrationId(
     return integrations?.some((integration) => integration.id === id && integration.kind === kind) ? id : null
 }
 
+export function sourceOAuthRedirectUrl(sourceKind: string, pathname: string, search: string): string {
+    const searchParams = Object.fromEntries(new URLSearchParams(search))
+    const isOnboarding = pathname.includes('/onboarding')
+    let redirectUrl: string
+    if (isOnboarding) {
+        const params = new URLSearchParams(search)
+        params.set('kind', sourceKind)
+        redirectUrl = `${pathname}?${params.toString()}`
+    } else {
+        redirectUrl = urls.dataWarehouseSourceNew(
+            sourceKind,
+            searchParams.returnUrl,
+            searchParams.returnLabel,
+            searchParams.access_method === 'direct' ? 'direct' : undefined,
+            searchParams.entry_point
+        )
+    }
+
+    return redirectUrl
+}
+
 export function SourceIntegrationChoice({
     sourceConfig,
     integration,
@@ -49,6 +70,7 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const { oauthRedirectUrl } = useValues(sourceWizardLogic)
     const { location, searchParams } = useValues(router)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const integrationManagementRestriction = useIntegrationManagementRestriction()
@@ -92,16 +114,8 @@ export function SourceIntegrationChoice({
     // standalone new-source scene would drop the user out of the onboarding flow, so when we're
     // on an onboarding route we return to the current onboarding URL with the source kind instead.
     // InlineSourceSetup reads that kind on mount and resumes the wizard (credentials are restored
-    // from the state saved by beforeRedirect). Outside onboarding the standalone scene is correct.
-    const isOnboarding = location.pathname.includes('/onboarding')
-    let redirectUrl: string
-    if (isOnboarding) {
-        const params = new URLSearchParams(location.search)
-        params.set('kind', sourceKind)
-        redirectUrl = `${location.pathname}?${params.toString()}`
-    } else {
-        redirectUrl = urls.dataWarehouseSourceNew(sourceKind)
-    }
+    // from the state saved by beforeRedirect). Other embedded hosts supply their own return URL.
+    const redirectUrl = oauthRedirectUrl ?? sourceOAuthRedirectUrl(sourceKind, location.pathname, location.search)
 
     return (
         <div className="flex flex-col gap-2">

@@ -4,14 +4,13 @@ import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
-import { FLAG_EVALUATIONS_RETENTION_DAYS } from 'scenes/feature-flags/featureFlagUsageQueries'
+import { ActivitySceneHeader } from 'scenes/activity/ActivitySceneHeader'
+import { FLAG_EVALUATIONS_RETENTION_DAYS } from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -21,6 +20,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { buildExploreAgentContext } from '../activityAgentContext'
 import { eventsSceneLogic } from './eventsSceneLogic'
+import { SAMPLE_EVENTS_SOURCE } from './sampleEventRows'
 
 export function EventsScene(): JSX.Element {
     const { query, flagCallsNote } = useValues(eventsSceneLogic())
@@ -31,13 +31,11 @@ export function EventsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <ActivitySceneTabs activeKey={ActivityTab.ExploreEvents} />
-            <SceneTitleSection
+            <ActivitySceneHeader
+                activeKey={ActivityTab.ExploreEvents}
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
-                }}
+                iconType={sceneConfigurations[Scene.ExploreEvents].iconType}
             />
             {featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL] && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -67,6 +65,7 @@ export function EventsScene(): JSX.Element {
                     dataTableMaxPaginationLimit: 200,
                     // A live-data explorer over captured events, so it keeps the hidden ones selectable.
                     includeHiddenEvents: true,
+                    dataTableSampleRows: SAMPLE_EVENTS_SOURCE,
                 }}
             />
         </SceneContent>

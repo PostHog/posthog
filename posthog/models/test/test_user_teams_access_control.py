@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.test.project_access import enable_access_control
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -142,6 +143,7 @@ class TestUserTeamsAccessControl(BaseTest):
 
     def test_user_teams_ignores_role_membership_from_another_organization(self):
         other_organization = Organization.objects.create(name="Other organization")
+        enable_access_control(other_organization, role_based=True)
         other_team = Team.objects.create(organization=other_organization, name="Other private team")
         OrganizationMembership.objects.create(
             organization=other_organization,

@@ -1,12 +1,21 @@
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import serializers
 
-from products.dashboards.backend.api.dashboard import DashboardWriteOpenApiSerializer
+from posthog.schema import DashboardFilter
+
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
-from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
+
+# DashboardFilter keys that agents do not set through the dashboard-update MCP tool.
+DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS: frozenset[str] = frozenset(
+    {
+        "explicitDate",  # date picker display flag, not a filter
+        "metricFilters",  # metrics tiles only
+        "metricVariables",  # metrics tiles only
+    }
+)
 
 
 def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[str]:
@@ -21,13 +30,6 @@ def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[s
 
 
 class TestDashboardPatchOpenApiContract:
-    def test_write_schemas_exclude_legacy_collaborator_level(self) -> None:
-        supported_level = RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value
-        for serializer in (DashboardWriteOpenApiSerializer(), PatchedDashboardOpenApiSerializer()):
-            field = serializer.fields["restriction_level"]
-            assert isinstance(field, serializers.IntegerField)
-            assert field.min_value == field.max_value == supported_level
-
     def test_patched_dashboard_openapi_covers_runtime_patch_fields(self) -> None:
         runtime_fields = dashboard_patch_runtime_openapi_field_names()
         openapi_fields = frozenset(PatchedDashboardOpenApiSerializer().fields.keys())
@@ -79,6 +81,24 @@ class TestDashboardPatchOpenApiContract:
             f"layouts value instead of merging into it. Optional: {optional}."
         )
 
+    def test_tile_show_description_documented_as_writable_patch_field(self) -> None:
+        tiles_field = PatchedDashboardOpenApiSerializer().fields["tiles"]
+        assert isinstance(tiles_field, serializers.ListSerializer)
+        tile_serializer = tiles_field.child
+        assert isinstance(tile_serializer, serializers.Serializer)
+        tile_fields = tile_serializer.fields
+        assert "show_description" in tile_fields, (
+            "DashboardPatchTileOpenApiSerializer must document 'show_description' — DashboardSerializer.\n"
+            "TILE_DISPLAY_FIELDS already accepts and persists it on PATCH, but it was missing from the "
+            f"agent/MCP-facing OpenAPI schema. Got: {sorted(tile_fields)}."
+        )
+        show_description_field = tile_fields["show_description"]
+        assert isinstance(show_description_field, serializers.BooleanField)
+        assert not show_description_field.required, (
+            "'show_description' must stay optional so a tile PATCH that only moves or resizes a tile "
+            "doesn't have to restate it."
+        )
+
     def test_filters_documented_as_writable_patch_field(self) -> None:
         # filters is a SerializerMethodField on DashboardSerializer (read-only in the inferred schema),
         # so it is excluded from dashboard_patch_runtime_openapi_field_names(). The PATCH runtime accepts and
@@ -91,6 +111,9 @@ class TestDashboardPatchOpenApiContract:
         filters_field = openapi_fields["filters"]
         assert isinstance(filters_field, serializers.Serializer)
         filters_fields = frozenset(filters_field.fields.keys())
-        assert {"date_from", "date_to", "properties"}.issubset(filters_fields), (
-            f"Dashboard filters schema must expose date_from/date_to/properties. Got: {sorted(filters_fields)}."
+        missing = frozenset(DashboardFilter.model_fields) - DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS - filters_fields
+        assert not missing, (
+            "The MCP schema strips filter keys it does not declare, so an undocumented DashboardFilter key is "
+            f"silently dropped. Missing: {sorted(missing)}. Add it to DashboardFiltersOpenApiSerializer or to "
+            "DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS with a reason."
         )

@@ -65,7 +65,8 @@ export function buildSampleGlobals(
             url: 'https://example.com/project/1',
         },
         source: {
-            name: 'Example step',
+            id: '00000000-0000-0000-0000-000000000000',
+            name: 'Example workflow',
             url: 'https://example.com/project/1/workflows/1',
         },
     }
@@ -252,9 +253,21 @@ export function HogFlowFunctionConfiguration({
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.
     const inputsSchema = filterInputsSchemaForTrigger(templateId, workflow?.trigger, template.inputs_schema ?? [])
     const isPlatformInput = (key: string): boolean => key.startsWith('android_') || key.startsWith('ios_')
-    const coreInputsSchema = isPushStep ? inputsSchema.filter((s) => !isPlatformInput(s.key)) : inputsSchema
-    const androidInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('android_')) : []
-    const iosInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('ios_')) : []
+    const isSilentPush = isPushStep && inputs?.delivery?.value === 'silent'
+    const isHiddenForSilentPush = (key: string): boolean => isSilentPush && ['title', 'body', 'image'].includes(key)
+    // The template leaves the title optional so a silent push can skip it. Every other push needs one.
+    const coreInputsSchema = isPushStep
+        ? inputsSchema
+              .filter((s) => !isPlatformInput(s.key) && !isHiddenForSilentPush(s.key))
+              .map((s) => (s.key === 'title' ? { ...s, required: true } : s))
+        : inputsSchema
+    const isAndroidDataOnly = isPushStep && ['android_data_only', 'silent'].includes(inputs?.delivery?.value)
+    const androidInputsSchema = isPushStep
+        ? inputsSchema.filter(
+              (s) => s.key.startsWith('android_') && (!isAndroidDataOnly || s.key === 'android_priority')
+          )
+        : []
+    const iosInputsSchema = isPushStep && !isSilentPush ? inputsSchema.filter((s) => s.key.startsWith('ios_')) : []
 
     const renderInputs = (schema: typeof inputsSchema): JSX.Element => (
         <CyclotronJobInputs
@@ -272,6 +285,7 @@ export function HogFlowFunctionConfiguration({
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+            onInputsChange={(changes) => setInputs({ ...inputs, ...changes })}
         />
     )
 

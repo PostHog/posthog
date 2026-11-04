@@ -31,9 +31,9 @@ describe("buildResolveRequest", () => {
       dismissal_reason: "fixed_outside_posthog",
       dismissal_note: "Fixed in v2",
     });
-    expect(buildResolveRequest("pr_merged", "   ")).toEqual({
+    expect(buildResolveRequest("no_action_needed", "   ")).toEqual({
       state: "resolved",
-      dismissal_reason: "pr_merged",
+      dismissal_reason: "no_action_needed",
     });
   });
 });

@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.71",
+    "version": "1.0.72",
     "description": "PostHog Hog Virtual Machine",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
@@ -50,7 +50,7 @@
         "jest": "catalog:",
         "oxfmt": "catalog:",
         "parcel": "^2.16.4",
-        "re2": "^1.24.1",
+        "re2": "^1.26.1",
         "typescript": "catalog:"
     },
     "peerDependencies": {

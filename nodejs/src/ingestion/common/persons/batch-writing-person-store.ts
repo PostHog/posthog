@@ -18,6 +18,7 @@ import {
     personProfileBatchIgnoredPropertiesCounter,
     personProfileBatchUpdateOutcomeCounter,
     personPropertyKeyUpdateCounter,
+    personResolveKeysPerCallHistogram,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from '~/common/persons/metrics'
@@ -79,6 +80,7 @@ type MethodName =
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
     | 'readMergeRows'
+    | 'readPerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -123,8 +125,6 @@ export interface BatchWritingPersonsStoreOptions {
      * always wants a positive interval).
      */
     metricEmissionIntervalMs: number
-    /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
-    mergeTombstoneTeamAllowlist: string
     /** Teams whose merges lock the person rows and write the survivor in the transaction; others queue it for the flush. */
     mergeLockedOutcomeTeamAllowlist: string
     /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
@@ -145,7 +145,6 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     optimisticUpdateRetryInterval: 50,
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
-    mergeTombstoneTeamAllowlist: '',
     mergeLockedOutcomeTeamAllowlist: '*',
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
@@ -197,7 +196,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.mergePolicy = {
             updateAllProperties: this.options.updateAllProperties,
-            isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
             isLockedOutcomeTeam: buildIntegerMatcher(this.options.mergeLockedOutcomeTeamAllowlist, true),
             mergeEvents: {
                 enabled: this.options.mergeEventsEnabled,
@@ -798,6 +796,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
+                    personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'fetch_for_checking' }, 1)
                     const start = performance.now()
                     const { result: person, dropped } = await this.readRows(
                         () =>
@@ -891,6 +890,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'prefetch' }, uncachedEntries.length)
         const read = this.personCache.beginRead()
         const batchFetchPromise = this.personRepository
             .fetchPersonsByDistinctIds(
@@ -1007,6 +1007,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     let person: InternalPerson | undefined
                     // A person dropped while the read was out may have changed, so it is read once more.
                     for (let attempt = 0; ; attempt++) {
+                        personResolveKeysPerCallHistogram.observe(
+                            { backend: this.backend, site: 'fetch_for_update' },
+                            1
+                        )
                         const { result, dropped } = await this.readRows(
                             () =>
                                 this.personRepository.fetchPerson(teamId, distinctId, {
@@ -1327,6 +1331,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     ): Promise<InternalPerson[]> {
         this.incrementDatabaseOperation('readMergeRows', distinctId)
         return await tx.readMergeRows(teamId, targetId, sourceIds)
+    }
+
+    /**
+     * Reads on the caller's transaction and leaves the batch caches untouched, so a caller that
+     * commits on the result must not assume it carries this pod's pending changes.
+     */
+    async readPerson(
+        teamId: number,
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson | undefined> {
+        this.incrementDatabaseOperation('readPerson', distinctId)
+        return await tx.readPerson(teamId, distinctId)
     }
 
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
@@ -1966,6 +1983,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Fetch latest person data to get current version and properties
         this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'version_conflict' }, 1)
         const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
             callerTag: 'ingestion/person-version-conflict',
         })
@@ -2133,6 +2151,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
      */
     private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site: 'redirect_survivor' }, 1)
         const currentPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
             callerTag: 'ingestion/person-merge-refresh',
         })

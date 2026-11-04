@@ -1,7 +1,9 @@
+import socket
 import typing
 import pathlib
 
 import pytest
+from unittest import mock
 
 import psycopg
 from psycopg import sql
@@ -13,6 +15,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     NON_RETRYABLE_ERROR_TYPES,
     PostgresInsertInputs,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLMergeTimeoutError,
     PostgreSQLMissingRequiredInputsError,
     PostgreSQLTransactionError,
@@ -67,6 +70,46 @@ def test_from_inputs_raises_value_error_when_connection_inputs_missing(missing_f
 
 def test_missing_required_inputs_error_is_non_retryable():
     assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
+
+
+def _client_resolving_to(address: str) -> tuple[PostgreSQLClient, list[tuple]]:
+    client = PostgreSQLClient(
+        user="loader", password="secret", database="db", host="db.example.com", port=5432, ssl_mode="require"
+    )
+    addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432))]
+    return client, addrinfo
+
+
+async def test_connect_dials_the_address_it_checked(settings):
+    settings.FORCE_URL_VALIDATION = True
+    client, addrinfo = _client_resolving_to("8.8.8.8")
+    connection = mock.AsyncMock()
+    connection.__aenter__.return_value = connection
+
+    with (
+        mock.patch("socket.getaddrinfo", return_value=addrinfo),
+        mock.patch.object(psycopg.AsyncConnection, "connect", return_value=connection) as connect,
+    ):
+        async with client.connect():
+            pass
+
+    assert connect.call_args.kwargs["host"] == "db.example.com"
+    assert connect.call_args.kwargs["hostaddr"] == "8.8.8.8"
+
+
+async def test_connect_refuses_a_host_that_resolves_internal(settings):
+    settings.FORCE_URL_VALIDATION = True
+    client, addrinfo = _client_resolving_to("169.254.169.254")
+
+    with (
+        mock.patch("socket.getaddrinfo", return_value=addrinfo),
+        mock.patch.object(psycopg.AsyncConnection, "connect") as connect,
+        pytest.raises(PostgreSQLConnectionError),
+    ):
+        async with client.connect():
+            pass
+
+    connect.assert_not_called()
 
 
 async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(
@@ -206,6 +249,59 @@ async def test_client_from_integration(postgres_config, setup_postgres_test_db, 
                 assert results == [(1,)]
 
 
+@pytest.mark.parametrize("version_key", [("version",), ()])
+async def test_amerge_mutable_tables_replaces_rows_with_optional_version_key(
+    postgres_config: dict[str, typing.Any],
+    postgres_connection: psycopg.AsyncConnection,
+    version_key: tuple[str, ...],
+) -> None:
+    schema = postgres_config["schema"]
+    final_table = sql.Identifier(schema, "merge_final")
+    stage_table = sql.Identifier(schema, "merge_stage")
+    async with postgres_connection.cursor() as cursor:
+        for table in (final_table, stage_table):
+            await cursor.execute(
+                sql.SQL("CREATE TABLE {} (id INTEGER PRIMARY KEY, version INTEGER NOT NULL, value TEXT)").format(table)
+            )
+        await cursor.execute(
+            sql.SQL("INSERT INTO {} VALUES (1, 5, 'original'), (2, 1, 'original'), (3, 1, 'untouched')").format(
+                final_table
+            )
+        )
+        await cursor.execute(
+            sql.SQL("INSERT INTO {} VALUES (1, 1, 'replacement'), (2, 1, 'replacement'), (4, 1, 'new')").format(
+                stage_table
+            )
+        )
+
+    client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        ssl_mode="prefer",
+    )
+    async with client.connect():
+        await client.amerge_mutable_tables(
+            final_table_name="merge_final",
+            stage_table_name="merge_stage",
+            schema=schema,
+            merge_key=("id",),
+            update_key=version_key,
+            update_when_matched=[("id", "INTEGER"), ("version", "INTEGER"), ("value", "TEXT")],
+        )
+
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("SELECT id, version, value FROM {} ORDER BY id").format(final_table))
+        assert await cursor.fetchall() == [
+            (1, 5, "original") if version_key else (1, 1, "replacement"),
+            (2, 1, "original") if version_key else (2, 1, "replacement"),
+            (3, 1, "untouched"),
+            (4, 1, "new"),
+        ]
+
+
 async def test_amerge_mutable_tables_raises_non_retryable_error_when_a_row_lock_blocks_it(
     postgres_config: dict[str, typing.Any], postgres_connection: psycopg.AsyncConnection
 ) -> None:
@@ -240,8 +336,8 @@ async def test_amerge_mutable_tables_raises_non_retryable_error_when_a_row_lock_
                     final_table_name="merge_lock_final",
                     stage_table_name="merge_lock_stage",
                     schema=schema,
-                    merge_key=[("id", "INTEGER")],
-                    update_key=[("version", "INTEGER")],
+                    merge_key=["id"],
+                    update_key=["version"],
                     update_when_matched=[("id", "INTEGER"), ("version", "INTEGER")],
                     timeout=60,
                     lock_timeout=1,

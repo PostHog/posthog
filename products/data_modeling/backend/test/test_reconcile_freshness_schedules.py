@@ -39,8 +39,6 @@ class TestReconcileFreshnessSchedules(BaseTest):
         legacy_id = str(dag.id)
 
         with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([legacy_id]))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
@@ -49,30 +47,9 @@ class TestReconcileFreshnessSchedules(BaseTest):
 
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), H6)
-        assert node.saved_query is not None
-        node.saved_query.refresh_from_db()
-        self.assertIsNone(node.saved_query.sync_frequency_interval)
         create.assert_called_once()
         self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(legacy_id, H6))
         delete.assert_called_once_with(mock.ANY, schedule_id=legacy_id)
-
-    def test_sweeps_live_v1_schedules(self):
-        dag, node = self._legacy_dag()
-        assert node.saved_query is not None
-        v1_id = str(node.saved_query.id)
-
-        with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule") as delete_v1,
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([]))),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
-        ):
-            call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
-
-        delete_v1.assert_called_once_with(mock.ANY, schedule_id=v1_id)
-        node.saved_query.refresh_from_db()
-        self.assertIsNone(node.saved_query.sync_frequency_interval)
 
     def test_dry_run_rejects_default_interval(self):
         self._legacy_dag()
@@ -86,33 +63,6 @@ class TestReconcileFreshnessSchedules(BaseTest):
                 "3600",
                 stdout=StringIO(),
             )
-
-    def test_query_in_two_dags_seeds_from_its_own_interval(self):
-        D1 = timedelta(days=1)
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            name="shared",
-            team=self.team,
-            query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=H6,
-        )
-        dag_a = DAG.objects.create(team=self.team, name="A", sync_frequency_interval=D1)
-        dag_b = DAG.objects.create(team=self.team, name="B", sync_frequency_interval=D1)
-        node_a = Node.objects.create(team=self.team, dag=dag_a, saved_query=saved_query, type=NodeType.VIEW)
-        node_b = Node.objects.create(team=self.team, dag=dag_b, saved_query=saved_query, type=NodeType.VIEW)
-
-        with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule"),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([]))),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
-        ):
-            call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
-
-        node_a.refresh_from_db()
-        node_b.refresh_from_db()
-        self.assertEqual(get_declared_target(node_a), H6)
-        self.assertEqual(get_declared_target(node_b), H6)
 
     def test_dry_run_delegates_to_preview_and_writes_nothing(self):
         dag, node = self._legacy_dag()

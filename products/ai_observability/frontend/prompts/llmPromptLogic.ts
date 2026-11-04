@@ -51,6 +51,7 @@ import type {
     LLMPromptResolveResponseApi,
 } from '../generated/api.schemas'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -336,7 +337,7 @@ export interface llmPromptLogicActions {
         prompt: ResolvedLLMPrompt
         payload?: any
     }
-    loadResolvedPreview: () => any
+    loadResolvedPreview: (_: any) => any
     loadResolvedPreviewFailure: (
         error: string,
         errorObject?: any
@@ -628,9 +629,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         // content (navigation, version switch, refresh, failure) begins with
         // loadPrompt, so clearing on the trigger closes the whole class of
         // stale-preview states instead of patching individual outcomes.
+        // Cleared on loadResolvedPreview too: a late response for a previous
+        // version may have refilled it, and it would show while the new fetch
+        // is in flight.
         resolvedPreview: {
             loadPrompt: () => null,
             setMode: () => null,
+            loadResolvedPreview: () => null,
         },
         isShowingResolvedPreview: [
             false,
@@ -758,15 +763,19 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         resolvedPreview: {
             __default: null as LLMPromptPublicApi | null,
-            loadResolvedPreview: async () => {
+            loadResolvedPreview: async (_, breakpoint) => {
                 // Version from the router, like loadPrompt: values.prompt still holds
                 // the previous version while a back/forward navigation is loading.
                 const urlVersion = getSelectedVersionFromUrl()
-                return await llmPromptsNameRetrieve(
+                const response = await llmPromptsNameRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
                     props.promptName,
                     urlVersion !== undefined ? { version: urlVersion } : undefined
                 )
+                // A newer load started while this one was in flight: discard this
+                // response, or the older version's content would display as resolved.
+                breakpoint()
+                return response
             },
         },
     })),
@@ -1308,7 +1317,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         },
         toggleResolvedPreview: () => {
             if (values.isShowingResolvedPreview) {
-                actions.loadResolvedPreview()
+                actions.loadResolvedPreview(null)
             }
         },
         loadResolvedPreviewFailure: ({ errorObject }) => {
@@ -1608,10 +1617,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
+        '/prompt-management/prompts/:name': (_, __, ___, { method, pathname, searchParams }, previousLocation) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
                 actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
+                return
+            }
+
+            // The trace drawer pushes each step, and opening or stepping it should not reload the prompt.
+            if (changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })) {
                 return
             }
 

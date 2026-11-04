@@ -6,6 +6,7 @@ import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/Ap
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     EMAIL_METRIC_INVOCATION_FILTERS,
@@ -32,7 +33,10 @@ export function EmailMetricsSummary({
     onMetricClick?: (metricKey: EmailMetricName) => void
     compact?: boolean
 }): JSX.Element {
-    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))
+    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, getDateRangeAbsolute } = useValues(
+        appMetricsLogic({ logicKey })
+    )
+    const { dateFrom, dateTo } = getDateRangeAbsolute()
 
     const emailTrends = useMemo(
         () =>
@@ -53,16 +57,27 @@ export function EmailMetricsSummary({
     )
 
     const sentTotal = sumTimeSeries(getSingleTrendSeries('email_sent'))
+    // A frequency-capped send or a send with no recipient is skipped before the provider sees it, so
+    // it is not part of `sent`. Its rate reads against every attempted send, the same denominator as
+    // the Issues column.
+    const attemptedTotal =
+        sentTotal +
+        sumTimeSeries(getSingleTrendSeries('email_bounce_prevented')) +
+        sumTimeSeries(getSingleTrendSeries('email_missing_recipient')) +
+        sumTimeSeries(getSingleTrendSeries('message_frequency_capped'))
 
     return (
         <>
+            <EmailMetricsIncidentBanner dateFrom={dateFrom} dateTo={dateTo} />
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
                     const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
-                    const shareOfSent =
-                        key !== 'email_sent' && sentTotal > 0
-                            ? percentage(sumTimeSeries(getSingleTrendSeries(key)) / sentTotal, 1)
+                    const readsAgainstAttempts = key === 'message_frequency_capped' || key === 'email_missing_recipient'
+                    const shareTotal = readsAgainstAttempts ? attemptedTotal : sentTotal
+                    const share =
+                        key !== 'email_sent' && shareTotal > 0
+                            ? percentage(sumTimeSeries(getSingleTrendSeries(key)) / shareTotal, 1)
                             : null
                     return (
                         <WorkflowMetricCard
@@ -76,7 +91,13 @@ export function EmailMetricsSummary({
                             colorIfZero={getColorVar('muted')}
                             onClick={canDrillDown ? () => onMetricClick(key) : undefined}
                             onClickTooltip={`View invocations with a ${metric.name.toLowerCase()} log entry in this timeframe`}
-                            footer={shareOfSent ? <span>{shareOfSent} of sent</span> : null}
+                            footer={
+                                share ? (
+                                    <span>
+                                        {share} of {readsAgainstAttempts ? 'attempts' : 'sent'}
+                                    </span>
+                                ) : null
+                            }
                             compact={compact}
                         />
                     )

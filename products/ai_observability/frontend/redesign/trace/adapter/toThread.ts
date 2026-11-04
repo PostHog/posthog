@@ -1,12 +1,7 @@
-import { LLMTrace } from '~/queries/schema/schema-general'
-
-import { AIData } from '../../../aiObservabilityAIDataLogic'
-import { pickUserVisibleTurn } from '../../../extractSessionTurns'
-import { ConversationState, ThreadMessage } from '../types'
-import { resolveEventIO } from './eventIO'
+import { ConversationState, NodeLoad, ThreadMessage } from '../types'
+import { readNodeIO } from './nodeIO'
 import { TeamId } from './toAttachment'
 import { toThreadMessages } from './toThreadMessages'
-import { eventError } from './toTraceTree'
 
 export interface MessageIO {
     input: ThreadMessage[]
@@ -30,23 +25,36 @@ export function toMessageIO(io: { input: unknown; output: unknown }, sourceNodeI
     }
 }
 
-function readyThread(trace: LLMTrace, messages: ThreadMessage[], error: string | null): ConversationState {
-    return {
-        status: 'ready',
-        turns: [{ id: trace.id, timestamp: trace.createdAt, messages, error }],
-        activeTurnId: trace.id,
-    }
+const THREAD_LOAD_ERROR = 'The conversation could not be loaded. Reload the page to try again.'
+
+interface ThreadArgs {
+    traceId: string
+    createdAt: string
+    load: NodeLoad | null
+    teamId: TeamId
 }
 
-export function toThread(trace: LLMTrace, cache: Record<string, AIData | null>, teamId: TeamId): ConversationState {
-    const turnEvent = pickUserVisibleTurn(trace)
-    if (!turnEvent) {
-        return readyThread(trace, [], null)
+function readyThread(
+    traceId: string,
+    createdAt: string,
+    messages: ThreadMessage[],
+    error: string | null
+): ConversationState {
+    return { status: 'ready', turns: [{ id: traceId, timestamp: createdAt, messages, error }], activeTurnId: traceId }
+}
+
+export function toThread({ traceId, createdAt, load, teamId }: ThreadArgs): ConversationState {
+    if (load === null) {
+        return readyThread(traceId, createdAt, [], null)
     }
-    const io = resolveEventIO(turnEvent, cache)
-    if (io.loading) {
-        return { status: 'loading' }
+    switch (load.status) {
+        case 'loading':
+            return { status: 'loading' }
+        case 'error':
+            return { status: 'error', message: THREAD_LOAD_ERROR }
+        case 'ready': {
+            const { input, output } = toMessageIO(readNodeIO(load.node), load.node.id, teamId)
+            return readyThread(traceId, createdAt, [...input, ...output], load.node.error)
+        }
     }
-    const { input, output } = toMessageIO(io, turnEvent.id, teamId)
-    return readyThread(trace, [...input, ...output], eventError(turnEvent))
 }

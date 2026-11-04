@@ -9,7 +9,7 @@ import { NodeKind, ChartSettings } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
-    getHogChart,
+    getChart,
     HOVER,
     MONTHS,
     renderDataVisualization,
@@ -67,9 +67,18 @@ const renderBar = (
     })
 
 describe('SqlBarGraph', () => {
-    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue])(
-        'opens the BI drilldown on the first click with multiple series in %s',
-        async (chartType) => {
+    it.each([
+        ...[ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue].map(
+            (chartType) => ({ chartType, dateBucket: 'month' as const, dates: MONTHS })
+        ),
+        {
+            chartType: ChartDisplayType.ActionsBar,
+            dateBucket: 'year' as const,
+            dates: ['2023-01-01', '2024-01-01', '2025-01-01', '2026-01-01', '2027-01-01', '2028-01-01'],
+        },
+    ])(
+        'opens BI drilldown and preserves unaliased $dateBucket formatting in $chartType',
+        async ({ chartType, dateBucket, dates }) => {
             const config: BIConfig = {
                 source: { table: 'events' },
                 rows: [
@@ -79,7 +88,7 @@ describe('SqlBarGraph', () => {
                         expression: 'timestamp',
                         type: 'datetime',
                         source: { table: 'events' },
-                        dateBucket: 'month',
+                        dateBucket,
                     },
                 ],
                 columns: [],
@@ -94,9 +103,23 @@ describe('SqlBarGraph', () => {
                     },
                 ],
                 filters: [],
+                memberAliases: [
+                    {
+                        field: {
+                            id: 'month',
+                            name: 'month',
+                            expression: 'timestamp',
+                            type: 'datetime',
+                            source: { table: 'events' },
+                            dateBucket,
+                        },
+                        aliases: [{ value: dates[0], label: 'Campaign start' }],
+                    },
+                ],
                 chartType,
                 limit: 100,
             }
+            const dateColumn = `toStartOf${dateBucket === 'year' ? 'Year' : 'Month'}(timestamp)`
             const node = buildBIQuery(config)!.node
             renderDataVisualization({
                 query: {
@@ -104,14 +127,14 @@ describe('SqlBarGraph', () => {
                     kind: NodeKind.BIVisualizationNode,
                     config,
                     chartSettings: {
-                        xAxis: { column: 'toStartOfMonth(timestamp)' },
+                        xAxis: { column: dateColumn },
                         yAxis: [{ column: 'sum_a' }, { column: 'sum_b_2' }],
                     },
                 },
                 response: {
-                    columns: ['toStartOfMonth(timestamp)', 'sum_a', 'sum_b_2'],
+                    columns: [dateColumn, 'sum_a', 'sum_b_2'],
                     types: [
-                        ['toStartOfMonth(timestamp)', 'DateTime'],
+                        [dateColumn, 'DateTime'],
                         ['sum_a', 'UInt64'],
                         ['sum_b_2', 'UInt64'],
                     ],
@@ -119,7 +142,13 @@ describe('SqlBarGraph', () => {
                 },
             })
             const canvas = await screen.findByLabelText(/chart with 2 data series/i)
-            await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
+            expect([...getChart().xTicks(), ...getChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(false)
+            if (dateBucket === 'year') {
+                expect(getChart().xTicks()).toContain('2025')
+            } else if (chartType !== ChartDisplayType.ActionsBarValue) {
+                expect((await sqlChart.hoverTooltip(HOVER)).label()).toBe('Dec 1, 00:00')
+            }
+            await clickAtIndex(canvas.parentElement!, HOVER, dates.length)
             expect(await screen.findByText('Explore this result')).toBeVisible()
             expect(screen.getByText('View underlying rows')).toBeVisible()
             expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
@@ -127,6 +156,56 @@ describe('SqlBarGraph', () => {
     )
 
     describe('bar layouts', () => {
+        it('keeps horizontal BI category positions separate when their display aliases match', async () => {
+            const region = {
+                id: 'region',
+                name: 'Region',
+                expression: 'region',
+                type: 'string' as const,
+                source: { table: 'example_orders' },
+            }
+            const config: BIConfig = {
+                source: region.source,
+                rows: [region],
+                columns: [],
+                filters: [],
+                limit: 100,
+                chartType: ChartDisplayType.ActionsBarValue,
+                values: [
+                    {
+                        field: { ...region, id: 'amount', name: 'Amount', expression: 'amount', type: 'float' },
+                        aggregation: 'sum',
+                    },
+                ],
+                memberAliases: [
+                    {
+                        field: region,
+                        aliases: [
+                            { value: 'east', label: 'Same label' },
+                            { value: 'west', label: 'Same label' },
+                        ],
+                    },
+                ],
+            }
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: { ...node, kind: NodeKind.BIVisualizationNode, config },
+                response: {
+                    columns: ['region', 'sum_amount'],
+                    types: [
+                        ['region', 'String'],
+                        ['sum_amount', 'Float64'],
+                    ],
+                    results: [
+                        ['east', 10],
+                        ['west', 20],
+                    ],
+                },
+            })
+            await screen.findByLabelText(/chart with/i)
+            await waitFor(() => expect(getChart().yTicks()).toEqual(['Same label', 'Same label']))
+        })
+
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },
             { name: 'horizontal', display: ChartDisplayType.ActionsBarValue, extra: {} },
@@ -140,7 +219,7 @@ describe('SqlBarGraph', () => {
             renderBar(display, { yAxis: [{ column: 'a' }, { column: 'b' }], ...extra }, twoSeries())
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+            await waitFor(() => expect(getChart().yTicks().length).toBeGreaterThan(0))
         })
 
         it('renders category labels on the vertical axis for horizontal bars', async () => {
@@ -151,10 +230,10 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            await waitFor(() => expect(getHogChart().xTicks().length).toBeGreaterThan(0))
-            expect(getHogChart().yTicks()).toContain('Oct 1, 2025')
+            await waitFor(() => expect(getChart().xTicks().length).toBeGreaterThan(0))
+            expect(getChart().yTicks()).toContain('Oct 1, 2025')
             expect(
-                getHogChart()
+                getChart()
                     .xTicks()
                     .map((tick) => tick.startsWith('$'))
             ).not.toContain(false)
@@ -168,8 +247,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
-            for (const tick of getHogChart().yTicks()) {
+            await waitFor(() => expect(getChart().yTicks().length).toBeGreaterThan(0))
+            for (const tick of getChart().yTicks()) {
                 expect(tick).toMatch(/%$/)
             }
         })
@@ -195,8 +274,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
-            const chart = getHogChart()
+            await waitFor(() => expect(getChart().hasRightAxis).toBe(true))
+            const chart = getChart()
             expect(chart.yTicks().length).toBeGreaterThan(0)
             expect(chart.yTicks().every((tick) => tick.startsWith('$'))).toBe(true)
             const rightTicks = chart.yRightTicks()
@@ -212,8 +291,8 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            await waitFor(() => expect(getHogChart().yRightTicks().length).toBeGreaterThan(0))
-            expect(getHogChart().yTicks()).toHaveLength(0)
+            await waitFor(() => expect(getChart().yRightTicks().length).toBeGreaterThan(0))
+            expect(getChart().yTicks()).toHaveLength(0)
         })
     })
 
@@ -228,7 +307,7 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             // formatSqlSeriesValue output — matches the line/combo tooltips, not toLocaleString.
             expect(tooltip.value('a')).toBe('3000')
@@ -266,7 +345,7 @@ describe('SqlBarGraph', () => {
             )!
             fireEvent.click(bButton)
 
-            await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
+            await waitFor(() => expect(getChart().seriesCount).toBe(1))
         })
     })
 
@@ -282,7 +361,7 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            const lines = getHogChart().referenceLines()
+            const lines = getChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
             expect(lines[0].orientation).toBe(orientation)
         })

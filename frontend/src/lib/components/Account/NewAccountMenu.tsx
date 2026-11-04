@@ -16,7 +16,10 @@ import {
 
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -25,9 +28,8 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -35,14 +37,14 @@ import { userLogic } from 'scenes/userLogic'
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
 import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { ProjectLogo } from './ProjectLogo'
 import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
@@ -68,12 +70,13 @@ export function NewAccountMenu({
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(projectLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -169,7 +172,7 @@ export function NewAccountMenu({
                                                         setAccountMenuOpen(false)
                                                         showCreateProjectModal()
                                                     },
-                                                    { currentUsage: currentOrganization?.teams?.length }
+                                                    { currentUsage: currentOrganizationProjectCount }
                                                 )
                                             }}
                                         >
@@ -189,11 +192,12 @@ export function NewAccountMenu({
                                                     menuItem
                                                     data-attr="new-account-menu-all-projects-button"
                                                 >
-                                                    <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
-                                                        {String.fromCodePoint(
-                                                            currentTeam.name.codePointAt(0)!
-                                                        ).toLocaleUpperCase()}
-                                                    </div>
+                                                    <ProjectLogo
+                                                        name={currentTeam.name}
+                                                        projectId={currentTeam.project_id}
+                                                        mediaId={currentProject?.logo_media_id}
+                                                        size="xsmall"
+                                                    />
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>

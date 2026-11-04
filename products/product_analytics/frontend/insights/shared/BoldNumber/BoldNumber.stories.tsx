@@ -1,10 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
-
 import __trendsNumber from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import __trendsNumberCompareNullPrevious from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumberCompareNullPrevious.json'
 import __trendsNumberEmpty from '~/mocks/fixtures/api/projects/team_id/insights/trendsNumberEmpty.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { BoldNumber } from './BoldNumber'
 

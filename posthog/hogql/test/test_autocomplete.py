@@ -243,6 +243,26 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_person_value"
 
+    @parameterized.expand(
+        [
+            ("group_join", "select group_1.properties. from events", 26, ["group_1_value"]),
+            ("group_subtable", "select goe_1.properties. from events", 24, ["group_1_value"]),
+            ("groups_table", "select properties. from groups", 18, ["group_0_value", "group_1_value"]),
+        ]
+    )
+    def test_autocomplete_group_properties(self, _name: str, query: str, cursor: int, expected: list[str]):
+        for group_type_index in (0, 1):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"group_{group_type_index}_value",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=group_type_index,
+            )
+
+        results = self._select(query=query, start=cursor, end=cursor)
+        assert [suggestion.label for suggestion in results.suggestions] == expected
+
     def test_autocomplete_lazy_join(self):
         query = "select pdi. from events"
         results = self._select(query=query, start=11, end=11)
@@ -260,6 +280,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=18, end=23)
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
+
+        query = "select properties.SOME_ from events"
+        results = self._select(query=query, start=18, end=23)
+        assert [s.label for s in results.suggestions] == ["some_event_value"]
 
     def test_autocomplete_nested_tables(self):
         # Inner table
@@ -738,6 +762,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+        query = "select * from STRIPE."
+        results = self._select(query=query, start=21, end=21)
+
+        assert "some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")

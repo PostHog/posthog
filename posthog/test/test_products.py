@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import ProductKey
 
-from posthog.products import Products
+from posthog.products import Products, load_product_modules
 
 
-class TestProducts(BaseTest):
+class TestProducts(SimpleTestCase):
     def test_products_returns_list(self):
         products = Products.products()
         assert isinstance(products, list)
@@ -71,3 +71,10 @@ class TestProducts(BaseTest):
             assert True
         except Exception as e:
             raise AssertionError(f"Products.reload() raised an exception: {e}") from e
+
+
+class TestLoadProductModules(SimpleTestCase):
+    def test_a_nested_submodule_skips_products_without_the_parent_package(self) -> None:
+        modules = list(load_product_modules("facade.today_highlights"))
+
+        self.assertTrue(all(module.__name__.endswith(".backend.facade.today_highlights") for module in modules))

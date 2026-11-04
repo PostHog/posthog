@@ -3,7 +3,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
-import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -205,6 +204,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'tool_not_granted'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'
@@ -315,6 +315,11 @@ export class PostHogRateLimitError extends PostHogApiError {
     }
 }
 
+/** True for an error raised by a request deadline, as opposed to a cancellation or a network fault. */
+export function isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
+}
+
 export interface PostHogTransportErrorOptions {
     url: string
     method: string
@@ -339,6 +344,8 @@ export class PostHogTransportError extends Error {
     public readonly url: string
     public readonly method: string
     public readonly attempts: number
+    /** True when the request hit the client's deadline instead of failing to connect. */
+    public readonly timedOut: boolean
 
     constructor(options: PostHogTransportErrorOptions) {
         const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
@@ -353,6 +360,8 @@ export class PostHogTransportError extends Error {
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
+        // A forwarded request nests the local transport error, so look through the cause chain.
+        this.timedOut = hasTimeoutCause(options.cause)
         ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }
@@ -372,6 +381,7 @@ export function parseRetryAfterSeconds(header: string | null): number | null {
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
+    challengeScopes?: string[] | undefined
     url: string
     method: string
 }
@@ -384,6 +394,8 @@ export interface PostHogPermissionErrorOptions {
 export class PostHogPermissionError extends Error {
     public readonly detail: string
     public readonly missingScope: string | undefined
+    /** From the API's `insufficient_scope` challenge, which it sends only for a step-up token. */
+    public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
 
@@ -395,8 +407,16 @@ export class PostHogPermissionError extends Error {
         this.name = 'PostHogPermissionError'
         this.detail = options.detail
         this.missingScope = options.missingScope
+        this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+    }
+
+    get requiredScopes(): string[] | undefined {
+        if (this.challengeScopes?.length) {
+            return this.challengeScopes
+        }
+        return this.missingScope ? [this.missingScope] : undefined
     }
 }
 
@@ -429,30 +449,24 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         ].join('\n')
     }
 
+    // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
+    if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
+        return [
+            `PostHog API permission denied: ${error.detail}`,
+            '',
+            `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
+            '',
+            'To fix: use a Personal API key or OAuth token with organization access. In PostHog, open User settings → Personal API keys and set the key access to "All access" or "Organizations" (with this organization), not "Projects".',
+            '',
+            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ].join('\n')
+    }
+
     return [
         `PostHog API permission denied: ${error.detail}`,
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
-}
-
-/**
- * RFC 6750 §3.1: OAuth 2.0 Bearer challenge for 403 insufficient_scope. When
- * a missing scope is known, advertise it so OAuth-aware clients can prompt
- * for re-consent with the correct scope instead of reporting a generic error.
- */
-export function buildInsufficientScopeChallenge(error: PostHogPermissionError): string {
-    const parts = ['Bearer error="insufficient_scope"']
-    const scope = sanitizeHeaderValue(error.missingScope)
-    if (scope) {
-        parts.push(`scope="${scope}"`)
-    }
-    // Replace double quotes to keep the challenge syntactically valid.
-    const description = sanitizeHeaderValue(error.detail)?.replace(/"/g, "'")
-    if (description) {
-        parts.push(`error_description="${description}"`)
-    }
-    return parts.join(', ')
 }
 
 // Literal message shape produced by `new PostHogPermissionError({...})`. We
@@ -525,6 +539,21 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
         current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
     }
     return undefined
+}
+
+/** True when the error or any error in its `cause` chain came from a request deadline. Tools that
+ *  rethrow through `wrapError` keep the timeout in `cause`. */
+export function hasTimeoutCause(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (isTimeoutError(current) || (current instanceof PostHogTransportError && current.timedOut)) {
+            return true
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
 }
 
 /**

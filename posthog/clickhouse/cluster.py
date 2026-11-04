@@ -371,7 +371,13 @@ class ClickhouseCluster:
             )
 
         if self.__retry_policy is not None:
-            fn = self.__retry_policy(fn)
+            retry_policy = self.__retry_policy
+            credential_provider = self.__connection_overrides.get("credential_provider")
+            if credential_provider is not None:
+                # A task can hold its client for hours, so a reconnect would otherwise resend an expired token.
+                fn = _FreshCredential(callable=fn, credential_provider=credential_provider)
+                retry_policy = retry_policy.also_retrying(_is_authentication_failure)
+            fn = retry_policy(fn)
 
         def task():
             with pool.get_client() as client:
@@ -638,22 +644,28 @@ def get_cluster(
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
 
-    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    creds = get_clickhouse_creds(ch_user)
     overrides = dict(connection_overrides or {})
+    caller_owns_credential = bool(overrides.keys() & {"user", "password", "credential_provider"})
     bootstrap_credential_provider: Callable[[], str] | None = None
     if is_file_backed_user(creds, creds.user):
         bootstrap_credential_provider = creds.read_password
-        bootstrap_client = default_client(host=host, password=creds.read_password())
-        if not overrides.keys() & {"user", "password", "credential_provider"}:
-            overrides["credential_provider"] = creds.read_password
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.read_password())
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, credential_provider=creds.read_password)
+    elif creds.user != settings.CLICKHOUSE_USER:
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
+        if not caller_owns_credential:
+            overrides.update(user=creds.user, password=creds.password)
     else:
-        bootstrap_client = default_client(host=host)
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
 
     return ClickhouseCluster(
         bootstrap_client,
@@ -767,6 +779,16 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
         raise RuntimeError("unexpected fallthrough")
 
 
+@frozen
+class _FreshCredential(Generic[T]):
+    callable: Callable[[Client], T]
+    credential_provider: Callable[[], str] = field(repr=False)
+
+    def __call__(self, client: Client) -> T:
+        client.connection.password = self.credential_provider()
+        return self.callable(client)
+
+
 class MutationNotFound(Exception):
     pass
 
@@ -793,7 +815,11 @@ def _is_authentication_failure(e: Exception) -> bool:
 _REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
 
 
-@dataclass
+MUTATION_POLL_INITIAL_SECONDS = 0.5
+MUTATION_POLL_MAX_SECONDS = 15.0
+
+
+@dataclass(frozen=True)
 class MutationWaiter:
     table: str
     mutation_ids: Set[str]
@@ -826,8 +852,12 @@ class MutationWaiter:
             return all(statuses.values())
 
     def wait(self, client: Client) -> None:
+        # A small mutation finishes in well under a second, so the poll starts short. It backs off
+        # to MUTATION_POLL_MAX_SECONDS so that a long mutation does not flood system.mutations.
+        delay = MUTATION_POLL_INITIAL_SECONDS
         while not self.is_done(client):
-            time.sleep(15.0)
+            time.sleep(delay)
+            delay = min(delay * 2, MUTATION_POLL_MAX_SECONDS)
 
 
 @dataclass

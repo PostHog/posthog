@@ -9,10 +9,16 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { URL_MATCHING_HINTS } from 'lib/components/UrlMatchingHints'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -56,6 +62,12 @@ export function ActionStep({
     onChange: sendStep,
 }: Props): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { currentTeam } = useValues(teamLogic)
+    const moveNoticeEvents = eventsWithMoveNotice(
+        currentTeam?.flag_evaluations_mode,
+        useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
+    )
+    const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
 
     return (
         <div className="bg-surface-primary rounded border p-3 relative">
@@ -110,6 +122,25 @@ export function ActionStep({
                                 allEventsOption="explicit"
                                 disabled={!!disabledReason}
                             />
+                            {typeof step.event === 'string' && moveNoticeEvents.includes(step.event) && (
+                                <LemonBanner
+                                    type="warning"
+                                    action={
+                                        announcementUrl
+                                            ? {
+                                                  children: 'Learn more',
+                                                  to: announcementUrl,
+                                                  targetBlank: true,
+                                              }
+                                            : undefined
+                                    }
+                                >
+                                    Feature flag called is moving out of the events table. Once your organization starts
+                                    the move, you can't add new steps on it. When the move finishes, this step stops
+                                    matching new flag calls. To see how a flag is used, open the flag and check its
+                                    Usage tab.
+                                </LemonBanner>
+                            )}
 
                             <Link to="https://posthog.com/docs/libraries" target="_blank">
                                 See documentation

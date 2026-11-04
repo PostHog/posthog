@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 import { MemberSelectOptions } from './MemberSelectOptions'
@@ -62,6 +62,14 @@ export function MemberSelect({
         }
         return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
     }, [value, meFirstMembers, propToCompare])
+
+    // Load members when a value is set even before the popover opens, so a value pre-populated
+    // from the URL resolves to a name rather than falling back to the default label.
+    useEffect(() => {
+        if (value && !selectedMemberAsUser && !options) {
+            ensureAllMembersLoaded()
+        }
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)

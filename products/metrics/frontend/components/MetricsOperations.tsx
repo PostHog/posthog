@@ -1,7 +1,13 @@
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 
-import { MetricAggregation, MetricRangeFunction, MetricsViewerClause } from './metricsViewerLogic'
+import {
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricsViewerClause,
+    isHistogramQuantileAggregation,
+    supportsHistogramQuantile,
+} from './metricsViewerLogic'
 
 interface OperationOption<T extends string> {
     value: T
@@ -30,6 +36,34 @@ const AGGREGATION_OPTIONS: OperationOption<MetricAggregation>[] = [
     { value: 'max', label: 'Max', description: 'Highest value across the series.' },
     { value: 'p95', label: 'p95', description: '95th percentile across the series.' },
 ]
+
+const HISTOGRAM_AGGREGATION_OPTIONS: OperationOption<MetricAggregation>[] = [
+    {
+        value: 'histogram_p50',
+        label: 'Histogram p50',
+        description: 'Median of the recorded values, read from the histogram buckets.',
+    },
+    {
+        value: 'histogram_p95',
+        label: 'Histogram p95',
+        description: '95th percentile of the recorded values, read from the histogram buckets.',
+    },
+    {
+        value: 'histogram_p99',
+        label: 'Histogram p99',
+        description: '99th percentile of the recorded values, read from the histogram buckets.',
+    },
+]
+
+// A clause converted from a PromQL histogram percentile has no metric type, so its current
+// aggregation also unlocks the other percentiles.
+const aggregationOptionsFor = (
+    metricType: MetricsViewerClause['selectedMetricType'],
+    aggregation: MetricAggregation | null
+): OperationOption<MetricAggregation>[] =>
+    supportsHistogramQuantile(metricType) || isHistogramQuantileAggregation(aggregation)
+        ? [...HISTOGRAM_AGGREGATION_OPTIONS, ...AGGREGATION_OPTIONS]
+        : AGGREGATION_OPTIONS
 
 function operationMenuItems<T extends string>(
     options: OperationOption<T>[],
@@ -93,14 +127,18 @@ export function MetricsOperations({
     onAggregationChange,
     disabledReason,
 }: {
-    clause: Pick<MetricsViewerClause, 'rangeFunction' | 'aggregation'>
+    clause: Pick<MetricsViewerClause, 'rangeFunction' | 'aggregation' | 'selectedMetricType'>
     onRangeFunctionChange: (rangeFunction: MetricRangeFunction | null) => void
     onAggregationChange: (aggregation: MetricAggregation | null) => void
     disabledReason: string | null
 }): JSX.Element {
-    const { rangeFunction, aggregation } = clause
+    const { rangeFunction, aggregation, selectedMetricType } = clause
+    const aggregationOptions = aggregationOptionsFor(selectedMetricType, aggregation)
     const rangeFunctionOption = RANGE_FUNCTION_OPTIONS.find((option) => option.value === rangeFunction)
-    const aggregationOption = AGGREGATION_OPTIONS.find((option) => option.value === aggregation)
+    // A saved or linked histogram percentile still shows its chip while the type is not known yet.
+    const aggregationOption = [...HISTOGRAM_AGGREGATION_OPTIONS, ...AGGREGATION_OPTIONS].find(
+        (option) => option.value === aggregation
+    )
 
     return (
         <div className="flex flex-wrap items-center gap-1" data-attr="metrics-operations">
@@ -119,7 +157,7 @@ export function MetricsOperations({
             {aggregationOption && (
                 <OperationChip
                     label={aggregationOption.label}
-                    options={AGGREGATION_OPTIONS}
+                    options={aggregationOptions}
                     current={aggregationOption.value}
                     onPick={onAggregationChange}
                     onRemove={() => onAggregationChange(null)}
@@ -136,7 +174,7 @@ export function MetricsOperations({
                     },
                     {
                         title: 'Aggregations',
-                        items: operationMenuItems(AGGREGATION_OPTIONS, aggregation, onAggregationChange),
+                        items: operationMenuItems(aggregationOptions, aggregation, onAggregationChange),
                     },
                 ]}
             >

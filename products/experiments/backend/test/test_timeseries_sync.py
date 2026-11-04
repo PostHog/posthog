@@ -8,9 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import find_metric_dict
+from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -19,7 +19,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import get_run_results
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.timeseries_sync import sync_timeseries_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -71,24 +70,19 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         exp.save()
         return exp
 
-    def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
-        assert exp.start_date is not None
-        metric_dict = find_metric_dict(exp, metric_uuid)
-        assert metric_dict is not None
-        return compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+    def _config_fp(self, exp: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
+        calculation_config = get_metric_calculation_config(exp, metric_uuid)
+        assert calculation_config is not None
+        return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict) -> None:
+    def _timeseries_point(
+        self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict, *, other_version: bool = False
+    ) -> None:
         assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=self._config_fp(exp, metric_uuid),
+            fingerprint=self._config_fp(exp, metric_uuid, other_version=other_version),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
@@ -107,10 +101,11 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         saved = ExperimentSavedMetric.objects.create(team=self.team, name=metric_uuid, query=_mean_metric(metric_uuid))
         ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
 
-    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self):
-        exp = self._experiment("sync-full", [_mean_metric("m1"), _mean_metric("m2")])
+    @parameterized.expand([("points_under_the_active_key", False), ("a_point_under_the_other_key_version", True)])
+    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self, _name: str, m2_other_version: bool):
+        exp = self._experiment(f"sync-full-{_name}", [_mean_metric("m1"), _mean_metric("m2")])
         self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
-        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2})
+        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2}, other_version=m2_other_version)
 
         recalculation_id = self._sync(exp)
 
@@ -129,8 +124,8 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert results == {"m1": {"m": 1}, "m2": {"m": 2}}
         copies = ExperimentMetricResult.objects.filter(experiment=exp, query_to=recalc.query_to)
         assert {row.fingerprint for row in copies} == {
-            compute_recalc_fingerprint(self._config_fp(exp, "m1")),
-            compute_recalc_fingerprint(self._config_fp(exp, "m2")),
+            _recalc_fingerprint(self._config_fp(exp, "m1")),
+            _recalc_fingerprint(self._config_fp(exp, "m2", other_version=m2_other_version)),
         }
         # The timeseries rows keep their config fingerprint.
         assert ExperimentMetricResult.objects.filter(experiment=exp, fingerprint=self._config_fp(exp, "m1")).exists()
@@ -147,15 +142,8 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         self._link_saved_metric(exp, "sm1")
         assert exp.start_date is not None
 
-        saved_query = ExperimentSavedMetric.objects.get(team=self.team, name="sm1").query
-        daily_fp = compute_metric_fingerprint(
-            saved_query,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-            excluded_variants=exp.excluded_variants,
-        )
+        link = ExperimentToSavedMetric.objects.get(experiment=exp)
+        daily_fp = metric_calculation_keys(exp.id, team_id=self.team.id).saved[link.id]
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="sm1",

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
@@ -38,7 +38,7 @@ export interface ReplayOutcome {
  */
 export async function replayBatch(
     messages: Message[],
-    producer: KafkaProducerWrapper,
+    producer: KafkaProducer,
     sourceTopic: string
 ): Promise<ReplayOutcome> {
     const outcome: ReplayOutcome = { replayed: 0, exhausted: 0 }

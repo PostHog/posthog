@@ -31,6 +31,8 @@ import structlog
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
@@ -176,6 +178,8 @@ def google_search_console_record_fetcher(
             team=team,
             query_type="EmitSignalsNewRecords",
             bypass_warehouse_access_control=True,
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
         )
     except Exception as e:
         logger.exception(f"Error querying Google Search Console opportunities: {e}", **extra)

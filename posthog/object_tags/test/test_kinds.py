@@ -13,7 +13,7 @@ def test_registry_is_internally_consistent():
 def test_id_pattern_guards_paths():
     flag = resolve_object_kind("feature_flag")
     assert flag is not None
-    assert object_web_path(flag, "42") == "/feature_flags/42"
+    assert object_web_path(flag, "42") == "/feature-flags/42"
     assert object_web_path(flag, "my-flag-key") is None
 
     event = OBJECT_KINDS["event"]

@@ -1,18 +1,21 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { Suspense, useEffect, useState } from 'react'
+import { ReactNode, Suspense, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { lazyWithRetry } from 'lib/utils/retryImport'
-import { HogDebug } from 'scenes/debug/HogDebug'
-import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isInsightVizNode,
+    isMetricsQuery,
+    isWebOverviewQuery,
+} from '~/queries/schema/node-guards'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -25,33 +28,58 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
-import { MetricsHistogramQueryNode, MetricsQueryNode } from 'products/metrics/frontend/nodes'
-
-import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
-import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
-    isDataTableNode,
-    isDataVisualizationNode,
     isEndpointsUsageOverviewQuery,
     isEndpointsUsageTrendsQuery,
     isHogQuery,
-    isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
     isMetricsHistogramQuery,
-    isMetricsQuery,
     isSavedInsightNode,
-    isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
+import {
+    DataVisualizationRenderer,
+    EndpointsUsageOverviewRenderer,
+    EndpointsUsageTrendsRenderer,
+    HogDebugRenderer,
+    InsightVizRenderer,
+    MarketingAnalyticsOverviewRenderer,
+    MetricsHistogramQueryRenderer,
+    MetricsQueryRenderer,
+    QueryEditorRenderer,
+    SavedInsightRenderer,
+    WebOverviewRenderer,
+    WebVitalsPathBreakdownRenderer,
+    WebVitalsRenderer,
+} from './queryNodeRenderers'
 
-const WebVitals = lazyWithRetry(() =>
-    import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
-)
-const WebVitalsPathBreakdown = lazyWithRetry(() =>
-    import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
-)
+// The fallback fills the slot the renderer will fill, so the page does not jump when the chunk arrives.
+const CHART_FALLBACK = 'h-full min-h-80'
+const TILE_ROW_FALLBACK = 'h-24'
+
+function LazyQueryNode({
+    fallbackClassName,
+    children,
+}: {
+    fallbackClassName: string
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <ChunkLoadErrorBoundary>
+            {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
+            <Suspense
+                fallback={
+                    <div className={`flex w-full items-center justify-center ${fallbackClassName}`}>
+                        <Spinner className="text-3xl" />
+                    </div>
+                }
+            >
+                {children}
+            </Suspense>
+        </ChunkLoadErrorBoundary>
+    )
+}
 
 export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */
@@ -141,137 +169,159 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isDataVisualizationNode(query)) {
         component = (
-            <DataTableVisualization
-                attachTo={props.attachTo}
-                query={query}
-                setQuery={setQuery as unknown as (query: VisualizationNode) => void}
-                cachedResults={props.cachedResults}
-                uniqueKey={uniqueKey}
-                context={queryContext}
-                readOnly={readOnly}
-                embedded={embedded}
-                inSharedMode={inSharedMode}
-                editMode={!!editMode}
-                filtersOverride={filtersOverride}
-                variablesOverride={props.variablesOverride}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <DataVisualizationRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    setQuery={setQuery as unknown as (query: VisualizationNode) => void}
+                    cachedResults={props.cachedResults}
+                    uniqueKey={uniqueKey}
+                    context={queryContext}
+                    readOnly={readOnly}
+                    embedded={embedded}
+                    inSharedMode={inSharedMode}
+                    editMode={!!editMode}
+                    filtersOverride={filtersOverride}
+                    variablesOverride={props.variablesOverride}
+                />
+            </LazyQueryNode>
         )
     } else if (isSavedInsightNode(query)) {
         component = (
-            <SavedInsight
-                attachTo={props.attachTo}
-                query={query}
-                context={queryContext}
-                readOnly={readOnly}
-                editMode={!!editMode}
-                embedded={embedded}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <SavedInsightRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    context={queryContext}
+                    readOnly={readOnly}
+                    editMode={!!editMode}
+                    embedded={embedded}
+                />
+            </LazyQueryNode>
         )
     } else if (isInsightVizNode(query)) {
         component = (
-            <InsightViz
-                attachTo={props.attachTo}
-                query={query}
-                setQuery={setQuery as unknown as (query: InsightVizNode) => void}
-                context={queryContext}
-                readOnly={readOnly}
-                editMode={!!editMode}
-                uniqueKey={uniqueKey}
-                cachedResults={props.cachedResults}
-                embedded={embedded}
-                inSharedMode={inSharedMode}
-                filtersOverride={filtersOverride}
-                variablesOverride={variablesOverride}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <InsightVizRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    setQuery={setQuery as unknown as (query: InsightVizNode) => void}
+                    context={queryContext}
+                    readOnly={readOnly}
+                    editMode={!!editMode}
+                    uniqueKey={uniqueKey}
+                    cachedResults={props.cachedResults}
+                    embedded={embedded}
+                    inSharedMode={inSharedMode}
+                    filtersOverride={filtersOverride}
+                    variablesOverride={variablesOverride}
+                />
+            </LazyQueryNode>
         )
     } else if (isMetricsQuery(query)) {
         component = (
-            <MetricsQueryNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-                editMode={!!editMode && !readOnly}
-                setQuery={setQuery as unknown as (query: MetricsQuery) => void}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <MetricsQueryRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    embedded={embedded}
+                    editMode={!!editMode && !readOnly}
+                    setQuery={setQuery as unknown as (query: MetricsQuery) => void}
+                />
+            </LazyQueryNode>
         )
     } else if (isMetricsHistogramQuery(query)) {
         component = (
-            <MetricsHistogramQueryNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <MetricsHistogramQueryRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    embedded={embedded}
+                />
+            </LazyQueryNode>
         )
     } else if (isEndpointsUsageOverviewQuery(query)) {
         component = (
-            <EndpointsUsageOverviewNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
+            <LazyQueryNode fallbackClassName={TILE_ROW_FALLBACK}>
+                <EndpointsUsageOverviewRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                />
+            </LazyQueryNode>
         )
     } else if (isEndpointsUsageTrendsQuery(query)) {
         component = (
-            <EndpointsUsageTrendsNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <EndpointsUsageTrendsRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                />
+            </LazyQueryNode>
         )
     } else if (isWebOverviewQuery(query)) {
         component = (
-            <WebOverview
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-                uniqueKey={uniqueKey}
-            />
+            <LazyQueryNode fallbackClassName={TILE_ROW_FALLBACK}>
+                <WebOverviewRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    uniqueKey={uniqueKey}
+                />
+            </LazyQueryNode>
         )
     } else if (isMarketingAnalyticsAggregatedQuery(query)) {
         component = (
-            <MarketingAnalyticsOverview
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-                uniqueKey={uniqueKey}
-            />
+            <LazyQueryNode fallbackClassName={TILE_ROW_FALLBACK}>
+                <MarketingAnalyticsOverviewRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    uniqueKey={uniqueKey}
+                />
+            </LazyQueryNode>
         )
     } else if (isWebVitalsQuery(query)) {
         component = (
-            <Suspense fallback={<Spinner />}>
-                <WebVitals
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <WebVitalsRenderer.Component
                     attachTo={props.attachTo}
                     query={query}
                     cachedResults={props.cachedResults}
                     context={queryContext}
                 />
-            </Suspense>
+            </LazyQueryNode>
         )
     } else if (isWebVitalsPathBreakdownQuery(query)) {
         component = (
-            <Suspense fallback={<Spinner />}>
-                <WebVitalsPathBreakdown
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <WebVitalsPathBreakdownRenderer.Component
                     attachTo={props.attachTo}
                     query={query}
                     cachedResults={props.cachedResults}
                     context={queryContext}
                 />
-            </Suspense>
+            </LazyQueryNode>
         )
     } else if (isHogQuery(query)) {
         component = (
-            <HogDebug
-                attachTo={props.attachTo}
-                query={query}
-                setQuery={setQuery as (query: any) => void}
-                queryKey={String(uniqueKey)}
-            />
+            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                <HogDebugRenderer.Component
+                    attachTo={props.attachTo}
+                    query={query}
+                    setQuery={setQuery as (query: any) => void}
+                    queryKey={String(uniqueKey)}
+                />
+            </LazyQueryNode>
         )
     } else {
         component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
@@ -282,11 +332,13 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             <>
                 {queryContext.showQueryEditor ? (
                     <>
-                        <QueryEditor
-                            query={JSON.stringify(query)}
-                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                            context={queryContext}
-                        />
+                        <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+                            <QueryEditorRenderer.Component
+                                query={JSON.stringify(query)}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                                context={queryContext}
+                            />
+                        </LazyQueryNode>
                         <div className="my-4">
                             <LemonDivider />
                         </div>

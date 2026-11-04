@@ -128,8 +128,8 @@ impl Countable for Saveable {
         self.data.len()
     }
 
-    fn requires_parse_permit(&self, threshold: usize) -> bool {
-        self.data.requires_parse_permit(threshold)
+    fn parse_input_bytes(&self) -> Option<usize> {
+        self.data.parse_input_bytes()
     }
 }
 

@@ -17,6 +17,7 @@ from products.business_knowledge.backend.logic import (
     get_document_window,
     rerank_chunks,
     search_knowledge_for_team,
+    stable_trace_id,
 )
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (
@@ -34,17 +35,20 @@ logger = structlog.get_logger(__name__)
 @close_db_connections
 async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
+    info = activity.info()
+    # Stable across retries of this activity, so a retried search is counted once.
+    trace_seed = f"{info.workflow_id}:{info.workflow_run_id}:{info.activity_id}"
     async with Heartbeater():
-        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input)
+        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input, trace_seed)
 
 
-def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
+def _retrieve_sync(input: RetrieveInput, trace_seed: str) -> RetrieveOutput:
     team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
 
-    for query in input.queries:
-        trace = RetrievalTrace(surface="support")
+    for index, query in enumerate(input.queries):
+        trace = RetrievalTrace(surface="support", trace_id=stable_trace_id(trace_seed, index, query))
         results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
         reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K, trace=trace)
         for r in reranked:
@@ -90,6 +94,7 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
                 "surface": "support",
                 "query_count": len(input.queries),
                 "result_count": len(chunk_ids),
+                "library_scoped": False,
             },
             groups=groups(team=team),
         )

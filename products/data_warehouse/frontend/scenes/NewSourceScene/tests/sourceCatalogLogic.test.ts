@@ -54,6 +54,25 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
         category: 'Engineering & monitoring',
         fields: [],
     } as unknown as SourceConfigResponseApi,
+    // Unreleased duplicates of a connector that already works, `BingAds` and the self-managed `aws`.
+    BingAds: {
+        name: 'BingAds',
+        label: 'Bing Ads',
+        keywords: ['microsoft advertising'],
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
+    MicrosoftAdvertising: {
+        name: 'MicrosoftAdvertising',
+        label: 'Microsoft Advertising (Bing Ads)',
+        unreleasedSource: true,
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
+    AmazonS3: {
+        name: 'AmazonS3',
+        label: 'Amazon S3',
+        featureFlag: 'dwh-amazon-s3-test',
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
 }
 
 const CONNECTED_SOURCES = {
@@ -200,6 +219,34 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.hasCrossCategoryMatches).toBe(false)
     })
 
+    it.each([
+        { flagEnabled: true, expectedOffer: 'Custom' },
+        { flagEnabled: false, expectedOffer: null },
+    ])(
+        'offers the Custom REST source for an unmatched search only when it is connectable ($flagEnabled)',
+        ({ flagEnabled, expectedOffer }) => {
+            availableSourcesLogic.actions.loadSuccess({
+                ...AVAILABLE_SOURCES,
+                Custom: {
+                    name: 'Custom',
+                    label: 'Custom REST source',
+                    featureFlag: 'dwh_custom_source',
+                    fields: [],
+                } as unknown as SourceConfigResponseApi,
+            })
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(flagEnabled ? ['dwh_custom_source'] : [], {
+                dwh_custom_source: flagEnabled,
+            })
+            const logic = sourceCatalogLogic()
+            logic.actions.setSearch('qwxzv')
+
+            expect(logic.values.filteredItems).toHaveLength(0)
+            // Pointing at a "Coming soon" tile would send the user to a source they can't connect.
+            expect(logic.values.customSourceItem?.name ?? null).toEqual(expectedOffer)
+        }
+    )
+
     // No other test covers narrowing the catalog by category: `self-managed` is the one filter that
     // narrows on the connection model rather than on `item.category`, so it needs its own coverage.
     it('narrows the catalog to the self-managed connectors', () => {
@@ -217,6 +264,65 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.filteredItems).toHaveLength(selfManagedCount)
         expect(logic.values.filteredItems.every((item) => item.selfManaged)).toBe(true)
         expect(logic.values.selectedCategoryLabel).toEqual('Self-managed')
+    })
+
+    describe('with managed object storage sources', () => {
+        afterEach(() => {
+            // The flag outlives the test otherwise, and the catalog tests below expect it off.
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            { enabled: false, expectSelfManaged: true },
+            { enabled: true, expectSelfManaged: false },
+        ])(
+            'self-managed tiles and category with object storage sources enabled=$enabled',
+            ({ enabled, expectSelfManaged }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: enabled,
+                })
+                const logic = sourceCatalogLogic()
+                const selfManagedNames = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+
+                const presentNames = logic.values.catalogItems.map((item) => item.name)
+                const hasCategory = logic.values.categoriesWithCounts.some((cat) => cat.category === 'self-managed')
+
+                expect(selfManagedNames.some((name) => presentNames.includes(name))).toBe(expectSelfManaged)
+                expect(hasCategory).toBe(expectSelfManaged)
+                expect(logic.values.catalogItems.some((item) => item.selfManaged)).toBe(expectSelfManaged)
+            }
+        )
+
+        it.each([
+            { enabled: false, expectSelfManaged: true },
+            { enabled: true, expectSelfManaged: false },
+        ])(
+            'file upload tiles are self-managed and searchable as such with object storage sources enabled=$enabled',
+            ({ enabled, expectSelfManaged }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: enabled,
+                })
+                const logic = sourceCatalogLogic()
+
+                const uploadTiles = logic.values.catalogItems.filter((item) => item.name.startsWith('FileUpload-'))
+                expect(uploadTiles).toHaveLength(3)
+                for (const tile of uploadTiles) {
+                    expect(!!tile.selfManaged).toBe(expectSelfManaged)
+                    expect(tile.keywords.includes('selfmanaged')).toBe(expectSelfManaged)
+                }
+            }
+        )
+
+        it('ignores a self-managed category link when object storage sources are enabled', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: true,
+            })
+            const logic = sourceCatalogLogic()
+
+            router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
+
+            expect(logic.values.selectedCategory).toEqual('all')
+        })
     })
 
     it('opens on the category the sources list linked to', () => {
@@ -258,22 +364,42 @@ describe('sourceCatalogLogic', () => {
     })
 
     it.each([
-        { previewEnabled: true, expectedMatches: 1 },
-        { previewEnabled: false, expectedMatches: 0 },
+        { search: 'webhook', name: 'event-webhook', previewEnabled: true, expectedMatches: 1 },
+        { search: 'webhook', name: 'event-webhook', previewEnabled: false, expectedMatches: 0 },
+        { search: 'pixel', name: 'event-tracking-pixel', previewEnabled: true, expectedMatches: 1 },
+        { search: 'pixel', name: 'event-tracking-pixel', previewEnabled: false, expectedMatches: 0 },
     ])(
-        'shows the incoming webhook source in a "webhook" search when the preview is $previewEnabled',
-        ({ previewEnabled, expectedMatches }) => {
+        'shows $name in a "$search" search when the preview is $previewEnabled',
+        ({ search, name, previewEnabled, expectedMatches }) => {
             const logic = sourceCatalogLogic()
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(previewEnabled ? [FEATURE_FLAGS.CDP_HOG_SOURCES] : [], {
                 [FEATURE_FLAGS.CDP_HOG_SOURCES]: previewEnabled,
             })
 
-            logic.actions.setSearch('webhook')
+            logic.actions.setSearch(search)
 
-            expect(logic.values.filteredItems.filter((item) => item.name === 'event-webhook')).toHaveLength(
-                expectedMatches
-            )
+            expect(logic.values.filteredItems.filter((item) => item.name === name)).toHaveLength(expectedMatches)
+        }
+    )
+
+    it.each([
+        { search: 'microsoft advertising', hidden: ['MicrosoftAdvertising'], live: 'BingAds', flagOn: false },
+        { search: 'amazon s3', hidden: ['AmazonS3'], live: 'aws', flagOn: false },
+        { search: 'amazon s3', hidden: [], live: 'AmazonS3', flagOn: true },
+    ])(
+        'offers $live and not a "Coming soon" duplicate for "$search" (flag on: $flagOn)',
+        ({ search, hidden, live, flagOn }) => {
+            const logic = sourceCatalogLogic()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(flagOn ? ['dwh-amazon-s3-test'] : [], {
+                'dwh-amazon-s3-test': flagOn,
+            })
+            logic.actions.setSearch(search)
+
+            const names = logic.values.filteredItems.map((item) => item.name)
+            expect(names).toContain(live)
+            expect(names.filter((name) => hidden.includes(name))).toEqual([])
         }
     )
 
@@ -308,7 +434,7 @@ describe('sourceCatalogLogic', () => {
             [FEATURE_FLAGS.CDP_HOG_SOURCES]: true,
         })
 
-        expect(logic.values.catalogItems.some((item) => item.name === 'event-webhook')).toBe(false)
+        expect(logic.values.catalogItems.some((item) => item.name.startsWith('event-'))).toBe(false)
 
         unmountRestricted()
     })

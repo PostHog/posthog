@@ -29,6 +29,7 @@ import {
     TaskActivityDTOApi,
     TaskActivityReadMarkerApi,
     TaskListItemApi,
+    TasksListExcludeOriginProduct,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
@@ -390,7 +391,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     }
                     const response = await taskChannelsList(String(values.currentTeamId))
                     // Without `limit` the endpoint answers with a bare array rather than a page.
-                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    return Array.isArray(response) ? response : response.results
                 },
             },
         ],
@@ -419,6 +420,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     }
                     const response = await tasksList(String(values.currentTeamId), {
                         created_by: values.user.id,
+                        // Scout runs execute as their author and would fill the capped list.
+                        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
                         ordering: '-last_activity_at',
                         basic: true,
                         limit: RECENT_SESSION_LIMIT,

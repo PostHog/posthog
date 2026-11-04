@@ -4,11 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spies below
 // replace the methods on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -17,7 +15,6 @@ import {
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
-    signalsScoutRunsTokenCosts,
     signalsScoutSuggestionsDismiss,
     signalsScoutSuggestionsList,
     signalsScoutSuggestionsRefresh,
@@ -48,7 +45,6 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
-    signalsScoutRunsTokenCosts: jest.fn(),
     signalsScoutSuggestionsDismiss: jest.fn(),
     signalsScoutSuggestionsList: jest.fn(),
     signalsScoutSuggestionsRefresh: jest.fn(),
@@ -63,7 +59,6 @@ const mockConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof 
 const mockRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
 >
-const mockRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
 const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const CANONICAL_ITEM: ScoutSuggestionItemApi = {
@@ -110,13 +105,23 @@ const CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
+    precheck_disabled: false,
+    effective_precheck_query: null,
+    precheck_query_source: 'off',
+    last_precheck_at: null,
+    last_precheck_outcome: null,
+    last_precheck_row_count: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
@@ -137,19 +142,11 @@ function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSug
 describe('scoutSuggestionsLogic', () => {
     let logic: ReturnType<typeof scoutSuggestionsLogic.build>
 
-    function setSuggestionsFlag(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
-            [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
-        })
-    }
-
     beforeEach(() => {
         // The strip's collapsed and closed state persists per user and project, so one test's
         // chevron would otherwise decide how the next one opens.
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.mount()
-        setSuggestionsFlag(true)
         mockList.mockReset().mockResolvedValue(suggestionSet())
         mockDismiss.mockReset().mockResolvedValue(CANONICAL_ITEM)
         mockRefresh.mockReset().mockResolvedValue({ workflow_id: 'workflow-1' })
@@ -157,7 +154,6 @@ describe('scoutSuggestionsLogic', () => {
         mockConfigSync.mockReset().mockResolvedValue([CONFIG])
         mockConfigUpdate.mockReset().mockResolvedValue({ ...CONFIG, enabled: true })
         mockRunsRecentPerScout.mockReset().mockResolvedValue([])
-        mockRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         mockSkillRetrieve.mockReset().mockResolvedValue({
             name: CANONICAL_ITEM.skill_name,
             description: 'Watches web vitals.',
@@ -176,21 +172,6 @@ describe('scoutSuggestionsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])
     }
-
-    it('reads nothing until the person is on the suggestions flag', async () => {
-        setSuggestionsFlag(false)
-        await mountWithBatch()
-
-        expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.hasPicks).toBe(false)
-
-        // Flags usually resolve after the tab mounts, so the answer arriving is what starts the read.
-        setSuggestionsFlag(true)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockList).toHaveBeenCalledTimes(1)
-        expect(logic.values.hasPicks).toBe(true)
-    })
 
     // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
     // suggestions outage looking identical to a project the member cannot read.
@@ -456,14 +437,22 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(false)
     })
 
-    it('does not wait for a scan the daily cap refused', async () => {
+    it.each([
+        ['strip', 429, true],
+        ['onboarding', 403, false],
+        ['strip', 403, true],
+        ['onboarding', 500, true],
+    ] as const)('handles a refused %s scan with status %s', async (source, status, showsToast) => {
         await mountWithBatch()
-        mockRefresh.mockRejectedValueOnce(new ApiError("You've reached today's limit.", 429))
+        const toast = jest.spyOn(lemonToast, 'error')
+        mockRefresh.mockRejectedValueOnce(new ApiError('Scan unavailable', status))
 
-        logic.actions.requestRefresh('strip')
+        logic.actions.requestRefresh(source)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isRefreshing).toBe(false)
+        expect(toast).toHaveBeenCalledTimes(showsToast ? 1 : 0)
+        toast.mockRestore()
     })
 
     it('keeps waiting when the row was already failed before the refresh', async () => {

@@ -1,8 +1,11 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { promiseResolveReject } from 'lib/utils/async'
+import { downloadFile } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
 
@@ -10,12 +13,17 @@ import {
     signalsScoutConfigList,
     signalsScoutConfigTrialComparisonHistory,
     signalsScoutConfigTrialComparisonRetrieve,
+    signalsScoutConfigTrialEvaluationRetrieve,
     signalsScoutConfigTrialHistory,
     signalsScoutConfigTrialResult,
     signalsScoutConfigTrialSetup,
     signalsScoutRubricsRetrieve,
 } from 'products/signals/frontend/generated/api'
-import type { ScoutRubricDocumentApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ScoutRubricDocumentApi,
+    ScoutTrialComparisonHistoryApi,
+} from 'products/signals/frontend/generated/api.schemas'
+import { tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 
 import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import {
@@ -32,10 +40,21 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigTrialComparisonHistory: jest.fn(),
     signalsScoutConfigTrialComparisonRetrieve: jest.fn(),
+    signalsScoutConfigTrialEvaluationRetrieve: jest.fn(),
     signalsScoutConfigTrialHistory: jest.fn(),
     signalsScoutConfigTrialResult: jest.fn(),
     signalsScoutConfigTrialSetup: jest.fn(),
     signalsScoutRubricsRetrieve: jest.fn(),
+}))
+
+jest.mock('lib/utils/dom', () => ({
+    ...jest.requireActual('lib/utils/dom'),
+    downloadFile: jest.fn(),
+}))
+
+jest.mock('products/tasks/frontend/generated/api', () => ({
+    ...jest.requireActual('products/tasks/frontend/generated/api'),
+    tasksRunsCancelCreate: jest.fn(),
 }))
 
 const savedRubric: ScoutRubricDocumentApi = {
@@ -64,8 +83,40 @@ describe('ScoutTrialsPanel', () => {
         jest.mocked(signalsScoutConfigList).mockResolvedValue([trialFixtureConfig])
         jest.mocked(signalsScoutConfigTrialSetup).mockResolvedValue(trialFixtureSetup)
         jest.mocked(signalsScoutConfigTrialHistory).mockResolvedValue({ results: [], has_more: false })
-        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({ results: [], has_more: false })
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [],
+            next_cursor: null,
+            has_more: false,
+        })
         jest.mocked(signalsScoutRubricsRetrieve).mockResolvedValue(savedRubric)
+    })
+
+    it('navigates between trial history pages and disables navigation while loading', async () => {
+        const recent = { ...trialFixtureServerComparison, comparison_id: 'new-trial', variants: [] }
+        const older = { ...trialFixtureServerComparison, comparison_id: 'old-trial', variants: [] }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [recent],
+            has_more: true,
+            next_cursor: 'older-trials',
+        })
+        render(<ScoutTrialsPanel teamId={2} userId={42} configId={trialFixtureConfig.id} />)
+        expect(await screen.findByText('Trial new-tria')).toBeTruthy()
+        const page = promiseResolveReject<ScoutTrialComparisonHistoryApi>()
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockReturnValueOnce(page.promise)
+        await userEvent.click(screen.getByLabelText('Next page'))
+        expect(screen.getByLabelText('Next page').getAttribute('aria-disabled')).toBe('true')
+        expect(screen.getByLabelText('Previous page').getAttribute('aria-disabled')).toBe('true')
+        expect(screen.getByText('Trial new-tria')).toBeTruthy()
+        await act(async () => page.resolve({ results: [older], has_more: false, next_cursor: null }))
+        expect(await screen.findByText('Trial old-tria')).toBeTruthy()
+        expect(screen.queryByText('Trial new-tria')).toBeNull()
+        expect(screen.getByLabelText('Next page').getAttribute('aria-disabled')).toBe('true')
+        await userEvent.click(screen.getByLabelText('Previous page'))
+        expect(await screen.findByText('Trial new-tria')).toBeTruthy()
+        expect(signalsScoutConfigTrialComparisonHistory).toHaveBeenLastCalledWith('2', trialFixtureConfig.id, {
+            limit: 30,
+            include_archived: false,
+        })
     })
 
     test.each([true, false])(
@@ -123,6 +174,7 @@ describe('ScoutTrialsPanel', () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
             jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
                 results: [trialFixtureServerComparison],
+                next_cursor: null,
                 has_more: false,
             })
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
@@ -143,30 +195,64 @@ describe('ScoutTrialsPanel', () => {
         }
     )
 
-    it('keeps the stop action available when a failed scout still has a task waiting to start', async () => {
-        jest.mocked(signalsScoutConfigTrialHistory).mockResolvedValue({
-            results: [
-                {
-                    ...trialFixtureResult,
-                    variant: 'Baseline',
-                    status: 'failed',
-                    started_at: trialFixtureResult.started_at!,
-                    run_id: trialFixtureResult.run_id!,
-                    task_id: trialFixtureResult.task_id!,
-                    task_run_id: trialFixtureResult.task_run_id!,
-                },
-            ],
+    it('lists runs and reloads unconfirmed results from refresh in a new judging attempt', async () => {
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [trialFixtureServerComparison],
+            next_cursor: null,
             has_more: false,
         })
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+        jest.mocked(signalsScoutConfigTrialEvaluationRetrieve).mockRejectedValue(new ApiError('Not found', 404))
+        jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue({ ...trialFixtureResult, status: 'unknown' })
+
+        render(<ScoutTrialsPanel teamId={2} userId={42} />)
+
+        await userEvent.click(
+            await screen.findByText(`Trial ${trialFixtureServerComparison.comparison_id.slice(0, 8)}`)
+        )
+        await userEvent.click(await screen.findByText('Judge these runs again'))
+        await userEvent.click(screen.getByText('Prepare another judging attempt'))
+        const judge = (): HTMLElement | null => screen.getByText('Judge saved runs').closest('button')
+        await waitFor(() => expect(judge()?.getAttribute('aria-disabled')).toBe('true'))
+
+        expect(screen.getAllByText('Run details').length).toBeGreaterThan(0)
+
+        jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue(trialFixtureResult)
+        await userEvent.click(screen.getByText('Refresh status'))
+        await waitFor(() => expect(judge()?.getAttribute('aria-disabled')).toBe('false'))
+    })
+
+    it('keeps the stop action available when a failed scout still has a task waiting to start', async () => {
+        const comparison = {
+            ...trialFixtureServerComparison,
+            status: 'failed' as const,
+            evaluation: null,
+            variants: [{ ...trialFixtureServerComparison.variants[0], launch_ids: [trialFixtureResult.launch_id] }],
+        }
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [comparison],
+            next_cursor: null,
+            has_more: false,
+        })
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(comparison)
         jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue({
             ...trialFixtureResult,
             status: 'failed',
             task_status: 'not_started',
+            invalid_reason: 'Saved run data is unavailable. This run cannot be judged.',
         })
 
         render(<ScoutTrialsPanel teamId={2} userId={42} />)
 
-        await userEvent.click(await screen.findByText('Individual run history'))
+        await userEvent.click(await screen.findByText(`Trial ${comparison.comparison_id.slice(0, 8)}`))
         expect(await screen.findByText('Stop run')).not.toBeNull()
+        jest.mocked(tasksRunsCancelCreate).mockRejectedValueOnce(new Error('Connection closed'))
+        await userEvent.click(screen.getByText('Stop run'))
+        expect(await screen.findByText("Couldn't stop this run. Try again.")).not.toBeNull()
+        expect(screen.queryByText('Saved run data is unavailable. This run cannot be judged.')).toBeNull()
+        await userEvent.click(screen.getByText('Download results'))
+        expect(jest.mocked(downloadFile).mock.calls[0][0].name).toBe('scout-comparison-results.json')
+        await userEvent.click(screen.getByText('Run details'))
+        expect(await screen.findByText('Saved run data is unavailable. This run cannot be judged.')).not.toBeNull()
     })
 })

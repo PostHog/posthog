@@ -109,10 +109,12 @@ class TestEventsPersonsTables:
         org, team = _team()
         with _patch_org_rows([_cp_row(team, "cp_schema", **overrides)]):
             assert team_state.resolve_events_persons_tables(team.id) == expected
+            assert team_state.resolve_groups_table(team.id) == "groups_cp_schema"
 
     def test_without_cp_row_falls_back_to_shared_tables(self) -> None:
         org, team = _team()
         with _patch_org_rows([]):
+            assert team_state.resolve_groups_table(team.id) == "groups"
             assert team_state.resolve_events_persons_tables(team.id) == team_state.DucklingTables(
                 events_table="events", persons_table="persons"
             )
@@ -122,6 +124,8 @@ class TestEventsPersonsTables:
         with _patch_org_rows(None):
             with pytest.raises(team_state.CPUnavailableError):
                 team_state.resolve_events_persons_tables(team.id)
+            with pytest.raises(team_state.CPUnavailableError):
+                team_state.resolve_groups_table(team.id)
 
     def test_rejects_an_unsafe_resolved_name(self) -> None:
         # Fail-closed SQL-safety: a CP row carrying a hostile identifier must never reach DDL.
@@ -210,6 +214,7 @@ class TestListEnabledBackfillRows:
                 events_table="events_cp_schema",
                 persons_table="persons_cp_schema",
                 data_imports_schema="posthog_data_imports_cp_schema",
+                groups_table="groups_cp_schema",
             ),
             earliest_event_date=date(2020, 6, 15),
         )

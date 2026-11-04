@@ -37,7 +37,7 @@ export function decodeFingerprintSegment(rawSegment: string): string {
 // location.pathname percent-encoded — only the transient match inside urlToAction runs decodeURI —
 // so this is the single source that survives one clean decodeURIComponent.
 export function rawFingerprintPathSegment(pathname: string): string | null {
-    const match = pathname.match(/\/error_tracking\/fingerprint\/([^/]+)\/?$/)
+    const match = pathname.match(/\/error-tracking\/fingerprint\/([^/]+)\/?$/)
     return match ? match[1] : null
 }
 

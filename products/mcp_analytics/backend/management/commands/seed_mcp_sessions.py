@@ -1,8 +1,9 @@
+import math
 import uuid
-import zlib
 import random
+from collections.abc import Hashable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
@@ -21,16 +22,21 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, up
 
 from products.mcp_analytics.backend.models import MCPSession
 
-# Weighted like real traffic, where a few tools take most calls, so the tool breakdown has a long tail.
+# Weighted like real traffic, where SQL takes about half of all calls, so the tool breakdown has a long tail.
+# There are more tools than the dashboard's top-8 charts show, so they fold the rest into "Other".
 TOOL_WEIGHTS: dict[str, int] = {
-    "query_run": 34,
-    "insight_get": 22,
-    "dashboard_get": 14,
-    "feature_flag_get": 10,
-    "error_tracking_issue_get": 8,
-    "person_get": 6,
-    "experiment_get": 4,
-    "session_recording_get": 2,
+    "query_run": 45,
+    "read_data_schema": 12,
+    "insight_get": 7,
+    "project_get": 6,
+    "dashboard_get": 5,
+    "feature_flag_get": 5,
+    "error_tracking_issue_get": 4,
+    "docs_search": 4,
+    "logs_query": 3,
+    "person_get": 3,
+    "experiment_get": 3,
+    "session_recording_get": 3,
 }
 TOOL_NAMES = list(TOOL_WEIGHTS)
 
@@ -46,10 +52,38 @@ MCP_SERVER_NAME = "posthog-mcp"
 MCP_SERVER_VERSION = "2.14.0"
 # The 2026-07-28 revision removed protocol sessions: no initialize handshake and no Mcp-Session-Id.
 # Each seeded session speaks one revision, so a session is either all legacy or all stateless.
-LEGACY_PROTOCOL_VERSION = "2025-11-25"
 STATELESS_PROTOCOL_VERSION = "2026-07-28"
-STATELESS_SESSION_PROBABILITY = 0.45
+# Clients adopt the stateless revision over time: its share rises from the start of --days to now.
+STATELESS_SHARE_AT_START = 0.45
+STATELESS_SHARE_NOW = 0.72
+# The older revisions that legacy sessions speak. None leaves $mcp_protocol_version off the events.
+LEGACY_PROTOCOL_VERSION_WEIGHTS: dict[str | None, float] = {
+    "2025-11-25": 76,
+    "2025-06-18": 18,
+    None: 4,
+    "2025-03-26": 1.3,
+    "2024-11-05": 0.7,
+}
 SDK_LIB_NAME = "posthog-node-mcp"
+
+# Session volume grows by this factor from the start of --days to now, and dips a little on weekends,
+# so the KPI deltas and the trend charts have a direction. Each session uses one model and one client,
+# so the defaults favor many short sessions: a few long ones would swing a day's shares.
+GROWTH_OVER_WINDOW = 1.8
+WEEKEND_VOLUME_FACTOR = 0.8
+
+# Sessions where the API key lacks a scope, so every call fails and the agent gives up.
+BLOCKED_SESSION_PROBABILITY = 0.01
+# Sessions where the agent works quickly and makes no mistakes, so "Concise success" has candidates.
+FAST_SESSION_PROBABILITY = 0.12
+# Share of calls that go to the session's primary tool, so the session intent matches the tools it calls.
+PRIMARY_TOOL_CALL_PROBABILITY = 0.4
+
+# A tool that gets worse in the most recent sixth of --days, so the Tool quality tab and the
+# reliability trends show a regression.
+REGRESSION_TOOL = "read_data_schema"
+REGRESSION_ERROR_RATE = 0.12
+REGRESSION_LATENCY_FACTOR = 2.5
 
 # Every seeded event carries this marker so --clear can target exactly what this
 # command created, never genuine SDK traffic sharing the same event names.
@@ -84,99 +118,391 @@ SURGE_RECENT_CALL_PROBABILITY = 0.3
 SURGE_OLDER_CALL_PROBABILITY = 0.005
 
 
-def stable_hash(value: str) -> int:
-    # Not hash(): that's salted per process, which would change how many RNG draws
-    # each session consumes and break --seed reproducibility across invocations.
-    return zlib.crc32(value.encode())
-
-
 # $mcp_tool_category powers the dashboard "share of calls by category" and the tool quality scope filter.
 TOOL_CATEGORIES = {
-    "query_run": "Querying",
+    "query_run": "SQL",
+    "read_data_schema": "Data schema",
     "insight_get": "Product analytics",
-    "dashboard_get": "Product analytics",
+    "project_get": "Core",
+    "dashboard_get": "Dashboards",
     "feature_flag_get": "Feature flags",
-    "experiment_get": "Experiments",
-    "person_get": "Persons",
-    "session_recording_get": "Session replay",
     "error_tracking_issue_get": "Error tracking",
+    "docs_search": "Docs",
+    "logs_query": "Logs",
+    "person_get": "Persons",
+    "experiment_get": "Experiments",
+    "session_recording_get": "Session replay",
 }
 
 TOOL_DESCRIPTIONS = {
     "query_run": "Run a HogQL query against the project's events and return rows.",
+    "read_data_schema": "List the project's events, properties and tables, with their types.",
     "insight_get": "Fetch a saved insight's definition and computed results.",
+    "project_get": "Fetch the active project's name, timezone and settings.",
     "dashboard_get": "Fetch a dashboard and the insights tiled on it.",
     "feature_flag_get": "Look up a feature flag's configuration and rollout conditions.",
-    "experiment_get": "Fetch an experiment's setup and current results.",
-    "person_get": "Look up a person and their properties by distinct id.",
-    "session_recording_get": "Fetch metadata for a session recording.",
     "error_tracking_issue_get": "Fetch an error-tracking issue and its impact.",
+    "docs_search": "Search the PostHog documentation and return the matching sections.",
+    "logs_query": "Search the project's logs by service, level and text.",
+    "person_get": "Look up a person and their properties by distinct id.",
+    "experiment_get": "Fetch an experiment's setup and current results.",
+    "session_recording_get": "Fetch metadata for a session recording.",
 }
 
 
 @frozen
+class _ToolQuality:
+    error_rate: float
+    p50_ms: int
+    p95_ms: int
+    error_types: dict[str, int]
+
+
+# Error rates, latency and failure mixes in the shape of real traffic: SQL is slow and fails most, docs
+# search is the slowest, and the lookups are fast and fail mostly on ids that do not exist.
+TOOL_QUALITY: dict[str, _ToolQuality] = {
+    "query_run": _ToolQuality(
+        error_rate=0.05,
+        p50_ms=850,
+        p95_ms=3800,
+        error_types={"internal": 60, "validation": 30, "api_5xx": 5, "timeout": 3, "rate_limited": 2},
+    ),
+    "read_data_schema": _ToolQuality(
+        error_rate=0.015, p50_ms=260, p95_ms=850, error_types={"validation": 50, "internal": 40, "api_4xx": 10}
+    ),
+    "insight_get": _ToolQuality(
+        error_rate=0.01, p50_ms=130, p95_ms=400, error_types={"api_4xx": 50, "validation": 30, "internal": 20}
+    ),
+    "project_get": _ToolQuality(
+        error_rate=0.009, p50_ms=160, p95_ms=410, error_types={"permission": 60, "api_4xx": 40}
+    ),
+    "dashboard_get": _ToolQuality(
+        error_rate=0.026, p50_ms=300, p95_ms=4000, error_types={"internal": 50, "api_4xx": 40, "timeout": 10}
+    ),
+    "feature_flag_get": _ToolQuality(
+        error_rate=0.013, p50_ms=140, p95_ms=540, error_types={"api_4xx": 60, "validation": 40}
+    ),
+    "error_tracking_issue_get": _ToolQuality(
+        error_rate=0.01, p50_ms=600, p95_ms=2400, error_types={"internal": 50, "api_4xx": 50}
+    ),
+    "docs_search": _ToolQuality(error_rate=0.003, p50_ms=4200, p95_ms=6800, error_types={"api_5xx": 70, "timeout": 30}),
+    "logs_query": _ToolQuality(
+        error_rate=0.01, p50_ms=420, p95_ms=1500, error_types={"internal": 50, "validation": 50}
+    ),
+    "person_get": _ToolQuality(
+        error_rate=0.04, p50_ms=130, p95_ms=640, error_types={"validation": 50, "api_4xx": 40, "missing_context": 10}
+    ),
+    "experiment_get": _ToolQuality(
+        error_rate=0.024, p50_ms=180, p95_ms=2200, error_types={"api_4xx": 50, "validation": 50}
+    ),
+    "session_recording_get": _ToolQuality(
+        error_rate=0.013, p50_ms=330, p95_ms=1150, error_types={"api_4xx": 70, "internal": 30}
+    ),
+}
+
+
+def tool_latency_ms(rng: random.Random, quality: _ToolQuality) -> int:
+    # Log-normal, which gives call latency its long right tail, fitted to the tool's p50 and p95.
+    sigma = math.log(quality.p95_ms / quality.p50_ms) / 1.645
+    return max(1, int(quality.p50_ms * math.exp(rng.gauss(0, sigma))))
+
+
+# Model names per AI lab, weighted within the lab. The lab of each name follows the frontend's
+# `modelLab` patterns, so every lab appears on the model and lab charts.
+LAB_MODELS: dict[str, dict[str, int]] = {
+    "anthropic": {
+        "claude-opus-5-5": 60,
+        "claude-fable-5-1": 10,
+        "claude-sonnet-5-5": 9,
+        "claude-sonnet-5": 8,
+        "claude-opus-5": 7,
+        "claude-haiku-5": 4,
+        "claude-opus-4-8": 2,
+    },
+    "openai": {"gpt-6": 28, "gpt-6-astra": 26, "gpt-6.1-sol": 17, "gpt-5.6-sol": 9, "gpt-5": 6, "gpt-6-luna": 3},
+    "xai": {"grok-4.7": 100},
+    "cursor_grok": {"cursor-grok-4.6": 100},
+    "google": {"gemini-3.1-pro": 60, "gemini-3-flash": 40},
+    "cursor": {"composer-2": 70, "composer-1.5": 30},
+    "open_weights": {"kimi-k3": 30, "qwen3.5-coder": 25, "glm-5.1": 20, "gpt-oss-120b": 15, "deepseek-v4": 10},
+}
+
+
+def model_mix(**lab_shares: float) -> dict[str, float]:
+    """Model weights for a client that splits its calls across labs in the given shares."""
+    return {
+        model: share * weight / sum(LAB_MODELS[lab].values())
+        for lab, share in lab_shares.items()
+        for model, weight in LAB_MODELS[lab].items()
+    }
+
+
+@frozen
 class _ClientProfile:
-    name: str
+    # clientInfo.name. None for clients that only identify themselves in the User-Agent.
+    name: str | None
     version: str
     # The x-anthropic-client header. Only Anthropic clients send it.
     vendor_client: str | None
     user_agent: str | None
-    models: list[str]
+    models: dict[str, float]
+    unknown_model_rate: float
+    weight: float
     # Codex puts the model in request metadata. Other agents report it through the injected llm_model argument.
-    model_source: Literal["client_metadata", "self_reported"]
-    weight: int
+    model_source: Literal["client_metadata", "self_reported"] = "self_reported"
+    error_multiplier: float = 1.0
+    # Older servers capture the vendor header without the `$` prefix.
+    legacy_vendor_key: bool = False
+    legacy_protocol_only: bool = False
 
 
+# One profile per way the backend resolves a harness label (`mcp_harness.py`): the vendor header in both
+# spellings, the Claude, grok and kimchi User-Agent surfaces, clientInfo.name with and without the
+# mcp-remote suffix, an unrecognized name, and no identity at all. Weights follow real traffic, with the
+# long tail raised so every harness gets a few sessions.
 CLIENT_PROFILES: list[_ClientProfile] = [
     _ClientProfile(
         name="claude-code",
         version="2.1.12",
         vendor_client="claude-code",
         user_agent="claude-code/2.1.12 (cli)",
-        models=["claude-opus-5-5", "claude-sonnet-5"],
-        model_source="self_reported",
-        weight=38,
+        models=model_mix(anthropic=0.98, open_weights=0.02),
+        unknown_model_rate=0.06,
+        weight=30,
+        error_multiplier=1.3,
     ),
     _ClientProfile(
-        name="codex",
+        name="Anthropic/ClaudeAI",
+        version="1.0.0",
+        vendor_client="cowork",
+        user_agent=None,
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.08,
+        weight=7,
+        error_multiplier=1.3,
+        legacy_vendor_key=True,
+    ),
+    _ClientProfile(
+        name="claude-desktop",
+        version="1.2.4",
+        vendor_client=None,
+        user_agent="claude-code/2.1.12 (claude-desktop)",
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.04,
+        weight=4,
+        error_multiplier=1.2,
+    ),
+    _ClientProfile(
+        name="Anthropic/ClaudeAI",
+        version="1.0.0",
+        vendor_client="ClaudeAI",
+        user_agent=None,
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.07,
+        weight=3,
+        error_multiplier=1.3,
+    ),
+    _ClientProfile(
+        name="claude-agent-sdk",
+        version="0.2.8",
+        vendor_client=None,
+        user_agent="claude-code/2.1.12 (sdk-ts)",
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.06,
+        weight=2.6,
+        error_multiplier=1.4,
+    ),
+    _ClientProfile(
+        name="claude-code",
+        version="2.1.12",
+        vendor_client=None,
+        user_agent="claude-code/2.1.12 (claude-vscode)",
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.05,
+        weight=2,
+        error_multiplier=1.2,
+    ),
+    _ClientProfile(
+        name=None,
+        version="1.0.0",
+        vendor_client="claude-design",
+        user_agent=None,
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.3,
+        weight=0.5,
+    ),
+    _ClientProfile(
+        name="Anthropic/API",
+        version="1.0.0",
+        vendor_client=None,
+        user_agent=None,
+        models=model_mix(anthropic=1),
+        unknown_model_rate=0.5,
+        weight=0.5,
+    ),
+    _ClientProfile(
+        name="openai-mcp",
+        version="1.0.0",
+        vendor_client=None,
+        user_agent="openai-mcp/1.0.0",
+        models=model_mix(openai=1),
+        unknown_model_rate=0.02,
+        weight=15,
+        error_multiplier=0.5,
+    ),
+    _ClientProfile(
+        name=None,
+        version="1.0.0",
+        vendor_client=None,
+        user_agent="openai-mcp/1.0.0 (ChatGPT)",
+        models=model_mix(openai=1),
+        unknown_model_rate=0.05,
+        weight=2,
+        error_multiplier=0.5,
+    ),
+    _ClientProfile(
+        name=None,
+        version="1.0.0",
+        vendor_client=None,
+        user_agent="openai-mcp/1.0.0 (Agent Builder)",
+        models=model_mix(openai=1),
+        unknown_model_rate=0.1,
+        weight=0.6,
+        error_multiplier=0.6,
+    ),
+    _ClientProfile(
+        name=None,
+        version="1.0.0",
+        vendor_client=None,
+        user_agent="openai-mcp/1.0.0 (Responses API)",
+        models=model_mix(openai=1),
+        unknown_model_rate=0.3,
+        weight=0.6,
+        error_multiplier=0.6,
+    ),
+    _ClientProfile(
+        name="codex-mcp-client",
         version="0.46.0",
         vendor_client=None,
         user_agent="codex_cli_rs/0.46.0",
-        models=["gpt-5.6-sol", "gpt-5.2"],
+        models=model_mix(openai=1),
+        unknown_model_rate=0,
+        weight=5.3,
         model_source="client_metadata",
-        weight=26,
+        error_multiplier=0.6,
     ),
     _ClientProfile(
-        name="cursor",
+        name="cursor-vscode",
         version="1.7.0",
         vendor_client=None,
         user_agent=None,
-        models=["claude-sonnet-5", "gpt-5.2"],
-        model_source="self_reported",
-        weight=22,
+        models=model_mix(cursor_grok=0.55, cursor=0.25, anthropic=0.12, openai=0.08),
+        unknown_model_rate=0.55,
+        weight=10,
     ),
     _ClientProfile(
-        name="claude-ai",
-        version="0.1.0",
-        vendor_client="claude-ai",
+        name="connectors-manager",
+        version="1.4.0",
+        vendor_client=None,
+        user_agent="grok-connectors-manager/1.4.0",
+        models=model_mix(xai=1),
+        unknown_model_rate=0.1,
+        weight=1.5,
+    ),
+    _ClientProfile(
+        name="antigravity",
+        version="1.3.0",
+        vendor_client=None,
         user_agent=None,
-        models=["claude-opus-5-5", "claude-sonnet-5"],
-        model_source="self_reported",
-        weight=9,
+        models=model_mix(google=1),
+        unknown_model_rate=0.3,
+        weight=3,
     ),
     _ClientProfile(
-        name="visual studio code",
+        name="opencode",
+        version="0.15.2",
+        vendor_client=None,
+        user_agent=None,
+        models=model_mix(open_weights=0.5, openai=0.25, anthropic=0.25),
+        unknown_model_rate=0.15,
+        weight=1.5,
+        error_multiplier=1.8,
+    ),
+    _ClientProfile(
+        name="Visual Studio Code",
         version="1.105.0",
         vendor_client=None,
         user_agent=None,
-        models=["gpt-5.2", "claude-sonnet-5"],
-        model_source="self_reported",
-        weight=5,
+        models=model_mix(openai=0.6, anthropic=0.4),
+        unknown_model_rate=0.8,
+        weight=1,
+    ),
+    _ClientProfile(
+        name="Windsurf (via mcp-remote 0.1.29)",
+        version="1.12.0",
+        vendor_client=None,
+        user_agent=None,
+        models=model_mix(anthropic=0.5, openai=0.5),
+        unknown_model_rate=0.6,
+        weight=0.8,
+    ),
+    _ClientProfile(
+        name="pi-mcp-posthog",
+        version="0.3.1",
+        vendor_client=None,
+        user_agent="kimchi/0.3.1",
+        models=model_mix(open_weights=1),
+        unknown_model_rate=0.2,
+        weight=0.5,
+        error_multiplier=1.8,
+    ),
+    _ClientProfile(
+        name="pi-client",
+        version="0.9.0",
+        vendor_client=None,
+        user_agent=None,
+        models=model_mix(open_weights=0.6, anthropic=0.4),
+        unknown_model_rate=0.3,
+        weight=0.4,
+    ),
+    *(
+        _ClientProfile(
+            name=name,
+            version="1.0.0",
+            vendor_client=None,
+            user_agent=None,
+            models={},
+            unknown_model_rate=1,
+            weight=weight,
+            legacy_protocol_only=legacy_protocol_only,
+        )
+        for name, weight, legacy_protocol_only in [
+            ("replit-agent", 0.4, False),
+            ("lovable", 0.4, False),
+            ("manus", 0.3, False),
+            ("coderabbit", 0.4, False),
+            ("notion-mcp", 0.4, True),
+            ("linear-agent", 0.4, True),
+            ("LibreChat", 0.3, True),
+            ("poke", 0.3, False),
+            ("kiro-cli", 0.3, False),
+            ("desktop-commander", 0.3, True),
+            ("posthog-cli", 0.5, False),
+            # Not a known harness, so it shows under its own name or folds into "Other".
+            ("acme-support-bot", 0.8, False),
+        ]
+    ),
+    # No identity at all, so it shows as "Unidentified client".
+    _ClientProfile(
+        name=None,
+        version="1.0.0",
+        vendor_client=None,
+        user_agent=None,
+        models={},
+        unknown_model_rate=1,
+        weight=0.5,
     ),
 ]
-
-# Agents pass "unknown" when unsure, and the SDK then omits $mcp_llm_model. Codex metadata always carries it.
-SELF_REPORTED_MODEL_PROBABILITY = 0.85
 
 # Identified personas. About 70% of sessions are attached to one of these;
 # the rest stay anonymous, keyed by their $session_id like the SDK does.
@@ -231,6 +557,20 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
     "error_tracking_issue_get": [
         "Pulling the latest exception issue tied to the deploy so the on-call can triage the regression quickly.",
     ],
+    "read_data_schema": [
+        "Checking which events and properties exist before writing a query about onboarding drop-off.",
+        "Finding the property that stores the subscription plan so the revenue breakdown uses the right field.",
+    ],
+    "project_get": [
+        "Confirming which project and timezone the API key points at before comparing daily numbers.",
+    ],
+    "docs_search": [
+        "Looking up how to set up a reverse proxy so ad blockers stop dropping events.",
+        "Finding the docs on how session replay sampling works before changing the sample rate.",
+    ],
+    "logs_query": [
+        "Searching the payment service logs for errors around the time checkout failures spiked.",
+    ],
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
 
@@ -273,16 +613,24 @@ SESSION_INTENTS: list[str] = [
 class _Failure:
     error_type: str
     message: str
+    # The HTTP status of an API error, shown next to the error type in the tool's failures table.
+    status: int | None = None
 
 
 # The tool call and its paired $exception carry the same message, as the SDK copies it from the exception.
-FAILURES: list[_Failure] = [
-    _Failure(error_type="timeout", message="TimeoutError: upstream query exceeded 30s deadline"),
-    _Failure(error_type="validation", message="ValidationError: missing required parameter 'project_id'"),
-    _Failure(error_type="permission", message="PermissionError: API key lacks scope for this resource"),
-    _Failure(error_type="internal", message="ConnectionError: ClickHouse connection reset by peer"),
-    _Failure(error_type="rate_limited", message="RateLimitError: too many requests, retry after 10s"),
-]
+FAILURES: dict[str, _Failure] = {
+    failure.error_type: failure
+    for failure in [
+        _Failure(error_type="internal", message="ConnectionError: ClickHouse connection reset by peer"),
+        _Failure(error_type="validation", message="ValidationError: missing required parameter 'project_id'"),
+        _Failure(error_type="api_4xx", message="NotFound: no resource matches the given id", status=404),
+        _Failure(error_type="permission", message="PermissionError: API key lacks scope for this resource", status=403),
+        _Failure(error_type="api_5xx", message="BadGateway: upstream service returned an error", status=502),
+        _Failure(error_type="rate_limited", message="RateLimitError: too many requests, retry after 10s", status=429),
+        _Failure(error_type="missing_context", message="MissingContextError: no active project for this session"),
+        _Failure(error_type="timeout", message="TimeoutError: upstream query exceeded 30s deadline"),
+    ]
+}
 
 # Fraction of failing tool calls that also emit a paired $exception event.
 EXCEPTION_PAIR_PROBABILITY = 0.6
@@ -323,6 +671,7 @@ TASK_BLOCKING_ERROR_TYPES = {"permission"}
 RETRY_AFTER_FAILURE_PROBABILITY = 0.6
 MAX_FEEDBACK_PER_SESSION = 3
 DEFAULT_FEEDBACK_COUNT = 60
+DEFAULT_MISSING_CAPABILITY_COUNT = 25
 
 FEEDBACK_SENTIMENT_PROBABILITY = 0.85
 FEEDBACK_TASK_COMPLETED_PROBABILITY = 0.75
@@ -480,6 +829,24 @@ FAILURE_ISSUES: dict[str, _FeedbackText] = {
         friction_points="- The retry delay is only in the message text, so I had to parse it.",
         suggested_improvement="Return the retry delay as a structured field.",
     ),
+    "api_4xx": _FeedbackText(
+        summary="{tool} returned not found for an id taken from another tool's result.",
+        details="The error was '{error}'. The id came from the previous tool call.",
+        friction_points="- I could not tell whether the id was wrong or the resource was deleted.",
+        suggested_improvement="Say in the error which project was searched.",
+    ),
+    "api_5xx": _FeedbackText(
+        summary="{tool} failed with an upstream server error.",
+        details="The error was '{error}'.",
+        friction_points=None,
+        suggested_improvement="Mark upstream errors as retryable in the tool result.",
+    ),
+    "missing_context": _FeedbackText(
+        summary="{tool} needed an active project that the session did not have.",
+        details="The error was '{error}'. Nothing earlier in the session asked me to pick a project.",
+        friction_points="- Had to call project_get and retry.",
+        suggested_improvement="Default to the API key's project when the session has none.",
+    ),
 }
 
 TOOL_ISSUES: dict[str, _FeedbackText] = {
@@ -526,6 +893,26 @@ TOOL_ISSUES: dict[str, _FeedbackText] = {
         details="The response has occurrence counts but no frames, so I could not point on-call to the failing line.",
         suggested_improvement="Include the top stack frames of the latest occurrence.",
     ),
+    "read_data_schema": _FeedbackText(
+        summary="read_data_schema lists every property with no way to filter by event.",
+        details="The project has thousands of properties. I needed only the ones on the signup event.",
+        suggested_improvement="Add an event filter to read_data_schema.",
+    ),
+    "project_get": _FeedbackText(
+        summary="project_get does not return the project's data retention.",
+        details="The user asked for a year of data. I could not tell whether events that old still exist.",
+        suggested_improvement="Include the data retention period in project_get.",
+    ),
+    "docs_search": _FeedbackText(
+        summary="docs_search is slow for short queries.",
+        details="Each search took several seconds, so I searched less than I wanted to.",
+        suggested_improvement="Return the top few sections first.",
+    ),
+    "logs_query": _FeedbackText(
+        summary="logs_query cannot group log lines by message.",
+        details="Thousands of identical lines came back, so I counted the distinct messages myself.",
+        suggested_improvement="Add a group-by-message option with counts.",
+    ),
 }
 
 TOOL_PRAISE: dict[str, _FeedbackText] = {
@@ -551,6 +938,15 @@ TOOL_PRAISE: dict[str, _FeedbackText] = {
         summary="error_tracking_issue_get links the issue to the release that introduced it.",
         details="On-call could see which deploy to roll back straight away.",
     ),
+    "read_data_schema": _FeedbackText(
+        summary="read_data_schema gave the property types I needed to write the query correctly.",
+    ),
+    "project_get": _FeedbackText(summary="project_get made the project timezone clear before comparing days."),
+    "docs_search": _FeedbackText(
+        summary="docs_search found the exact setup steps for the reverse proxy.",
+        details="I could give the user the configuration without guessing.",
+    ),
+    "logs_query": _FeedbackText(summary="logs_query found the failing request in one call."),
 }
 
 OTHER_FEEDBACK: list[_FeedbackText] = [
@@ -711,26 +1107,129 @@ class _SeededSession:
     session_end: datetime
 
 
+K = TypeVar("K", bound=Hashable)
+
+
+class EvenPicker(Generic[K]):
+    """Picks keys so that their running totals stay close to the target shares.
+
+    Independent random draws make a day's mix swing with every long session, because the seed has few
+    sessions per day. Picking the key that is furthest below its target keeps each day close to the
+    targets, so the share charts are smooth like real traffic at volume.
+    """
+
+    def __init__(self) -> None:
+        # How much each key is behind its target. Targets accumulate pick by pick, so the shares can
+        # change over time (a protocol revision gaining adoption) without the earlier picks skewing them.
+        self._deficit: dict[K, float] = {}
+
+    def pick(self, weights: Mapping[K, float], amount: float = 1) -> K:
+        weight_sum = sum(weights.values())
+        for key, weight in weights.items():
+            self._deficit[key] = self._deficit.get(key, 0.0) + amount * weight / weight_sum
+        # A key whose weight dropped to zero can keep a deficit from earlier picks, but must not win.
+        picked = max((k for k, w in weights.items() if w > 0), key=lambda k: self._deficit[k])
+        self._deficit[picked] -= amount
+        return picked
+
+
+class ProbabilityDebt:
+    """Fires on a share of calls close to `probability`, evenly spaced rather than from independent
+    draws, so a rare event does not cluster or go an unusually long stretch without happening.
+    """
+
+    def __init__(self, rng: random.Random) -> None:
+        self._debt = rng.random()
+
+    def fires(self, probability: float) -> bool:
+        self._debt += probability
+        if self._debt >= 1:
+            self._debt -= 1
+            return True
+        return False
+
+
+@frozen
+class _PlannedSession:
+    end_offset_min: int
+    calls: int
+    # Every call fails with a permission error, so the agent gives up.
+    is_blocked: bool
+    is_fast: bool
+
+
+def plan_sessions(
+    rng: random.Random, now: datetime, days: int, count: int, min_calls: int, max_calls: int
+) -> list[_PlannedSession]:
+    """The sessions to seed, oldest first.
+
+    Each day gets its share of the calls, with volume growing toward now and dipping on weekends.
+    Blocked and fast sessions are spaced evenly, so they do not cluster on one day.
+    """
+    day_weights = {
+        age_day: GROWTH_OVER_WINDOW ** (1 - (age_day + 0.5) / days)
+        * (WEEKEND_VOLUME_FACTOR if (now - timedelta(days=age_day)).weekday() >= 5 else 1)
+        for age_day in range(days)
+    }
+    day_picker: EvenPicker[int] = EvenPicker()
+    blocked_debt, fast_debt = ProbabilityDebt(rng), ProbabilityDebt(rng)
+    planned: list[_PlannedSession] = []
+    for _ in range(count):
+        is_blocked = blocked_debt.fires(BLOCKED_SESSION_PROBABILITY)
+        is_fast = not is_blocked and fast_debt.fires(FAST_SESSION_PROBABILITY)
+        # Skewed toward short sessions, with a long tail of long ones.
+        calls = (
+            rng.randint(min_calls, max(min_calls, min(max_calls, 4)))
+            if is_blocked
+            else min(max_calls, min_calls + int((max_calls - min_calls + 1) * rng.random() ** 2))
+        )
+        if days > 0:
+            age_day = day_picker.pick(day_weights, amount=calls)
+            end_offset_min = rng.randint(max(31, age_day * 24 * 60), (age_day + 1) * 24 * 60)
+        else:
+            # Within the last hour, so the session shows up in every default date range.
+            end_offset_min = rng.randint(31, 59)
+        planned.append(
+            _PlannedSession(end_offset_min=end_offset_min, calls=calls, is_blocked=is_blocked, is_fast=is_fast)
+        )
+    return sorted(planned, key=lambda session: session.end_offset_min, reverse=True)
+
+
+def protocol_version_weights(age_fraction: float, client: _ClientProfile) -> dict[str | None, float]:
+    stateless_share = STATELESS_SHARE_NOW - (STATELESS_SHARE_NOW - STATELESS_SHARE_AT_START) * age_fraction
+    if client.legacy_protocol_only:
+        stateless_share = 0
+    legacy_sum = sum(LEGACY_PROTOCOL_VERSION_WEIGHTS.values())
+    return {
+        STATELESS_PROTOCOL_VERSION: stateless_share,
+        **{
+            version: (1 - stateless_share) * weight / legacy_sum
+            for version, weight in LEGACY_PROTOCOL_VERSION_WEIGHTS.items()
+        },
+    }
+
+
 class Command(BaseCommand):
     help = "Seed MCP analytics events into ClickHouse for local testing."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
-        parser.add_argument("--sessions", type=int, default=101, help="Number of sessions to create.")
-        parser.add_argument("--min-calls", type=int, default=4, help="Minimum tool calls per session (inclusive).")
-        parser.add_argument("--max-calls", type=int, default=50, help="Maximum tool calls per session (inclusive).")
+        parser.add_argument("--sessions", type=int, default=2000, help="Number of sessions to create.")
+        parser.add_argument("--min-calls", type=int, default=2, help="Minimum tool calls per session (inclusive).")
+        parser.add_argument("--max-calls", type=int, default=12, help="Maximum tool calls per session (inclusive).")
         parser.add_argument(
             "--days",
             type=int,
-            default=0,
-            help="Spread sessions across the last N days (for trend charts). 0 keeps everything in the last hour.",
+            default=30,
+            help="Spread sessions across the last N days, growing toward now, so the dashboard compares this "
+            "period with the previous one. 0 keeps everything in the last hour.",
         )
         parser.add_argument(
             "--missing-capabilities",
             type=int,
             default=None,
             help="Number of missing-capability events to attach to distinct seeded sessions. "
-            "Defaults to 8, clamped to --sessions.",
+            f"Defaults to {DEFAULT_MISSING_CAPABILITY_COUNT}, clamped to --sessions.",
         )
         parser.add_argument(
             "--feedback",
@@ -768,7 +1267,9 @@ class Command(BaseCommand):
         # so low-volume smoke runs (--sessions 5) work without extra flags.
         explicit_missing_capabilities: int | None = options["missing_capabilities"]
         missing_capability_count: int = (
-            explicit_missing_capabilities if explicit_missing_capabilities is not None else min(8, session_count)
+            explicit_missing_capabilities
+            if explicit_missing_capabilities is not None
+            else min(DEFAULT_MISSING_CAPABILITY_COUNT, session_count)
         )
         max_feedback_count = session_count * MAX_FEEDBACK_PER_SESSION
         explicit_feedback: int | None = options["feedback"]
@@ -922,20 +1423,25 @@ class Command(BaseCommand):
                 is_identified=True,
             )
 
-        for session_idx in range(session_count):
-            calls = rng.randint(min_calls, max_calls)
-            # Anchor each session within the listing's default 24h window so it shows
-            # up on the next request. The listing aggregates recent events on the fly,
-            # so any recent session_end works; 31-59 minutes ago keeps the fixtures
-            # clearly "in the past" without flirting with the window edge.
-            call_intervals = [rng.randint(15, 90) for _ in range(calls)]
+        planned_sessions = plan_sessions(rng, now, days, session_count, min_calls, max_calls)
+        client_picker: EvenPicker[int] = EvenPicker()
+        model_pickers: dict[int, EvenPicker[str | None]] = {}
+        protocol_picker: EvenPicker[str | None] = EvenPicker()
+        tool_picker: EvenPicker[str] = EvenPicker()
+        primary_tool_picker: EvenPicker[str] = EvenPicker()
+        # Expected errors not yet emitted, per tool. A call fails once its tool's debt reaches 1, so the
+        # daily error rate follows the target rates instead of swinging with random draws.
+        error_debts = {tool: ProbabilityDebt(rng) for tool in TOOL_NAMES}
+        client_weights = {index: client.weight for index, client in enumerate(CLIENT_PROFILES)}
+        tool_weights = {tool: float(weight) for tool, weight in TOOL_WEIGHTS.items()}
+
+        for session_idx, planned in enumerate(planned_sessions):
+            session_end_offset_min, calls = planned.end_offset_min, planned.calls
+            is_blocked, is_fast = planned.is_blocked, planned.is_fast
+            call_intervals = [rng.randint(2, 8) if is_fast else rng.randint(15, 90) for _ in range(calls)]
             total_call_duration = timedelta(seconds=sum(call_intervals))
-            if days > 0:
-                # Spread session_end across the last N days so trend charts (bucketed
-                # by date over a 7-day window) show a curve instead of a single spike.
-                session_end_offset_min = rng.randint(31, days * 24 * 60)
-            else:
-                session_end_offset_min = rng.randint(31, 59)
+            # 0 at now, 1 at the start of --days.
+            age_fraction = session_end_offset_min / (days * 24 * 60) if days > 0 else 0.0
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
             session_start_ms = int(session_start.timestamp() * 1000)
             surge_probability = (
@@ -943,12 +1449,12 @@ class Command(BaseCommand):
                 if session_end_offset_min <= days * 24 * 60 // 4
                 else SURGE_OLDER_CALL_PROBABILITY
             )
+            in_regression = days > 0 and age_fraction <= 1 / 6
 
             # The SDK mints a uuidv7 conversation handle on the first tool call and derives
             # $session_id from it, so every call in the conversation shares one session.
             conversation_id = str(uuid7(session_start_ms, rng))
             session_id = session_id_from_conversation(conversation_id)
-            is_stateless = rng.random() < STATELESS_SESSION_PROBABILITY
 
             common_properties: dict[str, Any] = {}
             identified_distinct_id: str | None = None
@@ -962,7 +1468,10 @@ class Command(BaseCommand):
                 # so no person row exists for these sessions.
                 common_properties["$process_person_profile"] = False
 
-            client = rng.choices(CLIENT_PROFILES, weights=[c.weight for c in CLIENT_PROFILES], k=1)[0]
+            client_index = client_picker.pick(client_weights, amount=calls)
+            client = CLIENT_PROFILES[client_index]
+            protocol_version = protocol_picker.pick(protocol_version_weights(age_fraction, client), amount=calls)
+            is_stateless = protocol_version == STATELESS_PROTOCOL_VERSION
             common_properties.update(
                 {
                     "$lib": SDK_LIB_NAME,
@@ -970,20 +1479,23 @@ class Command(BaseCommand):
                     "$mcp_server_name": MCP_SERVER_NAME,
                     "$mcp_server_version": MCP_SERVER_VERSION,
                     "$mcp_client_name": client.name,
-                    "$mcp_client_version": client.version,
-                    "$mcp_protocol_version": STATELESS_PROTOCOL_VERSION if is_stateless else LEGACY_PROTOCOL_VERSION,
+                    "$mcp_client_version": client.version if client.name else None,
+                    "$mcp_protocol_version": protocol_version,
                 }
             )
             if client.vendor_client:
-                common_properties["$mcp_vendor_client"] = client.vendor_client
+                vendor_key = "mcp_vendor_client" if client.legacy_vendor_key else "$mcp_vendor_client"
+                common_properties[vendor_key] = client.vendor_client
             if client.user_agent:
                 common_properties["$mcp_client_user_agent"] = client.user_agent
             model_properties: dict[str, Any] = {}
-            if client.model_source == "client_metadata" or rng.random() < SELF_REPORTED_MODEL_PROBABILITY:
-                model_properties = {
-                    "$mcp_llm_model": rng.choice(client.models),
-                    "$mcp_llm_model_source": client.model_source,
-                }
+            model_weights: dict[str | None, float] = {
+                None: client.unknown_model_rate,
+                **{model: (1 - client.unknown_model_rate) * weight for model, weight in client.models.items()},
+            }
+            model = model_pickers.setdefault(client_index, EvenPicker()).pick(model_weights, amount=calls)
+            if model is not None:
+                model_properties = {"$mcp_llm_model": model, "$mcp_llm_model_source": client.model_source}
 
             session = _SeededSession(
                 conversation_id=conversation_id,
@@ -1024,8 +1536,9 @@ class Command(BaseCommand):
                     handshake_session_id=token_session_id,
                 )
 
-            # One coherent intent per session so the clustering page has themes to group.
-            primary_tool = rng.choice(TOOL_NAMES)
+            # One coherent intent per session, from the tool the session mostly calls, so the
+            # clustering page has themes to group and each tool's sample intents fit the tool.
+            primary_tool = primary_tool_picker.pick(tool_weights, amount=calls)
             session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
 
             session_calls: list[_SeededCall] = []
@@ -1039,13 +1552,24 @@ class Command(BaseCommand):
                     tool_name = retry_tool
                 elif surge_tool and rng.random() < surge_probability:
                     tool_name = surge_tool
+                elif rng.random() < PRIMARY_TOOL_CALL_PROBABILITY:
+                    tool_name = primary_tool
                 else:
-                    tool_name = rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
-                # Skew error rate and latency per tool so the Tool quality tab has variation.
-                tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
-                is_error = rng.random() < tool_error_rate
-                base_latency = 80 + (stable_hash(tool_name) % 400)
-                duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
+                    tool_name = tool_picker.pick(tool_weights)
+                quality = TOOL_QUALITY[tool_name]
+                duration_ms = tool_latency_ms(rng, quality)
+                error_rate = quality.error_rate * client.error_multiplier
+                error_types = quality.error_types
+                if in_regression and tool_name == REGRESSION_TOOL:
+                    error_rate = REGRESSION_ERROR_RATE
+                    error_types = {"internal": 80, "timeout": 20}
+                    duration_ms = int(duration_ms * REGRESSION_LATENCY_FACTOR)
+                failure: _Failure | None = None
+                if is_blocked:
+                    failure = FAILURES["permission"]
+                elif not is_fast and error_debts[tool_name].fires(error_rate):
+                    error_type = rng.choices(list(error_types), weights=list(error_types.values()), k=1)[0]
+                    failure = FAILURES[error_type]
                 tool_properties: dict[str, Any] = {
                     **model_properties,
                     "$mcp_resource_name": tool_name,
@@ -1053,14 +1577,18 @@ class Command(BaseCommand):
                     "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                     "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                     "$mcp_intent": session_intent,
-                    "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
-                    "$mcp_is_error": is_error,
+                    "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
+                    "$mcp_is_error": failure is not None,
                 }
-                failure = rng.choice(FAILURES) if is_error else None
                 if failure:
-                    duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
+                    # Permission and validation errors fail before any work; the rest fail after it.
+                    if failure.error_type in ("permission", "validation", "api_4xx", "missing_context"):
+                        duration_ms = max(1, duration_ms // 5)
+                    else:
+                        duration_ms = int(duration_ms * rng.uniform(1.2, 2.5))
                     tool_properties["$mcp_error_type"] = failure.error_type
                     tool_properties["$mcp_error_message"] = failure.message
+                    tool_properties["$mcp_error_status"] = failure.status
                 tool_properties["$mcp_duration_ms"] = duration_ms
                 emit(session, "$mcp_tool_call", timestamp, tool_properties)
                 session_calls.append(

@@ -82,6 +82,7 @@ const MCP_PROPERTY_ORDER: readonly string[] = [
     '$mcp_conversation_id',
     '$mcp_mode',
     '$mcp_source',
+    '$mcp_interface',
     '$mcp_transport',
     // Client
     '$mcp_client_name',
@@ -231,12 +232,14 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
     const llmModel = mcpProps['$mcp_llm_model']
     const llmModelSource = mcpProps['$mcp_llm_model_source']
     const serverName = mcpProps['$mcp_server_name']
+    const mcpInterface = mcpProps['$mcp_interface']
     const intent = mcpProps['$mcp_intent']
     const intentSource = mcpProps['$mcp_intent_source']
     const hasSummaryStat =
         hasErrorStatus ||
         Boolean(displayName && displayKind) ||
         (durationMs !== undefined && durationMs !== null) ||
+        Boolean(mcpInterface) ||
         Boolean(clientName) ||
         Boolean(llmModel) ||
         Boolean(serverName) ||
@@ -301,6 +304,7 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
                     {durationMs !== undefined && durationMs !== null ? (
                         <Stat label="Duration">{String(durationMs)} ms</Stat>
                     ) : null}
+                    {mcpInterface ? <Stat label="Interface">{String(mcpInterface)}</Stat> : null}
                     {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
                     {llmModel ? (
                         <Stat label={llmModelSource ? `Model (${String(llmModelSource).replace(/_/g, ' ')})` : 'Model'}>

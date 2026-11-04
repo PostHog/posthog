@@ -2,6 +2,7 @@
 import { DateTime } from 'luxon'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
+import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { logger } from '../logger'
@@ -64,12 +65,20 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
     'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
+    // A hot standby cancels a read when WAL replay conflicts with it.
+    // Some servers capitalize the first word of the message, so the entry holds only the words that every variant shares.
+    // Servers report the conflict as SQLSTATE 40001 or 57014.
+    // Both codes also cover other failures, so the list matches this phrase instead of a code.
+    'conflict with recovery',
 ]
 
 export function isTransientPgError(err: unknown): boolean {
     const message = (err as Error | undefined)?.message
     return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
 }
+
+// Below the realtime cohort member page deadline, so a stalled connection fails before the page does.
+const BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS = 30_000
 
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
@@ -95,6 +104,10 @@ export class PostgresRouter {
 
     constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
+
+        if (!serverConfig.DATABASE_URL) {
+            throw Error(MISSING_DATABASE_URL_MESSAGE)
+        }
 
         const app_name = appName ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
@@ -158,7 +171,10 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    // A connection whose startup stalls would otherwise hold a pool slot forever.
+                    BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS
                 )
             )
             logger.info('👍', `Behavioral cohorts Postgresql ready`)

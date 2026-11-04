@@ -3,9 +3,8 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { hogql } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'

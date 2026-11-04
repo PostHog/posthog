@@ -1,3 +1,3 @@
 export function isPrivateScoutTrialTool(toolName: unknown): boolean {
-    return toolName === 'scout-trial-create' || toolName === 'scout-trial-get'
+    return typeof toolName === 'string' && (toolName.startsWith('scout-trial-') || toolName.startsWith('scout-rubric-'))
 }

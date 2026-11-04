@@ -12,7 +12,10 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 import { PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { OverviewGridItem, OverviewItem } from '../../components/OverviewGrid'
-import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
+import {
+    overviewPropertyFilterType,
+    sessionRecordingsPlaylistLogic,
+} from '../../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
 
@@ -21,6 +24,7 @@ function getFilterState(
     propertyKey: string,
     propertyValue: string | undefined
 ): 'active' | 'replace' | 'inactive' {
+    const filterType = overviewPropertyFilterType(propertyKey)
     // Check first nested group (index 0) where filters are added
     const firstNestedGroup = filterGroup.values[0]
     if (!firstNestedGroup || !('values' in firstNestedGroup)) {
@@ -31,6 +35,7 @@ function getFilterState(
     const hasExactMatch = firstNestedGroup.values.some((filter) => {
         if ('key' in filter && 'value' in filter && 'type' in filter && 'operator' in filter) {
             return (
+                filter.type === filterType &&
                 filter.key === propertyKey &&
                 filter.value === propertyValue &&
                 filter.operator === PropertyOperator.Exact
@@ -46,7 +51,9 @@ function getFilterState(
     // Check if same key with different value exists
     const hasSameKey = firstNestedGroup.values.some((filter) => {
         if ('key' in filter && 'type' in filter && 'operator' in filter) {
-            return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+            return (
+                filter.type === filterType && filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+            )
         }
         return false
     })
@@ -110,6 +117,7 @@ export function PlayerSidebarOverviewRows({
                                     onFilterClick={
                                         isFilterable ? () => togglePropertyFilter(item.property, item.value) : undefined
                                     }
+                                    copyValue={isFilterable && item.property === '$ip' ? item.value : undefined}
                                 >
                                     <div className="flex flex-row items-center gap-2 justify-start font-medium min-w-0">
                                         {item.type === 'property' && (

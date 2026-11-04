@@ -16,7 +16,7 @@ import { MetricsOperations } from './MetricsOperations'
 import { MAX_CLAUSES, MetricsViewerClause, metricsViewerLogic } from './metricsViewerLogic'
 
 /** One query line of the viewer: alias, metric picker, filters, operations, and group-by.
- * Editing any control focuses the row — the samples panel, anomaly badge, and picker
+ * Editing any control focuses the row — the anomaly badge, related links, and picker
  * scoping follow the focused (active) clause. */
 export function MetricsClauseRow({
     clause,
@@ -71,8 +71,8 @@ export function MetricsClauseRow({
                 <Tooltip
                     title={
                         isActive
-                            ? 'Samples and related links follow this series'
-                            : 'Click to focus this series. Samples and related links follow it.'
+                            ? 'The anomaly badge and related links follow this series'
+                            : 'Click to focus this series. The anomaly badge and related links follow it.'
                     }
                 >
                     <LemonButton
@@ -115,13 +115,11 @@ export function MetricsClauseRow({
                 onAggregationChange={withSelect(setAggregation)}
                 disabledReason={disabledReason}
             />
-            {clause.aggregation && (
-                <MetricsGroupByButton
-                    groupByKeys={clause.groupByKeys}
-                    onChange={withSelect(setGroupByKeys)}
-                    disabledReason={disabledReason}
-                />
-            )}
+            <MetricsGroupByButton
+                groupByKeys={clause.groupByKeys}
+                onChange={withSelect(setGroupByKeys)}
+                disabledReason={disabledReason}
+            />
             <LemonMenu
                 items={[
                     {

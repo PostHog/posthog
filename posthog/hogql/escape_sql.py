@@ -277,10 +277,18 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def escape_trino_identifier(v: str) -> str:
-    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+    # "?" is allowed because convert_pyformat_placeholders does not read inside quoted identifiers.
+    for character, label in (("%", "%"), ("\0", "NUL")):
         if character in v:
             raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
     return '"' + v.replace('"', '""') + '"'
+
+
+def escape_trino_string(v: str) -> str:
+    # Trino string literals have no backslash escapes; doubling the quote is the only escape.
+    if "\0" in v:
+        raise QueryError("Trino string literals cannot contain the NUL character")
+    return "'" + v.replace("'", "''") + "'"
 
 
 def escape_snowflake_identifier(v: str) -> str:

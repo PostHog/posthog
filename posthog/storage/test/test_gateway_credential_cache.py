@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -37,6 +37,7 @@ from posthog.storage.gateway_credential_cache import (
     drain_gateway_credential_last_used,
     format_overspend_allowance_usd,
     gateway_credential_hypercache as hypercache,
+    oauth_credential_authorized,
     project_gateway_credential,
     refresh_all_gateway_credentials,
     validate_overspend_allowance_usd,
@@ -79,6 +80,7 @@ class GatewayCredentialTestMixin(BaseTest):
         expires_in_hours: float = 1,
         token: str | None = None,
         user: User | None = None,
+        impersonated_by: User | None = None,
     ) -> OAuthAccessToken:
         token = token or f"pha_{generate_random_token()}"
         app = OAuthApplication.objects.create(
@@ -96,6 +98,7 @@ class GatewayCredentialTestMixin(BaseTest):
             token=token,
             expires=timezone.now() + timedelta(hours=expires_in_hours),
             scope=scope,
+            impersonated_by=impersonated_by,
         )
 
     def _read_blob(self, cache_hash: str | None) -> dict | None:
@@ -245,7 +248,7 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
 
 
-class TestOverspendAllowanceFormatting(BaseTest):
+class TestOverspendAllowanceFormatting(SimpleTestCase):
     @parameterized.expand(
         [
             ("whole", Decimal("5"), "5.000000"),
@@ -356,6 +359,13 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
     # The user / scope-narrowing / membership / RBAC enforcement only applies to OAuth
     # — project secret keys carry no user, no scoped_*, and no membership. These cases
     # exercise the surviving OAuth authorization path.
+    def test_impersonation_token_never_projected_or_authorized(self):
+        staff = User.objects.create_and_join(self.organization, "staff@posthog.com", None, is_staff=True)
+        credential = self._make_oauth(GATEWAY_SCOPE, impersonated_by=staff)
+        project_gateway_credential(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+        self.assertFalse(oauth_credential_authorized(credential, self.team))
+
     def test_inactive_user_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE)
         project_gateway_credential(credential)

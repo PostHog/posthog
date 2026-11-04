@@ -21,10 +21,7 @@ class TestRunCredentialRefreshLoop:
         monkeypatch.setattr(credential_refresh_module.workflow, "sleep", AsyncMock())
         monkeypatch.setattr(credential_refresh_module.workflow, "logger", MagicMock())
 
-    @pytest.mark.parametrize("patched", [True, False])
-    async def test_cancel_during_activity_propagates_only_for_patched_histories(
-        self, monkeypatch: pytest.MonkeyPatch, patched: bool
-    ) -> None:
+    async def test_cancel_during_activity_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         activity_started = asyncio.Event()
         cancelled = ActivityError(
             "Activity cancelled",
@@ -47,8 +44,6 @@ class TestRunCredentialRefreshLoop:
 
         execute_activity = AsyncMock(side_effect=blocked_activity)
         self._patch_workflow(monkeypatch, execute_activity)
-        patch = MagicMock(return_value=patched)
-        monkeypatch.setattr(credential_refresh_module.workflow, "patched", patch)
         task = asyncio.create_task(run_credential_refresh_loop(MagicMock(), "sb-1"))
         await activity_started.wait()
         execute_activity.side_effect = None
@@ -57,15 +52,10 @@ class TestRunCredentialRefreshLoop:
         )
         task.cancel()
 
-        if patched:
-            with pytest.raises(ActivityError) as error:
-                await task
-            assert error.value is cancelled
-            assert execute_activity.await_count == 1
-        else:
-            assert await task == CredentialRefreshExitReason.SANDBOX_GONE
-            assert execute_activity.await_count == 2
-        patch.assert_called_once_with("tasks-credential-refresh-propagate-cancel")
+        with pytest.raises(ActivityError) as error:
+            await task
+        assert error.value is cancelled
+        assert execute_activity.await_count == 1
 
     async def test_non_cancellation_failure_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         execute_activity = AsyncMock(

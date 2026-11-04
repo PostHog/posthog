@@ -3,11 +3,15 @@ import {
     Source,
     SourceData,
     Sources,
+    Workflow,
     customState,
+    devStackBadge,
+    devStackProgress,
     devStackState,
     imageState,
     pinState,
     releaseBadge,
+    selectedWorkflow,
 } from './infrastructureTypes'
 
 const image: CustomImage = {
@@ -25,6 +29,84 @@ const image: CustomImage = {
 }
 
 describe('infrastructure rollout evidence', () => {
+    it.each([
+        ['current', 'Active', 'success'],
+        ['building', 'Rebuilding', 'info'],
+        ['verifying', 'Verifying', 'info'],
+        ['retry_scheduled', 'Retry scheduled', 'warning'],
+        ['blocked', 'Blocked', 'destructive'],
+        ['disabled', 'Baking disabled', 'default'],
+    ] as const)('separates current base from %s bake progress', (status, label, variant) => {
+        const now = Date.now()
+        const sources: Sources = {
+            dev_stack: {
+                status: 'ok',
+                observed_at: new Date(now).toISOString(),
+                data: {
+                    name: 'posthog-dev-stack',
+                    protected: true,
+                    base_image_reference: 'sha256:example',
+                    workflow_url: '',
+                    status,
+                    lease_expires_at: new Date(now + 60_000).toISOString(),
+                    deadline_at: new Date(now + 120_000).toISOString(),
+                },
+            },
+            vm: {
+                status: 'ok',
+                observed_at: new Date(now).toISOString(),
+                data: { name: 'vm', reference: 'sha256:example', platforms: [] },
+            },
+        }
+        expect(devStackBadge(sources)).toEqual({ label: 'Base current', variant: 'success' })
+        expect(devStackProgress(sources, now)).toEqual({ label, variant })
+        sources.dev_stack!.data!.status = 'building'
+        expect(devStackProgress(sources, now + 90_000)?.label).toBe('Rebuilding')
+        expect(devStackProgress(sources, now + 120_000)?.label).toBe('Recovery pending')
+        sources.dev_stack!.data!.lease_expires_at = new Date(now - 1).toISOString()
+        expect(devStackProgress(sources, now)?.label).toBe('Recovery pending')
+        sources.dev_stack!.status = 'error'
+        expect(devStackBadge(sources).label).toBe('Last seen')
+        expect(devStackProgress(sources, now)).toBeUndefined()
+    })
+    it('ignores workflow evidence from an earlier attempt or run', () => {
+        const sources: Sources = {
+            dev_stack: {
+                status: 'ok',
+                observed_at: new Date().toISOString(),
+                data: {
+                    name: 'posthog-dev-stack',
+                    protected: true,
+                    attempt_id: 'first',
+                    workflow_run_id: 'first-run',
+                    base_image_reference: null,
+                    workflow_url: 'https://example.com/first',
+                },
+            },
+        }
+        const workflow: { id: string; source: Source<Workflow> } = {
+            id: 'dev_stack',
+            source: {
+                status: 'ok',
+                observed_at: new Date().toISOString(),
+                data: {
+                    workflow_id: 'activate-dev-stack-image-first',
+                    run_id: 'first-run',
+                    status: 'completed',
+                    url: 'https://example.com/first',
+                    activities: [],
+                },
+            },
+        }
+        expect(selectedWorkflow('dev_stack', sources, workflow)).toBe(workflow.source)
+        sources.dev_stack!.data!.attempt_id = 'second'
+        sources.dev_stack!.data!.workflow_run_id = 'second-run'
+        expect(selectedWorkflow('dev_stack', sources, workflow)).toBeNull()
+        workflow.source.data!.workflow_id = 'activate-dev-stack-image-second'
+        expect(selectedWorkflow('dev_stack', sources, workflow)).toBeNull()
+        workflow.source.data!.run_id = 'second-run'
+        expect(selectedWorkflow('dev_stack', sources, workflow)).toBe(workflow.source)
+    })
     it.each([
         ['current', 'ok', 'ok', 0, 'current'],
         ['previous', 'ok', 'ok', 0, 'waiting'],

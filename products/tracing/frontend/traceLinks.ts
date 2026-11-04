@@ -1,33 +1,10 @@
-// Canonical trace URLs (JON-33). The URL is the atomic, shareable form of a trace view:
-// `/tracing?trace=<hex>` opens the drawer, `&span=<hex>` anchors a span, and the optional `&ts=<iso>`
-// carries the root timestamp so a cold load can bound the ClickHouse lookup to a narrow window. A link
-// without `ts` still opens the trace: the backend finds it by id through the trace_id projection.
-
 import { combineUrl } from 'kea-router'
 
+import { type TraceLinkParams, traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import type { DateRange } from '~/queries/schema/schema-general'
-
-export interface TraceLinkParams {
-    traceId: string
-    spanId?: string | null
-    /** ISO timestamp of (any span of) the trace, used to bound the cold-load query. */
-    ts?: string | null
-}
-
-/** Path + query for a trace view, relative to the app root. */
-export function traceUrl({ traceId, spanId, ts }: TraceLinkParams): string {
-    const params = new URLSearchParams({ trace: traceId })
-    if (spanId) {
-        params.set('span', spanId)
-    }
-    if (ts) {
-        params.set('ts', ts)
-    }
-    return `${urls.tracing()}?${params.toString()}`
-}
 
 /** Absolute, shareable URL for a trace view. */
 export function absoluteTraceUrl(params: TraceLinkParams): string {
@@ -57,4 +34,14 @@ export function traceLookupDateRange(ts: string): { date_from: string; date_to: 
         date_from: dayjs(ts).subtract(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
         date_to: dayjs(ts).add(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
     }
+}
+
+// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
+// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
+// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
+// dayjs throw on toISOString().
+export function resolveTraceLookupRange(
+    ts: string | null | undefined
+): { date_from: string; date_to: string } | undefined {
+    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
 }

@@ -39,15 +39,25 @@ It parses every message in two phases.
 2. **A full parse for survivors.**
    Only events that pass the gate are parsed completely and turned into the output envelope.
 
-An event passes the gate when it has a person id and its team is in the **team index**.
-The team index is the set of teams that have at least one realtime cohort, intersected with `REALTIME_COHORT_TEAM_ALLOWLIST`.
-The shuffler rebuilds it from Postgres every few minutes and swaps it in atomically.
+An event passes the gate when it has a person id and its team passes two checks.
+
+1. **The team index.**
+   The team has at least one realtime cohort.
+   The shuffler rebuilds the index from Postgres every few minutes and swaps it in atomically.
+2. **Team access.**
+   `REALTIME_COHORT_TEAM_ALLOWLIST` names the team, or the team's row in `cohort_realtime_team_access` is at `processing` or `serving`.
+   The shuffler reads the whole table about every 15 seconds, so a grant or a revoke takes effect without a deploy.
+   Django never deletes a row, and it never grants an `off` row again.
+   So when a read lacks a row the shuffler holds, or grants one of its `off` rows again, the shuffler keeps its previous row for that team, because that read comes from a lagging replica or the wrong database.
+   The read's other rows still take effect, so a revoke always gets through.
+   After a failed read, it keeps all the previous rows.
+   A row deleted or granted again by hand keeps its old state in every running shuffler and processor, so restart both shuffler deployments and the processor after one.
 
 Apart from the person id check, the gate looks at the team only.
 It cannot filter by event name: person-property criteria are re-evaluated from every event that carries person properties, whatever the event is called.
 So every event from an enabled team with a person id is forwarded.
 
-The shuffler consumes nothing until the team index has loaded once.
+The shuffler consumes nothing until the team index and the team access rows have each loaded once.
 If Postgres is down when it boots, the shuffler lags and retries on its refresh interval.
 It loses nothing as long as its consumer group has a committed offset that is still inside the firehose's retention.
 A group with no usable offset starts at the tail when consumption begins, as described below, so it skips what arrived during the wait.
@@ -78,15 +88,17 @@ Each forwarded event becomes a slim JSON record on `cohort_stream_events`.
   A change made any other way, such as an API edit or a person merge, is seen on the person's next event.
 - Events ingested **without person processing** still carry a real `person_id` when the distinct id has a person, but their `person_properties` is an empty object.
   The envelope does not say which kind of event it is, so the processor evaluates those events as a person with no properties.
-- `source_partition` and `source_offset` are the event's coordinates in the firehose.
+- `source_partition` and `source_offset` are the event's coordinates in the topic the shuffler read.
   The processor uses them to recognize an event it already applied.
+- `source_partition` is the real Kafka partition only for `clickhouse_events_json`.
+  [Running a shuffler on another topic](#running-a-shuffler-on-another-topic) explains how other topics number it.
 - Events that the processor re-keys after a person merge also carry `redirected_from` and `redirect_hops`.
   The shuffler never sets them.
 
 ### Delivery and commits
 
 The shuffler sends forwards without waiting for each acknowledgment, and keeps a per-partition ledger of forwards still in flight.
-The offset it commits for a firehose partition is the oldest offset still in flight, or one past the highest offset seen when nothing is in flight.
+The offset it commits for an input partition is the oldest offset still in flight, or one past the highest offset seen when nothing is in flight.
 It commits every few seconds.
 
 Across crashes and rebalances this is at least once: a restart replays the uncommitted tail, and the processor discards what it already applied.
@@ -102,6 +114,33 @@ Other losses:
 The consumer group starts at the tail of the firehose when it has no committed offset, or when its committed offset has aged out of the firehose's retention.
 A shuffler outage longer than the retention silently skips the gap.
 History is the backfill's job, not the shuffler's.
+
+### Running a shuffler on another topic
+
+A second shuffler deployment can read another ingestion topic, such as `realtime_only_events_json`, into the same `cohort_stream_events`.
+Kafka numbers every topic's partitions from 0, and the processor keys its replay marks by `source_partition` alone.
+If two topics wrote the same numbers, the processor would drop most of the second topic's events as replays, because the firehose's offsets are far higher.
+
+So the shuffler gives each input topic a slot in a fixed table and writes partition `p` of slot `s` as `s * 1_000_000 + p`.
+`clickhouse_events_json` has slot 0 and writes the real partition.
+`realtime_only_events_json` has slot 1.
+The processor and its stored state do not change, so any processor build handles the second topic, and a processor rollback needs no wipe.
+To find the Kafka partition of an envelope, take `source_partition` modulo 1,000,000.
+The shuffler stops with a failure on a partition at or above 1,000,000, because that number falls in the next slot's range.
+
+Starting one commits the pipeline to these conditions:
+
+- The topic has a slot in the shuffler's table.
+  The shuffler refuses to start on a topic that does not.
+- A slot never passes to another topic.
+  Stored replay marks keep the numbers that the first topic wrote, and they would mask the new topic's events.
+- The deployment has its own `KAFKA_CONSUMER_GROUP`.
+  Commits stay correct in a shared group, because Kafka keeps offsets per topic.
+  But a pod roll in either deployment would then rebalance both, and each would replay its uncommitted tail.
+- Each event reaches the pipeline on only one input topic.
+  The two copies of such an event have different source partitions, so the processor folds it twice.
+- The topic's retention is no longer than the firehose's.
+  The processor sizes its tombstone retention from the firehose's retention, and a straggler that outlives the tombstone is not redirected.
 
 ## Partition affinity
 
@@ -195,18 +234,19 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
   Consuming, producing and committing run independently.
   Thousands of forwards can be in flight at once, so slow broker acknowledgments do not throttle consumption.
   For typical event sizes, the in-flight cap sits below the producer's byte queue, so the shuffler pauses cleanly instead of churning on a full queue.
-- **Lock-free team index.**
-  The refresh builds a new set and swaps a pointer.
-  The hot path never waits on it.
+- **Lock-free team gate.**
+  The index refresh and the access poll each build a new snapshot and swap a pointer.
+  The hot path never waits on them.
 
 ## Things that surprise people
 
 - The processor's event-name gate only skips behavioral evaluation, after the event is already on `cohort_stream_events`.
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
-  Only teams in both are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
-  Merges also need the team in Node's merge allowlist, and backfills need it in the seeder's copy.
-- The processor recognizes applied events with a high-water mark per firehose partition, not a set of offsets.
-  The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same firehose partition is skipped as if it were a replay.
+  Both also let through the teams that a `cohort_realtime_team_access` row grants, and each reads that table about every 15 seconds.
+  Only teams that both let through are processed, so a newly granted team can lose about half a minute of events until both have read the grant.
+  Merges also need the team in Node's merge allowlist.
+- The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
+  The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.
   The processor's live watermark, which paces backfill, is built from these timestamps.
   [Seed apply and reconcile](seed-apply-and-reconcile.md) explains why that matters.

@@ -35,13 +35,14 @@ jobs:
         # cannot skip the test by naming its branch trunk-merge/*.
         if: ${{ !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/')) }}
         # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
-        # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
+        # (Startup+ plan); if it's unavailable, use a GitHub-hosted macOS runner.
         runs-on: depot-macos-15
         timeout-minutes: 15
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
             - name: Run dev sandbox self-test
               run: bin/dev-sandbox-selftest
 
@@ -53,6 +54,7 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
             - name: Run dev sandbox shims self-test
               run: bin/dev-sandbox-shims-selftest

@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import AssistantTool
 
 
-class TestToolRegistry(BaseTest):
+class TestToolRegistry(SimpleTestCase):
     def test_can_get_registered_contextual_tool_class(self):
         from ee.hogai.registry import get_contextual_tool_class
 

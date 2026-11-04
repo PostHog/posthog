@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
-import { getAggregationTargetPronoun } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { LifecycleQuery } from '~/queries/schema/schema-general'
+
+import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
+import { getAggregationTargetPronoun } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 export function LifecycleSeriesHeader(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

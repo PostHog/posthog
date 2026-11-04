@@ -185,7 +185,7 @@
     }
   },
   {
-    "name": "canvas fillText args are text-scrubbed",
+    "name": "canvas text drawing is emptied, not scrubbed",
     "allow": { "text": ["hello"], "url": [] },
     "event": {
       "type": 3,
@@ -193,7 +193,7 @@
     },
     "expected": {
       "type": 3,
-      "data": { "source": 9, "id": 1, "type": 0, "commands": [{ "property": "fillText", "args": ["Hello ******", 10, 20] }] }
+      "data": { "source": 9, "id": 1, "type": 0, "commands": [] }
     }
   },
   {
@@ -383,13 +383,47 @@
     }
   },
   {
-    "name": "canvas strokeText in flattened single-command form is scrubbed",
-    "allow": { "text": ["hi"], "url": [] },
-    "event": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi secret", 1, 2] } },
-    "expected": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi ******", 1, 2] } }
+    "name": "canvas snapshot frame keeps its shape and its image never passes through",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "clearRect", "args": [0, 0, 8, 8] },
+          {
+            "property": "drawImage",
+            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/webp", "data": [{ "rr_type": "ArrayBuffer", "base64": "AAAA" }] }] }, 0, 0]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "clearRect", "args": [0, 0, 8, 8] },
+          {
+            "property": "drawImage",
+            "args": [{ "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png", "data": [{ "rr_type": "ArrayBuffer", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=" }] }] }, 0, 0]
+          }
+        ]
+      }
+    }
   },
   {
-    "name": "canvas multiple commands (fillText + strokeText) each scrubbed",
+    "name": "canvas command in flattened single-command form is emptied",
+    "allow": { "text": ["hi"], "url": [] },
+    "event": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi secret", 1, 2] } },
+    "expected": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "commands": [] } }
+  },
+  {
+    "name": "canvas drawing commands other than a snapshot frame are emptied",
     "allow": { "text": ["a", "b"], "url": [] },
     "event": {
       "type": 3,
@@ -403,18 +437,7 @@
         ]
       }
     },
-    "expected": {
-      "type": 3,
-      "data": {
-        "source": 9,
-        "id": 1,
-        "type": 0,
-        "commands": [
-          { "property": "fillText", "args": ["A ******"] },
-          { "property": "strokeText", "args": ["B ******"] }
-        ]
-      }
-    }
+    "expected": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "commands": [] } }
   },
   {
     "name": "console plugin scrubs text payload frames and url trace frames",

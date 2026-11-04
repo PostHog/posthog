@@ -2,6 +2,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
 import { RecipientGetArgs, RecipientsManagerService } from './recipients-manager.service'
@@ -139,6 +140,24 @@ describe('RecipientsManager', () => {
             const results = await manager.getMany([])
             expect(results).toEqual({})
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns null for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                await createRecipient(team.id, 'user1@example.com', { 'cat-1': 'OPTED_IN' })
+                const invalidTeamId = key as unknown as number
+
+                const results = await manager.getMany([
+                    { teamId: team.id, identifier: 'user1@example.com' },
+                    { teamId: invalidTeamId, identifier: 'user1@example.com' },
+                ])
+
+                expect(results[`${team.id}:user1@example.com`]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+                expect(results[`${key}:user1@example.com`]).toBeNull()
+                // A load that holds only invalid ids has no query to run.
+                expect(await manager.get({ teamId: invalidTeamId, identifier: 'user2@example.com' })).toBeNull()
+            }
+        )
     })
 
     describe('getPreference', () => {

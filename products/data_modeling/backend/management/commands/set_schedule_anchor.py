@@ -15,10 +15,10 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     format_tier,
     tier_sort_key,
 )
-from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
 from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
     schedulable_nodes,
+    scheduled_cadences,
     set_declared_anchor,
 )
 from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
@@ -91,12 +91,7 @@ class Command(BaseCommand):
         plans: list[tuple[DAG, set[str], str]] = []
         for dag, node_ids in sorted(nodes_by_dag.items(), key=lambda kv: str(kv[0].id)):
             graph = build_frequency_graph(dag)
-            effective = compute_effective_cadences(
-                nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-            )
-            effective, _clamped = clamp_to_source_floor(
-                effective, edges=graph.edges, source_intervals=graph.source_intervals
-            )
+            effective, _clamped = scheduled_cadences(graph)
 
             if options["with_upstream"]:
                 node_ids = self._expand_with_upstream(graph.edges, node_ids, graph.nodes)
@@ -151,15 +146,8 @@ class Command(BaseCommand):
                 ):
                     set_declared_anchor(node, anchor)
                     written += 1
-            # require_tiered makes reconcile skip an unconverted DAG; saying "reconciled" there
-            # would tell the operator a pin took effect when it didn't
-            if reconcile_dag_schedules(dag, require_tiered=True):
-                self.stdout.write(f"DAG {dag.name} ({dag.id}): {past} {written} node(s), reconciled → {tier_line}")
-            else:
-                self.stdout.write(
-                    f"DAG {dag.name} ({dag.id}): {past} {written} node(s), but the DAG is not on cadence-tier "
-                    "schedules yet; anchors apply once it is converted (reconcile_freshness_schedules)"
-                )
+            reconcile_dag_schedules(dag)
+            self.stdout.write(f"DAG {dag.name} ({dag.id}): {past} {written} node(s), reconciled → {tier_line}")
 
     def _parse_anchor(self, at: str, on: str | None) -> int:
         try:

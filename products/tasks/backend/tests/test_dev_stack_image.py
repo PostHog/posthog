@@ -1,8 +1,13 @@
 import uuid
+import hashlib
+from pathlib import Path
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from django.conf import settings
+
+from products.tasks.backend.dev_stack_image_models import DevStackImageAttempt
 from products.tasks.backend.exceptions import SnapshotTimeoutError
 from products.tasks.backend.logic.services.dev_stack_image import (
     PUBLISH_SNAPSHOT_MAX_ATTEMPTS,
@@ -13,6 +18,7 @@ from products.tasks.backend.logic.services.dev_stack_image import (
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 
 BASE_REFERENCE = "ghcr.io/posthog/posthog-sandbox-vm@sha256:current"
+pytestmark = pytest.mark.django_db
 
 
 def _unique_publish_name() -> str:
@@ -49,7 +55,9 @@ def _make_fake_sandbox_cls(exit_code: int, publish_failures: int = 0):
 
         @classmethod
         def create(cls, config):
-            return cls()
+            sandbox = cls()
+            sandbox.config = config
+            return sandbox
 
         def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
             self.written_files[path] = payload
@@ -77,6 +85,31 @@ def _make_fake_sandbox_cls(exit_code: int, publish_failures: int = 0):
 
 
 class TestBakeDevStackImage:
+    def test_candidate_bake_uses_pinned_base_and_never_publishes_a_name(self) -> None:
+        fake_cls = _make_fake_sandbox_cls(exit_code=0)
+        snapshot = Mock(return_value="im-candidate")
+        candidate = DevStackImageAttempt(
+            base_reference=BASE_REFERENCE,
+            repository_sha="a" * 40,
+            recipe_sha=hashlib.sha256(
+                (
+                    Path(settings.BASE_DIR) / "products/tasks/backend/sandbox/images/bake-posthog-dev-stack.sh"
+                ).read_bytes()
+            ).hexdigest(),
+        )
+        with (
+            patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls),
+            patch.object(fake_cls, "create_snapshot", snapshot),
+            patch("products.tasks.backend.logic.services.dev_stack_image._record_baked_base_reference") as record,
+        ):
+            assert bake_dev_stack_image(candidate=candidate) == "im-candidate"
+        sandbox = fake_cls.instances[0]
+        assert sandbox.config.base_image_reference == BASE_REFERENCE
+        assert sandbox.published_name is None
+        assert sandbox.destroyed
+        snapshot.assert_called_once()
+        record.assert_not_called()
+
     def test_successful_bake_publishes_destroys_sandbox_and_settles_refresh(self):
         publish_name = _unique_publish_name()
         fake_cls = _make_fake_sandbox_cls(exit_code=0)

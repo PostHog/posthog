@@ -49,6 +49,7 @@ from products.data_warehouse.backend.snowflake_helpers import (
 )
 from products.warehouse_sources.backend.facade.hogql import hogql_fields_and_structure_for_columns
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_dwh_columns_by_enabled_columns,
 )
@@ -111,7 +112,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
         catalog, postgres_schema, table_name = get_postgres_source_location(
             schema_name=schema.name,
             schema_metadata=metadata,
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=SourceInputsStore.load_settings(source).get("schema"),
         )
         return DirectPostgresTable(
             name=schema.name,
@@ -224,7 +225,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
         clickhouse_database, table_name = get_clickhouse_source_location(
             schema_name=schema.name,
             schema_metadata=metadata,
-            default_database=(source.job_inputs or {}).get("database"),
+            default_database=SourceInputsStore.load(source).get("database"),
         )
         return DirectClickHouseTable(
             name=schema.name,

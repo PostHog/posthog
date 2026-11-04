@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from celery import shared_task
 from celery.app.task import Task as CeleryTask
@@ -15,6 +16,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
+from products.tasks.backend.logic.services.compute_settlement import settle_overdue_sandbox_compute
 from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
@@ -105,11 +107,6 @@ def notify_slack_thread_pr_closed(run_id: str, pr_url: str, merged: bool = False
     post_pr_closed_slack_update(run_id, pr_url, merged=merged)
 
 
-# No retries: the run records the event before it goes out, so a retry finds it and sends nothing.
 @shared_task(ignore_result=True)
-def dispatch_loop_pr_notification_task(run_id: str, event: str, pr_url: str) -> None:
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the celery import path)
-        dispatch_loop_pr_notification,
-    )
-
-    dispatch_loop_pr_notification(run_id, event, pr_url)
+def settle_overdue_sandbox_compute_task() -> None:
+    settle_overdue_sandbox_compute(timezone.now())

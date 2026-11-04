@@ -22,6 +22,11 @@
             "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
             "@posthog/llm-normalizer": ["./packages/llm-normalizer/src/index.ts"],
             "@posthog/llm-normalizer/*": ["./packages/llm-normalizer/src/*"],
+            "@posthog/agent-contracts/*": ["./packages/agent/packages/agent-contracts/src/*"],
+            // The published @posthog/quill dist inlines a copy of @posthog/quill-primitives, and app code
+            // also imports the primitives package directly. Resolving the umbrella to its re-export source
+            // makes both import paths share the one primitives build.
+            "@posthog/quill": ["./packages/quill/packages/quill/src/index.ts"],
             "@posthog/quill-charts": ["./packages/quill/packages/charts/src/index.ts"],
             "@posthog/quill-charts/*": ["./packages/quill/packages/charts/src/*"],
             // These packages are installed under frontend/node_modules only, which product

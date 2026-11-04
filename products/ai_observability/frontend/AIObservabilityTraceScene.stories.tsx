@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
@@ -84,9 +83,6 @@ export const WithoutContent: Story = {
 export const MissingSpanInstrumentation: Story = {
     args: {
         trace: traceWithoutContent,
-    },
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
     },
     decorators: [
         mswDecorator({

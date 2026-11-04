@@ -175,6 +175,7 @@ def _handle_uniq_if(args: list[str]) -> str:
 
 # Functions needing custom rendering: lowercased-name → callable(rendered_args) → SQL.
 SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "sha1": lambda args: f"sha1({args[0]})",
     # Type conversions (Snowflake type synonyms; no UUID type → VARCHAR)
     "toDate": _make_cast_handler("DATE"),
     "toDateTime": _make_cast_handler("TIMESTAMP"),

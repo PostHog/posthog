@@ -34,7 +34,9 @@ const mockTraceReviewsApi = traceReviewsApi as jest.Mocked<typeof traceReviewsAp
 
 describe('traceReviewModalLogic', () => {
     const booleanDefinition: ScoreDefinition = {
+        tags: [],
         id: 'score_def_1',
+        short_name: '',
         name: 'Hallucination',
         description: 'Whether the model hallucinated.',
         kind: 'boolean',
@@ -47,12 +49,15 @@ describe('traceReviewModalLogic', () => {
         },
         created_by: null,
         created_at: '2026-03-12T00:00:00Z',
+        updated_by: null,
         updated_at: '2026-03-12T00:00:00Z',
         team: MOCK_DEFAULT_TEAM.id,
     }
 
     const numericDefinition: ScoreDefinition = {
+        tags: [],
         id: 'score_def_2',
+        short_name: '',
         name: 'Accuracy',
         description: 'How accurate the response was.',
         kind: 'numeric',
@@ -66,6 +71,7 @@ describe('traceReviewModalLogic', () => {
         },
         created_by: null,
         created_at: '2026-03-12T00:00:00Z',
+        updated_by: null,
         updated_at: '2026-03-12T00:00:00Z',
         team: MOCK_DEFAULT_TEAM.id,
     }

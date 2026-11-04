@@ -1,12 +1,6 @@
 import type { Decorator } from '@storybook/react'
 import MockDate from 'mockdate'
 
-declare module 'storybook/internal/types' {
-    interface Parameters {
-        mockDate?: string | number | Date
-    }
-}
-
 /** Global story decorator that allows mocking of dates.
  *
  * ```ts

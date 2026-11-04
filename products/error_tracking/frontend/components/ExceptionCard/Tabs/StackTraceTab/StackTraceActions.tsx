@@ -24,9 +24,6 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
         <div className="flex items-center gap-1">
             {exceptionList.length > 0 && ready && (
                 <AgentPromptButton
-                    storageKey="error-tracking-issue"
-                    defaultActionKey="fix"
-                    defaultAgentKey="clipboard"
                     size="sm"
                     data-attr="error-tracking-fix-with-ai"
                     repository={GitMetadataParser.getGitHubRepositorySlug(release?.metadata?.git?.remote_url)}
@@ -48,6 +45,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
                             label: 'Stack trace',
                             icon: <IconCode />,
                             buildPrompt: () => copyableStacktraceText,
+                            raw: true,
                         },
                     ]}
                     onRun={({ actionKey, agentKey }) =>

@@ -11,6 +11,7 @@ from enum import Enum
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.scopes import APIScopeObject
 
 
 class PropertyAccessLevel(str, Enum):
@@ -23,6 +24,10 @@ class PropertyAccessLevel(str, Enum):
     def grants_access(self) -> bool:
         """Returns True if this level allows the property to be read in queries."""
         return self in (PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ)
+
+
+class UserNotOrganizationMemberError(ValueError):
+    """The user has no membership in the organization, so their property access cannot be resolved."""
 
 
 # --- Output DTOs ---
@@ -60,6 +65,32 @@ class PropertyAccessControlState:
 
 
 # --- Input DTOs ---
+
+
+@frozen
+class FallbackParent:
+    """The parent a reference falls back to. `resource` must match `RESOURCE_FALLBACK_MAP`; `id=None` means no parent."""
+
+    resource: APIScopeObject
+    id: str | None
+
+
+@frozen
+class ObjectAccessRef:
+    """The fields object-level access control reads from one object, without the model.
+
+    A view that serves a facade contract passes this to `check_object_permissions` in place of a
+    model instance. Resolution needs the resource, the object id, and the creator. A resource that
+    inherits access from a parent object through a foreign key (`RESOURCE_FALLBACK_MAP`) also needs
+    `fallback_parent`, read off that foreign key. Without it the check raises, because resolution
+    would skip the parent's rules.
+    """
+
+    resource: APIScopeObject
+    id: str
+    team_id: int
+    created_by_id: int | None
+    fallback_parent: FallbackParent | None = None
 
 
 @frozen
@@ -116,3 +147,43 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class AccessRule:
+    """One stored rule, object-level or resource-level, as resolution reads it.
+
+    `applies` is False for a rule that resolution never uses: it names a member or a role of
+    another organization, or it names both a member and a role.
+    """
+
+    resource: str
+    resource_id: str | None
+    access_level: str
+    organization_member_id: UUID | None
+    role_id: UUID | None
+    applies: bool
+
+
+@frozen
+class ObjectAccessRuleInput:
+    """One rule to keep on an object. With no member and no role, it is the object's default rule."""
+
+    access_level: str
+    organization_member_id: UUID | None = None
+    role_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.organization_member_id is not None and self.role_id is not None:
+            raise ValueError("Set at most one of organization_member_id or role_id.")
+
+
+@frozen
+class TerraformLock:
+    """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
+    wrote access rules to the project at least once. An enabled lock with no account refuses all
+    writes until that first write."""
+
+    managed: bool
+    terraform_last_applied_at: datetime | None
+    has_terraform_account: bool

@@ -61,6 +61,22 @@ export interface FindGroupApi {
     readonly notebook: string | null
 }
 
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
+}
+
 /**
  * Marks this actor as a person.
  */
@@ -76,8 +92,6 @@ export const SerializedPersonActorApiType = {
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
 
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
-
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
     id: string
@@ -89,7 +103,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -108,11 +122,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 /**
@@ -129,8 +140,6 @@ export const SerializedGroupActorApiType = {
  */
 export type SerializedGroupActorApiProperties = { [key: string]: unknown }
 
-export type SerializedGroupActorApiMatchedRecordingsItem = { [key: string]: unknown }
-
 export interface SerializedGroupActorApi {
     /** The person's UUID, or the group's key. */
     id: string
@@ -142,7 +151,7 @@ export interface SerializedGroupActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedGroupActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -168,6 +177,56 @@ export interface GroupUpdatePropertyRequestApi {
     key: string
     /** Value to set. Any JSON value other than null. */
     value: GroupUpdatePropertyRequestApiValue
+}
+
+export interface GroupTypeApi {
+    readonly group_type: string
+    readonly group_type_index: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
+export interface GroupTypeCreateDetailDashboardApi {
+    /** Index of the group type that gets the detail dashboard. */
+    group_type_index: number
+}
+
+export interface GroupTypeSetDefaultColumnsApi {
+    /** Index of the group type to update. */
+    group_type_index: number
+    /** Columns that the groups list of this group type shows by default. */
+    default_columns: string[]
+}
+
+export interface GroupTypeMetadataUpdateApi {
+    /** Index of the group type to update. */
+    group_type_index: number
+    /**
+     * Singular display name of the group type.
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * Plural display name of the group type.
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
 }
 
 export type GroupsListParams = {

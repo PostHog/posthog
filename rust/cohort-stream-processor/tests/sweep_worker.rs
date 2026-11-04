@@ -20,15 +20,17 @@ use async_trait::async_trait;
 use chrono_tz::America::New_York;
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
-use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
+use cohort_stream_processor::consumers::{BootReadiness, CohortStreamEvent, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
+use cohort_stream_processor::merge::transfer::Tombstone;
 use cohort_stream_processor::partitions::{
-    OffsetTracker, PartitionRouter, ShuffleMessage, WorkerInbox,
+    partition_of, OffsetTracker, PartitionRouter, ShuffleMessage, WorkerInbox,
+    COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
+    CaptureSink, CaptureStreamEventSink, CohortMembershipChange, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -37,9 +39,11 @@ use cohort_stream_processor::stage1::{
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonRecordKey,
-    Stage2Key, StoreConfig, StoreHandle,
+    Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
 };
-use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
+use cohort_stream_processor::workers::{
+    process_event, EvictionRestore, MergeWorkerDeps, Stage1Worker,
+};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -288,7 +292,7 @@ fn spawn_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, false)
+    spawn_worker_with_restore(store, catalog, sink, tracker, EvictionRestore::Skip)
 }
 
 /// Like [`spawn_worker`] but with the durable-restart `EvictionQueue` rebuild on: the worker re-seeds
@@ -299,7 +303,14 @@ fn spawn_worker_durable(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, true)
+    let rebuild = BootReadiness::new(catalog.clone()).rebuild_started();
+    spawn_worker_with_restore(
+        store,
+        catalog,
+        sink,
+        tracker,
+        EvictionRestore::Rebuild(rebuild),
+    )
 }
 
 /// Like [`spawn_worker`] but pinned to a given offload mode instead of the default `All`.
@@ -320,7 +331,7 @@ fn spawn_worker_with_mode(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
     (tx, worker)
 }
@@ -330,7 +341,7 @@ fn spawn_worker_with_restore(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
-    durable_restore: bool,
+    restore: EvictionRestore,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
     let rx = WorkerInbox::live_only(rx);
@@ -342,7 +353,7 @@ fn spawn_worker_with_restore(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        durable_restore,
+        restore,
     );
     (tx, worker)
 }
@@ -355,6 +366,7 @@ fn spawn_worker_prefilled(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
+    merge: Arc<MergeWorkerDeps>,
     batches: Vec<Vec<ShuffleMessage>>,
 ) -> Stage1Worker {
     let (tx, rx) = mpsc::channel(batches.len().max(1));
@@ -370,8 +382,8 @@ fn spawn_worker_prefilled(
         catalog,
         sink,
         tracker,
-        MergeWorkerDeps::capture(),
-        false,
+        merge,
+        EvictionRestore::Skip,
     )
 }
 
@@ -410,15 +422,44 @@ fn status_runs(changes: &[CohortMembershipChange], status: MembershipStatus) -> 
 }
 
 /// Drive a due wave larger than one sweep batch against a live lane that is already full, producing
-/// into `sink`, and return once the worker has drained both.
+/// into `sink`, and return once the worker has drained both. With `failing_re_key`, each live batch
+/// after the wave also carries an event of a merged person whose re-key fails, which skips that
+/// batch's mark.
 async fn wave_against_a_full_live_lane(
     wave: usize,
     live_after: usize,
     sink: Arc<dyn MembershipSink>,
+    failing_re_key: bool,
 ) {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let tracker = Arc::new(OffsetTracker::new());
+    let mut merge = Arc::try_unwrap(MergeWorkerDeps::capture())
+        .unwrap_or_else(|_| panic!("the test owns the only dependency Arc"));
+    let merged = person(u128::MAX);
+    if failing_re_key {
+        let survivor = (1u128 << 64..)
+            .map(person)
+            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 != PARTITION_ID)
+            .expect("some person hashes off the worker's partition");
+        store
+            .write_batch(|batch| {
+                batch.put_tombstone(
+                    &TombstoneKey {
+                        partition_id: PARTITION_ID,
+                        team_id: TEAM as u64,
+                        person: merged,
+                    },
+                    &Tombstone {
+                        new_person: survivor,
+                        merged_at_ms: 1,
+                    }
+                    .encode(),
+                )
+            })
+            .unwrap();
+        merge.stream_event_sink = Arc::new(CaptureStreamEventSink::failing_always());
+    }
 
     let ts = "2026-05-20 10:00:00.000000";
     let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
@@ -429,14 +470,29 @@ async fn wave_against_a_full_live_lane(
     // Distinct persons, so these enter on their own rather than reviving a key the pass selected.
     batches.extend((0..live_after).map(|i| {
         let offset = (wave + i) as i64;
-        vec![ShuffleMessage::Event {
+        let mut batch = vec![ShuffleMessage::Event {
             event: Box::new(event_at(person(offset as u128 + 1), ts, offset)),
             cse_offset: offset,
             broker_ts_ms: None,
-        }]
+        }];
+        if failing_re_key {
+            batch.push(ShuffleMessage::Event {
+                event: Box::new(event_at(merged, ts, offset)),
+                cse_offset: offset,
+                broker_ts_ms: None,
+            });
+        }
+        batch
     }));
 
-    let worker = spawn_worker_prefilled(&store, catalog_of(filters), sink, tracker, batches);
+    let worker = spawn_worker_prefilled(
+        &store,
+        catalog_of(filters),
+        sink,
+        tracker,
+        Arc::new(merge),
+        batches,
+    );
     worker.join().await.unwrap();
 }
 
@@ -817,41 +873,47 @@ async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
 async fn a_due_wave_drains_in_batches_that_alternate_with_live_traffic() {
     // A wave used to drain in one pass, holding the partition for its whole duration and allocating
     // every state value at once. Each batch now claims at most the target, and a live batch takes the
-    // turn in between, so a tz-midnight wave costs live traffic one batch at a time.
-    let sink = CaptureSink::new();
-    wave_against_a_full_live_lane(
-        INTERLEAVED_WAVE,
-        INTERLEAVED_LIVE_AFTER,
-        Arc::new(sink.clone()),
-    )
-    .await;
-    let changes = sink.changes();
+    // turn in between, so a tz-midnight wave costs live traffic one batch at a time. The turn is
+    // claimed before a live batch runs, so a batch whose re-key fails and skips the rest of the loop
+    // still owes it. Claiming after the batch instead passes the case whose re-keys succeed, while a
+    // lane that keeps failing holds a due wave until it closes.
+    for failing_re_key in [false, true] {
+        let sink = CaptureSink::new();
+        wave_against_a_full_live_lane(
+            INTERLEAVED_WAVE,
+            INTERLEAVED_LIVE_AFTER,
+            Arc::new(sink.clone()),
+            failing_re_key,
+        )
+        .await;
+        let changes = sink.changes();
 
-    assert_eq!(
-        status_runs(&changes, MembershipStatus::Left),
-        vec![
-            SWEEP_BATCH_KEYS,
-            SWEEP_BATCH_KEYS,
-            INTERLEAVED_WAVE - 2 * SWEEP_BATCH_KEYS,
-        ],
-        "three bounded batches, each separated by the live output of the batch that ran between",
-    );
-    assert_eq!(
-        changes
-            .iter()
-            .filter(|change| change.status == MembershipStatus::Left)
-            .count(),
-        INTERLEAVED_WAVE,
-        "interleaving does not cost the sweep any of its wave",
-    );
-    assert_eq!(
-        changes
-            .iter()
-            .filter(|change| change.status == MembershipStatus::Entered)
-            .count(),
-        INTERLEAVED_WAVE + INTERLEAVED_LIVE_AFTER,
-        "every queued live event entered while the sweep was draining",
-    );
+        assert_eq!(
+            status_runs(&changes, MembershipStatus::Left),
+            vec![
+                SWEEP_BATCH_KEYS,
+                SWEEP_BATCH_KEYS,
+                INTERLEAVED_WAVE - 2 * SWEEP_BATCH_KEYS,
+            ],
+            "failing_re_key={failing_re_key}: three bounded batches, each separated by the live output of the batch that ran between",
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| change.status == MembershipStatus::Left)
+                .count(),
+            INTERLEAVED_WAVE,
+            "failing_re_key={failing_re_key}: interleaving does not cost the sweep any of its wave",
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| change.status == MembershipStatus::Entered)
+                .count(),
+            INTERLEAVED_WAVE + INTERLEAVED_LIVE_AFTER,
+            "failing_re_key={failing_re_key}: every queued live event entered while the sweep was draining",
+        );
+    }
 }
 
 #[tokio::test]
@@ -864,6 +926,7 @@ async fn a_resumed_sweep_stamps_newer_than_the_live_output_it_yielded_to() {
         INTERLEAVED_WAVE,
         INTERLEAVED_LIVE_AFTER,
         Arc::new(sink.clone()),
+        false,
     )
     .await;
     let changes = sink.changes();
@@ -914,6 +977,7 @@ async fn an_event_between_batches_saves_a_key_the_pass_had_already_selected() {
         catalog_of(filters),
         Arc::new(sink.clone()),
         tracker,
+        MergeWorkerDeps::capture(),
         vec![
             wave_then_sweep(WAVE, ts, cutoff),
             // Two days later, so this person's new deadline lands past the pass's cutoff.
@@ -971,6 +1035,7 @@ async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
         catalog_of(filters),
         Arc::new(sink.clone()),
         tracker,
+        MergeWorkerDeps::capture(),
         vec![
             wave_then_sweep(WAVE, ts, cutoff),
             vec![ShuffleMessage::Sweep {
@@ -1011,41 +1076,6 @@ async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
             i + 1,
         );
     }
-}
-
-#[tokio::test]
-async fn a_live_lane_that_keeps_failing_its_produce_still_yields_the_sweep_its_turns() {
-    // The sweep's turn is claimed before a live batch runs, so a batch that fails its produce and
-    // skips the rest of the loop body still owes it. Claiming after the batch instead passes every
-    // test whose live lane succeeds, while a lane that keeps failing holds a due wave until it closes.
-    // Call 1 is the wave's own Entered; every live produce after it fails.
-    let sink = FailingLiveSink::new(2);
-    wave_against_a_full_live_lane(
-        INTERLEAVED_WAVE,
-        INTERLEAVED_LIVE_AFTER,
-        Arc::new(sink.clone()),
-    )
-    .await;
-
-    // `None` is a failed live produce. Each sweep batch after the first runs on the turn the failed
-    // live batch before it owed, rather than all of them once the lane has closed.
-    assert_eq!(
-        sink.outcomes(),
-        [
-            vec![
-                Some(MembershipStatus::Entered),
-                Some(MembershipStatus::Left)
-            ],
-            vec![
-                None,
-                Some(MembershipStatus::Left),
-                None,
-                Some(MembershipStatus::Left)
-            ],
-            vec![None; INTERLEAVED_LIVE_AFTER - 2],
-        ]
-        .concat(),
-    );
 }
 
 #[tokio::test]
@@ -1573,51 +1603,6 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
-    }
-}
-
-/// A sink that fails every live produce from `fail_from` (1-based) on while letting sweep batches
-/// through, telling them apart by their changes being all `Left`. Records each call as the status of
-/// its first change, or `None` when it failed.
-#[derive(Clone)]
-struct FailingLiveSink {
-    outcomes: Arc<Mutex<Vec<Option<MembershipStatus>>>>,
-    fail_from: usize,
-}
-
-impl FailingLiveSink {
-    fn new(fail_from: usize) -> Self {
-        Self {
-            outcomes: Arc::default(),
-            fail_from,
-        }
-    }
-
-    fn outcomes(&self) -> Vec<Option<MembershipStatus>> {
-        self.outcomes.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl MembershipSink for FailingLiveSink {
-    async fn produce(
-        &self,
-        changes: Vec<CohortMembershipChange>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        let mut outcomes = self.outcomes.lock().unwrap();
-        let call = outcomes.len() + 1;
-        let is_sweep = changes
-            .iter()
-            .all(|change| change.status == MembershipStatus::Left);
-        if call >= self.fail_from && !is_sweep {
-            outcomes.push(None);
-            return changes
-                .iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        outcomes.push(changes.first().map(|change| change.status));
-        changes.iter().map(|_| Ok(())).collect()
     }
 }
 
@@ -2255,11 +2240,17 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     let sweeper = DispatchSweeper::with_clock(dispatcher.clone(), margin_ms, Arc::new(move || now));
     sweeper.run_once().await;
 
-    // Drain the worker through a revoke so it processes the queued event then the routed sweep before
-    // we assert. The `Left` can only come from the sweep evicting the member (a revoke alone never
-    // emits one), so its presence proves the routed `Sweep` reached the worker and fired.
-    dispatcher.revoke_partition_sync(0);
-    dispatcher.revoke_partition_drain(0).await;
+    // The `Left` can only come from the sweep evicting the member, so its arrival proves the routed
+    // `Sweep` reached the worker and fired.
+    let start = std::time::Instant::now();
+    while sink.changes().len() < 2 {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "the routed sweep never evicted the member: {:?}",
+            sink.changes(),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 
     let changes = sink.changes();
     assert_eq!(

@@ -11,40 +11,39 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
-    Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
-import { faviconUrl, parseWebAnalyticsURL } from 'scenes/web-analytics/common'
+import { faviconUrl } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
-
-const ENGINE_LABELS: Record<string, string> = {
-    'claude-web-search': 'Claude',
-    'openai-web-search': 'ChatGPT',
-    'exa-answer': 'Exa',
-}
+import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
+import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
+import { engineLabel } from './utils'
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
-    queued: <LemonTag type="completion">Drafting</LemonTag>,
+    queued: (
+        <LemonTag type="completion" icon={<Spinner />}>
+            Drafting
+        </LemonTag>
+    ),
     drafted: <LemonTag type="success">Drafted</LemonTag>,
     dismissed: <LemonTag type="muted">Dismissed</LemonTag>,
 }
 
-const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
-
 const visibilityTag = (gap: ContentAutopilotOpportunityApi['gap']): JSX.Element => {
     const answers = pluralize(gap.checks, 'answer')
     if (gap.cited_checks > 0) {
-        return <LemonTag type="warning">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
+        return <LemonTag type="success">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
     }
     if (gap.mentioned_checks) {
-        return <LemonTag type="highlight">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
+        return <LemonTag type="warning">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
     }
-    return <LemonTag type="danger">Not mentioned</LemonTag>
+    return <LemonTag type="default">Not mentioned</LemonTag>
 }
 
 export const ContentAutopilotOpportunities = (): JSX.Element => {
@@ -61,6 +60,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         runMutationLoading,
         dismissingOpportunityId,
         opportunitySearch,
+        opportunityProposals,
+        pagesToUpdate,
     } = useValues(contentAutopilotLogic)
     const {
         refreshOpportunities,
@@ -186,12 +187,19 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                         {
                             title: 'Question',
                             key: 'title',
-                            render: (_, opportunity) => (
-                                <div className="flex flex-wrap items-center gap-2 py-2 min-w-60">
-                                    <span className="font-semibold">{opportunity.title}</span>
-                                    {STATUS_TAGS[opportunity.status]}
-                                </div>
-                            ),
+                            render: (_, opportunity) => {
+                                const proposal = opportunityProposals[opportunity.id]
+                                return (
+                                    <div className="flex flex-wrap items-center gap-2 py-2 min-w-60">
+                                        <span className="font-semibold">{opportunity.title}</span>
+                                        {opportunity.status === 'drafted' && proposal ? (
+                                            <ContentAutopilotProposalStatusTag proposal={proposal} />
+                                        ) : (
+                                            STATUS_TAGS[opportunity.status]
+                                        )}
+                                    </div>
+                                )
+                            },
                         },
                         {
                             title: 'In AI answers',
@@ -232,26 +240,19 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 ),
                         },
                         {
-                            title: 'Suggested fix',
+                            title: 'Page to update',
                             key: 'recommendation',
-                            render: (_, opportunity) =>
-                                opportunity.recommended_type === 'page_improvement' && opportunity.target_url ? (
-                                    <span className="text-sm">
-                                        Update{' '}
-                                        <Link to={opportunity.target_url} target="_blank">
-                                            {parseWebAnalyticsURL(opportunity.target_url).pathname ??
-                                                opportunity.target_url}
-                                        </Link>
-                                    </span>
-                                ) : (
-                                    <span className="text-sm text-muted">Decided when drafting</span>
-                                ),
+                            render: (_, opportunity) => (
+                                <ContentAutopilotPageToUpdate page={pagesToUpdate[opportunity.id] ?? null} />
+                            ),
                         },
                         {
                             key: 'actions',
                             render: (_, opportunity) => (
-                                <div className="flex flex-wrap justify-end gap-1">
-                                    {opportunity.proposal_id && opportunity.status === 'drafted' ? (
+                                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
+                                    {opportunity.proposal_id &&
+                                    opportunity.status === 'drafted' &&
+                                    opportunityProposals[opportunity.id]?.lifecycle_status !== 'generating' ? (
                                         <LemonButton
                                             size="small"
                                             type="secondary"

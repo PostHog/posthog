@@ -2,7 +2,7 @@ import './SampleDataState.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -17,11 +17,12 @@ import type {
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+
+import { SampleDataTag } from './SampleDataTag'
 
 export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'proportionBar' | 'funnel' | 'number' | 'table'
 
@@ -78,41 +79,64 @@ function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     )
 }
 
-function SampleTable(): JSX.Element {
+/** Sample values for a table the card shows in place of its own made-up rows. */
+export interface SampleTableContent {
+    header: ReactNode[]
+    /** One cell per header column. A `null` cell shows a skeleton bar. */
+    rows: ReactNode[][]
+    dataAttr?: string
+}
+
+function SampleTable({ table }: { table?: SampleTableContent }): JSX.Element {
     return (
-        <div className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary">
+        <div
+            className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary"
+            data-attr={table?.dataAttr}
+            // The cells can hold links and popovers for invented records, so `inert` keeps them away
+            // from the pointer, the keyboard and assistive tech. React 18 types lack the attribute.
+            {...(table ? { inert: '' } : {})}
+        >
             <div className="flex items-center gap-3 px-3 py-2 bg-surface-secondary text-xs font-semibold">
-                {TABLE_HEADER.map((label, cellIndex) => (
-                    <div key={cellIndex} className={clsx('flex-1', cellIndex > 0 && 'text-right')}>
+                {(table?.header ?? TABLE_HEADER).map((label, cellIndex) => (
+                    <div
+                        key={cellIndex}
+                        className={clsx('flex-1', table ? 'min-w-0 truncate' : cellIndex > 0 && 'text-right')}
+                    >
                         {label}
                     </div>
                 ))}
             </div>
-            {TABLE_ROWS.map((cells, index) => (
+            {(table?.rows ?? TABLE_ROWS).map((cells, index) => (
                 <div
                     key={index}
                     className="SampleDataState__row flex items-center gap-3 px-3 py-2 border-t text-sm"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ animationDelay: `${index * 110}ms` }}
                 >
-                    {cells.map((value, cellIndex) => (
-                        <div
-                            key={cellIndex}
-                            className={clsx(
-                                'flex-1',
-                                cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
-                            )}
-                        >
-                            {cellIndex === 0 ? (
-                                <>
-                                    <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
-                                    <span className="truncate">{value}</span>
-                                </>
-                            ) : (
-                                value
-                            )}
-                        </div>
-                    ))}
+                    {table
+                        ? cells.map((value, cellIndex) => (
+                              <div key={cellIndex} className="flex-1 min-w-0 truncate">
+                                  {value ?? <div className="SampleDataState__row-cell w-16 max-w-full" />}
+                              </div>
+                          ))
+                        : cells.map((value, cellIndex) => (
+                              <div
+                                  key={cellIndex}
+                                  className={clsx(
+                                      'flex-1',
+                                      cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
+                                  )}
+                              >
+                                  {cellIndex === 0 ? (
+                                      <>
+                                          <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
+                                          <span className="truncate">{value}</span>
+                                      </>
+                                  ) : (
+                                      value
+                                  )}
+                              </div>
+                          ))}
                 </div>
             ))}
         </div>
@@ -139,49 +163,16 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
     )
 }
 
-function SampleDataTooltipContent(): JSX.Element {
-    const { setupStatus } = useValues(setupWizardStatusLogic)
-
-    return (
-        <div className="max-w-72 space-y-1.5 p-0.5">
-            <div className="font-semibold">This is sample data</div>
-            <p className="m-0">
-                This project hasn't received any events yet - you'll see your real data here as soon as events start
-                coming in.
-            </p>
-            {setupStatus?.kind === 'installing' &&
-                (setupStatus.mode === 'cloud' ? (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull
-                        request for you to merge.
-                    </p>
-                ) : (
-                    <p className="m-0">
-                        The setup wizard is installing PostHog in your codebase. You'll see real data here soon after
-                        it's done.
-                    </p>
-                ))}
-            {setupStatus?.kind === 'pull_request' &&
-                (setupStatus.pullRequest.merged ? (
-                    <p className="m-0">
-                        Your setup pull request is merged. Once the updated code is live and sending events, this chart
-                        will fill in automatically.
-                    </p>
-                ) : (
-                    <p className="m-0">
-                        Your setup pull request hasn't been merged yet -{' '}
-                        <Link to={setupStatus.pullRequest.url} target="_blank" targetBlankIcon>
-                            merge it
-                        </Link>{' '}
-                        to start sending events.
-                    </p>
-                ))}
-        </div>
-    )
-}
-
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
-export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVariant }): JSX.Element {
+export function SampleDataState({
+    variant = 'line',
+    table,
+    children,
+}: {
+    variant?: SampleDataVariant
+    table?: SampleTableContent
+    children?: ReactNode
+}): JSX.Element {
     const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const isStatic =
@@ -205,18 +196,10 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
                                 <div className="font-semibold">Setup wizard is running</div>
-                                {setupStatus.mode === 'cloud' ? (
-                                    <p className="m-0">
-                                        The AI setup wizard is installing PostHog in the cloud, on a copy of your
-                                        codebase. Once it's done, it will open a pull request for you to review and
-                                        merge.
-                                    </p>
-                                ) : (
-                                    <p className="m-0">
-                                        The AI setup wizard is installing PostHog in your codebase from your terminal.
-                                        You'll see real data here soon after it's done.
-                                    </p>
-                                )}
+                                <p className="m-0">
+                                    The AI setup wizard is installing PostHog in the cloud, on a copy of your codebase.
+                                    Once it's done, it will open a pull request for you to review and merge.
+                                </p>
                             </div>
                         }
                         placement="bottom"
@@ -228,7 +211,7 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         </LemonTag>
                     </Tooltip>
                 )}
-                {variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
+                {!children && variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
                     <Tooltip
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
@@ -256,20 +239,17 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         </span>
                     </Tooltip>
                 )}
-                <Tooltip title={<SampleDataTooltipContent />} interactive delayMs={100} placement="bottom">
-                    <LemonTag className="cursor-help" type="muted">
-                        Sample data
-                    </LemonTag>
-                </Tooltip>
+                <SampleDataTag />
             </div>
-            <div className="SampleDataState__viz">
-                {variant === 'number' ? (
-                    <SampleNumber animate={!isStatic} />
-                ) : variant === 'table' ? (
-                    <SampleTable />
-                ) : (
-                    <SampleChart variant={variant} />
-                )}
+            <div className={clsx('SampleDataState__viz', children && 'SampleDataState__viz--custom')}>
+                {children ??
+                    (variant === 'number' ? (
+                        <SampleNumber animate={!isStatic} />
+                    ) : variant === 'table' ? (
+                        <SampleTable table={table} />
+                    ) : (
+                        <SampleChart variant={variant} />
+                    ))}
             </div>
         </div>
     )

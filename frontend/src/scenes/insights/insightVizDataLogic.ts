@@ -17,25 +17,70 @@ import {
     PIE_DISPLAY_TYPES,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import {
+    FLAG_EVALUATIONS_TABLE,
+    FlagCallsRetentionGap,
+    flagCallsRetentionGap,
+    flagEvaluationsRetentionStartDate,
+} from 'scenes/feature-flags/flagEvaluationsTable'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import {
+    flagCallsSeriesName,
+    dataWarehouseSeriesNodes,
+    everyWarehouseSeriesReadsFlagCalls,
+    flagCallsBreakdownFromEventBreakdown,
+    readsFlagCalls,
+    withFlagCallsAggregationTarget,
+} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { trendsResultsMatchQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import {
     extractValidationError,
     extractValidationErrorCode,
     getAllEventNames,
     queryFromKind,
 } from '~/queries/nodes/InsightViz/utils'
+import {
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+} from '~/queries/schema/node-accessors'
+import {
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleDataWarehouseNode,
+    isLifecycleQuery,
+    isNodeWithSource,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -65,17 +110,11 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getAggregationGroupTypeIndex,
-    getBreakdown,
-    getCompareFilter,
-    getDisplay,
-    getFormula,
     getFormulaNodes,
     getFormulas,
     getGoalLines,
-    getInterval,
     getLegendPosition,
     getResultCustomizationBy,
-    getSeries,
     getShowAlertThresholdLines,
     getAnnotationsScope,
     getShowAnnotations,
@@ -86,28 +125,10 @@ import {
     getShowPercentStackView,
     getShowValuesOnSeries,
     getYAxisScaleType,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isDataWarehouseNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isInsightQueryNode,
-    isInsightVizNode,
-    isLifecycleDataWarehouseNode,
-    isLifecycleQuery,
-    isNodeWithSource,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
-    isWebOverviewQuery,
-    isWebStatsTableQuery,
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
-    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -222,11 +243,14 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    flagCallsRetentionGap: FlagCallsRetentionGap | null
+    flagCallsRetentionStartDate: string
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
     funnelPathsFilter: FunnelPathsFilter | null | undefined
     funnelsFilter: FunnelsFilter | null | undefined
+    globalFiltersUnsupported: boolean
     goalLines: GoalLine[] | null | undefined
     hasDataWarehouseSeries: boolean
     hasDetailedResultsTable: boolean
@@ -279,6 +303,7 @@ export interface insightVizDataLogicValues {
     retentionFilter: RetentionFilter | null
     samplingFactor: number | null | undefined
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+    seriesMathAvailability: MathAvailability
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
@@ -349,8 +374,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -382,7 +406,6 @@ export interface insightVizDataLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // insightDataLogic
     setInsightData: (
         response:
@@ -465,6 +488,9 @@ export interface insightVizDataLogicActions {
     }
     updateQuerySource: (querySource: QuerySourceUpdate) => {
         querySource: QuerySourceUpdate
+    }
+    updateSeries: (series: SeriesNode[]) => {
+        series: SeriesNode[]
     }
     updateVizSpecificOptions: (vizSpecificOptions: VizSpecificOptions) => {
         vizSpecificOptions: VizSpecificOptions
@@ -1181,6 +1207,23 @@ export interface insightVizDataLogicMeta {
             isUsingSessionAnalysis: boolean | Breakdown,
             query: Node<Record<string, any>> | null
         ) => boolean
+        flagCallsRetentionGap: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null,
+            dateRange: DateRange | null | undefined,
+            compareFilter: CompareFilter | null | undefined,
+            insightData: Record<string, any>
+        ) => FlagCallsRetentionGap | null
+        flagCallsRetentionStartDate: (insightData: Record<string, any>) => string
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
             isTrends: boolean,
@@ -1191,6 +1234,12 @@ export interface insightVizDataLogicMeta {
             breakdownFilter: BreakdownFilter | null | undefined
         ) => boolean
         isBreakdownSeries: (breakdownFilter: BreakdownFilter | null | undefined) => boolean
+        seriesMathAvailability: (
+            isFunnels: boolean,
+            isLifecycle: boolean,
+            isStickiness: boolean,
+            display: ChartDisplayType | null | undefined
+        ) => MathAvailability
         isSingleSeriesDefinition: (
             isTrends: boolean,
             formula: string | null | undefined,
@@ -1200,6 +1249,19 @@ export interface insightVizDataLogicMeta {
         ) => boolean
         hasDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
+        ) => boolean
+        globalFiltersUnsupported: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => boolean
         hasOnlyDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
@@ -1347,6 +1409,14 @@ export type insightVizDataLogicType = MakeLogicType<
     insightVizDataLogicMeta
 >
 
+// A debounced update targets the query as it was at dispatch, so it is dropped if
+// the user discarded their changes or switched insight type while it waited.
+const trackPendingUpdate = (cache: Record<string, any>, getKind: () => NodeKind | undefined): (() => boolean) => {
+    const discardCount = cache.discardCount ?? 0
+    const kind = getKind()
+    return () => (cache.discardCount ?? 0) !== discardCount || getKind() !== kind
+}
+
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -1376,6 +1446,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     actions({
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
+        updateSeries: (series: SeriesNode[]) => ({ series }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         /** Apply a drag-to-zoom date range to the insight's query. Both dates are bucket starts;
@@ -2258,6 +2329,22 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 query: Node | null
             ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
         ],
+        flagCallsRetentionGap: [
+            (s) => [s.querySource, s.dateRange, s.compareFilter, s.insightData],
+            (
+                querySource: InsightQueryNode | null,
+                dateRange: DateRange | null | undefined,
+                compareFilter: CompareFilter | null | undefined,
+                insightData: Record<string, any>
+            ): FlagCallsRetentionGap | null =>
+                querySource && readsFlagCalls(querySource)
+                    ? flagCallsRetentionGap({ dateFrom: dateRange?.date_from, response: insightData, compareFilter })
+                    : null,
+        ],
+        flagCallsRetentionStartDate: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): string => flagEvaluationsRetentionStartDate(insightData),
+        ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display: ChartDisplayType | null | undefined) =>
@@ -2293,6 +2380,26 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
             },
         ],
+        seriesMathAvailability: [
+            (s) => [s.isFunnels, s.isLifecycle, s.isStickiness, s.display],
+            (
+                isFunnels: boolean,
+                isLifecycle: boolean,
+                isStickiness: boolean,
+                display: ChartDisplayType | null | undefined
+            ): MathAvailability =>
+                isFunnels
+                    ? MathAvailability.FunnelsOnly
+                    : isLifecycle
+                      ? MathAvailability.None
+                      : isStickiness
+                        ? MathAvailability.ActorsOnly
+                        : display === ChartDisplayType.CalendarHeatmap
+                          ? MathAvailability.CalendarHeatmapOnly
+                          : display === ChartDisplayType.BoxPlot
+                            ? MathAvailability.BoxPlotOnly
+                            : MathAvailability.All,
+        ],
 
         // Whether there's only one event/action series defined in the query.
         // Ignores breakdowns which create multiple visual outputs from the same series.
@@ -2325,6 +2432,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | null
                     | undefined
             ): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
+        ],
+        globalFiltersUnsupported: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null): boolean =>
+                !!querySource && !everyWarehouseSeriesReadsFlagCalls(querySource),
         ],
         hasOnlyDataWarehouseSeries: [
             (s) => [s.series],
@@ -2699,27 +2811,28 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
 
-        // Discarding edits reverts the query to the saved version. A debounced filter
-        // update (e.g. updateDateRange) that was dispatched just before the discard would
-        // otherwise resolve afterwards and re-apply the discarded value on top of the
-        // reverted query. Flag it so the in-flight debounce bails out instead.
         cancelChanges: () => {
-            cache.pendingFilterUpdateCancelled = true
+            cache.discardCount = (cache.discardCount ?? 0) + 1
         },
 
         // query source
         updateQuerySource: ({ querySource }) => {
             actions.setQuery({
                 ...values.query,
-                source: {
+                source: withFlagCallsAggregationTarget({
                     ...values.querySource,
                     ...handleQuerySourceUpdateSideEffects(
                         querySource,
                         values.querySource as InsightQueryNode,
                         values.isIntervalManuallySet
                     ),
-                },
+                } as InsightQueryNode),
             } as Node)
+        },
+        updateSeries: ({ series }) => {
+            actions.updateQuerySource({
+                series: cleanSeriesNodes(series, values.seriesMathAvailability),
+            } as QuerySourceUpdate)
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
@@ -2740,14 +2853,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
-            cache.pendingFilterUpdateCancelled = false
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             if (!ignoreDebounce) {
                 await breakpoint(300)
             }
-            // Changes were discarded while this debounce was pending — don't re-apply the
-            // edited date range over the query that cancelChanges just reverted.
-            if (cache.pendingFilterUpdateCancelled) {
-                cache.pendingFilterUpdateCancelled = false
+            if (isStale()) {
                 return
             }
             posthog.capture('insight date range changed', { query_kind: values.querySource?.kind })
@@ -2779,13 +2889,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            if (isStale()) {
+                return
+            }
             posthog.capture('insight breakdown changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            if (isStale()) {
+                return
+            }
             posthog.capture('insight compare changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
@@ -2793,6 +2911,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
+
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
             if (!props.setQuery) {
@@ -2800,6 +2920,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
+                return
+            }
+
+            if (isStale()) {
                 return
             }
 
@@ -2919,6 +3043,21 @@ export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | n
     return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
+// The only breakdown types the trends backend resolves against a data warehouse series.
+const DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES = new Set<string>(['data_warehouse', 'hogql'])
+
+function hasEventBasedBreakdown(breakdownFilter: BreakdownFilter | null | undefined): boolean {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some(
+            (breakdown) => !DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES.has(breakdown.type ?? '')
+        )
+    }
+    return (
+        breakdownFilter?.breakdown != null &&
+        !DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES.has(breakdownFilter.breakdown_type ?? '')
+    )
+}
+
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode,
@@ -3003,45 +3142,37 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).customAggregationTarget = undefined
     }
 
-    if (
-        maybeChangedSeries &&
-        isLifecycleQuery(currentState) &&
-        maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
-    ) {
-        ;(mergedUpdate as LifecycleQuery).properties = undefined
-        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
-        ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
-    }
+    const nextRetentionFilter = isRetentionQuery(currentState)
+        ? (maybeChangedInsightFilter as RetentionFilter | undefined)
+        : undefined
 
     // Switching a retention entity away from the data warehouse invalidates the "Custom entities"
     // aggregation target, which the backend rejects for non-warehouse entities.
-    if (isRetentionQuery(currentState) && maybeChangedInsightFilter) {
-        const nextRetentionFilter = maybeChangedInsightFilter as RetentionFilter
-        if (
-            nextRetentionFilter.customAggregationTarget &&
-            (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
-                nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
-        ) {
-            ;(mergedUpdate as RetentionQuery).retentionFilter = {
-                ...nextRetentionFilter,
-                customAggregationTarget: undefined,
-            }
+    if (
+        nextRetentionFilter?.customAggregationTarget &&
+        (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
+            nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
+    ) {
+        ;(mergedUpdate as RetentionQuery).retentionFilter = {
+            ...nextRetentionFilter,
+            customAggregationTarget: undefined,
         }
     }
 
-    // We do not support properties, filtering test accounts, and sampling for DWH nodes
-    // Disable them if there are any
+    // DWH series do not support sampling. They support properties and test account filtering only when every DWH
+    // series reads flag calls. Check the query after the update, so a later edit cannot turn them on again.
+    const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
     if (
-        isTrendsQuery(currentState) &&
-        (currentState.filterTestAccounts || currentState.properties) &&
-        maybeChangedSeries?.some(isAnyDataWarehouseNode)
+        !everyWarehouseSeriesReadsFlagCalls(nextQuery) &&
+        (!!nextQuery.filterTestAccounts || parseProperties(nextQuery.properties).length > 0)
     ) {
         lemonToast.info(
             'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
         )
-
         ;(mergedUpdate as TrendsQuery).properties = undefined
         ;(mergedUpdate as TrendsQuery).filterTestAccounts = false
+    }
+    if (dataWarehouseSeriesNodes(nextQuery).length > 0 && (nextQuery as TrendsQuery).samplingFactor != null) {
         ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 
@@ -3126,15 +3257,42 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // if mixed, clear breakdown and trends filter
+    let breakdownFilter = (('breakdownFilter' in mergedUpdate ? mergedUpdate : currentState) as TrendsQuery)
+        .breakdownFilter
     if (
+        kind === NodeKind.TrendsQuery &&
+        maybeChangedSeries?.length &&
+        maybeChangedSeries.every(
+            (series) => isDataWarehouseNode(series) && series.table_name === FLAG_EVALUATIONS_TABLE
+        )
+    ) {
+        const flagCallsBreakdownFilter = flagCallsBreakdownFromEventBreakdown(breakdownFilter)
+        if (flagCallsBreakdownFilter !== breakdownFilter) {
+            breakdownFilter = flagCallsBreakdownFilter
+            ;(mergedUpdate as TrendsQuery).breakdownFilter = flagCallsBreakdownFilter
+        }
+    }
+    // A trends insight that mixes event and data warehouse series cannot have a breakdown.
+    const mixesEventAndDataWarehouseSeries =
         kind === NodeKind.TrendsQuery &&
         (mergedUpdate as TrendsQuery).series?.length >= 0 &&
         (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
-    ) {
+    // The trends backend rejects an event-based breakdown on a data warehouse series.
+    const hasEventBreakdownOnDataWarehouseSeries =
+        kind === NodeKind.TrendsQuery &&
+        !!maybeChangedSeries?.some((series) => isDataWarehouseNode(series)) &&
+        hasEventBasedBreakdown(breakdownFilter)
+    if (mixesEventAndDataWarehouseSeries || hasEventBreakdownOnDataWarehouseSeries) {
+        if (hasBreakdownFilter(breakdownFilter)) {
+            const subject = readsFlagCalls(nextQuery) ? flagCallsSeriesName() : 'A data warehouse series'
+            lemonToast.info(
+                hasEventBreakdownOnDataWarehouseSeries
+                    ? `${subject} doesn't support this breakdown, so it's removed.`
+                    : `${subject} can't share a breakdown with event or action series, so it's removed.`
+            )
+        }
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
-        mergedUpdate['properties'] = []
     }
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported

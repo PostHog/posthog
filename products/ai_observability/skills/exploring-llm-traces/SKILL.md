@@ -354,4 +354,5 @@ results (array for list, object for single trace)
 - `$ai_input` / `$ai_output_choices` on generations contain the full LLM conversation — can be megabytes; when the result is persisted to a file, use the parsing scripts
 - In raw SQL, heavy content (`$ai_input` / `$ai_output` / `$ai_output_choices` / `$ai_input_state` / `$ai_output_state` / `$ai_tools`) lives only on the `posthog.ai_events` table, not `events.properties` — see the [event reference](./references/events-and-properties.md) for the column mapping and trace-id-anchored query patterns
 - Use `filterTestAccounts: true` to exclude internal/test traffic when searching
+- When an investigation turns up a failure that will happen again, not a one-off, offer to catch it with an online evaluation. Load `creating-online-evaluations` to set it up, so new traces get scored for it without anyone digging
 - `$ai_trace` events are NOT in the `events` array — their data is surfaced via trace-level `inputState`, `outputState`, and `traceName`

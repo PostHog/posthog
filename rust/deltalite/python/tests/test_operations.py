@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,7 @@ def simple(ids, part, v, extra="ABSENT"):
     return pa.table(d)
 
 
-def content(uri) -> dict[tuple[str | None, str], int]:
+def content(uri) -> dict[tuple[str | None, str | None], int | None]:
     """{(id, partition): v} via the Python package -- also proves the log is readable."""
     tbl = deltalake.DeltaTable(uri).to_pyarrow_table()
     return dict(
@@ -971,3 +972,79 @@ def test_upsert_creates_checkpoint_at_interval_boundary(tmp_path):
     # An off-boundary commit must not add another checkpoint.
     upsert_path(uri, simple(["c"], "p", 3), ["id"], PARTITION_KEY)
     assert list(log.glob("*.checkpoint.parquet")) == checkpoints
+
+
+def live_paths(uri) -> list[str]:
+    root = Path(uri).resolve()
+    return sorted(str(Path(u).relative_to(root)) for u in deltalake.DeltaTable(uri).file_uris())
+
+
+def test_restore_matches_delta_rs_restore(tmp_path):
+    import deltalite
+
+    p = "2026-07-23"
+    base = tmp_path / "base"
+    create_table(str(base), simple(["a", "b"], p, 1), True)
+    upsert_path(str(base), simple(["c"], p, 2), ["id"], PARTITION_KEY)
+    target = deltalake.DeltaTable(str(base)).version()
+    expected = content(str(base))
+    upsert_path(str(base), simple(["a", "d"], p, 3), ["id"], PARTITION_KEY)
+    deltalake.DeltaTable(str(base)).optimize.compact()
+    py_uri, lite_uri = str(tmp_path / "py"), str(tmp_path / "lite")
+    shutil.copytree(base, py_uri)
+    shutil.copytree(base, lite_uri)
+    metadata = {"rolled_back_run_uuid": "run-1"}
+
+    py_metrics = deltalake.DeltaTable(py_uri).restore(
+        target, commit_properties=deltalake.CommitProperties(custom_metadata=metadata)
+    )
+    lite = deltalite.DeltaLiteTable.open(lite_uri)
+    lite_metrics = lite.restore(target, commit_metadata=metadata)
+
+    assert py_metrics["numRestoredFile"] > 0
+    assert lite_metrics["numRemovedFile"] == py_metrics["numRemovedFile"]
+    assert lite_metrics["numRestoredFile"] == py_metrics["numRestoredFile"]
+    assert lite_metrics["version"] == deltalake.DeltaTable(py_uri).version()
+    assert live_paths(lite_uri) == live_paths(py_uri)
+    assert content(lite_uri) == content(py_uri) == expected
+    commit = deltalake.DeltaTable(lite_uri).history(1)[0]
+    assert commit["operation"] == "RESTORE"
+    assert commit["rolled_back_run_uuid"] == "run-1"
+    # The handle moved onto the restore commit, so later writes through it see the restored table.
+    assert lite.version() == lite_metrics["version"]
+    assert sorted(f["path"] for f in lite.files()) == live_paths(lite_uri)
+
+
+@pytest.mark.parametrize(
+    "log_files",
+    [
+        pytest.param({}, id="empty_log"),
+        pytest.param({"00000000000000000000.json": "not a commit"}, id="damaged_commit"),
+    ],
+)
+def test_table_exists_agrees_with_delta_rs_on_a_log_without_a_loadable_table(tmp_path, log_files):
+    import deltalite
+
+    log = tmp_path / "t" / "_delta_log"
+    log.mkdir(parents=True)
+    for name, body in log_files.items():
+        (log / name).write_text(body)
+    uri = str(tmp_path / "t")
+
+    assert deltalite.DeltaLiteTable.table_exists(uri) is deltalake.DeltaTable.is_deltatable(uri)
+
+
+def test_table_exists_raises_on_a_storage_error():
+    import deltalite
+
+    unreachable = {
+        "AWS_ENDPOINT_URL": "http://127.0.0.1:1",
+        "AWS_ALLOW_HTTP": "true",
+        "AWS_ACCESS_KEY_ID": "test",
+        "AWS_SECRET_ACCESS_KEY": "test",
+        "AWS_REGION": "us-east-1",
+        "max_retries": "0",
+    }
+
+    with pytest.raises(deltalite.DeltaLiteError):
+        deltalite.DeltaLiteTable.table_exists("s3://bucket/table", storage_options=unreachable)

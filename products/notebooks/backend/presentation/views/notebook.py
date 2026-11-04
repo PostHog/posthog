@@ -28,13 +28,15 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
+from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -106,7 +108,6 @@ from products.notebooks.backend.facade.widgets import (
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
-    is_notebook_widget_enabled,
     list_widget_versions,
     publish_reusable_widget,
     read_widget_frame,
@@ -115,8 +116,18 @@ from products.notebooks.backend.facade.widgets import (
     set_widget_instance_version,
     start_widget_generation,
 )
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import (
+    KernelSandboxLimitExceeded,
+    build_notebook_sandbox_config,
+    get_kernel_runtime,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookCreateBurstThrottle,
+    NotebookCreateSustainedThrottle,
+    NotebookKernelStartBurstThrottle,
+    NotebookKernelStartSustainedThrottle,
+)
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
     ReusableWidgetDetailSerializer,
@@ -450,13 +461,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         and not (self.user_access_control and self.user_access_control.is_organization_admin)
                         and is_publicly_shared(locked_instance)
                     ):
-                        blocked = blocked_access_in_notebook_edit(
+                        denied_resources = denied_resources_in_notebook_edit(
                             self.context["request"].user, locked_instance, validated_data.get("content")
                         )
-                        if blocked:
-                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                        if denied_resources:
+                            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                             raise serializers.ValidationError(
-                                f"Can't save: you don't have access to {blocked_list}, "
+                                f"Can't save: you don't have access to {denied_names}, "
                                 "and this notebook is publicly shared."
                             )
 
@@ -729,6 +740,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "create":
+            return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action in ("kernel_start", "kernel_restart"):
+            return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
+        return throttles
+
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
             notebook = Notebook(
@@ -749,7 +768,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
-        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # Mirrors products/subscriptions/backend/presentation/views.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
@@ -818,7 +837,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def widget_snapshot_create(self, request: Request, **kwargs) -> Response:
         self._require_query_access()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         serializer = WidgetSnapshotRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -844,7 +863,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_snapshot_publish(self, request: Request, **kwargs) -> Response:
         self._require_query_access()
         user = self._current_user()
-        if user is None or not is_notebook_widget_enabled(user):
+        if user is None:
             raise Http404()
         serializer = WidgetSnapshotPublishSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -867,7 +886,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         required_scopes=["notebook:read", "query:read"],
     )
     def widget_snapshot_retrieve(self, request: Request, snapshot_id: str, **kwargs) -> Response:
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         self._require_query_access()
         service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
@@ -896,7 +915,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
     )
     def widget_snapshot_frame(self, request: Request, snapshot_id: str, frame_name: str, **kwargs) -> Response:
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         self._require_query_access()
         query = WidgetFrameQuerySerializer(data=request.query_params)
@@ -945,8 +964,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to generate a widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetGenerateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
@@ -1000,8 +1017,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to cancel widget generation.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetCancelRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1035,7 +1050,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         try:
             result = get_widget_status(notebook=self.get_object(), node_id=node_id)
@@ -1074,8 +1089,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to make a widget reusable.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetPublishRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
@@ -1126,8 +1139,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to add a reusable widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetAttachRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1178,8 +1189,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to fork a reusable widget.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = ReusableWidgetForkRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1213,20 +1222,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         try:
             result = list_widget_versions(
                 notebook=self.get_object(),
                 node_id=node_id,
-                offset=query.validated_data["offset"],
-                limit=query.validated_data["limit"],
+                offset=offset,
+                limit=limit,
             )
         except WidgetError as error:
             return self._widget_error_response(error)
-        return Response(WidgetVersionPageSerializer(result).data)
+        data = WidgetVersionPageSerializer(result).data
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="notebooks_widget_source",
@@ -1256,7 +1269,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         query = WidgetSourceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -1301,8 +1314,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to restore a widget version.")
-        if not is_notebook_widget_enabled(user):
-            raise Http404()
         serializer = WidgetRevertRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1339,7 +1350,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_pin(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         serializer = WidgetPinRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1401,7 +1412,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         query = WidgetFrameQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         self._require_query_access()
-        if not is_notebook_widget_enabled(self._current_user()):
+        if self._current_user() is None:
             raise Http404()
         try:
             result = read_widget_frame(
@@ -1526,6 +1537,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         read_source, source_props = classify_request_source(request)
+        if read_source == NotebookCreationSource.UI and instance.visibility == Notebook.Visibility.UNLISTED:
+            instance.visibility = Notebook.Visibility.DEFAULT
+            instance.save(update_fields=["visibility"])
         if read_source != NotebookCreationSource.UI:
             # Browser opens are the client-side `notebook opened` event; only count programmatic
             # (MCP / API) reads here so agent traffic doesn't inflate the human revisit numbers.
@@ -1547,6 +1561,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to start notebook kernel."}, status=503)
@@ -1570,6 +1586,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
@@ -1904,6 +1922,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to execute notebook code."}, status=503)
@@ -1984,7 +2004,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
             "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
-            "Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel."
+            "Python notebooks enable all run types. HogQL runs without a connection or kernel are always available."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
@@ -1992,8 +2012,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
         full_compute_enabled = settings.DEBUG or is_sql_v2_enabled(user)
-        if not full_compute_enabled and not is_notebook_widget_enabled(user):
-            raise Http404()
 
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2080,8 +2098,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         include_prepared_insights = serializer.validated_data["include_prepared_insights"]
-        if include_prepared_insights and not is_notebook_widget_enabled(user):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -2517,11 +2533,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = blocked_access_in_notebook_edit(user, notebook, data.get("content"))
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied_resources = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         result = submit_steps(
@@ -2619,11 +2635,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = blocked_access_in_notebook_edit(user, notebook, submitted_content)
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied_resources = denied_resources_in_notebook_edit(user, notebook, submitted_content)
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         notebook_before: Notebook | None = None

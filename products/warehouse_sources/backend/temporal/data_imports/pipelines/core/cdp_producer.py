@@ -23,7 +23,7 @@ from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_sco
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.sync import database_sync_to_async_pool
 
-from products.cdp.backend.models.hog_functions import HogFunction
+from products.cdp.backend.facade.api import has_enabled_hog_function_for_warehouse_table
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -33,11 +33,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     emitted_rows_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_delete,
     aretry_staged_read,
     aretry_staged_write,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.view_consumers import VIEW_TRIGGER_SOURCE
 from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
 
 # Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
@@ -60,7 +62,7 @@ TableKind = typing.Literal["source", "view"]
 # keyed by the kind of warehouse table the rows came from.
 TRIGGER_SOURCE_BY_KIND: dict[TableKind, str] = {
     "source": "data-warehouse-table",
-    "view": "data-warehouse-view",
+    "view": VIEW_TRIGGER_SOURCE,
 }
 
 
@@ -241,18 +243,9 @@ class CDPProducer:
                 if self.table.kind == "view" and not self._view_can_trigger():
                     return False
 
-                has_matching_hog_function = (
-                    HogFunction.objects.filter(
-                        team_id=self.team_id,
-                        enabled=True,
-                        filters__source=trigger_source,
-                        filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
-                    )
-                    .exclude(deleted=True)
-                    .exists()
-                )
-
-                if has_matching_hog_function:
+                if has_enabled_hog_function_for_warehouse_table(
+                    team_id=self.team_id, trigger_source=trigger_source, table_name=dot_notated_table_name
+                ):
                     return True
 
                 # Also gate on active workflows (HogFlows) triggered by this table - without this the
@@ -392,7 +385,11 @@ class CDPProducer:
                         CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
                     await self.logger.adebug(f"Produced {row_index} rows")
                     await self.logger.adebug(f"Deleting file {file_path}")
-                    await asyncio.to_thread(fs.delete_file, file_path)
+
+                    async def _delete_staged_file(path: str = file_path) -> None:
+                        await asyncio.to_thread(fs.delete_file, path)
+
+                    await aretry_staged_delete(_delete_staged_file, path=file_path, logger=self.logger)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
 

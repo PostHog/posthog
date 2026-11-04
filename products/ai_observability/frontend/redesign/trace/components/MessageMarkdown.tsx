@@ -9,13 +9,7 @@ export interface MessageMarkdownProps {
 export function MessageMarkdown({ text, className }: MessageMarkdownProps): JSX.Element {
     // Message text comes from models and end users, so it gets LemonMarkdown's untrusted-content settings.
     return (
-        <LemonMarkdown
-            className={cn('text-sm', className)}
-            lowKeyHeadings
-            disableImages
-            disableMentions
-            disableDocsRedirect
-        >
+        <LemonMarkdown className={cn('text-sm', className)} lowKeyHeadings disableImages disableMentions>
             {text}
         </LemonMarkdown>
     )

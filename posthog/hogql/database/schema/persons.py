@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Self, cast
+from typing import Optional, Self, cast
 
 import posthoganalytics
 
@@ -30,9 +30,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.schema_enums import PersonsArgMaxVersion
-
-if TYPE_CHECKING:
-    from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": UUIDDatabaseField(
@@ -122,6 +119,8 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+    # The SELECT id FROM persons that transforms/negated_person_filters.py emits inside NOT IN has persons as its own
+    # FROM, so it takes this path and reads only the persons that fail its filters.
     if (
         node.select_from
         and node.select_from.type
@@ -367,6 +366,30 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     )
 
 
+def persons_join_is_inner(context: HogQLContext) -> bool:
+    """True when the persons join drops each row that has no persons row."""
+    team = context.team
+    if team is None or team.organization is None:
+        raise ResolutionError("Organization is required to join with persons table")
+    organization = team.organization
+    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
+    return bool(
+        posthoganalytics.feature_enabled(
+            "personless-events-not-supported",
+            str(team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(organization.id),
+                    "created_at": organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def join_with_persons_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
@@ -379,31 +402,7 @@ def join_with_persons_table(
     pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
-    organization: Organization | None = context.team.organization if context.team else None
-    if organization is None:
-        raise ResolutionError("Organization is required to join with persons table")
-    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
-    use_inner_join = (
-        posthoganalytics.feature_enabled(
-            "personless-events-not-supported",
-            str(context.team.uuid),
-            groups={"organization": str(organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(organization.id),
-                    "created_at": organization.created_at,
-                }
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if organization and context.team
-        else False
-    )
-    if use_inner_join:
-        join_expr.join_type = "INNER JOIN"
-    else:
-        join_expr.join_type = "LEFT JOIN"
+    join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"
 
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

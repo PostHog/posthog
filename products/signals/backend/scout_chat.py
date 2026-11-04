@@ -18,7 +18,6 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -28,9 +27,9 @@ from posthog.permissions import APIScopePermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.suggestions import find_suggestion
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 
@@ -154,6 +153,11 @@ def consume_daily_attempt(key_prefix: str, scope_id: int | str, cap: int) -> boo
     return attempts <= cap
 
 
+def seconds_until_next_utc_day() -> int:
+    """Seconds until the `consume_daily_attempt` window resets."""
+    return 86400 - int(time.time()) % 86400
+
+
 def refund_daily_attempt(key_prefix: str, scope_id: int | str) -> None:
     """Give back one attempt consumed this UTC day, for a request that did no work."""
     window = int(time.time()) // 86400
@@ -161,16 +165,6 @@ def refund_daily_attempt(key_prefix: str, scope_id: int | str) -> None:
         cache.decr(f"{key_prefix}:{scope_id}:{window}")
     except ValueError:
         pass
-
-
-class ScoutChatBurstRateThrottle(UserRateThrottle):
-    scope = "signals_scout_chat_burst"
-    rate = "2/hour"
-
-
-class ScoutChatSustainedRateThrottle(UserRateThrottle):
-    scope = "signals_scout_chat_day"
-    rate = "5/day"
 
 
 class ScoutChatTaskCreateSerializer(serializers.Serializer):
@@ -245,7 +239,6 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     scope_object = "task"
     serializer_class = ScoutChatTaskSerializer
     pagination_class = None
-    throttle_classes = [ScoutChatBurstRateThrottle, ScoutChatSustainedRateThrottle]
     # No model backs this endpoint; a queryset is still required by the team/org viewset mixin
     # and `create` never reads it.
     queryset = SignalScoutConfig.objects.unscoped()
@@ -303,7 +296,9 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             prompt = _author_prompt_from_request(user_prompt)
 
         if not consume_daily_attempt("signals_scout_chat_attempts", request.user.id, SCOUT_CHAT_DAILY_ATTEMPT_CAP):
-            raise exceptions.Throttled(detail="You've reached today's limit for scout chats. Try again tomorrow.")
+            raise exceptions.Throttled(
+                wait=seconds_until_next_utc_day(), detail="You've reached today's limit for scout chats."
+            )
         # Repo-less on purpose: these chats read PostHog data over MCP and never touch code.
         # create_pr=False marks the session non-PR-opening, and the pending user message is
         # self-delivered by the agent server on boot so the interactive run has a first turn.

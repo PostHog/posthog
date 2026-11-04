@@ -10,8 +10,16 @@ class TeamWorkflowsConfigAdmin(admin.ModelAdmin):
         "team",
         "workflow_task_rate_limit_per_day",
         "workflow_task_team_rate_limit_per_day",
+        "replay_vision_scan_rate_limit_per_day",
+        "replay_vision_scan_team_rate_limit_per_day",
     )
-    fields = ("team", "workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
+    fields = (
+        "team",
+        "workflow_task_rate_limit_per_day",
+        "workflow_task_team_rate_limit_per_day",
+        "replay_vision_scan_rate_limit_per_day",
+        "replay_vision_scan_team_rate_limit_per_day",
+    )
     search_fields = ("team__id", "team__name", "team__organization__name")
     raw_id_fields = ("team",)
     list_select_related = ("team", "team__organization")

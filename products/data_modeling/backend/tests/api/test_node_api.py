@@ -14,17 +14,35 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_frequency import (
+    get_declared_pin,
+    get_declared_target,
+    set_declared_target,
+)
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
     suspension_reset_at,
     suspension_state,
 )
-from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
+from products.data_modeling.backend.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseManagedViewSet,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _managed_viewset(team: Team) -> DataWarehouseManagedViewSet:
+    return DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -68,6 +86,40 @@ class TestNodeViewSet(APIBaseTest):
 
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
+
+    @parameterized.expand(["saved_query", "warehouse_table", "posthog_table", "metric"])
+    def test_retrieve_node_by_backing_resource(self, lookup):
+        if lookup == "saved_query":
+            resource_id = self.saved_query.id
+            expected_node = self.view_node
+        elif lookup == "metric":
+            resource_id = uuid4()
+            expected_node = Node.objects.create(
+                team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=resource_id
+            )
+        elif lookup == "warehouse_table":
+            resource_id = uuid4()
+            self.table_node.properties = {"origin": "warehouse", "warehouse_table_id": str(resource_id)}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
+        else:
+            resource_id = self.table_node.name
+            self.table_node.properties = {"origin": "posthog"}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{resource_id}/?lookup={lookup}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(expected_node.id))
+
+    def test_soft_deleting_a_saved_query_deletes_its_node_and_unread_parents(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.saved_query.soft_delete()
+
+        self.assertFalse(Node.objects.filter(id__in=[self.view_node.id, self.table_node.id]).exists())
 
     def _node_payload(self) -> dict:
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
@@ -237,7 +289,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "test_view")
         self.assertEqual(response.json()["type"], "view")
-        self.assertEqual(response.json()["dag"], str(self.dag.id))
 
     @parameterized.expand(
         [
@@ -269,35 +320,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["upstream_count"], 0)
         self.assertEqual(response.json()["downstream_count"], 0)
 
-    def test_list_nodes_with_dag_filter(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/?dag={another_dag.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "another_table")
-
-    def test_list_nodes_without_dag_filter_returns_all(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-
     @parameterized.expand(
         [
             # node target wins even when the saved-query interval disagrees (tiered v2 teams
@@ -323,12 +345,6 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["sync_interval"], expected)
-
-    def test_node_response_includes_dag_name(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dag_name"], self.dag_id)
 
     def test_run_requires_direction(self):
         response = self.client.post(
@@ -356,21 +372,30 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
-    def test_run_upstream_starts_workflow(self, mock_sync_connect):
+    @parameterized.expand(
+        [("upstream_from_a_reader", "upstream", False), ("downstream_from_a_managed_view", "downstream", True)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_run_stays_on_the_side_of_a_managed_view_it_started_from(
+        self, _name, direction, start_from_managed_view, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=managed_node, target=self.view_node)
+        start = managed_node if start_from_managed_view else self.view_node
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
-            {"direction": "upstream"},
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{start.id}/run/",
+                {"direction": direction},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn(str(self.view_node.id), response.json()["node_ids"])
+        self.assertEqual(response.json()["node_ids"], [str(start.id)])
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_downstream_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -406,7 +431,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
         mock_sync_connect.return_value = AsyncMock()
@@ -460,7 +485,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIsNone(suspension_reset_at(self.view_node, "clickhouse"))
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_starts_the_execute_dag_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -490,6 +515,29 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
+
+    @parameterized.expand([("materialize", {}), ("run", {"direction": "downstream"})])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_manual_run_is_refused_soon_after_the_last_run(self, action, body, mock_sync_connect):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.view_node.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{action}/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+        mock_client.start_workflow.assert_not_called()
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(
@@ -644,36 +692,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
 
-    @parameterized.expand(["post", "put", "patch"])
-    def test_dag_field_rejects_other_teams_dag(self, method):
-        other_team = Team.objects.create(organization=self.organization)
-        foreign_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
-
-        if method == "post":
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/data_modeling_nodes/",
-                data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
-            return
-
-        original_dag_id = self.view_node.dag_id
-        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
-        if method == "patch":
-            response = self.client.patch(url, data={"dag": str(foreign_dag.id)}, format="json")
-        else:
-            response = self.client.put(
-                url,
-                data={"name": "test_view", "type": NodeType.VIEW, "dag": str(foreign_dag.id)},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, original_dag_id)
-
     @parameterized.expand(["put", "patch"])
     def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
         other_team = Team.objects.create(organization=self.organization)
@@ -693,7 +711,6 @@ class TestNodeViewSet(APIBaseTest):
                 data={
                     "name": "test_view",
                     "type": NodeType.VIEW,
-                    "dag": str(self.dag.id),
                     "saved_query_id": str(foreign_sq.id),
                 },
                 format="json",
@@ -705,57 +722,204 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotEqual(self.view_node.name, foreign_sq.name)
 
     def _create_managed_node(self) -> Node:
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
         sq = DataWarehouseSavedQuery.objects.create(
-            name="managed_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            name="managed_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            managed_viewset=_managed_viewset(self.team),
         )
-        return Node.objects.create(
-            team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW, description="orig"
-        )
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=sq, type=NodeType.VIEW, description="orig")
 
-    def test_cannot_delete_node_in_managed_dag(self):
-        node = self._create_managed_node()
+    @parameterized.expand(["node", "edge"])
+    def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
+        if deleted == "node":
+            url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        else:
+            edge = Edge.objects.get(source=self.table_node, target=self.view_node)
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(id=self.table_node.id).exists())
+
+    @parameterized.expand([("managed_view", False), ("table_a_managed_view_reads", True)])
+    def test_cannot_delete_node_of_managed_view(self, _name, delete_the_table):
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=managed_node)
+        node = self.table_node if delete_the_table else managed_node
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Node.objects.filter(id=node.id).exists())
 
-    def test_cannot_patch_node_in_managed_dag(self):
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    def test_managed_view_nodes_show_only_with_the_managed_viewsets_flag(self, _name, flag_enabled):
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=managed_node)
+
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            list_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+            lineage_response = self.client.get(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.table_node.id}"
+            )
+            detail_response = self.client.get(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{managed_node.id}/"
+            )
+
+        listed_ids = {node["id"] for node in list_response.json()["results"]}
+        lineage = lineage_response.json()
+        lineage_ids = {node["id"] for node in lineage["nodes"]}
+        self.assertEqual(str(managed_node.id) in listed_ids, flag_enabled)
+        self.assertIn(str(self.table_node.id), listed_ids)
+        self.assertEqual(str(managed_node.id) in lineage_ids, flag_enabled)
+        self.assertEqual(len(lineage["edges"]), 2 if flag_enabled else 1)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
+
+    def _node_url(self, node: Node) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/"
+
+    def _give_the_view_a_consumer(self, consumer_target: timedelta, *, reads_the_table_too: bool = False) -> Node:
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="consumer_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=consumer)
+        if reads_the_table_too:
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=consumer)
+        set_declared_target(consumer, consumer_target)
+        return consumer
+
+    def _patch_cadence(self, node: Node, payload: dict):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            return self.client.patch(self._node_url(node), data=payload, format="json")
+
+    def test_a_pinned_view_keeps_a_cadence_slower_than_its_consumer_until_unpinned(self):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        options = {option["cadence"]: option for option in bounds["options"]}
+        self.assertFalse(bounds["pinned"])
+        self.assertEqual([view["name"] for view in options["24hour"]["delays_if_pinned"]], ["consumer_view"])
+        self.assertEqual(options["6hour"]["delays_if_pinned"], [])
+        # Unpinned, the consumer's 6h demand wins, so the preview of unpinning a daily view is 6h
+        self.assertEqual((options["24hour"]["unpinned_cadence"], options["6hour"]["unpinned_cadence"]), ("6hour",) * 2)
+
+        # Without the pin the consumer's 6h demand refuses a daily cadence, so both have to land together.
+        self.assertEqual(self._patch_cadence(self.view_node, {"sync_frequency": "24hour"}).status_code, 400)
+        pinned = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        self.assertEqual(pinned.status_code, 200, pinned.json())
+        self.assertEqual((pinned.json()["sync_interval"], pinned.json()["pinned"]), ("24hour", True))
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), True)
+        )
+        self.assertTrue(self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()["pinned"])
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=str(self.saved_query.id))
+        assert log.detail is not None
+        changes = {change["field"]: (change["before"], change["after"]) for change in log.detail["changes"]}
+        self.assertEqual(
+            changes, {"sync_frequency_interval": (None, "1 day, 0:00:00"), "sync_frequency_pinned": (False, True)}
+        )
+
+        unpinned = self._patch_cadence(self.view_node, {"pinned": False})
+        self.assertEqual(unpinned.status_code, 200, unpinned.json())
+        self.assertFalse(unpinned.json()["pinned"])
+        self.view_node.refresh_from_db()
+        self.assertEqual(
+            (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
+        )
+
+    def test_a_cadence_write_clears_the_legacy_saved_query_interval(self):
+        DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(
+            sync_frequency_interval=timedelta(hours=12)
+        )
+        set_declared_target(self.view_node, timedelta(hours=6))
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "never"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIsNone(response.json()["sync_interval"])
+        self.saved_query.refresh_from_db()
+        self.assertIsNone(self.saved_query.sync_frequency_interval)
+
+    @parameterized.expand(
+        [
+            ("consumer_reads_only_this_view", False, {"6hour": None, "24hour": "consumer_view"}),
+            ("consumer_has_a_fresher_input", True, {"6hour": None, "24hour": None}),
+        ]
+    )
+    def test_a_pin_that_strands_a_downstream_view_is_marked_and_refused(
+        self, _name, reads_the_table_too, expected_blockers
+    ):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=reads_the_table_too)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        blockers = {
+            option["cadence"]: option["pin_blocked_by"] and option["pin_blocked_by"]["name"]
+            for option in bounds["options"]
+            if option["cadence"] in expected_blockers
+        }
+        self.assertEqual(blockers, expected_blockers)
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        if expected_blockers["24hour"] is None:
+            self.assertEqual(response.status_code, 200, response.json())
+            return
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't pin this view to 1 day: downstream view consumer_view refreshes every 6 hours and has no "
+            "fresher input than this view. Slow down consumer_view first, or pin a faster cadence.",
+        )
+        self.view_node.refresh_from_db()
+        self.assertEqual((get_declared_target(self.view_node), get_declared_pin(self.view_node)), (None, False))
+
+    @parameterized.expand(
+        [
+            ("no_cadence_yet", {"pinned": True}),
+            ("cadence_cleared_in_the_same_write", {"sync_frequency": "never", "pinned": True}),
+        ]
+    )
+    def test_pinning_needs_a_cadence(self, _name, payload):
+        response = self._patch_cadence(self.view_node, payload)
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.view_node.refresh_from_db()
+        self.assertFalse(get_declared_pin(self.view_node))
+
+    @parameterized.expand(["table", "managed_view"])
+    def test_cadence_is_only_writable_on_views_the_team_owns(self, kind):
+        node = self.table_node if kind == "table" else self._create_managed_node()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self._patch_cadence(node, {"sync_frequency": "24hour", "pinned": True})
+
+        self.assertEqual(response.status_code, 400, response.json())
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (None, False))
+
+    def test_cannot_patch_node_of_managed_view(self):
         node = self._create_managed_node()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/",
-            data={"description": "changed"},
-            format="json",
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/",
+                data={"description": "changed"},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         node.refresh_from_db()
         self.assertEqual(node.description, "orig")
-
-    @parameterized.expand(["post", "patch"])
-    def test_cannot_add_or_move_node_into_managed_dag(self, method):
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-
-        if method == "post":
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/data_modeling_nodes/",
-                data={"name": "sneaky", "type": NodeType.TABLE, "dag": str(managed_dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="sneaky", dag=managed_dag).exists())
-            return
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/",
-            data={"dag": str(managed_dag.id)},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, self.dag.id)
 
 
 class TestMetricNodeAPI(APIBaseTest):
@@ -834,16 +998,11 @@ class TestMetricNodeAPI(APIBaseTest):
         self.metric_node.refresh_from_db()
         self.assertEqual(self.metric_node.type, NodeType.METRIC)
 
-    @parameterized.expand(["name", "description", "dag_id"])
+    @parameterized.expand(["name", "description"])
     def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
-        payload = (
-            {"dag": str(DAG.objects.create(team=self.team, name="other").id)}
-            if field == "dag_id"
-            else {field: "changed"}
-        )
         before = getattr(self.metric_node, field)
 
-        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data=payload, format="json")
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={field: "changed"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.metric_node.refresh_from_db()
@@ -857,18 +1016,21 @@ class TestMetricNodeAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Edge.objects.filter(id=edge.id).exists())
 
-    @parameterized.expand(["post", "patch"])
-    def test_only_table_nodes_can_be_written_through_the_api(self, method):
-        if method == "post":
-            response = self.client.post(
-                self.url,
-                data={"name": "sneaky", "type": NodeType.METRIC, "dag": str(self.dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="sneaky").exists())
-            return
+    @parameterized.expand(
+        [
+            ("node", "data_modeling_nodes", {"name": "sneaky", "type": NodeType.TABLE}),
+            ("edge", "data_modeling_edges", {"properties": {}}),
+        ]
+    )
+    def test_nodes_and_edges_cannot_be_created_through_the_api(self, _name, endpoint, payload):
+        nodes_before, edges_before = Node.objects.count(), Edge.objects.count()
 
+        response = self.client.post(f"/api/environments/{self.team.id}/{endpoint}/", data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual((Node.objects.count(), Edge.objects.count()), (nodes_before, edges_before))
+
+    def test_a_node_cannot_be_retyped_through_the_api(self):
         response = self.client.patch(f"{self.url}{self.table_node.id}/", data={"type": NodeType.VIEW}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.table_node.refresh_from_db()
@@ -933,8 +1095,13 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        edge_ids = {edge["id"] for edge in response.json()["results"]}
-        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+        edges = {edge["id"]: edge for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edges, expected_visible)
+        if expected_visible:
+            self.assertEqual(
+                edges[str(self.edge.id)],
+                {"id": str(self.edge.id), "source_id": str(self.edge.source_id), "target_id": str(self.edge.target_id)},
+            )
 
     @parameterized.expand(
         [
@@ -1012,6 +1179,113 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_setting_a_cadence_requires_warehouse_write_access(self, access_level, expected_status):
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"{self._list_url()}{self.node.id}/", data={"sync_frequency": "24hour", "pinned": True}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.node.refresh_from_db()
+        self.assertEqual(get_declared_pin(self.node), expected_status == status.HTTP_200_OK)
+
+    def test_pin_bounds_do_not_name_a_downstream_view_the_member_is_denied(self):
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="hidden_consumer", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.node, target=consumer)
+        set_declared_target(consumer, timedelta(hours=6))
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(consumer.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/frequency_bounds/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        options = {option["cadence"]: option for option in response.json()["options"]}
+        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": None, "name": None})
+        self.assertEqual(options["24hour"]["delays_if_pinned"], [])
+        self.assertNotIn("hidden_consumer", response.content.decode())
+        self.assertNotIn(str(consumer.id), response.content.decode())
+
+    @parameterized.expand(
+        [
+            ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
+            ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
+            ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
+            ("edge_editor", "edge", "editor", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_deleting_requires_warehouse_write_access(self, _name, deleted, access_level, expected_status):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+        target: Node | Edge = self.node if deleted == "node" else edge
+        if deleted == "node":
+            url = f"{self._list_url()}{self.node.id}/"
+        else:
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
+        )
+
+    @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
+            response = self.client.delete(node_url)
+        elif action == "delete_edge":
+            response = self.client.delete(edge_url)
+        else:
+            response = self.client.post(f"{node_url}{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
+        self.node.refresh_from_db()
+        self.assertNotEqual(self.node.description, "changed")
+        self.assertNotEqual(suspension_state(self.node), {})
+        mock_sync_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("list_granted", False, "viewer", status.HTTP_200_OK),
             ("list_denied", False, None, status.HTTP_403_FORBIDDEN),
             ("retrieve_granted", True, "viewer", status.HTTP_200_OK),
@@ -1074,7 +1348,6 @@ class TestEdgeViewSet(APIBaseTest):
         edge = response.json()["results"][0]
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
-        self.assertEqual(edge["dag"], str(self.dag.id))
 
     def test_list_edges_query_count_does_not_grow_with_edges(self):
         url = f"/api/environments/{self.team.id}/data_modeling_edges/"
@@ -1091,39 +1364,6 @@ class TestEdgeViewSet(APIBaseTest):
 
         self.assertEqual(response.json()["count"], 6)
         self.assertEqual(len(grown.captured_queries), len(baseline.captured_queries))
-
-    def test_list_edges_with_dag_filter(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        another_source = Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_events",
-            type=NodeType.TABLE,
-        )
-        another_target = Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_view",
-            type=NodeType.TABLE,
-        )
-        Edge.objects.create(
-            team=self.team,
-            dag=another_dag,
-            source=another_source,
-            target=another_target,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/?dag={another_dag.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["source_id"], str(another_source.id))
-
-    def test_edge_response_includes_dag_name(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0]["dag_name"], self.dag_id)
 
     def test_list_edges_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -1153,30 +1393,35 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
 
     def _create_managed_edge(self) -> Edge:
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-        source = Node.objects.create(team=self.team, dag=managed_dag, name="m_events", type=NodeType.TABLE)
+        dag = DAG.get_or_create_default(self.team)
+        source = Node.objects.create(team=self.team, dag=dag, name="m_events", type=NodeType.TABLE)
         sq = DataWarehouseSavedQuery.objects.create(
-            name="m_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            name="m_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            managed_viewset=_managed_viewset(self.team),
         )
-        target = Node.objects.create(team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW)
-        return Edge.objects.create(team=self.team, dag=managed_dag, source=source, target=target, properties={"a": 1})
+        target = Node.objects.create(team=self.team, dag=dag, saved_query=sq, type=NodeType.VIEW)
+        return Edge.objects.create(team=self.team, dag=dag, source=source, target=target, properties={"a": 1})
 
-    def test_cannot_delete_edge_in_managed_dag(self):
+    def test_cannot_delete_edge_into_managed_view(self):
         edge = self._create_managed_edge()
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Edge.objects.filter(id=edge.id).exists())
 
-    def test_cannot_patch_edge_in_managed_dag(self):
+    def test_cannot_patch_edge_into_managed_view(self):
         edge = self._create_managed_edge()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/",
-            data={"properties": {"a": 2}},
-            format="json",
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/",
+                data={"properties": {"a": 2}},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         edge.refresh_from_db()

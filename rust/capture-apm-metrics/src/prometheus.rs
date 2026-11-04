@@ -21,14 +21,6 @@ use tracing::{debug, error, instrument};
 use crate::histogram_assembly::fold_classic_histograms;
 use crate::service::MetricsService;
 
-/// How much larger than the (already decompression-capped) request body the
-/// expanded row set may be. Row building clones the series label map per
-/// sample and the whole batch becomes a single Kafka message, so a 2 wire-byte
-/// sample expands to hundreds of bytes — legitimate senders (Prometheus
-/// defaults to 2k samples per send, vmagent to 10k rows per block) stay far
-/// below this; only expansion-bomb payloads exceed it.
-const MAX_EXPANSION_FACTOR: u64 = 16;
-
 #[derive(Deserialize)]
 pub struct RemoteWriteQueryParams {
     token: Option<String>,
@@ -128,10 +120,14 @@ pub async fn export_prometheus_remote_write_http(
             }
         };
 
+    // Row building clones the series label map per sample and the whole batch
+    // becomes a single Kafka message, so a 2 wire-byte sample expands to
+    // hundreds of bytes. The cap bounds the memory of one request; only
+    // expansion-bomb payloads and oversized blocks exceed it.
     // 400, not 5xx: a batch that expands past the limit will never fit, so the
     // sender must drop it rather than retry it forever.
     let expanded = estimate_expanded_bytes(&write_request);
-    let max_expanded = MAX_EXPANSION_FACTOR * service.max_request_body_size_bytes as u64;
+    let max_expanded = service.remote_write_max_expanded_bytes;
     if expanded > max_expanded {
         error!(
             "Rejecting remote-write request expanding to ~{expanded} bytes (limit {max_expanded})"

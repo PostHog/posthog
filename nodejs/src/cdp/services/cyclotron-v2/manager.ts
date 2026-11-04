@@ -6,6 +6,7 @@ import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
+import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -794,5 +795,13 @@ export class CyclotronV2Manager {
     // because the caller's token is; see processStepResumes for the per-job outcomes.
     async resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>> {
         return await processStepResumes(this.pool, resumes, teamId)
+    }
+
+    async resumeParkedBatchResolver(options: {
+        teamId: number
+        functionId: string
+        batchJobId: string
+    }): Promise<BatchResolverResumeOutcome> {
+        return await resumeParkedBatchResolver(this.pool, options)
     }
 }

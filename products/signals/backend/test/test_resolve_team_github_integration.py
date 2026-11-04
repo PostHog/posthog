@@ -4,6 +4,7 @@ import pytest
 
 from django.utils import timezone
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team, User
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -355,6 +356,7 @@ async def test_select_repository_requests_reconnect_for_unavailable_owner_integr
         user_id=owner.id,
         context="Investigate this signal",
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        priority=Priority.BATCH,
     )
 
     assert result.repository is None

@@ -1,3 +1,4 @@
+import re
 import json
 import typing as t
 import datetime as dt
@@ -107,7 +108,7 @@ def test_create_batch_export_with_interval_schedule(
     assert args["team_id"] == team.pk
     assert args["batch_export_id"] == data["id"]
     assert args["interval"] == interval
-    assert args["batch_export_model"]["user_id"] is None
+    assert "user_id" not in args["batch_export_model"]
 
     # expected jitter is 15 minutes for hourly exports
     assert batch_export.jitter == dt.timedelta(minutes=15)
@@ -466,7 +467,7 @@ FROM events
 
 
 @pytest.mark.parametrize(
-    "grandfathered_batch_export", [True, False], indirect=True, ids=["grandfathered", "other-team"]
+    "grandfathered_batch_export", ["same-team", "same-organization", "other-organization"], indirect=True
 )
 def test_create_batch_export_with_custom_schema(
     client: HttpClient,
@@ -496,7 +497,7 @@ def test_create_batch_export_with_custom_schema(
         batch_export_data,
     )
 
-    if grandfathered_batch_export.team_id != team.pk:
+    if grandfathered_batch_export.team.organization_id != team.organization_id:
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "hogql_query"
         assert not BatchExport.objects.filter(team=team).exists()
@@ -540,12 +541,12 @@ def test_create_batch_export_with_custom_schema(
 
     assert batch_export.schema == expected_schema
     assert args["batch_export_model"] == {
-        "filters": None,
+        "filters": [],
         "name": "events",
         "schema": expected_schema,
-        "hogql_query": None,
-        "user_id": None,
-        "hogql_modifiers": None,
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
     }
 
 
@@ -554,7 +555,10 @@ def test_create_batch_export_with_custom_schema(
     [
         ("SELECT", "Failed to parse query"),
         ("SELECT event,, FROM events", "Failed to parse query"),
-        ("SELECT unknown_field FROM events", "Invalid HogQL query: Unable to resolve field: unknown_field"),
+        (
+            "SELECT unknown_field FROM events",
+            re.compile(r"Invalid HogQL query: Unable to resolve field: unknown_field\. Available fields: .+"),
+        ),
         (
             "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
             "JOINs are not supported",
@@ -612,7 +616,11 @@ def test_create_batch_export_fails_with_invalid_query(
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == expected_error_message
+    detail = response.json()["detail"]
+    if isinstance(expected_error_message, re.Pattern):
+        assert expected_error_message.fullmatch(detail), detail
+    else:
+        assert detail == expected_error_message
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
@@ -655,12 +663,13 @@ def test_create_batch_export_with_hogql_model(
     decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["batch_export_model"] == {
-        "filters": None,
         "name": "hogql",
-        "schema": None,
-        "hogql_query": hogql_batch_export_data["hogql_query"],
+        "query": hogql_batch_export_data["hogql_query"],
         "user_id": user.pk,
-        "hogql_modifiers": hogql_modifiers,
+        "modifiers": hogql_modifiers,
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
     }
 
 
@@ -776,6 +785,7 @@ def test_create_batch_export_with_hogql_model_fails_with_invalid_request(
     # HogQL may append field name suggestions to a resolution error, so match on the prefix.
     assert response.json()["detail"].startswith(expected_error_message), response.json()["detail"]
     assert BatchExportSource.objects.for_team(team.pk).count() == 0
+    assert not BatchExport.objects.filter(team=team).exists()
 
 
 def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(

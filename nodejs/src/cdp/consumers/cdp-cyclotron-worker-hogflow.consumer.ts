@@ -8,7 +8,12 @@ import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    CyclotronPerson,
+} from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -17,6 +22,16 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
     canceledResults: CyclotronJobInvocationResult[]
+}
+
+// A transactional email's caller holds only a send key, which grants no access to person data, so its
+// template never sees person properties, or the display name derived from them. The person stays attached
+// so the send is recorded against them.
+function personForFlow(
+    hogFlow: HogFlow,
+    person: CyclotronPerson | null | undefined
+): CyclotronPerson | null | undefined {
+    return person && hogFlow.trigger?.type === 'api' ? { ...person, properties: {}, name: '' } : person
 }
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
@@ -74,6 +89,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
+        const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
+            invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
+        )
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -88,13 +106,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const team = await this.deps.teamManager.getTeam(item.teamId)
-                const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
+                const hogFlow = hogFlows[item.functionId]
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
 
                     failedInvocations.push(item)
+                    this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
 
                     return
                 }
@@ -159,7 +178,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // otherwise read the person cached when the wait parked, without the write that woke it.
                 const forceFreshPerson =
                     hasPushActions(hogFlow.actions) || hogFlowInvocationState.currentAction?.eventMatched === true
-                const [person, groups] = await Promise.all([
+                const [resolvedPerson, groups] = await Promise.all([
                     personIdOrDistinctId
                         ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
                               forceFresh: forceFreshPerson,
@@ -171,6 +190,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         `${this.config.SITE_URL}/project/${hogFlow.team_id}`
                     ),
                 ])
+
+                const person = personForFlow(hogFlow, resolvedPerson)
 
                 if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
@@ -214,11 +235,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 if (personIdOrDistinctId) {
                     loaded.refreshPerson = async () => {
-                        const fresh = await this.personsManager.getCyclotronPerson(
-                            hogFlow.team_id,
-                            personIdOrDistinctId,
-                            kind,
-                            { forceFresh: true }
+                        const fresh = personForFlow(
+                            hogFlow,
+                            await this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
+                                forceFresh: true,
+                            })
                         )
                         return {
                             person: fresh ?? undefined,

@@ -65,13 +65,11 @@ export function nextServerInstructions(input: {
  * A failed or pending upload keeps the local copy, so an edit is never lost.
  */
 export function cloudTaskCarriesLocalInstructions(input: {
-  flagEnabled: boolean;
   projectId: number | null;
   onServer: Readonly<Record<string, string>>;
   local: string | null;
 }): boolean {
   return !(
-    input.flagEnabled &&
     input.projectId != null &&
     input.local != null &&
     input.onServer[String(input.projectId)] === input.local

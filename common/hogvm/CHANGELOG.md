@@ -1,5 +1,18 @@
 # HogQL bytecode changelog
 
+## 2026-10-15 - 1.0.72
+
+Added `sha256HmacBase64Key` to the standard library. No bytecode operations changed.
+
+```bash
+sha256HmacBase64Key(key, data, encoding)  # HMAC-SHA256 of data, key is base64, encoding defaults to 'hex'
+```
+
+The function decodes the key from base64 and uses the raw bytes as the HMAC key. Svix-style webhook
+secrets (`whsec_...`) are random bytes, so `sha256HmacChain` cannot verify them: it uses the UTF-8
+bytes of a string key. The key is accepted with or without base64 padding. `encoding` is one of
+`hex`, `base64`, `base64url`, or `binary`.
+
 ## 2026-09-28 - 1.0.71
 
 `range` checks the requested length against the memory limit before it builds the array, as the

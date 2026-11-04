@@ -2,10 +2,20 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Support',
+    globalModals: {
+        ComposeTicketModal: () =>
+            import('./frontend/components/ComposeTicket/ComposeTicketModalHost').then(
+                (module) => module.ComposeTicketModalHost
+            ),
+    },
+    activityDescribers: {
+        [ActivityScope.TICKET]: () =>
+            import('./frontend/activityDescriber').then((module) => module.ticketActivityDescriber),
+    },
     scenes: {
         SupportTickets: {
             name: 'Ticket list',
@@ -63,7 +73,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.CONVERSATIONS],
             category: ProductItemCategory.MONITORING,
             href: urls.supportTickets(),
-            searchKeywords: ['tickets'],
+            searchKeywords: ['tickets', 'conversations', 'helpdesk', 'chat widget'],
             type: 'conversations',
             iconType: 'conversations',
             iconColor: [

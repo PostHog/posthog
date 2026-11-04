@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -28,11 +28,6 @@ export const ContentAutopilotSourceFields = ({ draft }: { draft: ContentAutopilo
                     minRows={4}
                 />
             </LemonField.Pure>
-            <LemonCheckbox
-                checked={draft.searchConsoleEnabled}
-                onChange={(searchConsoleEnabled) => setProfileDraft({ searchConsoleEnabled })}
-                label="Use connected Google Search Console data"
-            />
         </div>
     )
 }

@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -8,11 +9,16 @@ from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.metrics import observe_compute_quota_check
 from products.tasks.backend.models import Task, TaskClientProvenance
 
+if TYPE_CHECKING:
+    from products.tasks.backend.models import SandboxSession
+
 COMPUTE_QUOTA_DENIAL_CODE = ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED.value
 ORGANIZATION_DEACTIVATED_DENIAL_CODE = ComputeQuotaDenialReason.ORGANIZATION_DEACTIVATED.value
 
 
 logger = logging.getLogger(__name__)
+
+POSTHOG_CODE_CLIENT_PROVENANCES = frozenset(TaskClientProvenance)
 
 
 def organization_deactivated(team_id: int) -> bool:
@@ -24,28 +30,20 @@ def task_creator_is_staff(task: Task) -> bool:
 
 
 def is_task_billable_compute(task: Task) -> bool:
-    source_loop = task.loop if task.loop_id is not None else None
-    return is_billable_compute(
-        origin_product=task.origin_product,
-        client_provenance=task.client_provenance,
-        source_loop_id=task.loop_id,
-        source_loop_internal=source_loop.internal if source_loop is not None else None,
-    )
+    return is_billable_compute(origin_product=task.origin_product, client_provenance=task.client_provenance)
 
 
-def is_billable_compute(
-    *,
-    origin_product: str | None,
-    client_provenance: str | None,
-    source_loop_id: object | None,
-    source_loop_internal: bool | None,
-) -> bool:
-    if client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
+def is_billable_compute(*, origin_product: str | None, client_provenance: str | None) -> bool:
+    if client_provenance not in POSTHOG_CODE_CLIENT_PROVENANCES:
         return False
-    if origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP):
-        return True
-    return bool(
-        origin_product == Task.OriginProduct.LOOP and source_loop_id is not None and source_loop_internal is False
+    return origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP)
+
+
+def is_billable_sandbox_session(session: "SandboxSession") -> bool:
+    return (
+        session.user_attributed_at is not None
+        and session.origin_product == Task.OriginProduct.USER_CREATED
+        and is_billable_compute(origin_product=session.origin_product, client_provenance=session.client_provenance)
     )
 
 

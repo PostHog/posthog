@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.team import TeamLogsConfigSerializer
+from posthog.api.team.integration_config import TeamLogsConfigSerializer
 from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -18,7 +18,7 @@ from products.logs.backend.models import (
 )
 
 # Both routes resolve to the same handler — /api/projects/ is canonical, /api/environments/
-# remains as the back-compat alias. See `handle_logs_config` in posthog/api/team.py.
+# remains as the back-compat alias. See `handle_logs_config` in posthog/api/team/integration_config.py.
 URL_PREFIXES = [("projects", "api/projects"), ("environments", "api/environments")]
 
 DEFAULT_CONFIG = {

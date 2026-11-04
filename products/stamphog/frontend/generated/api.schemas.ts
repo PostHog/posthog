@@ -155,14 +155,27 @@ export interface PaginatedStamphogPullRequestListApi {
 }
 
 /**
- * * `all` - all
- * * `label` - label
+ * * `all` - All pull requests
+ * * `label` - Labeled pull requests
  */
 export type ReviewModeEnumApi = (typeof ReviewModeEnumApi)[keyof typeof ReviewModeEnumApi]
 
 export const ReviewModeEnumApi = {
     All: 'all',
     Label: 'label',
+} as const
+
+/**
+ * * `off` - Off
+ * * `always` - Always
+ * * `fallback` - When stamphog does not approve
+ */
+export type RoutingModeEnumApi = (typeof RoutingModeEnumApi)[keyof typeof RoutingModeEnumApi]
+
+export const RoutingModeEnumApi = {
+    Off: 'off',
+    Always: 'always',
+    Fallback: 'fallback',
 } as const
 
 export interface StamphogRepoConfigApi {
@@ -177,15 +190,21 @@ export interface StamphogRepoConfigApi {
     readonly installation_id: string
     /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
     digest_enabled?: boolean
-    /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+    /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     readonly review_mode: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
+    /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    readonly routing_mode: RoutingModeEnumApi
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -223,13 +242,19 @@ export interface StamphogRepoConfigWriteApi {
     enabled?: boolean
     /** Whether merged PRs on this repo are captured for the daily Slack digest. */
     digest_enabled?: boolean
-    /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+    /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     review_mode?: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
+    /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    routing_mode?: RoutingModeEnumApi
 }
 
 /**
@@ -253,13 +278,44 @@ export interface PatchedStamphogRepoConfigWriteApi {
     enabled?: boolean
     /** Whether merged PRs on this repo are captured for the daily Slack digest. */
     digest_enabled?: boolean
-    /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+    /** When reviews run: 'label' reviews only pull requests carrying the trigger label (the default), mirroring the Action's opt-in flow; 'all' reviews every pull request.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     review_mode?: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
+    /** When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    routing_mode?: RoutingModeEnumApi
+}
+
+/**
+ * * `found` - Found
+ * * `missing` - Missing
+ * * `unavailable` - Unavailable
+ */
+export type OwnersFileStatusEnumApi = (typeof OwnersFileStatusEnumApi)[keyof typeof OwnersFileStatusEnumApi]
+
+export const OwnersFileStatusEnumApi = {
+    Found: 'found',
+    Missing: 'missing',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * Whether a repository can use reviewer requests, which read ownership from its owners.yaml.
+ */
+export interface StamphogOwnersFileApi {
+    /** Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when the check could not ask GitHub (no installation, or GitHub answered with an error).
+     *
+     * * `found` - Found
+     * * `missing` - Missing
+     * * `unavailable` - Unavailable */
+    owners_file: OwnersFileStatusEnumApi
 }
 
 /**

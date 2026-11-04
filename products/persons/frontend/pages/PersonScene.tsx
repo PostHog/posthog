@@ -3,6 +3,7 @@ import { memo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -12,6 +13,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -232,6 +234,7 @@ export function PersonScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
@@ -286,28 +289,56 @@ export function PersonScene(): JSX.Element | null {
                             type="secondary"
                             size="small"
                         />
-                        <LemonButton
-                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
-                            disabled={deletedPersonLoading}
-                            loading={deletedPersonLoading}
-                            type="secondary"
-                            status="danger"
-                            data-attr="delete-person"
-                            size="small"
-                            icon={isMobile() ? <IconTrash /> : null}
-                        >
-                            {isMobile() ? null : 'Delete person'}
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <>
+                                <Button
+                                    onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                                    disabled={deletedPersonLoading}
+                                    loading={deletedPersonLoading}
+                                    variant="destructive-outline"
+                                    data-attr="delete-person"
+                                    size={isMobile() ? 'icon' : undefined}
+                                    aria-label={isMobile() ? 'Delete person' : undefined}
+                                    tooltip={isMobile() ? 'Delete person' : undefined}
+                                >
+                                    {isMobile() ? <IconTrash /> : 'Delete person'}
+                                </Button>
+                                {person.distinct_ids.length > 1 && (
+                                    <Button
+                                        onClick={() => setSplitMergeModalShown(true)}
+                                        data-attr="merge-person-button"
+                                        variant="outline"
+                                    >
+                                        Split IDs
+                                    </Button>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                                    disabled={deletedPersonLoading}
+                                    loading={deletedPersonLoading}
+                                    type="secondary"
+                                    status="danger"
+                                    data-attr="delete-person"
+                                    size="small"
+                                    icon={isMobile() ? <IconTrash /> : null}
+                                >
+                                    {isMobile() ? null : 'Delete person'}
+                                </LemonButton>
 
-                        {person.distinct_ids.length > 1 && (
-                            <LemonButton
-                                onClick={() => setSplitMergeModalShown(true)}
-                                data-attr="merge-person-button"
-                                type="secondary"
-                                size="small"
-                            >
-                                Split IDs
-                            </LemonButton>
+                                {person.distinct_ids.length > 1 && (
+                                    <LemonButton
+                                        onClick={() => setSplitMergeModalShown(true)}
+                                        data-attr="merge-person-button"
+                                        type="secondary"
+                                        size="small"
+                                    >
+                                        Split IDs
+                                    </LemonButton>
+                                )}
+                            </>
                         )}
                     </>
                 }
@@ -578,6 +609,7 @@ const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
 
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
 
     const openInAdminPanel = async (email: string): Promise<void> => {
@@ -594,6 +626,18 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
             const message = error instanceof Error ? error.message : String(error)
             lemonToast.error(`Failed to open admin panel: ${message}`)
         }
+    }
+
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                onClick={() => openInAdminPanel(person?.properties.email)}
+                disabledReason={disabledReason}
+            >
+                Open in admin panel
+            </Button>
+        )
     }
 
     return (

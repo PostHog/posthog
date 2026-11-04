@@ -64,13 +64,14 @@ from github import (
     CommitProvenance,
     PRData,
     check_team_membership,
+    describe_review_evidence,
     fetch_pr,
     is_in_flight_bot_eyes,
     pr_provenance,
     provenance_evidence,
     write_pr_diff,
 )
-from manifest_risk import manifest_script_changes
+from manifest_risk import manifest_script_changes, manifest_script_changes_from_contents
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from verdict_rule import facts_summary
@@ -243,6 +244,9 @@ class Pipeline:
         # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
         # can only miss a deny, never add one, and the sandbox review runs the scan again.
         self.checkout = checkout
+        # Manifest texts at the merge base and the head, keyed by path, which the server's gate check
+        # reads from GitHub so that it can run the scripts scan without a checkout.
+        self.manifest_contents: dict[str, dict[str, str]] | None = None
         # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
         # token. None means a local run, which asks GitHub per team instead.
         self.author_team_slugs: set[str] | None = None
@@ -259,6 +263,8 @@ class Pipeline:
         self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
+        # Empty until an LLM reviewer starts, so a gate-only verdict names no engine.
+        self.reviewer_engine = ""
         self.final_verdict: str = ""
 
     def run(self) -> str:
@@ -436,15 +442,23 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        exception_lifted = bool(POLICY.deny_exceptions) and (
+            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+        )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
-        risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
-            if dep_manifests and self.checkout
-            else []
-        )
+        if not dep_manifests:
+            risky_manifests = []
+        elif self.checkout:
+            risky_manifests = manifest_script_changes(
+                dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
+            )
+        elif self.manifest_contents is not None:
+            risky_manifests = manifest_script_changes_from_contents(dep_manifests, self.manifest_contents)
+        else:
+            risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
         denied_before_exemptions = len(deny)
@@ -472,8 +486,9 @@ class Pipeline:
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
+            and not exception_lifted
         )
-        is_test = test_only(categories) and not owner_exempted
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -537,9 +552,10 @@ class Pipeline:
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
-        Derived only from GitHub review metadata (states, head-ness) — never
-        author-controlled text — so the reviewer gets a trustworthy at-a-glance
-        summary of who has actually vouched for the current head.
+        Derived only from GitHub review metadata (states, head-ness) and the
+        hosted server's external review evidence — never author-controlled text —
+        so the reviewer gets a trustworthy at-a-glance summary of who has
+        actually vouched for the current head.
         """
         pr = self.pr
         # Exclude the author's own reviews: an author commenting on or replying
@@ -575,6 +591,9 @@ class Pipeline:
             "head_commented": len(head_commented_users),
             "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
+            # A completed external review of this head counts like a current-head review. Its
+            # published findings are review threads, so unresolved_threads above already holds them.
+            "head_review_evidence": pr.completed_review_evidence(),
         }
 
     def _maybe_compute_familiarity(self) -> None:
@@ -937,8 +956,9 @@ class Pipeline:
         raise AssertionError("review retry loop exhausted without a verdict")
 
     def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        self.reviewer_engine = reviewer_engine()
         # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
-        if reviewer_engine() == CLAUDE_ENGINE:
+        if self.reviewer_engine == CLAUDE_ENGINE:
             from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
 
             return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
@@ -1061,7 +1081,7 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
-                "stamphog_reviewer_engine": reviewer_engine(),
+                "stamphog_reviewer_engine": self.reviewer_engine,
                 **_llm_usage_properties(self.reviewer_output),
             },
         )
@@ -1097,6 +1117,8 @@ class Pipeline:
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
         )
+        for completed_review in assurance.get("head_review_evidence") or []:
+            bullets.append(f"{describe_review_evidence(completed_review)}.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:

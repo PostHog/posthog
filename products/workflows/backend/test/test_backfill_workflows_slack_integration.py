@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
 
 from posthog.models import Team
 
@@ -29,7 +30,7 @@ def _slack_action(action_id: str, slack_workspace_value: int | None) -> dict:
     }
 
 
-class TestRewriteSlackWorkspaceInActions(BaseTest):
+class TestRewriteSlackWorkspaceInActions(SimpleTestCase):
     def test_rewrites_matching_value(self):
         actions = [_slack_action("a1", backfill.OLD_INTEGRATION_ID)]
         new_actions, changed = _rewrite_slack_workspace_in_actions(actions)

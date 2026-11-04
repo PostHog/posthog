@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
@@ -25,8 +25,65 @@ describe('ScoutTrialComparisonReport', () => {
         expect(screen.getByText('No clear winner')).not.toBeNull()
         expect(screen.getByText('100%')).not.toBeNull()
         expect(screen.getByText('1 run could not be judged')).not.toBeNull()
+        const excludedRow = screen.getByText('Excluded').closest('tr')!
+        expect(within(excludedRow).getByText('Candidate prompt')).not.toBeNull()
+        expect(within(excludedRow).getByText('–')).not.toBeNull()
         expect(screen.queryByText(/Best in this trial/)).toBeNull()
     })
+
+    it.each([false, true])('shows a provisional lead without presenting it as a final winner (tied: %s)', (tied) => {
+        const leaders = tied ? trialFixtureReport.variants : [trialFixtureReport.variants[1]]
+        render(
+            <ScoutTrialComparisonReport
+                report={{
+                    ...trialFixtureReport,
+                    outcome: {
+                        status: 'provisional',
+                        variant_ids: leaders.map((variant) => variant.variant_id),
+                        summary: 'Unknown checks could change this result.',
+                    },
+                }}
+            />
+        )
+
+        expect(
+            screen.getByText(
+                tied ? 'Provisional tied leaders: Candidate prompt, Baseline' : 'Provisional leader: Candidate prompt'
+            )
+        ).not.toBeNull()
+        expect(screen.getAllByText(tied ? 'Provisional tie' : 'Provisional leader')).toHaveLength(leaders.length)
+        expect(screen.getByText('Unknown checks could change this result.')).not.toBeNull()
+        expect(screen.queryByText(/Best in this trial/)).toBeNull()
+        expect(screen.queryByText('Most checks passed')).toBeNull()
+    })
+
+    it.each(['winner', 'tie', 'provisional'] as const)(
+        'limits the %s conclusion to completed versions when another version is excluded',
+        (status) => {
+            render(
+                <ScoutTrialComparisonReport
+                    report={{
+                        ...trialFixtureReport,
+                        outcome: { ...trialFixtureReport.outcome!, status },
+                        variants: [
+                            ...trialFixtureReport.variants,
+                            {
+                                ...trialFixtureReport.variants[1],
+                                variant_id: '00000000-0000-4000-8000-000000000099',
+                                label: 'Incomplete version',
+                                judged_runs: 1,
+                                judge_errors: 1,
+                            },
+                        ],
+                    }}
+                />
+            )
+
+            expect(screen.getByText(/Best among completed versions/)).not.toBeNull()
+            expect(screen.getByText('Excluded')).not.toBeNull()
+            expect(screen.queryByText(/Best in this trial/)).toBeNull()
+        }
+    )
 
     it('keeps old reports readable without inventing a comparison conclusion', () => {
         render(<ScoutTrialComparisonReport report={{ ...trialFixtureReport, outcome: null }} />)
@@ -111,6 +168,23 @@ describe('ScoutTrialComparisonReport', () => {
         expect(screen.getByText('Not judged')).not.toBeNull()
         expect(screen.queryByText(trialFixtureReport.judge_model)).toBeNull()
         expect(screen.queryByText(trialFixtureReport.evaluation_id)).toBeNull()
+    })
+
+    it('shows the timeout instead of hiding it behind a generic invalidation reason', () => {
+        render(
+            <ScoutTrialRunDrawer
+                result={{
+                    ...trialFixtureResult,
+                    status: 'failed',
+                    error: 'This run reached its 10-minute time limit.',
+                    invalid_reason: 'The trial stopped before it completed.',
+                }}
+                onClose={jest.fn()}
+            />
+        )
+
+        expect(screen.getByText('This run reached its 10-minute time limit.')).not.toBeNull()
+        expect(screen.queryByText('The trial stopped before it completed.')).toBeNull()
     })
 
     it.each([

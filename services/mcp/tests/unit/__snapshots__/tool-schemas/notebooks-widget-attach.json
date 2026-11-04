@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "input_bindings": {
+            "additionalProperties": {
+                "properties": {
+                    "hog": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    }
+                },
+                "required": ["source"],
+                "type": "object"
+            },
+            "description": "Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "node_id": {
+            "description": "Stable identifier of the generated widget node.",
+            "type": "string"
+        },
+        "short_id": {
+            "type": "string"
+        },
+        "version_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Version to pin, or null to follow the reusable widget's latest version."
+        },
+        "widget_id": {
+            "description": "Reusable widget to place in this notebook node.",
+            "type": "string"
+        }
+    },
+    "required": ["node_id", "short_id", "widget_id"],
+    "type": "object"
+}

@@ -204,6 +204,39 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.saved_query.refresh_from_db()
         self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
 
+    @parameterized.expand(
+        [
+            ("allowed", "editor", "This name already refers to the model my_view. Choose a different name."),
+            # Refused all the same, but without confirming a model the caller cannot read.
+            ("denied", "none", "A table or view with this name already exists. Choose a different name."),
+        ]
+    )
+    def test_a_models_name_is_refused_while_an_authored_model_answers_to_it(
+        self, _case: str, object_access: str, detail: str
+    ) -> None:
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_query.id),
+            access_level=object_access,
+        )
+        self.client.force_login(self.editor_user)
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda flag, *_args, **_kwargs: flag == "hogql-warehouse-access-control",
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={"name": "models.my_view", "query": {"kind": "HogQLQuery", "query": "select 2"}},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["detail"], detail)
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="models.my_view").exists())
+
     def test_resource_level_row_on_child_alone_has_no_effect(self):
         # Contract: warehouse_view inherits from warehouse_objects, so resource-level rows
         # keyed on warehouse_view (without resource_id) are intentionally bypassed — only
@@ -259,6 +292,127 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         # A different query without an object-level grant stays blocked.
         other_url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{other_query.id}/"
         self.assertEqual(self.client.get(other_url).status_code, status.HTTP_403_FORBIDDEN)
+
+
+@pytest.mark.ee
+class TestSavedQueryLineageAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="lineage_source",
+            connection_id="lineage_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="lineage_",
+        )
+        self.table = DataWarehouseTable.objects.create(
+            name="lineage_table", team=self.team, external_data_source=self.source
+        )
+        self.upstream = self._saved_query("lineage_upstream")
+        self.middle = self._saved_query("lineage_middle")
+        self.downstream = self._saved_query("lineage_downstream")
+
+        dag = DAG.objects.create(team=self.team, name="lineage_access_control")
+        events_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="events",
+            type=NodeType.TABLE,
+            properties={"origin": "posthog"},
+        )
+        table_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name=self.table.name,
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+        )
+        upstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.upstream.name, saved_query=self.upstream, type=NodeType.VIEW
+        )
+        middle_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.middle.name, saved_query=self.middle, type=NodeType.VIEW
+        )
+        downstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.downstream.name, saved_query=self.downstream, type=NodeType.VIEW
+        )
+        for source, target in (
+            (events_node, upstream_node),
+            (table_node, upstream_node),
+            (upstream_node, middle_node),
+            (middle_node, downstream_node),
+        ):
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+    def _lineage(self, user: User, saved_query: DataWarehouseSavedQuery, action: str, **data: int) -> set[str]:
+        self.client.force_login(user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/{action}/",
+            data,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return set(response.json()[action])
+
+    def _dependencies(self, user: User, saved_query: DataWarehouseSavedQuery) -> dict[str, int]:
+        self.client.force_login(user)
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/dependencies/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    def test_lineage_withholds_denied_resources_without_pruning_the_walk(self):
+        self.assertEqual(
+            self._lineage(self.user, self.downstream, "ancestors"),
+            {"events", str(self.table.id), str(self.upstream.id), str(self.middle.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.user, self.upstream, "descendants"),
+            {str(self.middle.id), str(self.downstream.id)},
+        )
+
+        self._create_access_control(self.viewer_user, access_level="editor")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.middle.id),
+            access_level="none",
+        )
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+        )
+
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.downstream, "ancestors"),
+            {"events", str(self.upstream.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.upstream, "descendants"),
+            {str(self.downstream.id)},
+        )
+
+        immediate_ancestors = self._lineage(self.viewer_user, self.upstream, "ancestors", level=1)
+        immediate_descendants = self._lineage(self.viewer_user, self.upstream, "descendants", level=1)
+        dependencies = self._dependencies(self.viewer_user, self.upstream)
+        self.assertEqual(immediate_ancestors, {"events"})
+        self.assertEqual(immediate_descendants, set())
+        self.assertEqual(dependencies["upstream_count"], len(immediate_ancestors))
+        self.assertEqual(dependencies["downstream_count"], len(immediate_descendants))
 
 
 @pytest.mark.ee

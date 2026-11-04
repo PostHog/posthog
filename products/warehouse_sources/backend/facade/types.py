@@ -30,7 +30,9 @@ __all__ = [
     "IncrementalFieldType",
     "ManagedWarehouseSQLMode",
     "PartitionSettings",
+    "SourceKey",
     "WarehouseColumnAnnotationDescriptionSource",
+    "source_key",
 ]
 
 
@@ -110,6 +112,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     ATTIO = "Attio", "Attio"
     SNAPCHATADS = "SnapchatAds", "SnapchatAds"
     LINEAR = "Linear", "Linear"
+    LITELLM = "LiteLLM", "LiteLLM"
     INTERCOM = "Intercom", "Intercom"
     AMPLITUDE = "Amplitude", "Amplitude"
     MIXPANEL = "Mixpanel", "Mixpanel"
@@ -147,6 +150,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARE = "Square", "Square"
     ZOOM = "Zoom", "Zoom"
     TRELLO = "Trello", "Trello"
+    TRAFFICSTARS = "TrafficStars", "TrafficStars"
     MONDAY = "Monday", "Monday"
     CLICKUP = "ClickUp", "ClickUp"
     CONFLUENCE = "Confluence", "Confluence"
@@ -156,6 +160,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     GONG = "Gong", "Gong"
     CALENDLY = "Calendly", "Calendly"
     TYPEFORM = "Typeform", "Typeform"
+    UNITYADS = "UnityAds", "UnityAds"
     ITERABLE = "Iterable", "Iterable"
     ZOHOCRM = "ZohoCRM", "ZohoCRM"
     CLOSE = "Close", "Close"
@@ -200,6 +205,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     PLAID = "Plaid", "Plaid"
     SURVEYMONKEY = "SurveyMonkey", "SurveyMonkey"
     EVENTBRITE = "Eventbrite", "Eventbrite"
+    EVERFLOW = "Everflow", "Everflow"
     RINGCENTRAL = "RingCentral", "RingCentral"
     TWILIO = "Twilio", "Twilio"
     FRESHSALES = "Freshsales", "Freshsales"
@@ -266,9 +272,12 @@ class ExternalDataSourceType(LabeledStrEnum):
     INCIDENTIO = "IncidentIo", "IncidentIo"
     PINGDOM = "Pingdom", "Pingdom"
     CLOUDFLARE = "Cloudflare", "Cloudflare"
+    CLOUDFLARED1 = "CloudflareD1", "CloudflareD1"
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
+    PLANE = "Plane", "Plane"
+    SCARF = "Scarf", "Scarf"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -529,6 +538,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     REPLYIO = "ReplyIo", "ReplyIo"
     RETAILEXPRESS = "RetailExpress", "RetailExpress"
     RETENTLY = "Retently", "Retently"
+    RETREAVER = "Retreaver", "Retreaver"
     REVOLUTMERCHANT = "RevolutMerchant", "RevolutMerchant"
     ROCKETCHAT = "RocketChat", "RocketChat"
     ROCKETLANE = "Rocketlane", "Rocketlane"
@@ -795,6 +805,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LAMBDALABS = "LambdaLabs", "LambdaLabs"
     LANGSMITH = "LangSmith", "LangSmith"
     LINODE = "Linode", "Linode"
+    LISTMONK = "Listmonk", "Listmonk"
     LLAMACLOUD = "LlamaCloud", "LlamaCloud"
     MEM0 = "Mem0", "Mem0"
     METRIPORT = "Metriport", "Metriport"
@@ -979,6 +990,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     AWSCOSTANDUSAGEREPORT = "AwsCostAndUsageReport", "AwsCostAndUsageReport"
     AWSCOSTANOMALYDETECTION = "AwsCostAnomalyDetection", "AwsCostAnomalyDetection"
     AWSCOSTEXPLORER = "AwsCostExplorer", "AwsCostExplorer"
+    AWSDOCUMENTDB = "AwsDocumentDB", "AwsDocumentDB"
     AWSGLUEDATACATALOG = "AwsGlueDataCatalog", "AwsGlueDataCatalog"
     AWSGUARDDUTY = "AwsGuardduty", "AwsGuardduty"
     AWSHEALTH = "AwsHealth", "AwsHealth"
@@ -1025,6 +1037,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
@@ -1175,6 +1188,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LOOPRETURNS = "LoopReturns", "LoopReturns"
     MASTODON = "Mastodon", "Mastodon"
     MEETUP = "Meetup", "Meetup"
+    MEGAPHONE = "Megaphone", "Megaphone"
     MEMBERFUL = "Memberful", "Memberful"
     MERCADOPAGO = "MercadoPago", "MercadoPago"
     METEOSTAT = "Meteostat", "Meteostat"
@@ -1394,6 +1408,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SIMONDATA = "SimonData", "SimonData"
     COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    LIVESTORM = "Livestorm", "Livestorm"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
     ZENCHEF = "Zenchef", "Zenchef"
@@ -1445,11 +1460,61 @@ class ExternalDataSourceType(LabeledStrEnum):
     NEO4J = "Neo4j", "Neo4j"
     TESTDINO = "TestDino", "TestDino"
     CHESSCOM = "ChessCom", "ChessCom"
+    USERBACK = "Userback", "Userback"
+    REWARDFUL = "Rewardful", "Rewardful"
+    TRACKLUTION = "Tracklution", "Tracklution"
+    STACKADAPT = "StackAdapt", "StackAdapt"
+    CHECKHQ = "CheckHQ", "CheckHQ"
+    RAINFORESTPAY = "RainforestPay", "RainforestPay"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
+    NORTHBEAM = "Northbeam", "Northbeam"
+    NAVERADS = "NaverAds", "NaverAds"
+    CHANNELIO = "ChannelIO", "ChannelIO"
+    AIRSHIP = "Airship", "Airship"
+    CREEM = "Creem", "Creem"
+    LEANTIME = "Leantime", "Leantime"
+    TESTOMATIO = "Testomatio", "Testomatio"
+    GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
+    KLAR = "Klar", "Klar"
+    CONECTOCRM = "ConectoCRM", "ConectoCRM"
+    CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
+    PARTICLE = "Particle", "Particle"
+    FILEUPLOAD = "FileUpload", "FileUpload"
+    DRIPIFY = "Dripify", "Dripify"
+    AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
+    NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
+    STAMPED = "Stamped", "Stamped"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
     # Callable so growing the enum doesn't generate a no-op migration.
+    # A plugin source key has no member here. The model does not validate choices on save, and the
+    # API serializers validate the key against the source registry, so the list stays enum-only and
+    # evaluating it never imports the vendor catalog.
     return list(ExternalDataSourceType.choices)
+
+
+# The key that names a warehouse source: what `ExternalDataSource.source_type` stores and what the
+# source registry is keyed on. A core source uses its `ExternalDataSourceType` member. A plugin source
+# names itself with a plain string that has no member, so the type is `str`.
+SourceKey = str
+
+
+def source_key(key: str) -> SourceKey:
+    """The `ExternalDataSourceType` member for `key` when one exists, else `key` unchanged.
+
+    Code that compares against or reads attributes of a member keeps working for core keys, and a
+    plugin key passes through as the string it is.
+    """
+    try:
+        return ExternalDataSourceType(key)
+    except ValueError:
+        return key
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1464,7 +1529,14 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
     ExternalDataSourceType.TRINO: "trino",
+    ExternalDataSourceType.BIGQUERY: "bigquery",
 }
+
+
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
 
 
 class ManagedWarehouseSQLMode(StrEnum):
@@ -1578,3 +1650,11 @@ class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class UploadedFileFormat(LabeledStrEnum):
+    """How an uploaded file is read: CSV with a header row, JSON one object per line, or Parquet."""
+
+    CSV = "csv", "csv"
+    JSON = "json", "json"
+    PARQUET = "parquet", "parquet"

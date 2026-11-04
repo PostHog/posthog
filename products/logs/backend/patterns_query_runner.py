@@ -15,6 +15,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import app_org_concurrency_slot
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import get_instance_region
@@ -32,9 +34,17 @@ from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQuery
 
 if TYPE_CHECKING:
     from posthog.models import User
+    from posthog.query_cache import QueryCache
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
 STORED_PATTERN_HEAD_MAX_BYTES = 65536
+
+
+@frozen
+class _VersionCoverage:
+    total: int
+    covered: int
+    version: int
 
 
 class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -67,6 +77,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     cached_response: CachedLogsQueryResponse
     use_stored_patterns: bool = True
     _query_deadline: float | None = None
+    request_deadline: float | None = None
+    _request_deadline_binds: bool = False
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -116,22 +128,40 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _calculate(self) -> LogsQueryResponse:
         reason = "comparison" if not self.use_stored_patterns else "flag_disabled"
         if self.use_stored_patterns and self._stored_patterns_enabled:
-            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
-            versions = self._execute(
-                parse_select(
-                    "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
-                    placeholders={"where": self._where_with_timestamp()},
-                )
-            ).results
-            total = sum(int(row[1]) for row in versions)
-            candidates = [(int(row[2]), int(row[0])) for row in versions if int(row[0]) > 0]
-            covered, version = max(candidates, default=(0, 0))
+            self._start_deadline()
+            coverage = self._version_coverage
+            total, covered, version = coverage.total, coverage.covered, coverage.version
             if total and covered * 100 >= total * 99:
                 return self._calculate_stored_patterns(total, version, covered)
             reason = "insufficient_version_coverage" if total else "empty_window"
         else:
-            total = self._count()
+            cached = self.__dict__.get("_version_coverage")
+            total = cached.total if cached is not None else self._count()
         return self._calculate_body_patterns(total, reason)
+
+    def _start_deadline(self) -> None:
+        if self._query_deadline is None:
+            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
+
+    @cached_property
+    def _version_coverage(self) -> "_VersionCoverage":
+        versions = self._execute(
+            parse_select(
+                "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
+                placeholders={"where": self._where_with_timestamp()},
+            )
+        ).results
+        candidates = [(int(row[2]), int(row[0])) for row in versions if int(row[0]) > 0]
+        covered, version = max(candidates, default=(0, 0))
+        return _VersionCoverage(total=sum(int(row[1]) for row in versions), covered=covered, version=version)
+
+    def stored_version(self) -> int | None:
+        if not (self.use_stored_patterns and self._stored_patterns_enabled):
+            return None
+        self._start_deadline()
+        with app_org_concurrency_slot(self.team, task_id=self.query_id):
+            coverage = self._version_coverage
+        return coverage.version if coverage.total and coverage.covered * 100 >= coverage.total * 99 else None
 
     @cached_property
     def _stored_patterns_enabled(self) -> bool:
@@ -332,11 +362,16 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery):
         settings = self.settings.model_copy()
-        if self._query_deadline is not None:
-            remaining = int(self._query_deadline - monotonic())
+        deadline = min((d for d in (self._query_deadline, self.request_deadline) if d is not None), default=None)
+        self._request_deadline_binds = False
+        if deadline is not None:
+            remaining = int(deadline - monotonic())
+            own_limit = settings.max_execution_time or remaining
+            self._request_deadline_binds = deadline == self.request_deadline and remaining <= own_limit
             if remaining < 1:
                 raise ClickHouseQueryTimeOut()
-            settings.max_execution_time = remaining
+            # The deadline bounds the whole run. It must not give one query more time than its own limit.
+            settings.max_execution_time = min(remaining, own_limit)
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=query,
@@ -347,9 +382,16 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             limit_context=self.limit_context,
             settings=settings,
         )
-        if self._query_deadline is not None and monotonic() >= self._query_deadline:
+        if deadline is not None and monotonic() >= deadline:
             raise ClickHouseQueryTimeOut()
         return response
+
+    def _record_breaker_failure(self, cache_manager: "QueryCache", exc: Exception) -> None:
+        # A failure under the request deadline depends on how long the earlier queries in the request took.
+        # It does not repeat on a fresh request, so it must not open the breaker for this query.
+        if self._request_deadline_binds:
+            return
+        super()._record_breaker_failure(cache_manager, exc)
 
     def _count(self, slices: list[_TimeSlice] | None = None) -> int:
         response = self._execute(

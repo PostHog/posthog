@@ -371,6 +371,7 @@ const PropertyOperator = z.enum([
     'in',
     'not_in',
     'is_cleaned_path_exact',
+    'is_cleaned_path_not_exact',
     'flag_evaluates_to',
     'semver_eq',
     'semver_neq',
@@ -621,6 +622,7 @@ const AssistantTrendsDisplayType = z.enum([
     'ActionsBarValue',
     'ActionsPie',
     'ActionsDonut',
+    'ActionsProportionBar',
     'ActionsTable',
     'WorldMap',
     'CalendarHeatmap',
@@ -656,7 +658,7 @@ const AssistantTrendsFilter = z.object({
         )
         .optional(),
     display: AssistantTrendsDisplayType.describe(
-        'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what\'s our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.'
+        'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what\'s our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.'
     )
         .default('ActionsLineGraph')
         .optional(),
@@ -870,14 +872,14 @@ const AssistantFunnelsFilter = z.object({
         .optional(),
 })
 
-const AssistantFunnelsMath = z.enum(['first_time_for_user', 'first_time_for_user_with_filters'])
+const AssistantFunnelsMath = z.enum(['total', 'first_time_for_user', 'first_time_for_user_with_filters'])
 
 const AssistantFunnelsEventsNode = z.object({
     custom_name: z.string().describe('Optional custom name for the event if it is needed to be renamed.').optional(),
     event: z.string().describe('Name of the event.'),
     kind: z.literal('EventsNode').default('EventsNode'),
     math: AssistantFunnelsMath.describe(
-        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
+        'Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     optionalInFunnel: z.coerce
         .boolean()
@@ -894,7 +896,7 @@ const AssistantFunnelsActionsNode = z.object({
     id: z.coerce.number().describe('Action ID from the plan.'),
     kind: z.literal('ActionsNode').default('ActionsNode'),
     math: AssistantFunnelsMath.describe(
-        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
+        'Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     name: z.string().describe('Action name from the plan.'),
     optionalInFunnel: z.coerce
@@ -1222,7 +1224,7 @@ const AssistantPathsFilter = z.object({
     includeEventTypes: z
         .array(PathType)
         .describe(
-            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.'
+            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering. Paths never include `$feature_flag_called` events, whichever types are set.'
         )
         .optional(),
     localPathCleaningFilters: z

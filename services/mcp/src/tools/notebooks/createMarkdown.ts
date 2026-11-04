@@ -13,7 +13,7 @@ export const NotebooksCreateMarkdownSchema = z
             .string()
             .optional()
             .describe(
-                'Optional initial markdown body below the title. Do not include executable cells here — add them with notebooks-add-cell.'
+                'Optional initial markdown body below the title: the question and the plan, not results computed elsewhere. Do not include executable cells here — add them with notebooks-add-cell.'
             ),
     })
     .strict()

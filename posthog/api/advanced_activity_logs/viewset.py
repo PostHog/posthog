@@ -11,12 +11,12 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
+from posthog.api.pagination import BoundedPageNumberPagination, StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -28,6 +28,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
@@ -59,46 +60,10 @@ def activity_log_ordering(request: Request) -> tuple[str, str]:
     return ("-created_at", "-id")
 
 
-def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
-    """Keep personal loops' config out of the team-wide activity feed.
-
-    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
-    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
-    per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
-    Lazy import keeps the tasks product off this module's import path.
-    """
-    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
-
-    visible_ids = loops_facade.visible_loop_ids(team_id, user)
-    return queryset.exclude(Q(scope="Loop") & ~Q(item_id__in=visible_ids))
-
-
-def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
-    """Org-wide equivalent of `restrict_loop_activity`. The org route has no single `team_id`, so it
-    can't build a per-team allowlist; instead deny other users' personal-loop rows across the org.
-
-    Two filters, both required. The persisted per-row context (`detail.context.visibility` /
-    `created_by_user_id`, snapshotted at log time) is the primary one: `ActivityLog` outlives its
-    loop (project deletion cascades `Loop` rows away while the log keeps plain `team_id` /
-    `organization_id`), so a live-row denylist alone would open another user's deleted personal-loop
-    history to org admins. The live-row denylist stays on top so a currently-personal loop hides ALL
-    its rows, including ones logged back when it was team-visible.
-
-    No object-level loop RBAC here, deliberately: this route is restricted to org admins and owners
-    (`OrganizationActivityLogPermission`), who pass the RBAC precheck for every object, so the
-    filter the team route applies via `visible_loop_ids` would be a no-op on this one."""
-    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
-
-    user_id = getattr(user, "id", None)
-    persisted_personal = Q(scope="Loop") & Q(detail__context__visibility="personal")
-    if user_id is not None:
-        persisted_personal &= ~Q(detail__context__created_by_user_id=str(user_id))
-    queryset = queryset.exclude(persisted_personal)
-
-    hidden_ids = loops_facade.hidden_personal_loop_ids_for_org(organization_id, user)
-    if not hidden_ids:
-        return queryset
-    return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
+def exclude_loop_activity(queryset: QuerySet[ActivityLog]) -> QuerySet[ActivityLog]:
+    # Legacy loop rows can hold another member's personal loop config, and the loops that decided
+    # who may see them are gone, so no one sees them.
+    return queryset.exclude(scope="Loop")
 
 
 def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
@@ -144,15 +109,45 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+def credential_type_field() -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=CREDENTIAL_TYPE_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Kind of credential that authenticated the request that made the change. 'unattributed' means "
+            "the request recorded no credential. Null for changes made outside a request, such as "
+            "background jobs, and for entries recorded before PostHog stored the credential."
+        ),
+    )
+
+
+def credential_id_field() -> serializers.CharField:
+    """The raw `credential_id` column also holds internal ids, so customer-facing serializers read
+    `customer_visible_credential_id` through this field and never declare the column itself."""
+    return serializers.CharField(
+        source="customer_visible_credential_id",
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Id of the credential that authenticated the change: the login session id for 'session', or "
+            "the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential "
+            "type and for impersonated changes."
+        ),
+    )
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
-        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # An explicit list, so that a new internal column such as `impersonated_by_id` stays out. This
         # serializer also builds the `$activity_log_entry_created` event, so a field listed here
-        # reaches the advanced API, the export and customer destinations at the same time.
+        # reaches the activity log API, the advanced API and customer destinations at the same time.
         fields = [
             "id",
             "user",
@@ -163,6 +158,8 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "is_system",
             "client",
             "ip_address",
+            "credential_type",
+            "credential_id",
             "activity",
             "item_id",
             "scope",
@@ -191,7 +188,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class TailFollowingCursorPagination(CursorPagination):
+class TailFollowingCursorPagination(StableCursorPagination):
     """Cursor pagination that can keep a forward cursor alive after the stream is exhausted.
 
     Stock DRF returns `next: null` on the final page, which leaves a polling client nothing to
@@ -204,11 +201,13 @@ class TailFollowingCursorPagination(CursorPagination):
     condition: a follower stops when `results` is empty, not when `next` is null. Leaving that on
     by default would make the obvious `while next: ...` loop run forever.
 
-    Known gap: the cursor encodes `created_at` and filters strictly past it, so an entry written
-    later but sharing the last-seen timestamp is not returned. That is inherent to a
-    timestamp-positioned cursor and matches DRF's behavior mid-stream.
+    Known gap: the cursor stores the last-seen `created_at` and `id`, and the next poll reads the
+    rows that sort after both. An entry written later with the same `created_at` comes back only
+    when its `id` sorts after the last-seen one.
     """
 
+    # A follower polls this on every request, so a count would scan the activity log each time.
+    include_count = False
     follow = False
 
     def get_next_link(self) -> Optional[str]:
@@ -220,48 +219,47 @@ class TailFollowingCursorPagination(CursorPagination):
             return None
         if not self.page:
             # Nothing new since the caller's position, so hand the same cursor back.
-            return self.encode_cursor(self.cursor) if self.cursor else None
-        position = self._get_position_from_instance(self.page[-1], self.ordering)
-        # DRF's stub types Cursor.position as int, but at runtime it holds the string that
-        # _get_position_from_instance returns.
-        return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
+            return self.cursor_link(self.current_cursor) if self.current_cursor else None
+        return self.cursor_link(self.next_cursor(self.page))
 
 
-class ActivityLogPagination(BasePagination):
-    def __init__(self):
-        self.page_number_pagination = PageNumberPagination()
-        self.cursor_pagination = TailFollowingCursorPagination()
-        self.page_number_pagination.page_size = 100
-        self.page_number_pagination.page_size_query_param = "page_size"
-        self.page_number_pagination.max_page_size = 1000
-        self.cursor_pagination.page_size = 100
-        self.cursor_pagination.page_size_query_param = "page_size"
-        self.cursor_pagination.max_page_size = 1000
-        # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
-        # resolving ties with an offset. That offset is reproducible only when rows sharing a
-        # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
-        self.cursor_pagination.ordering = ("-created_at", "-id")
+class ActivityLogPageNumberPagination(BoundedPageNumberPagination):
+    page_size = 100
+    page_size_query_param = "page_size"
+
+
+class ActivityLogPagination(TailFollowingCursorPagination):
+    """Cursor pages by default, and numbered pages when the request has a `page` parameter."""
+
+    page_size = 100
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+    # `created_at` is not unique, so `id` breaks ties and the cursor stores both.
+    ordering = ("-created_at", "-id")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.page_number_pagination = ActivityLogPageNumberPagination()
+        self.request: Optional[Request] = None
 
     def paginate_queryset(self, queryset, request, view=None):
         self.request = request
         if request.query_params.get("page"):
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
-        else:
-            self.cursor_pagination.ordering = activity_log_ordering(request)
-            self.cursor_pagination.follow = request.query_params.get("follow") == "true"
-            return self.cursor_pagination.paginate_queryset(queryset, request, view)
+        self.ordering = activity_log_ordering(request)
+        self.follow = request.query_params.get("follow") == "true"
+        return super().paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
         if self.request and self.request.query_params.get("page"):
             return self.page_number_pagination.get_paginated_response(data)
-        else:
-            return self.cursor_pagination.get_paginated_response(data)
+        return super().get_paginated_response(data)
 
     def get_paginated_response_schema(self, schema):
         # The paginator picks cursor or page-number mode per request, so the schema has to describe
         # both. Cursor responses (the default) carry no `count`, so it is documented as an optional
         # property rather than a required one.
-        cursor_schema = self.cursor_pagination.get_paginated_response_schema(schema)
+        cursor_schema = super().get_paginated_response_schema(schema)
         page_number_schema = self.page_number_pagination.get_paginated_response_schema(schema)
         cursor_schema["properties"]["count"] = page_number_schema["properties"]["count"]
         return cursor_schema
@@ -339,7 +337,10 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
-            queryset, bool(self.team.receive_org_level_activity_logs), self.team_id, self.organization.id
+            queryset.select_related("user"),
+            bool(self.team.receive_org_level_activity_logs),
+            self.team_id,
+            self.organization.id,
         )
 
         if params.get("user"):
@@ -366,7 +367,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset
@@ -537,9 +538,13 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
     user_last_name = serializers.CharField(source="user.last_name", default="")
     user_email = serializers.CharField(source="user.email", default="")
     detail = serializers.SerializerMethodField()
+    credential_type = credential_type_field()
+    credential_id = credential_id_field()
 
     class Meta:
         model = ActivityLog
+        # The export writes columns in this order, and readers of the file can rely on position, so a
+        # new field goes at the end.
         fields = [
             "id",
             "organization_id",
@@ -554,6 +559,8 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "client",
             "ip_address",
             "created_at",
+            "credential_type",
+            "credential_id",
         ]
 
     def get_detail(self, obj):
@@ -652,7 +659,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
@@ -827,8 +834,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
-        queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))

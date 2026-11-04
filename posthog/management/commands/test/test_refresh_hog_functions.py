@@ -8,11 +8,11 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.validation import generate_template_bytecode
 from posthog.models import Team
 
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import generate_template_bytecode
 
 
 class TestRefreshHogFunctions(BaseTest):

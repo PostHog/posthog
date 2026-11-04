@@ -1,5 +1,5 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { useMemo } from "react";
 import { type LoopScope, resolveLoopScope } from "../loopScopes";
 

@@ -6,8 +6,9 @@ import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../c
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, DEFAULT_MARGINS, useStableMargins } from '../../core/hooks/useChartMargins'
 import { sanitizeFixedDomain } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -50,9 +51,35 @@ const EMPTY_AXIS_CONFIG: ScatterAxisConfig = {}
  *  module scope so it can't churn the base chart's margin and tick memos. */
 const NO_CATEGORY_X_LABELS = (): null => null
 
+function drawHover({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs): boolean {
+    const position = readScatterLayout(scales)?.positionByIndex[hoverIndex]
+    if (!position) {
+        return false
+    }
+    drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', hoverProgress)
+    return true
+}
+
+// The base chart resolves by x alone, which can't tell points stacked at one x apart.
+function resolveHoverIndex(_index: number, cursor: { x: number; y: number }, scales: ChartScales): number {
+    const layout = readScatterLayout(scales)
+    if (!layout) {
+        return -1
+    }
+    return findNearestPointIndex(layout.positions, cursor.x, cursor.y, layout.maxRadius)
+}
+
+// A gap must stay NaN. The shared default coerces one to 0, anchoring the tooltip at whatever
+// pixel `0` maps to for every series with no point at this index.
+const resolveValue: ResolveValueFn = (s, dataIndex) => {
+    const value = s.data[dataIndex]
+    return typeof value === 'number' && isFinite(value) ? value : NaN
+}
+
 export interface ScatterChartProps<Meta = unknown> {
     series: ScatterSeries<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ScatterChartConfig<Meta>
     tooltip?: (ctx: ScatterTooltipContext<Meta>) => React.ReactNode
     onPointClick?: (point: ScatterPointDatum<Meta>) => void
@@ -75,7 +102,7 @@ export function ScatterChart<Meta = unknown>({ onError, ...rest }: ScatterChartP
 
 function ScatterChartInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -84,6 +111,7 @@ function ScatterChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<ScatterChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis = EMPTY_AXIS_CONFIG,
         yAxis = EMPTY_AXIS_CONFIG,
@@ -94,8 +122,10 @@ function ScatterChartInner<Meta = unknown>({
         showTickMarks = true,
         showCrosshair = true,
         showBestFit = false,
-        margins,
+        isPointHighlighted,
+        margins: marginsOverride,
     } = config ?? {}
+    const margins = useStableMargins(marginsOverride)
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
     const { scaleType: xScaleType, domain: xDomain, startAtZero: xStartAtZero, tickFormatter: xTickFormatter } = xAxis
     const { scaleType: yScaleType, domain: yDomain, startAtZero: yStartAtZero, tickFormatter: yTickFormatter } = yAxis
@@ -163,6 +193,13 @@ function ScatterChartInner<Meta = unknown>({
             }
 
             drawScatterMarkers(ctx, layout.positions, fillOpacity)
+            if (isPointHighlighted) {
+                for (const position of layout.positions) {
+                    if (isPointHighlighted(points[position.index])) {
+                        drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', 1)
+                    }
+                }
+            }
 
             // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
             // it underneath would bury it.
@@ -174,107 +211,67 @@ function ScatterChartInner<Meta = unknown>({
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit, isPointHighlighted, points]
     )
 
-    const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {
-        const position = readScatterLayout(scales)?.positions.find((p) => p.index === hoverIndex)
-        if (!position) {
-            return false
+    const resolvePoint = (dataIndex: number): ScatterPointDatum<Meta> | null => {
+        const point = points[dataIndex] as FlatScatterPoint<Meta> | undefined
+        if (!point) {
+            return null
         }
-        drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', hoverProgress)
-        return true
-    }, [])
-
-    // The base chart resolves by x alone, which can't tell points stacked at one x apart.
-    const resolveHoverIndex = useCallback(
-        (_index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
-            const layout = readScatterLayout(scales)
-            if (!layout) {
-                return -1
-            }
-            return findNearestPointIndex(layout.positions, cursor.x, cursor.y, layout.maxRadius)
-        },
-        []
-    )
-
-    // A gap must stay NaN. The shared default coerces one to 0, anchoring the tooltip at whatever
-    // pixel `0` maps to for every series with no point at this index.
-    const resolveValue: ResolveValueFn = useCallback((s, dataIndex) => {
-        const value = s.data[dataIndex]
-        return typeof value === 'number' && isFinite(value) ? value : NaN
-    }, [])
-
-    const resolvePoint = useCallback(
-        (dataIndex: number): ScatterPointDatum<Meta> | null => {
-            const point = points[dataIndex] as FlatScatterPoint<Meta> | undefined
-            if (!point) {
-                return null
-            }
-            const { seriesIndex } = point
-            return toPointDatum(point, series[seriesIndex], theme.colors[seriesIndex % theme.colors.length])
-        },
-        [points, series, theme.colors]
-    )
+        const { seriesIndex } = point
+        return toPointDatum(point, series[seriesIndex], theme.colors[seriesIndex % theme.colors.length])
+    }
 
     const tooltipConfig = config?.tooltip
     const xAxisLabel = xAxis.label
     const yAxisLabel = yAxis.label
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext): React.ReactNode => {
-            const point = resolvePoint(ctx.dataIndex)
-            if (!point) {
-                return null
-            }
-            if (tooltip) {
-                return tooltip({ ...ctx, point })
-            }
-            return (
-                <ScatterTooltip
-                    point={point}
-                    header={tooltipConfig?.labelFormatter?.(point)}
-                    xLabel={xAxisLabel}
-                    yLabel={yAxisLabel}
-                    xValue={tooltipConfig?.xFormatter?.(point.x, point) ?? xTickFormatter?.(point.x)}
-                    yValue={tooltipConfig?.yFormatter?.(point.y, point) ?? yTickFormatter?.(point.y)}
-                />
-            )
-        },
-        [resolvePoint, tooltip, tooltipConfig, xAxisLabel, yAxisLabel, xTickFormatter, yTickFormatter]
-    )
+    const renderTooltip = (ctx: TooltipContext): React.ReactNode => {
+        const point = resolvePoint(ctx.dataIndex)
+        if (!point) {
+            return null
+        }
+        if (tooltip) {
+            return tooltip({ ...ctx, point })
+        }
+        return (
+            <ScatterTooltip
+                point={point}
+                header={tooltipConfig?.labelFormatter?.(point)}
+                xLabel={xAxisLabel}
+                yLabel={yAxisLabel}
+                xValue={tooltipConfig?.xFormatter?.(point.x, point) ?? xTickFormatter?.(point.x)}
+                yValue={tooltipConfig?.yFormatter?.(point.y, point) ?? yTickFormatter?.(point.y)}
+            />
+        )
+    }
 
-    const handlePointClick = useCallback(
-        (data: PointClickData): void => {
-            const point = resolvePoint(data.dataIndex)
-            if (point) {
-                onPointClick?.(point)
-            }
-        },
-        [onPointClick, resolvePoint]
-    )
+    const handlePointClick = (data: PointClickData): void => {
+        const point = resolvePoint(data.dataIndex)
+        if (point) {
+            onPointClick?.(point)
+        }
+    }
 
     // The core's label range means nothing on a continuous axis, so invert its raw pixels instead.
-    const handleAreaSelect = useCallback(
-        (data: AreaSelectData, scales: ChartScales): void => {
-            const layout = readScatterLayout(scales)
-            if (!layout || !onAreaSelect) {
-                return
-            }
-            const { xScale, yScale } = layout
-            onAreaSelect({
-                x: sanitizeFixedDomain([
-                    xScale.invert(clampToRange(data.xPixel0, xScale)),
-                    xScale.invert(clampToRange(data.xPixel1, xScale)),
-                ]),
-                // The y pixel range runs top-to-bottom, so its low pixel inverts to the high value.
-                y: sanitizeFixedDomain([
-                    yScale.invert(clampToRange(data.yPixel1, yScale)),
-                    yScale.invert(clampToRange(data.yPixel0, yScale)),
-                ]),
-            })
-        },
-        [onAreaSelect]
-    )
+    const handleAreaSelect = (data: AreaSelectData, scales: ChartScales): void => {
+        const layout = readScatterLayout(scales)
+        if (!layout || !onAreaSelect) {
+            return
+        }
+        const { xScale, yScale } = layout
+        onAreaSelect({
+            x: sanitizeFixedDomain([
+                xScale.invert(clampToRange(data.xPixel0, xScale)),
+                xScale.invert(clampToRange(data.xPixel1, xScale)),
+            ]),
+            // The y pixel range runs top-to-bottom, so its low pixel inverts to the high value.
+            y: sanitizeFixedDomain([
+                yScale.invert(clampToRange(data.yPixel1, yScale)),
+                yScale.invert(clampToRange(data.yPixel0, yScale)),
+            ]),
+        })
+    }
 
     // Otherwise the y gutter is sized from the adapter series, which stop short of a pinned domain.
     const valueRangeSeries = useMemo<Series[] | undefined>(() => {
@@ -292,35 +289,21 @@ function ScatterChartInner<Meta = unknown>({
         const computed: Partial<ChartMargins> = {
             right: Math.max(DEFAULT_MARGINS.right, xLabelEdgeReserve(points, xDomain, xTickFormatter)),
         }
-        return margins ? applyMarginOverride(computed, margins) : computed
+        return applyMarginOverride(computed, margins)
     }, [xAxis.hide, margins, points, xDomain, xTickFormatter])
 
-    const baseConfig = useMemo<ChartConfig>(
-        () => ({
-            xTickFormatter: NO_CATEGORY_X_LABELS,
-            yTickFormatter,
-            xAxisLabel,
-            yAxisLabel,
-            hideXAxis: xAxis.hide,
-            hideYAxis: yAxis.hide,
-            margins: resolvedMargins,
-            showTickMarks,
-            showCrosshair,
-            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement ?? 'cursor' },
-        }),
-        [
-            yTickFormatter,
-            xAxisLabel,
-            yAxisLabel,
-            xAxis.hide,
-            yAxis.hide,
-            resolvedMargins,
-            showTickMarks,
-            showCrosshair,
-            tooltipConfig?.enabled,
-            tooltipConfig?.placement,
-        ]
-    )
+    const baseConfig: ChartConfig = {
+        xTickFormatter: NO_CATEGORY_X_LABELS,
+        yTickFormatter,
+        xAxisLabel,
+        yAxisLabel,
+        hideXAxis: xAxis.hide,
+        hideYAxis: yAxis.hide,
+        margins: resolvedMargins,
+        showTickMarks,
+        showCrosshair,
+        tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement ?? 'cursor' },
+    }
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-scatter-legend">

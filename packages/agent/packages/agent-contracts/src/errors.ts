@@ -162,6 +162,19 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
 const TURN_ENDED_WITHOUT_RESPONSE_REGEX =
   /\[ede_diagnostic\]\s+result_type=user\b/i;
 
+const UPSTREAM_REQUEST_REJECTED_REGEX =
+  /invalid_request_error|unexpected status\s*(?:400|404|422)\b|API Error:\s*(?:400|404|422)\b/i;
+
+export function isUpstreamRequestRejected(
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  return (
+    UPSTREAM_REQUEST_REJECTED_REGEX.test(errorMessage) ||
+    (!!errorDetails && UPSTREAM_REQUEST_REJECTED_REGEX.test(errorDetails))
+  );
+}
+
 function includesAny(
   value: string | undefined,
   patterns: readonly string[],
@@ -275,6 +288,7 @@ export function isTurnEndedWithoutResponseError(
 export type PromptFailureKind =
   | "usage_limit"
   | "transient"
+  | "request_rejected"
   | "authentication"
   | "fatal_session"
   | "unknown";
@@ -313,13 +327,31 @@ export function classifyPromptFailure(
     };
   }
   if (
-    errorType?.startsWith("upstream_") ||
-    isTransientUpstreamError(message, errorDetails)
+    errorType !== "upstream_request_rejected" &&
+    ([
+      "upstream_stream_terminated",
+      "upstream_connection_error",
+      "upstream_timeout",
+      "upstream_provider_failure",
+    ].includes(errorType ?? "") ||
+      isTransientUpstreamError(message, errorDetails))
   ) {
     return {
       kind: "transient",
       message,
       retryable: true,
+      limitCause: null,
+    };
+  }
+  if (
+    errorType === "upstream_request_rejected" ||
+    isUpstreamRequestRejected(message, errorDetails)
+  ) {
+    return {
+      kind: "request_rejected",
+      message:
+        "The AI provider couldn't process this request. Try starting a new task.",
+      retryable: false,
       limitCause: null,
     };
   }
@@ -362,6 +394,7 @@ export function isFatalSessionError(
   if (isRateLimitError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
+  if (isUpstreamRequestRejected(errorMessage, errorDetails)) return false;
   if (classifyGatewayLimitError(errorMessage, errorDetails) !== null) {
     return false;
   }

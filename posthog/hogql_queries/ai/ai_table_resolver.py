@@ -4,8 +4,11 @@ from typing import TYPE_CHECKING, Any
 
 from prometheus_client import Counter, Histogram
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -33,7 +36,6 @@ AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
 
 if TYPE_CHECKING:
     from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-    from posthog.hogql.modifiers import HogQLQueryModifiers
     from posthog.hogql.timings import HogQLTimings
 
     from posthog.clickhouse.client.connection import Workload
@@ -69,6 +71,14 @@ class AIEventsNotFoundError(AIEventsUnavailableError):
     """The requested AI events were not found in either ai_events or the shared events table."""
 
 
+def _without_materialized_columns(modifiers: HogQLQueryModifiers | None) -> HogQLQueryModifiers:
+    # The materialized-column registry lists the columns of the main cluster. On the ai-events cluster, `person` is a
+    # Distributed shim created from the base table DDL, so it has no mat_*/pmat_* columns and a read of one fails.
+    ai_modifiers = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
+    ai_modifiers.materializationMode = MaterializationMode.DISABLED
+    return ai_modifiers
+
+
 def query_ai_events(
     query: ast.SelectQuery | ast.SelectSetQuery,
     placeholders: dict[str, ast.Expr],
@@ -83,6 +93,8 @@ def query_ai_events(
     limit_context: LimitContext | None = None,
     settings: HogQLGlobalSettings | None = None,
     workload: Workload | None = None,
+    posthog_tables_only: bool = False,
+    bypass_property_access_control: bool = False,
 ) -> Any:
     """Execute a query written against the dedicated ai_events table.
 
@@ -105,12 +117,19 @@ def query_ai_events(
 
     Pass the requesting ``user`` for interactive reads so member and role property rules
     apply on every read path. Userless background reads apply the project's default rules.
+    Online evaluations opt into ``bypass_property_access_control`` to grade complete events
+    as a project workflow, independently of user permissions.
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
     the thread default, but outside Celery (Django shell, pytest, management commands)
     that signal does not fire — so callers that must run on a specific pool should not
     rely on it implicitly.
+
+    ``posthog_tables_only=True`` compiles against PostHog's built-in tables only. Pass it when the
+    query and its placeholders reference no warehouse table, view or group type. Without it, every
+    call builds the team's full HogQL catalog, and on a team with thousands of warehouse tables
+    that build holds the GIL for longer than the query itself takes.
     """
     kwargs: dict[str, Any] = {"query_type": query_type, "team": team, "user": user}
     if timings is not None:
@@ -123,12 +142,24 @@ def query_ai_events(
         kwargs["settings"] = settings
     if workload is not None:
         kwargs["workload"] = workload
+    if posthog_tables_only or bypass_property_access_control:
+        kwargs["context"] = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            user=user,
+            database=Database.create_for_posthog_tables(team, modifiers=modifiers) if posthog_tables_only else None,
+            restricted_properties=set() if bypass_property_access_control else None,
+        )
 
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(ai_query_source="dedicated_table")
         ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
         with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
-            result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+            result = execute_hogql_query(
+                query=query,
+                placeholders=ai_placeholders,
+                **{**kwargs, "modifiers": _without_materialized_columns(modifiers)},
+            )
         if result.results:
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
@@ -146,6 +177,8 @@ def query_ai_events(
                 user=user,
                 use_new_events_schema=events_schema,
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+                restricted_properties=set() if bypass_property_access_control else None,
+                database=Database.create_for_posthog_tables(team, modifiers=modifiers) if posthog_tables_only else None,
             ),
         }
 

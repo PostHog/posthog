@@ -9,7 +9,6 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
-import pyarrow as pa
 import pytest_asyncio
 from aioresponses import aioresponses
 from temporalio import activity
@@ -22,7 +21,13 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     iter_records,
@@ -218,7 +223,6 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
-        batch_export_schema=None,
         backfill_details=BackfillDetails(
             backfill_id=None,
             start_at=data_interval_start.isoformat(),
@@ -246,36 +250,34 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True, UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[])
 async def test_insert_into_http_activity_preserves_mutation_properties_when_using_native_events(
-    activity_environment, http_config
+    clickhouse_client, activity_environment, http_config
 ):
-    """Native ingestion strips the mutation keys out of `properties`, so the export has to put them
-    back from the columns the native source carries.
-    """
-    interval_end = dt.datetime(2026, 1, 2, tzinfo=dt.UTC)
-    event_time = interval_end - dt.timedelta(hours=1)
-    record_batch = pa.RecordBatch.from_pylist(
-        [
-            {
-                "uuid": str(uuid4()),
-                "timestamp": event_time,
-                "_inserted_at": event_time,
-                "event": "$pageview",
-                "properties": "{}",
-                "distinct_id": "person-1",
-                "elements_chain": None,
-                "set": '{"email":"person@example.com"}',
-                "set_once": '{"first_seen":"2026-01-01"}',
-                "unset": '["old_property"]',
-                "group_set": '{"company":{"name":"Example"}}',
-            }
-        ]
+    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(days=10)
+    interval_start = interval_end - dt.timedelta(hours=1)
+    team_id = randint(1, 1000000)
+    properties = {
+        "$set": {"email": "person@example.com", "phone": None},
+        "$set_once": {"referrer": None},
+        "$unset": ["old_property"],
+        "$group_set": {"name": "Example", "owner": None},
+    }
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=interval_start,
+        end_time=interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=properties,
+        table="sharded_events",
     )
     insert_inputs = HttpInsertInputs(
-        team_id=randint(1, 1000000),
+        team_id=team_id,
         data_interval_start=None,
         data_interval_end=interval_end.isoformat(),
-        batch_export_schema=None,
         backfill_details=BackfillDetails(
             backfill_id=None,
             start_at=None,
@@ -285,27 +287,12 @@ async def test_insert_into_http_activity_preserves_mutation_properties_when_usin
     )
     mock_server = MockServer()
 
-    with (
-        unittest.mock.patch(
-            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
-            return_value=True,
-        ),
-        unittest.mock.patch(
-            "products.batch_exports.backend.temporal.destinations.http_batch_export.iter_records",
-            return_value=iter([record_batch]),
-        ),
-        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
-    ):
+    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses:
         responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)
 
-    assert mock_server.records[0]["properties"] == {
-        "$geoip_disable": True,
-        "$set": {"email": "person@example.com"},
-        "$set_once": {"first_seen": "2026-01-01"},
-        "$unset": ["old_property"],
-        "$group_set": {"company": {"name": "Example"}},
-    }
+    assert len(mock_server.records) == 1
+    assert mock_server.records[0]["properties"] == {**properties, "$geoip_disable": True}
 
 
 @pytest.mark.parametrize("is_backfill", [False, True], ids=["scheduled", "backfill"])
@@ -334,7 +321,6 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
         team_id=team_id,
         data_interval_start=interval_start.isoformat(),
         data_interval_end=interval_end.isoformat(),
-        batch_export_schema=None,
         backfill_details=(
             BackfillDetails(backfill_id=None, start_at=interval_start.isoformat(), end_at=interval_end.isoformat())
             if is_backfill
@@ -390,7 +376,6 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
-        batch_export_schema=None,
         backfill_details=BackfillDetails(
             backfill_id=None,
             start_at=data_interval_start.isoformat(),
@@ -463,7 +448,6 @@ async def test_http_export_workflow(
     interval,
     exclude_events,
     ateam,
-    batch_export_schema,
 ):
     """Test HTTP Export Workflow end-to-end by using a mock server.
 
@@ -505,7 +489,6 @@ async def test_http_export_workflow(
         batch_export_id=str(http_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         **http_batch_export.destination.config,
     )
 
@@ -558,29 +541,24 @@ async def test_http_export_workflow(
     "batch_export_model",
     [
         None,
-        BatchExportModel(name="events", schema=None),
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(),
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
             ],
         ),
         # this filter should filter out all test events
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Linux"]},
             ],
         ),
         # None of the following are supported so we expect an error to be raised
-        BatchExportModel(name="persons", schema=None),
-        BatchExportModel(name="sessions", schema=None),
-        BatchExportModel(
-            name="a-custom-model",
+        BatchExportPersonsModel(),
+        BatchExportSessionsModel(),
+        BatchExportEventsCustomModel(
             schema={
                 "fields": [
                     {"expression": "uuid", "alias": "uuid"},
@@ -651,7 +629,7 @@ async def test_http_export_workflow_with_model(
     if batch_export_model is not None:
         if batch_export_model.name != "events":
             expect_failure = True
-        if batch_export_model.schema is not None:
+        if isinstance(batch_export_model, BatchExportEventsCustomModel):
             expect_failure = True
 
     mock_server = MockServer()
@@ -698,7 +676,10 @@ async def test_http_export_workflow_with_model(
         assert len(runs) == 1
         run = runs[0]
         assert run.status == "FailedRetryable"
-        assert run.latest_error == "NotImplementedError: HTTP export only supports the events model"
+        if isinstance(batch_export_model, BatchExportEventsCustomModel):
+            assert run.latest_error == "NotImplementedError: HTTP export does not support schemas"
+        else:
+            assert run.latest_error == "NotImplementedError: HTTP export only supports the events model"
         assert run.records_completed is None
     else:
         runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)

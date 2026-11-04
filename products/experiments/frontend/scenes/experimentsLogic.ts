@@ -208,6 +208,9 @@ export interface experimentsLogicActions {
         page: number
         statusFilter: string
     } // eventUsageLogic
+    reportExperimentsSettingsViewed: () => {
+        value: true
+    } // eventUsageLogic
     loadCurrentTeamSuccess: (
         currentTeam: TeamPublicType | null,
         payload?: any
@@ -554,7 +557,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             teamLogic,
             ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
             eventUsageLogic,
-            ['reportExperimentsListViewed'],
+            ['reportExperimentsListViewed', 'reportExperimentsSettingsViewed'],
         ],
     })),
     actions({
@@ -605,6 +608,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setExperimentsTab: ({ tabKey }) => {
+            if (tabKey === ExperimentsTabs.Settings) {
+                actions.reportExperimentsSettingsViewed()
+            }
+        },
         setExperimentsFilters: async (_, breakpoint) => {
             // Only debounce after the first load — the debounce is for search input,
             // but the initial load from urlToAction should fire immediately.

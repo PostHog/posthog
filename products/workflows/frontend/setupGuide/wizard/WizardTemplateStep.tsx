@@ -2,7 +2,8 @@ import '../../Workflows/templates/WorkflowTemplateChooser.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconArrowLeft, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -10,13 +11,20 @@ import { WorkflowTemplateCard } from '../../Workflows/templates/WorkflowTemplate
 import { WorkflowTemplateMeta } from '../../Workflows/templates/WorkflowTemplateMeta'
 import { WorkflowTemplateSteps } from '../../Workflows/templates/WorkflowTemplateSteps'
 import { BLANK_START_ID } from './onboardingWizardSteps'
+import { WizardSuggestionsStep } from './WizardSuggestionsStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 /** A template picker that selects, rather than creates, so the wizard can show more steps before it creates. */
 export function WizardTemplateStep(): JSX.Element {
-    const { templates, selectedTemplateId, workflowTemplatesLoading, startsBlank } =
-        useValues(workflowsOnboardingWizardLogic)
-    const { selectTemplate } = useActions(workflowsOnboardingWizardLogic)
+    const {
+        templates,
+        selectedTemplateId,
+        workflowTemplatesLoading,
+        startsBlank,
+        offersSuggestions,
+        suggestionsFirst,
+    } = useValues(workflowsOnboardingWizardLogic)
+    const { selectTemplate, setTemplatesShown } = useActions(workflowsOnboardingWizardLogic)
 
     if (workflowTemplatesLoading && templates.length === 0) {
         return (
@@ -26,7 +34,7 @@ export function WizardTemplateStep(): JSX.Element {
         )
     }
 
-    return (
+    const templateGrid = (
         <div className="WorkflowTemplateChooser">
             <WorkflowTemplateCard
                 name="Start from scratch"
@@ -52,6 +60,29 @@ export function WizardTemplateStep(): JSX.Element {
                     data-attr="workflows-onboarding-wizard-template"
                 />
             ))}
+        </div>
+    )
+
+    if (suggestionsFirst) {
+        return <WizardSuggestionsStep fallback={templateGrid} />
+    }
+    if (!offersSuggestions) {
+        return templateGrid
+    }
+    return (
+        <div className="flex flex-col gap-3">
+            <div>
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setTemplatesShown(false)}
+                    data-attr="workflows-onboarding-wizard-show-suggestions"
+                >
+                    Back to suggestions from your data
+                </LemonButton>
+            </div>
+            {templateGrid}
         </div>
     )
 }

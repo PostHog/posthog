@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.models.action import Action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -171,6 +172,41 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(self._list_url(), data=self._create_payload(name="editor_create"), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertTrue(HogFlow.objects.filter(team=self.team, name="editor_create").exists())
+
+    @parameterized.expand([("trigger",), ("conversion",)])
+    def test_action_reference_needs_viewer_access_unless_already_used(self, placement: str):
+        action = Action.objects.create(
+            team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="action", resource_id=str(action.id), access_level="none"
+        )
+        filters = {"actions": [{"id": str(action.id), "name": "restricted", "type": "actions", "order": 0}]}
+        definition: dict = (
+            {"actions": [{**TRIGGER_ACTION, "config": {"type": "event", "filters": filters}}]}
+            if placement == "trigger"
+            else {"actions": [TRIGGER_ACTION], "conversion": {"events": [{"filters": filters}], "window": "7d"}}
+        )
+        stored = HogFlow.objects.create(
+            team=self.team, name="uses_action", created_by=self.user, status=HogFlow.State.DRAFT, **definition
+        )
+        self.client.force_login(self.editor_user)
+
+        created = self.client.post(self._list_url(), data={"name": "editor_action", **definition}, format="json")
+        edited = self.client.patch(self._detail_url(stored.id), data=definition, format="json")
+        with patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test") as invoke:
+            invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            tested = self.client.post(
+                f"{self._detail_url(stored.id)}/invocations/",
+                data={"configuration": definition, "globals": {"event": {"event": "$pageview"}}},
+                format="json",
+            )
+
+        self.assertEqual(created.status_code, status.HTTP_400_BAD_REQUEST, created.json())
+        self.assertFalse(HogFlow.objects.filter(team=self.team, name="editor_action").exists())
+        self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
+        self.assertEqual(tested.status_code, status.HTTP_200_OK, tested.json())
 
     @parameterized.expand(
         [

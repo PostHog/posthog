@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import re
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, TypedDict
 from uuid import UUID
 
@@ -624,11 +624,6 @@ def get_team_backfill_state(team_id: int) -> ManagedWarehouseBackfillState:
 # Ignore events before this date — pre-2015 data is typically junk timestamps.
 EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
 
-# Stored on the team's duckgres control-plane row for a team with no events, so callers
-# cache "nothing to backfill" instead of re-querying ClickHouse. Far enough in the future
-# that any generated backfill months range is always empty.
-NO_HISTORY_SENTINEL = date(9999, 12, 31)
-
 
 @retry(
     stop=stop_after_attempt(3),
@@ -669,9 +664,12 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
         # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
         # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
         # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
+        #
+        # Use minOrNull because min() over zero rows returns the type default (1970-01-01),
+        # which reads as history and backfills a team with no events from EARLIEST_BACKFILL_DATE.
         result = client.execute(
             """
-            SELECT toDate(min(timestamp)) as earliest_date
+            SELECT toDate(minOrNull(timestamp)) as earliest_date
             FROM events
             WHERE team_id = %(team_id)s
               AND timestamp >= '1970-01-01'
@@ -696,18 +694,21 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
 def resolve_team_earliest_event_date(team_id: int) -> date:
     """Resolve the date a team's historical duckling backfill should start from.
 
-    Clamps to EARLIEST_BACKFILL_DATE and returns NO_HISTORY_SENTINEL for a team with no
-    events, so callers can cache the result and never re-query ClickHouse for the team.
+    Clamps to EARLIEST_BACKFILL_DATE. A team with no events yet resolves to today, the
+    day it is first resolved (usually the day it is provisioned), so the full backfill
+    covers each complete month from then on.
+    That monthly run is the only backfill of a month's last day, because the daily
+    backfill covers the current month up to yesterday. Callers cache the result and never
+    re-query ClickHouse for the team.
     """
     earliest_dt = get_earliest_event_date_for_team(team_id)
     if earliest_dt is None:
-        return NO_HISTORY_SENTINEL
+        return datetime.now(UTC).date()
     return max(earliest_dt, EARLIEST_BACKFILL_DATE).date()
 
 
 __all__ = [
     "EARLIEST_BACKFILL_DATE",
-    "NO_HISTORY_SENTINEL",
     "attach_catalog",
     "default_bucket_region",
     "get_earliest_event_date_for_team",

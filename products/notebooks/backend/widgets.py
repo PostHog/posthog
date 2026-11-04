@@ -9,13 +9,10 @@ from decimal import Decimal
 from time import monotonic
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -57,7 +54,6 @@ JOB_STALE_AFTER = timedelta(minutes=10)
 GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
-NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -451,34 +447,6 @@ def _is_ai_usage_limited(team_api_token: str) -> bool:
     )
 
     return is_team_over_ai_credit_budget(team_api_token)
-
-
-def is_notebook_widget_enabled(user: User | None) -> bool:
-    if settings.DEBUG or settings.TEST:
-        return True
-    if user is None or not user.distinct_id:
-        return False
-    organization = getattr(user, "organization", None)
-    if organization is None:
-        return bool(
-            posthoganalytics.feature_enabled(
-                NOTEBOOK_GENERATED_WIDGETS_FLAG,
-                user.distinct_id,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    organization_id = str(organization.id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            NOTEBOOK_GENERATED_WIDGETS_FLAG,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def _display_name(prompt: str) -> str:

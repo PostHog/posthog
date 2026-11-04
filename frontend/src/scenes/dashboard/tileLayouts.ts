@@ -6,11 +6,16 @@ import {
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isPathsQuery,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import { isMetricInsightQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -221,9 +226,7 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
 export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
-        tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
-            .map((tile) => tile.id)
+        tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
     )
 
     // Always calculate sm layout first to establish reference order
@@ -243,7 +246,8 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight?.query
+            const source = isInsightVizNode(query) ? query.source : query
             // Base constraints
             let defaultW = 6
             let defaultH = 5
@@ -251,19 +255,19 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isFunnelsQuery(query)) {
+            } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
-            } else if (isRetentionQuery(query)) {
+            } else if (isRetentionQuery(source)) {
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsQuery(query)) {
+            } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isMetricInsightQuery(query?.query)) {
+            } else if (isMetricInsightQuery(query)) {
                 defaultW = 3
                 defaultH = 3
             }

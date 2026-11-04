@@ -1,0 +1,4 @@
+version: 1
+owners: team-growth
+# Growth decides which products the sidebar promotion card pushes, so every change here goes to Growth, however small.
+sensitive: true

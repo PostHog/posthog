@@ -141,7 +141,7 @@ describe('commandKQuery', () => {
         }
     )
 
-    test('ask AI text includes chips as typed text', () => {
+    test('copied text includes chips as typed text', () => {
         expect(queryAsText(' revenue ', [chip('is', 'dashboard', true)])).toBe('-is:dashboard revenue')
     })
 

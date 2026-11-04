@@ -11,13 +11,14 @@ const FAILED_RESULT = { success: false, webhook_url: 'https://example.com/hook',
 function renderFallback(
     sourceConfig: Partial<SourceConfigResponseApi>,
     onCreateWebhook: () => void = jest.fn(),
-    autoCreationBlockedReason?: string
+    autoCreationBlockedReason?: string,
+    webhookResult: typeof FAILED_RESULT = FAILED_RESULT
 ): void {
     render(
         <WebhookSetupForm
             sourceName="WooCommerce"
             sourceConfig={{ name: 'WooCommerce', fields: [], ...sourceConfig } as unknown as SourceConfigResponseApi}
-            webhookResult={FAILED_RESULT}
+            webhookResult={webhookResult}
             webhookCreating={false}
             autoCreationBlockedReason={autoCreationBlockedReason}
             onCreateWebhook={onCreateWebhook}
@@ -28,10 +29,18 @@ function renderFallback(
 describe('WebhookSetupForm', () => {
     afterEach(cleanup)
 
-    it('offers a retry after automatic creation fails', () => {
+    it.each([
+        ['automatic creation fails', {}, FAILED_RESULT],
+        [
+            'a manual-only source gets no webhook URL',
+            { webhookManualOnly: true },
+            { ...FAILED_RESULT, webhook_url: '' },
+        ],
+    ])('offers a retry when %s', (_name, sourceConfig, webhookResult) => {
         const onCreateWebhook = jest.fn()
-        renderFallback({}, onCreateWebhook)
+        renderFallback(sourceConfig, onCreateWebhook, undefined, webhookResult)
 
+        expect(screen.getByText(webhookResult.error)).toBeInTheDocument()
         fireEvent.click(screen.getByText('Try again'))
 
         expect(onCreateWebhook).toHaveBeenCalledTimes(1)

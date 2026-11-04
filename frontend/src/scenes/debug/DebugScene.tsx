@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconDatabaseBolt } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -15,11 +16,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { stringifiedExamples } from '~/queries/examples'
 
 import { debugSceneLogic } from './debugSceneLogic'
+import { QuillDebugSceneActions } from './QuillDebugSceneActions'
 
 export function DebugScene(): JSX.Element {
     const { query1, query2 } = useValues(debugSceneLogic)
     const { setQuery1, setQuery2 } = useActions(debugSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent className="QueryScene">
@@ -27,61 +30,65 @@ export function DebugScene(): JSX.Element {
                 name="Debug"
                 resourceType={{ type: 'debug', forceIcon: <IconDatabaseBolt /> }}
                 actions={
-                    <>
-                        <LemonButton
-                            size="small"
-                            active={!!query2}
-                            onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}
-                        >
-                            Split
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            active={query1 === stringifiedExamples.HogQLRaw}
-                            onClick={() => setQuery1(stringifiedExamples.HogQLRaw)}
-                        >
-                            SQL Debug
-                        </LemonButton>
-                        {featureFlags[FEATURE_FLAGS.HOG] ? (
+                    todayRailNav ? (
+                        <QuillDebugSceneActions />
+                    ) : (
+                        <>
                             <LemonButton
                                 size="small"
-                                active={query1 === stringifiedExamples.Hoggonacci}
-                                onClick={() => setQuery1(stringifiedExamples.Hoggonacci)}
+                                active={!!query2}
+                                onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}
                             >
-                                Hog
+                                Split
                             </LemonButton>
-                        ) : null}
-                        <LemonButton
-                            size="small"
-                            active={query1 === stringifiedExamples.HogQLTable}
-                            onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
-                        >
-                            SQL Table
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            active={query1 === stringifiedExamples.Events}
-                            onClick={() => setQuery1(stringifiedExamples.Events)}
-                        >
-                            Any Query
-                        </LemonButton>
-                        <LemonLabel>
-                            <LemonSelect
+                            <LemonButton
                                 size="small"
-                                placeholder="More sample queries"
-                                options={Object.entries(stringifiedExamples)
-                                    .filter(([k]) => k !== 'HogQLTable' && k !== 'HogQLRaw')
-                                    .map(([k, v]) => {
-                                        return { label: k, value: v }
-                                    })}
-                                onChange={(v) => {
-                                    if (v) {
-                                        setQuery1(v)
-                                    }
-                                }}
-                            />
-                        </LemonLabel>
-                    </>
+                                active={query1 === stringifiedExamples.HogQLRaw}
+                                onClick={() => setQuery1(stringifiedExamples.HogQLRaw)}
+                            >
+                                SQL Debug
+                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.HOG] ? (
+                                <LemonButton
+                                    size="small"
+                                    active={query1 === stringifiedExamples.Hoggonacci}
+                                    onClick={() => setQuery1(stringifiedExamples.Hoggonacci)}
+                                >
+                                    Hog
+                                </LemonButton>
+                            ) : null}
+                            <LemonButton
+                                size="small"
+                                active={query1 === stringifiedExamples.HogQLTable}
+                                onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
+                            >
+                                SQL Table
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                active={query1 === stringifiedExamples.Events}
+                                onClick={() => setQuery1(stringifiedExamples.Events)}
+                            >
+                                Any Query
+                            </LemonButton>
+                            <LemonLabel>
+                                <LemonSelect
+                                    size="small"
+                                    placeholder="More sample queries"
+                                    options={Object.entries(stringifiedExamples)
+                                        .filter(([k]) => k !== 'HogQLTable' && k !== 'HogQLRaw')
+                                        .map(([k, v]) => {
+                                            return { label: k, value: v }
+                                        })}
+                                    onChange={(v) => {
+                                        if (v) {
+                                            setQuery1(v)
+                                        }
+                                    }}
+                                />
+                            </LemonLabel>
+                        </>
+                    )
                 }
             />
 

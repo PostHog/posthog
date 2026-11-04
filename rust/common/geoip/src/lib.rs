@@ -52,29 +52,28 @@ impl GeoIpClient {
     }
 }
 
-const GEOIP_FIELDS: [(&str, &[&str]); 7] = [
-    ("$geoip_country_name", &["country", "names", "en"]),
-    ("$geoip_city_name", &["city", "names", "en"]),
-    ("$geoip_country_code", &["country", "iso_code"]),
-    ("$geoip_continent_name", &["continent", "names", "en"]),
-    ("$geoip_continent_code", &["continent", "code"]),
-    ("$geoip_postal_code", &["postal", "code"]),
-    ("$geoip_time_zone", &["location", "time_zone"]),
+const GEOIP_FIELDS: [(&str, &str); 11] = [
+    ("$geoip_country_name", "/country/names/en"),
+    ("$geoip_city_name", "/city/names/en"),
+    ("$geoip_country_code", "/country/iso_code"),
+    ("$geoip_continent_name", "/continent/names/en"),
+    ("$geoip_continent_code", "/continent/code"),
+    ("$geoip_postal_code", "/postal/code"),
+    ("$geoip_time_zone", "/location/time_zone"),
+    // MaxMind orders `subdivisions` from the largest region to the smallest, so index 0 is level 1.
+    ("$geoip_subdivision_1_code", "/subdivisions/0/iso_code"),
+    ("$geoip_subdivision_1_name", "/subdivisions/0/names/en"),
+    ("$geoip_subdivision_2_code", "/subdivisions/1/iso_code"),
+    ("$geoip_subdivision_2_name", "/subdivisions/1/names/en"),
 ];
-
-fn get_nested_value<'a>(data: &'a Value, path: &[&str]) -> Option<&'a str> {
-    let mut current = data;
-    for &key in path {
-        current = current.get(key)?;
-    }
-    current.as_str()
-}
 
 fn extract_properties(city: &Value) -> HashMap<String, String> {
     GEOIP_FIELDS
         .iter()
-        .filter_map(|&(field, path)| {
-            get_nested_value(city, path).map(|value| (field.to_string(), value.to_string()))
+        .filter_map(|&(field, pointer)| {
+            city.pointer(pointer)
+                .and_then(Value::as_str)
+                .map(|value| (field.to_string(), value.to_string()))
         })
         .collect()
 }
@@ -177,39 +176,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_nested_value() {
-        let data = json!({
-            "country": {
-                "names": {
-                    "en": "United States"
-                }
-            },
-            "city": {
-                "names": {
-                    "en": "New York"
-                }
-            },
-            "postal": {
-                "code": "10001"
-            }
-        });
-
-        assert_eq!(
-            get_nested_value(&data, &["country", "names", "en"]),
-            Some("United States")
-        );
-        assert_eq!(
-            get_nested_value(&data, &["city", "names", "en"]),
-            Some("New York")
-        );
-        assert_eq!(get_nested_value(&data, &["postal", "code"]), Some("10001"));
-        assert_eq!(get_nested_value(&data, &["country", "code"]), None);
-        assert_eq!(get_nested_value(&data, &["nonexistent", "path"]), None);
-    }
-
-    #[test]
     fn test_extract_properties() {
-        let city_data = json!({
+        let mut city_data = json!({
             "country": {
                 "names": {
                     "en": "United States"
@@ -218,7 +186,7 @@ mod tests {
             },
             "city": {
                 "names": {
-                    "en": "New York"
+                    "en": "Brooklyn"
                 }
             },
             "continent": {
@@ -232,7 +200,21 @@ mod tests {
             },
             "location": {
                 "time_zone": "America/New_York"
-            }
+            },
+            "subdivisions": [
+                {
+                    "iso_code": "NY",
+                    "names": {
+                        "en": "New York"
+                    }
+                },
+                {
+                    "iso_code": "KGS",
+                    "names": {
+                        "en": "Kings County"
+                    }
+                }
+            ]
         });
 
         let properties = extract_properties(&city_data);
@@ -243,7 +225,7 @@ mod tests {
         );
         assert_eq!(
             properties.get("$geoip_city_name"),
-            Some(&"New York".to_string())
+            Some(&"Brooklyn".to_string())
         );
         assert_eq!(
             properties.get("$geoip_country_code"),
@@ -265,6 +247,40 @@ mod tests {
             properties.get("$geoip_time_zone"),
             Some(&"America/New_York".to_string())
         );
-        assert_eq!(properties.len(), 7);
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_code"),
+            Some(&"NY".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_name"),
+            Some(&"New York".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_2_code"),
+            Some(&"KGS".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_2_name"),
+            Some(&"Kings County".to_string())
+        );
+        assert_eq!(properties.len(), 11);
+
+        city_data["subdivisions"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(1);
+        let properties = extract_properties(&city_data);
+
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_code"),
+            Some(&"NY".to_string())
+        );
+        assert_eq!(
+            properties.get("$geoip_subdivision_1_name"),
+            Some(&"New York".to_string())
+        );
+        assert!(!properties.contains_key("$geoip_subdivision_2_code"));
+        assert!(!properties.contains_key("$geoip_subdivision_2_name"));
+        assert_eq!(properties.len(), 9);
     }
 }

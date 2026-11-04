@@ -87,6 +87,15 @@ def upsert_pull_request(
     return result
 
 
+def get_pull_request_url(team_id: int, run_id: UUID) -> str | None:
+    return (
+        WizardRunArtifact.objects.for_team(team_id)
+        .filter(run_id=run_id, type=WizardRunArtifactType.PULL_REQUEST.value)
+        .values_list("external_url", flat=True)
+        .first()
+    )
+
+
 def list_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:
     artifacts = WizardRunArtifact.objects.for_team(team_id).filter(run_id=run_id).order_by("created_at", "id")
     return [record_to_artifact(artifact) for artifact in artifacts]

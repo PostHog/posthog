@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
+import { parseDateInTimezone } from 'lib/utils/datetime'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { hashCodeForString } from 'lib/utils/strings'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
@@ -769,7 +770,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addUserDataToBuckets(data.usersPageviews, bucketMap)
                 addBreakdownDataToBuckets(data.device, bucketMap, (b) => b.devices)
                 addBreakdownDataToBuckets(data.browser, bucketMap, (b) => b.browsers)
-                addPathDataToBuckets(data.paths, bucketMap)
+                addPathDataToBuckets(data.paths, bucketMap, values.currentTeam?.timezone ?? 'UTC')
                 addReferrerDataToBuckets(data.referrer, bucketMap)
                 addGeoDataToBuckets(data.geo, bucketMap)
                 addCityDataToBuckets(data.city, bucketMap)
@@ -1596,14 +1597,17 @@ const addBreakdownDataToBuckets = (
 
 const addPathDataToBuckets = (
     pathsResponse: TrendsQueryResponse | null,
-    bucketMap: Map<number, SlidingWindowBucket>
+    bucketMap: Map<number, SlidingWindowBucket>,
+    timezone: string
 ): void => {
     if (!pathsResponse) {
         return
     }
     for (const result of pathsResponse.results) {
         for (let i = 0; i < result.data.length; i++) {
-            const timestamp = Date.parse(result.action.days[i])
+            // The trends runner writes `days` as wall-clock times in the project timezone, while the other live
+            // queries key buckets by instant.
+            const timestamp = parseDateInTimezone(result.days[i], timezone).valueOf()
             const bucket = getOrCreateBucket(bucketMap, timestamp)
 
             const path = result.breakdown_value

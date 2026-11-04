@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 import structlog
 import temporalio.activity
@@ -33,11 +33,15 @@ from posthog.temporal.experiments.models import (
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.timeseries import (
+    apply_saved_metric_overrides,
     backfill_experiment_timeseries,
     build_metric,
+    daily_inline_metric_calculations,
+    daily_saved_metric_calculations,
     is_daily_timeseries_metric,
-    is_scheduled_metric,
-    resolve_saved_metric_definition,
+    record_daily_metric_failure,
+    record_daily_metric_result,
+    saved_metric_link_for_calculation_key,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -45,14 +49,13 @@ from products.experiments.backend.hogql_queries.error_handling import (
     capture_experiment_metric_error_event,
     classify_experiment_query_error,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricResult as ExperimentMetricResultModel,
-)
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.stats.shared.statistics import StatisticError
+
+if TYPE_CHECKING:
+    from products.experiments.backend.metric_calculation.config import MetricCalculationConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -70,53 +73,60 @@ def _build_metric_validated(
         raise ValidationError(str(e)) from e
 
 
+def _queued_calculation_config(
+    query_runner: ExperimentQueryRunner, *, metric_uuid: str, definition: dict[str, Any], calculation_key: str
+) -> "MetricCalculationConfig | None":
+    """The config that the runner computes, in the key version of the queued key, or None when the runner's settings
+    no longer give that key.
+
+    The runner reads the experiment and the team settings when it is built, after the discovery computed the key. The
+    stored definition builds the config, as in the discovery: the runner's own config reads the definition through the
+    metric model, which adds null fields and so gives another key.
+    """
+    runtime_config = query_runner.calculation_config.settings.build_metric_config(
+        metric_id=metric_uuid, role="primary", definition=definition
+    )
+    key_version = runtime_config.key_version_of(calculation_key)
+    return runtime_config.with_key_version(key_version) if key_version is not None else None
+
+
+def _log_settings_drift(experiment_id: int, metric_uuid: str) -> None:
+    logger.info(
+        "Skipping experiment metric calculation, because the settings changed after discovery",
+        experiment_id=experiment_id,
+        metric_uuid=metric_uuid,
+    )
+
+
+_SETTINGS_DRIFT_MESSAGE = "The calculation settings changed after the run was scheduled"
+
+
 @database_sync_to_async
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
     close_old_connections()
 
-    experiment_metrics: list[ExperimentRegularMetricInput] = []
-
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).exclude(
-        Q(metrics__isnull=True) | Q(metrics=[]),
-        Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+    team_id_by_experiment_id = dict(
+        Experiment.objects.filter(
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        )
+        .exclude(
+            Q(metrics__isnull=True) | Q(metrics=[]),
+            Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+        )
+        .values_list("id", "team_id")
     )
-
-    for experiment in experiments:
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-
-        for metric in all_metrics:
-            metric_uuid = metric.get("uuid")
-            if not metric_uuid:
-                logger.warning(
-                    "Metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                )
-                continue
-            if not is_scheduled_metric(metric):
-                continue
-
-            fingerprint = compute_metric_fingerprint(
-                metric,
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
-
-            experiment_metrics.append(
-                ExperimentRegularMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
-            )
+    experiment_metrics = [
+        ExperimentRegularMetricInput(
+            experiment_id=calculation.experiment_id,
+            metric_uuid=calculation.metric_uuid,
+            fingerprint=calculation.calculation_key,
+            team_id=calculation.team_id,
+        )
+        for calculation in daily_inline_metric_calculations(team_id_by_experiment_id)
+    ]
 
     logger.info(
         "Discovered experiment metrics for hour",
@@ -199,6 +209,7 @@ def _calculate_experiment_regular_metric_sync(
     now_utc = datetime.now(ZoneInfo("UTC"))
     query_to_utc = experiment_window_end(experiment, now_utc)
 
+    display_key: str | None = None
     try:
         # Inside the try so a malformed stored metric dict follows the same
         # failure path as a query error instead of escaping the activity.
@@ -213,9 +224,9 @@ def _calculate_experiment_regular_metric_sync(
             team=experiment.team,
             as_of=query_to_utc,
             workload=Workload.OFFLINE,
-            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-            # warehouse HogQL access control is enforced.
-            user=experiment.created_by,
+            # Userless background recompute. Warehouse access is enforced when the metric is authored, so
+            # resolve warehouse tables here instead of failing closed.
+            bypass_warehouse_access_control=True,
             # Internal caller: keep exceptions raw so the except branches below see original types
             # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
             # runner-level error event — this activity emits its own, on the final attempt.
@@ -224,28 +235,37 @@ def _calculate_experiment_regular_metric_sync(
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
         # the events as "used by this team."
+        calculation_config = _queued_calculation_config(
+            query_runner, metric_uuid=metric_uuid, definition=metric_dict, calculation_key=fingerprint
+        )
+        if calculation_config is None:
+            _log_settings_drift(experiment_id, metric_uuid)
+            return ExperimentRegularMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=_SETTINGS_DRIFT_MESSAGE,
+                skipped=True,
+            )
+        display_key = calculation_config.legacy_key()
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-        completed_at = datetime.now(ZoneInfo("UTC"))
-
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_result(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.COMPLETED,
-                "result": result_dict,
-                "query_id": None,
-                "completed_at": completed_at,
-                "error_message": None,
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            result=result_dict,
+            display_key=display_key,
         )
 
-        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(
+            experiment, metric_uuid, fingerprint, result_dict, query_to_utc, display_key=display_key
+        )
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -261,19 +281,14 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     except (StatisticError, ZeroDivisionError) as e:
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
+            display_key=display_key,
         )
 
         logger.warning(
@@ -308,19 +323,14 @@ def _calculate_experiment_regular_metric_sync(
         # doesn't retry and the worker interceptor doesn't report it to error tracking.
         is_permanent = classify_experiment_query_error(e) == "validation_error"
 
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
+            display_key=display_key,
         )
 
         if is_permanent:
@@ -379,50 +389,24 @@ async def calculate_experiment_regular_metric(
 def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSavedMetricInput]:
     close_old_connections()
 
-    experiment_metrics: list[ExperimentSavedMetricInput] = []
-
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).prefetch_related("experimenttosavedmetric_set__saved_metric")
-
-    for experiment in experiments:
-        for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
-            saved_metric = exp_to_saved_metric.saved_metric
-            metric_uuid = saved_metric.query.get("uuid")
-
-            if not metric_uuid:
-                logger.warning(
-                    "Saved metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                    saved_metric_id=saved_metric.id,
-                )
-                continue
-            if not is_scheduled_metric(saved_metric.query):
-                continue
-
-            # Fingerprint the effective definition (with the link overrides), the same dict the calc
-            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file override-configured metrics under a hash no reader looks up.
-            fingerprint = compute_metric_fingerprint(
-                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
-
-            experiment_metrics.append(
-                ExperimentSavedMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
-            )
+    team_id_by_experiment_id = dict(
+        Experiment.objects.filter(
+            Exists(ExperimentToSavedMetric.objects.filter(experiment_id=OuterRef("id"))),
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        ).values_list("id", "team_id")
+    )
+    experiment_metrics = [
+        ExperimentSavedMetricInput(
+            experiment_id=calculation.experiment_id,
+            metric_uuid=calculation.metric_uuid,
+            fingerprint=calculation.calculation_key,
+            team_id=calculation.team_id,
+        )
+        for calculation in daily_saved_metric_calculations(team_id_by_experiment_id)
+    ]
 
     logger.info(
         "Discovered experiment saved metrics for hour",
@@ -466,15 +450,12 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Experiment {experiment_id} not found or deleted",
         )
 
-    saved_metric = None
-    saved_metric_metadata: dict = {}
-    for exp_to_sm in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        if exp_to_sm.saved_metric.query.get("uuid") == metric_uuid:
-            saved_metric = exp_to_sm.saved_metric
-            saved_metric_metadata = exp_to_sm.metadata or {}
-            break
-
-    if not saved_metric:
+    links = [
+        link
+        for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").order_by("id")
+        if link.saved_metric.query.get("uuid") == metric_uuid
+    ]
+    if not links:
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -483,13 +464,32 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Saved metric {metric_uuid} not found for experiment {experiment_id}",
         )
 
+    # Each link that shares this uuid was queued under its own key.
+    if len(links) == 1:
+        link: ExperimentToSavedMetric | None = links[0]
+    else:
+        link_id = saved_metric_link_for_calculation_key(
+            experiment_id, team_id=experiment.team_id, metric_uuid=metric_uuid, calculation_key=fingerprint
+        )
+        link = next((candidate for candidate in links if candidate.id == link_id), None)
+    if link is None:
+        _log_settings_drift(experiment_id, metric_uuid)
+        return ExperimentSavedMetricResult(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            fingerprint=fingerprint,
+            success=False,
+            error_message=_SETTINGS_DRIFT_MESSAGE,
+            skipped=True,
+        )
+
     # The frontend receives saved metrics with two extra fields injected before
     # they get posted back to /query: the link overrides (via resolveSharedMetric
-    # in experiments/utils.ts, which mirrors resolve_saved_metric_definition) and
+    # in experiments/utils.ts, which mirrors apply_saved_metric_overrides) and
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **resolve_saved_metric_definition(saved_metric.query, saved_metric_metadata),
+        **apply_saved_metric_overrides(link.saved_metric.query, link.metadata or {}),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
@@ -515,6 +515,7 @@ def _calculate_experiment_saved_metric_sync(
     now_utc = datetime.now(ZoneInfo("UTC"))
     query_to_utc = experiment_window_end(experiment, now_utc)
 
+    display_key: str | None = None
     try:
         # Inside the try so a malformed stored metric dict follows the same
         # failure path as a query error instead of escaping the activity.
@@ -529,9 +530,9 @@ def _calculate_experiment_saved_metric_sync(
             team=experiment.team,
             as_of=query_to_utc,
             workload=Workload.OFFLINE,
-            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-            # warehouse HogQL access control is enforced.
-            user=experiment.created_by,
+            # Userless background recompute. Warehouse access is enforced when the metric is authored, so
+            # resolve warehouse tables here instead of failing closed.
+            bypass_warehouse_access_control=True,
             # Internal caller: keep exceptions raw so the except branches below see original types
             # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
             # runner-level error event — this activity emits its own, on the final attempt.
@@ -540,28 +541,37 @@ def _calculate_experiment_saved_metric_sync(
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
         # the events as "used by this team."
+        calculation_config = _queued_calculation_config(
+            query_runner, metric_uuid=metric_uuid, definition=query, calculation_key=fingerprint
+        )
+        if calculation_config is None:
+            _log_settings_drift(experiment_id, metric_uuid)
+            return ExperimentSavedMetricResult(
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                success=False,
+                error_message=_SETTINGS_DRIFT_MESSAGE,
+                skipped=True,
+            )
+        display_key = calculation_config.legacy_key()
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-        completed_at = datetime.now(ZoneInfo("UTC"))
-
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_result(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.COMPLETED,
-                "result": result_dict,
-                "query_id": None,
-                "completed_at": completed_at,
-                "error_message": None,
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            result=result_dict,
+            display_key=display_key,
         )
 
-        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(
+            experiment, metric_uuid, fingerprint, result_dict, query_to_utc, display_key=display_key
+        )
 
         logger.info(
             "Successfully calculated experiment saved metric",
@@ -577,19 +587,14 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     except (StatisticError, ZeroDivisionError) as e:
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
+            display_key=display_key,
         )
 
         logger.warning(
@@ -624,19 +629,14 @@ def _calculate_experiment_saved_metric_sync(
         # doesn't retry and the worker interceptor doesn't report it to error tracking.
         is_permanent = classify_experiment_query_error(e) == "validation_error"
 
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
+            display_key=display_key,
         )
 
         if is_permanent:

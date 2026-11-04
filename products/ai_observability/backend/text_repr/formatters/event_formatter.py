@@ -187,6 +187,27 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
     return formatted_text
 
 
+def _evaluation_result_str(props: dict[str, Any]) -> str:
+    skipped = props.get("$ai_evaluation_skipped")
+    applicable = props.get("$ai_evaluation_applicable")
+    result_type = props.get("$ai_evaluation_result_type")
+    result = props.get("$ai_evaluation_result")
+
+    if skipped is True or skipped == "true":
+        return "Skipped"
+    if applicable is False or applicable == "false":
+        return "N/A"
+    if result_type == "categorical" and isinstance(props.get("$ai_evaluation_categorical_result"), list):
+        return str(props["$ai_evaluation_categorical_result"])
+    if result_type == "numeric" and props.get("$ai_evaluation_numeric_result") is not None:
+        return str(props["$ai_evaluation_numeric_result"])
+    if result is True or result == "true":
+        return "true"
+    if result is False or result == "false":
+        return "false"
+    return "UNKNOWN"
+
+
 def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate text representation of an evaluation event.
@@ -196,32 +217,11 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     props = event.get("properties", {})
 
     eval_name = props.get("$ai_evaluation_name", "Unknown evaluation")
-    result = props.get("$ai_evaluation_result")
-    applicable = props.get("$ai_evaluation_applicable")
     reasoning = props.get("$ai_evaluation_reasoning")
     runtime = props.get("$ai_evaluation_runtime")
     model = props.get("$ai_evaluation_model")
 
-    # Result line
-    skipped = props.get("$ai_evaluation_skipped")
-    if skipped is True or skipped == "true":
-        result_str = "Skipped"
-    elif applicable is False or applicable == "false":
-        result_str = "N/A"
-    elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
-        props.get("$ai_evaluation_categorical_result"), list
-    ):
-        result_str = str(props["$ai_evaluation_categorical_result"])
-    elif (
-        props.get("$ai_evaluation_result_type") == "numeric" and props.get("$ai_evaluation_numeric_result") is not None
-    ):
-        result_str = str(props["$ai_evaluation_numeric_result"])
-    elif result is True or result == "true":
-        result_str = "true"
-    elif result is False or result == "false":
-        result_str = "false"
-    else:
-        result_str = "UNKNOWN"
+    result_str = _evaluation_result_str(props)
 
     # Runtime hint: hog evals are deterministic; llm_judge verdicts are probabilistic
     # from a specific model — the summarizer should weigh these differently.

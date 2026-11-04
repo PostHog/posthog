@@ -113,8 +113,10 @@ const meta: Meta<typeof WorkflowsReputation> = {
     component: WorkflowsReputation,
     parameters: {
         layout: 'padded',
+        // Pinned before the Nov 3, 2026 email metrics incident so its banner stays out of the snapshots.
+        mockDate: '2026-09-04 12:00:00',
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_ISP_SENDING_HEALTH],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },
 }
 export default meta

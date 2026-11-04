@@ -3,6 +3,7 @@ import { mockActionDefinition } from '~/test/mocks'
 
 export const taxonomicFilterMocksDecorator = mswDecorator({
     get: {
+        '/api/projects/:team_id/surveys/question_labels/': { labels: [] },
         '/api/projects/:team_id/actions': { results: [mockActionDefinition] },
         '/api/environments/:team_id/persons/properties': [
             { id: 1, name: 'location', count: 1 },

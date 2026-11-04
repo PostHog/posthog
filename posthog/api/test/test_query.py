@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import time_machine
 from posthog.test.base import (
@@ -29,6 +30,7 @@ from posthog.schema import (
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
     QueryScanAnalysis,
@@ -39,6 +41,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
+    CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
@@ -52,14 +55,17 @@ from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
-from posthog.models import PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade.query_labels import (
+    MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
+    MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -87,6 +93,79 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
+    @patch("posthog.api.query.report_user_or_team_action")
+    @patch("posthog.api.query.process_query_model")
+    def test_query_response_identity_matches_query_analytics(self, mock_process_query_model, mock_report_action):
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
+        client_query_id = "11111111-1111-4111-8111-111111111111"
+        mock_process_query_model.return_value = {"results": [[1]]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "client_query_id": client_query_id,
+            },
+            HTTP_X_REQUEST_ID=request_id,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [[1]]})
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertIn(f'request_id;desc="{request_id}"', response["Server-Timing"])
+        self.assertEqual(mock_process_query_model.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+        self.assertEqual(mock_report_action.call_args.args[0], "query api response")
+        self.assertEqual(mock_report_action.call_args.args[1]["client_query_id"], client_query_id)
+        self.assertEqual(mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+
+    @parameterized.expand(
+        [
+            ("ascii", "abc"),
+            ("utf8_digest", "99937"),
+            ("trailing_nul_digest", "25"),
+            ("utf8_trailing_nul_digest", "19130574"),
+            ("empty", ""),
+            ("unicode", "ünïcødé-😀"),
+            ("nul", "a\0b"),
+            ("long", "a" * 1000),
+        ]
+    )
+    def test_hogql_sha1_results_are_json_safe_and_cached(self, _name: str, value: str) -> None:
+        query = HogQLQuery(
+            query="""
+                SELECT sha1({value}), [sha1({value})], tuple(sha1({value}), 'plain text'),
+                    map('digest', sha1({value})), map(sha1({value}), 'digest'),
+                    length(sha1({value})), sha1(NULL), sha1(toNullableString({value})),
+                    toTypeName(sha1({value})),
+                    accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
+            """,
+            values={"value": value},
+        )
+        digest = hashlib.sha1(value.encode()).hexdigest()
+        expected = [
+            [
+                digest,
+                [digest],
+                [digest, "plain text"],
+                {"digest": digest},
+                {digest: "digest"},
+                40,
+                None,
+                digest,
+                "String",
+                "abc",
+                "abc",
+            ]
+        ]
+        for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump(), "refresh": refresh},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], expected)
+            self.assertEqual(response.json()["is_cached"], is_cached)
+
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
         # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
@@ -97,8 +176,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
         detail = response.json()["detail"]
-        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertTrue(detail.startswith(CONCURRENCY_LIMIT_USER_MESSAGE), detail)
+        self.assertIn(f"Expected available in {CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS} seconds.", detail)
         self.assertNotIn("app:query:per-org", detail)
 
     @parameterized.expand(
@@ -1270,6 +1351,59 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == variable_override_value
 
 
+class TestManagedTrinoRawQuery(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("owner", OrganizationMembership.Level.OWNER, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 400),
+        ]
+    )
+    def test_raw_trino_execution_requires_a_project_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query",
+                return_value=HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]]),
+            ) as execute,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT 1",
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    }
+                },
+                format="json",
+                headers=headers,
+            )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["results"], [[1]])
+        else:
+            self.assertIn("browser session", response.json()["detail"])
+            execute.assert_not_called()
+
+
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1383,6 +1517,49 @@ class TestQueryRetrieve(APIBaseTest):
             self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
             self.assertNotIn(self.valid_query_id, response.json()["detail"])
             self.assertNotIn(str(self.team_id), response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 403),
+        ]
+    )
+    def test_raw_trino_results_require_current_project_access_and_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL],
+                "results": ["warehouse result"],
+            }
+        ).encode()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query results",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/", headers=headers)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["query_status"]["results"], ["warehouse result"])
+            self.organization_membership.delete()
+            response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/")
+            self.assertEqual(response.status_code, 403, response.content)
+            self.assertNotIn("warehouse result", response.content.decode())
+        else:
+            self.assertNotIn("warehouse result", response.content.decode())
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
@@ -1671,6 +1848,19 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(bool(executed_query.dateRange.explicitDate), expected_explicit)
 
 
+def _latest_log_comment_for_team(team_id: int) -> dict:
+    sync_execute("SYSTEM FLUSH LOGS")
+    rows = sync_execute(
+        "SELECT log_comment FROM system.query_log "
+        "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+        "AND type = 'QueryFinish' "
+        "ORDER BY event_time DESC LIMIT 1",
+        {"team_id": team_id},
+    )
+    assert rows, f"No query_log entry found for team {team_id}"
+    return json.loads(rows[0][0])
+
+
 class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
     """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
     product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
@@ -1679,17 +1869,7 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
     def _get_log_comment_for_team(self) -> dict:
-        """Return the log_comment of the most recent QueryFinish entry for this team."""
-        sync_execute("SYSTEM FLUSH LOGS")
-        rows = sync_execute(
-            "SELECT log_comment FROM system.query_log "
-            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
-            "AND type = 'QueryFinish' "
-            "ORDER BY event_time DESC LIMIT 1",
-            {"team_id": self.team.pk},
-        )
-        assert rows, f"No query_log entry found for team {self.team.pk}"
-        return json.loads(rows[0][0])
+        return _latest_log_comment_for_team(self.team.pk)
 
     def test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped(self):
         # Raw HogQLQuery has query_type="hogql_query" (not a NodeKind value) and no scene,
@@ -1748,6 +1928,35 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
         comment = self._get_log_comment_for_team()
         self.assertNotEqual(comment.get("source"), "mcp")
         self.assertNotEqual(comment.get("product"), Product.MCP.value)
+
+
+class TestQueryProductTag(ClickhouseTestMixin, APIBaseTest):
+    def _post_with_product_key(self, product_key: str):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "Settings", "productKey": product_key, "name": "product_tag_test"},
+                }
+            },
+        )
+
+    def test_unknown_product_key_runs_the_query_untagged(self):
+        response = self._post_with_product_key("not_a_product")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        comment = _latest_log_comment_for_team(self.team.pk)
+        self.assertEqual(comment.get("name"), "product_tag_test")
+        self.assertNotEqual(comment.get("product"), "not_a_product")
+
+    def test_known_product_key_is_tagged(self):
+        response = self._post_with_product_key(Product.LLM_ANALYTICS.value)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        comment = _latest_log_comment_for_team(self.team.pk)
+        self.assertEqual(comment["product"], Product.LLM_ANALYTICS.value)
 
 
 class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):

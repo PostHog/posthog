@@ -1,0 +1,113 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
+
+import { initKeaTests } from '~/test/init'
+
+import { StepPalette } from './StepPalette'
+import { STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
+import type { PaletteSection } from './tileCanvasModel'
+
+const SECTIONS: PaletteSection[] = [
+    {
+        title: 'Delays',
+        steps: [
+            { type: 'delay', name: 'Delay', description: 'Pause.', config: { delay_duration: '1h' } },
+            { type: 'wait_until_time_window', name: 'Time window', description: 'Hold.', config: {} as any },
+        ],
+    },
+]
+
+function renderPalette(): {
+    onSelectStep: jest.Mock
+    onDragStep: jest.Mock
+    onDragEnd: jest.Mock
+    onClose: jest.Mock
+    trigger: HTMLButtonElement
+} {
+    const onSelectStep = jest.fn()
+    const onDragStep = jest.fn()
+    const onDragEnd = jest.fn()
+    const onClose = jest.fn()
+    const triggerRef = createRef<HTMLButtonElement>()
+    render(
+        <>
+            <button ref={triggerRef}>Add a step here</button>
+            <StepPalette
+                sections={SECTIONS}
+                placeholder="Search steps"
+                trigger={triggerRef}
+                onSelectStep={onSelectStep}
+                onDragStep={onDragStep}
+                onDragEnd={onDragEnd}
+                onClose={onClose}
+            />
+        </>
+    )
+    return { onSelectStep, onDragStep, onDragEnd, onClose, trigger: triggerRef.current as HTMLButtonElement }
+}
+
+describe('StepPalette', () => {
+    beforeEach(() => initKeaTests())
+    afterEach(() => cleanup())
+
+    it('points the search box at the highlighted option as the arrow keys move', () => {
+        renderPalette()
+        const search = screen.getByRole('combobox')
+
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+
+        const highlighted = screen.getByRole('option', { selected: true })
+        expect(highlighted).toHaveTextContent('Time window')
+        expect(search).toHaveAttribute('aria-activedescendant', highlighted.id)
+        expect(screen.getByRole('listbox')).toContainElement(highlighted)
+    })
+
+    it('leaves Enter to an input method that is still composing a word', () => {
+        const { onSelectStep } = renderPalette()
+
+        fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter', isComposing: true })
+        expect(onSelectStep).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })
+        expect(onSelectStep).toHaveBeenCalledWith(SECTIONS[0].steps[0])
+    })
+
+    it.each([
+        { when: 'after the frame that draws the drag image', endsFirst: false, starts: true },
+        { when: 'never, for a drag that ends before that frame', endsFirst: true, starts: false },
+    ])('starts dragging a step $when', ({ endsFirst, starts }) => {
+        jest.useFakeTimers()
+        try {
+            const { onDragStep, onDragEnd } = renderPalette()
+            const row = screen.getByText('Delay').closest('[draggable]') as HTMLElement
+            const dataTransfer = { setData: jest.fn(), effectAllowed: 'none' }
+
+            fireEvent.dragStart(row, { dataTransfer })
+            expect(onDragStep).not.toHaveBeenCalled()
+            if (endsFirst) {
+                fireEvent.dragEnd(row, { dataTransfer })
+            }
+            jest.runOnlyPendingTimers()
+            if (!endsFirst) {
+                fireEvent.dragEnd(row, { dataTransfer })
+            }
+
+            expect(onDragStep.mock.calls).toEqual(starts ? [[SECTIONS[0].steps[0]]] : [])
+            expect(onDragEnd).toHaveBeenCalledTimes(starts ? 1 : 0)
+            expect(dataTransfer.setData.mock.calls).toEqual([[STEP_DRAG_DATA_TYPE, 'delay']])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('gives focus back to the button that opened it on Escape', () => {
+        const { onClose, trigger } = renderPalette()
+
+        fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' })
+
+        expect(onClose).toHaveBeenCalled()
+        expect(trigger).toHaveFocus()
+    })
+})

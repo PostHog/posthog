@@ -1,9 +1,11 @@
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
@@ -30,7 +32,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -41,11 +43,13 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_covered_by_legacy_fallback,
     scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
@@ -56,7 +60,10 @@ from products.access_control.backend.facade.user_access_control import (
 CREATE_ACTIONS = ["create", "update"]
 
 
-def extract_organization(object: Model, view: ViewSet) -> Organization:
+def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
+    if isinstance(object, ObjectAccessRef):
+        return _organization_for_ref(object, view)
+
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
@@ -99,6 +106,20 @@ def get_organization_from_view(view) -> Organization:
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
+
+
+def _organization_for_ref(ref: ObjectAccessRef, view: Any) -> Organization:
+    """The ref's organization, read from the view when the view serves the ref's team.
+
+    On a root route the view's organization is the user's current one, which can differ from the ref's,
+    so any other case looks the organization up from the ref's team."""
+    try:
+        view_team_id = view.team_id
+    except (KeyError, AttributeError, AssertionError):
+        view_team_id = None
+    if view_team_id == ref.team_id:
+        return get_organization_from_view(view)
+    return Team.objects.select_related("organization").get(pk=ref.team_id).organization
 
 
 def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
@@ -570,6 +591,10 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
+        # A sharing configuration grants access to specific model instances, so it never covers a
+        # contract-backed object.
+        if isinstance(object, ObjectAccessRef):
+            return False
         if not isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
         ):
@@ -729,6 +754,24 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
+    """The legacy scope object that satisfied `required_scope` through LEGACY_SCOPE_FALLBACKS, or
+    None when the request's token holds `required_scope` itself."""
+    held = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
+    covered = scopes_covered_by_legacy_fallback(held, scopes_not_covered(held, [required_scope]))
+    legacy_scope = covered.get(required_scope)
+    return legacy_scope.split(":", 1)[0] if legacy_scope else None
+
+
+def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
+    """The given scopes that the request's token does not cover, sorted. Empty for session auth and
+    `*` keys, which carry the user's full authority."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return []
+    return sorted(scopes_not_covered(caller_scopes, scopes))
+
+
 CLIENT_ID_POSTHOG = "posthog"
 
 
@@ -808,6 +851,49 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     return None
 
 
+LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
+
+
+def _capture_legacy_scope_fallback(
+    request: Request, view: APIView | None, required_scope: str, legacy_scope: str
+) -> None:
+    """Record that a legacy scope satisfied a required scope. The events show which credentials and
+    OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
+    client = get_authenticator_client(request.successful_authenticator)
+    distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
+    view_name = type(view).__name__ if view is not None else "unknown"
+    # At most one event per caller, client, scope and view each interval, because this runs on every request.
+    throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
+    if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
+        return
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="api scope fallback used",
+        properties={
+            "required_scope": required_scope,
+            "legacy_scope": legacy_scope,
+            "credential_type": client["credential_type"],
+            "client_id": client["client_id"],
+            "view": view_name,
+        },
+    )
+
+
+def scopes_missing_after_legacy_fallback(
+    request: Request, view: APIView | None, held_scopes: list[str], required_scopes: list[str]
+) -> list[str]:
+    """The required scopes that the held scopes do not cover, after LEGACY_SCOPE_FALLBACKS. When none
+    are missing, records each fallback use, so a hand-written scope check feeds the same migration
+    telemetry as APIScopePermission."""
+    missing_scopes = scopes_not_covered(held_scopes, required_scopes)
+    legacy_covered = scopes_covered_by_legacy_fallback(held_scopes, missing_scopes)
+    missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+    if not missing_scopes:
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+    return missing_scopes
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -871,6 +957,11 @@ class APIScopePermission(ScopeBasePermission):
         else:
             self.check_team_and_org_permissions(request, view)
 
+        if isinstance(authenticator, OAuthAccessTokenAuthentication) and not self._sandbox_tool_policy_allows(
+            request, view, authenticator.access_token, required_scopes
+        ):
+            return False
+
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
         # are programmatic-only and must not be reachable via user-consented tokens.
         # Also fall through when *any* required_scope on this action targets an
@@ -884,12 +975,41 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            return False
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
+
+    def _sandbox_tool_policy_allows(
+        self, request, view, access_token: OAuthAccessToken, required_scopes: list[str]
+    ) -> bool:
+        """A sandbox run narrowed to a tool list may only change state through the tools it holds.
+
+        Scopes alone cannot say this: `ticket:write` covers a private note and a reply to the
+        customer alike. The run is read from the token's server-written task binding.
+        """
+        if access_token.sandbox_task_id is None:
+            return True
+        # Deferred to break a cycle: the policy reads the tasks facade, which imports this module.
+        from products.signals.backend.facade.tool_policy import (  # noqa: PLC0415
+            TOOL_NOT_GRANTED_CODE,
+            scout_tool_denial,
+        )
+
+        denial = scout_tool_denial(
+            sandbox_task_id=access_token.sandbox_task_id,
+            view=view,
+            method=request.method,
+            path=request.path_info,
+            required_scopes=required_scopes,
+            data=request.data,
+        )
+        if denial is None:
+            return True
+        self.message = denial
+        self.code = TOOL_NOT_GRANTED_CODE
+        return False
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
         psak = request.successful_authenticator.project_secret_api_key
@@ -1092,6 +1212,13 @@ class AccessControlPermission(ScopeBasePermission):
 
         return READ_LEVEL
 
+    def required_access_level(self, request, view) -> Optional[AccessControlLevel]:
+        """The access level this request needs on the view's resource and its objects.
+
+        Subclasses change the level by overriding `_get_required_access_level`.
+        """
+        return self._get_required_access_level(request, view)
+
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
@@ -1117,7 +1244,10 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        if isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        else:
+            has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."

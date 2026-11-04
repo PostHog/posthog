@@ -2,12 +2,13 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { router, urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -24,9 +25,13 @@ import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
-import { isMessagingSetupTab, messagingNavTabs } from './messagingTabs'
+import { isMessagingSetupTab } from './messagingTabs'
+import { SendCalendar } from './SendCalendar/SendCalendar'
+import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
+import { customerioImportLogic } from './Workflows/import/customerioImportLogic'
+import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -38,12 +43,14 @@ import { WorkflowsTemplates } from './WorkflowsTemplates'
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
     'workflows',
+    'calendar',
     'templates',
     'library',
     'channels',
     'opt-outs',
     'suppression',
     'reputation',
+    'settings',
     'onboarding',
 ] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -63,11 +70,13 @@ export interface workflowsSceneLogicValues {
 export interface workflowsSceneLogicActions {
     setCurrentTab: (tab: WorkflowsSceneTab) => {
         tab:
+            | 'calendar'
             | 'channels'
             | 'library'
             | 'onboarding'
             | 'opt-outs'
             | 'reputation'
+            | 'settings'
             | 'suppression'
             | 'templates'
             | 'workflows'
@@ -80,11 +89,13 @@ export interface workflowsSceneLogicMeta {
         logicProps: (arg: any) => any
         breadcrumbs: (
             currentTab:
+                | 'calendar'
                 | 'channels'
                 | 'library'
                 | 'onboarding'
                 | 'opt-outs'
                 | 'reputation'
+                | 'settings'
                 | 'suppression'
                 | 'templates'
                 | 'workflows'
@@ -145,6 +156,11 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
                 }
             },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+                // A shared link often drops the tab segment, so `/workflows/<id>` lands here with the id as the tab.
+                if (tab && isUUIDLike(tab)) {
+                    router.actions.replace(urls.workflow(tab, 'workflow'), router.values.searchParams)
+                    return
+                }
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
@@ -164,9 +180,12 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-type WorkflowsTopTab = 'workflows' | 'templates' | 'messaging-setup'
+type WorkflowsTopTab = 'workflows' | 'calendar' | 'templates' | 'messaging-setup'
 
 function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
+    if (tab === 'calendar') {
+        return 'calendar'
+    }
     if (tab === 'templates' || tab === 'library') {
         return 'templates'
     }
@@ -174,19 +193,13 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
-    const { currentTab: routeTab } = useValues(workflowsSceneLogic(props))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
-    const onboardingWizardEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]
-    // The workflow templates page and the onboarding wizard exist only behind their flags.
-    const currentTab: WorkflowsSceneTab =
-        (!newNavigationEnabled && routeTab === 'templates') || (!onboardingWizardEnabled && routeTab === 'onboarding')
-            ? 'workflows'
-            : routeTab
+    const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
@@ -194,7 +207,17 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         content: <WorkflowsTable />,
         link: urls.workflows(),
     }
-    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates'
+    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const onNewWorkflow = (): void => {
+        void addProductIntent({
+            product_type: ProductKey.WORKFLOWS,
+            intent_context: ProductIntentContext.WORKFLOW_CREATED,
+        })
+        // Open the template chooser on the type the list shows, so a person on the
+        // Messaging tab sees messaging templates first.
+        setTypeFilter(currentTab === 'workflows' ? templateTypeForListType(filters.type) : 'all')
+        startNewWorkflow()
+    }
 
     if (currentTab === 'onboarding') {
         return (
@@ -214,75 +237,81 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {showsNewWorkflowButton && (
+                        {showsNewWorkflowButton && customerioImportEnabled && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
-                                    data-attr="new-workflow"
-                                    onClick={() => {
-                                        void addProductIntent({
-                                            product_type: ProductKey.WORKFLOWS,
-                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                        })
-                                        // Open the template chooser on the type the list shows, so a person on the
-                                        // Messaging tab sees messaging templates first.
-                                        setTypeFilter(
-                                            newNavigationEnabled && currentTab === 'workflows'
-                                                ? templateTypeForListType(filters.type)
-                                                : 'all'
-                                        )
-                                        startNewWorkflow()
-                                    }}
-                                    type="primary"
+                                    data-attr="workflows-import-customerio"
+                                    onClick={openImportModal}
+                                    type="secondary"
                                     size="small"
                                 >
-                                    New workflow
+                                    Import from Customer.io
                                 </LemonButton>
                             </AccessControlAction>
                         )}
-                        {currentTab !== 'workflows' && currentTab !== 'templates' && (
+                        {showsNewWorkflowButton && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                {todayRailNav ? (
+                                    <Button data-attr="new-workflow" onClick={onNewWorkflow} variant="primary">
+                                        New workflow
+                                    </Button>
+                                ) : (
+                                    <LemonButton
+                                        data-attr="new-workflow"
+                                        onClick={onNewWorkflow}
+                                        type="primary"
+                                        size="small"
+                                    >
+                                        New workflow
+                                    </LemonButton>
+                                )}
+                            </AccessControlAction>
+                        )}
+                        {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
                     </>
                 }
             />
+            {customerioImportEnabled && <CustomerioImportModal />}
             <EmailSuspensionBanner />
-            {newNavigationEnabled ? (
-                <LemonTabs<WorkflowsTopTab>
-                    activeKey={topTabFor(currentTab)}
-                    tabs={[
-                        workflowsTab,
-                        {
-                            label: 'Templates',
-                            key: 'templates',
-                            link: urls.workflows('library'),
-                            content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
-                        },
-                        {
-                            label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
-                            key: 'messaging-setup',
-                            link: urls.workflows('channels'),
-                            content: (
-                                <MessagingSetup
-                                    tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                    linkFor={(tab) => urls.workflows(tab)}
-                                />
-                            ),
-                        },
-                    ]}
-                    sceneInset
-                    data-attr="workflows-scene-tabs"
-                />
-            ) : (
-                <LemonTabs
-                    activeKey={currentTab}
-                    tabs={[workflowsTab, ...messagingNavTabs((tab) => urls.workflows(tab))]}
-                    sceneInset
-                    data-attr="workflows-scene-tabs"
-                />
-            )}
+            <LemonTabs<WorkflowsTopTab>
+                activeKey={topTabFor(currentTab)}
+                tabs={[
+                    workflowsTab,
+                    {
+                        label: <SendCalendarTabLabel />,
+                        key: 'calendar',
+                        link: urls.workflows('calendar'),
+                        content: <SendCalendar />,
+                    },
+                    {
+                        label: 'Templates',
+                        key: 'templates',
+                        link: urls.workflows('library'),
+                        content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
+                    },
+                    {
+                        label: <MessagingSetupTabLabel />,
+                        key: 'messaging-setup',
+                        link: urls.workflows('channels'),
+                        content: (
+                            <MessagingSetup
+                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
+                                linkFor={(tab) => urls.workflows(tab)}
+                            />
+                        ),
+                    },
+                ]}
+                sceneInset
+                data-attr="workflows-scene-tabs"
+            />
             <NewWorkflowModal />
         </SceneContent>
     )

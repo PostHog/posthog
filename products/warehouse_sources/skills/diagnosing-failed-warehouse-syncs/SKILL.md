@@ -152,7 +152,8 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **G. Table data is corrupt but you want to keep the schema config**
 
-- Action: `external-data-schemas-delete-data` to drop the synced table but preserve the schema entry. Next reload
+- Action: `external-data-schemas-delete-data` to drop the synced table but preserve the schema entry. It also turns
+  syncing off, so set `should_sync: true` with `external-data-schemas-partial-update`, then reload. The reload
   re-imports from scratch without losing the configured sync_type/incremental_field.
 
 **H. Billing limit**
@@ -226,7 +227,7 @@ Agent:
   as a first-try for transient errors.
 - **Delete-data preserves config.** When a user says "I just want to start this table over from scratch", prefer
   `delete-data` + `reload` over `resync` + new schema entry — it keeps the configured sync_type / incremental_field
-  / PK setup.
+  / PK setup. `delete-data` turns syncing off, so set `should_sync: true` before the reload.
 - **A failure can belong to a destination, not the source.** Some projects sync a source to their own database as
   well as to PostHog. When they do, `latest_error` is prefixed with the destination's name, e.g.
   `customer postgres: connection refused`. That is the customer's database refusing the write, not the source failing

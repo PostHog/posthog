@@ -1,3 +1,5 @@
+import json
+import hashlib
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -6,13 +8,21 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+import posthoganalytics
+from posthoganalytics.types import FeatureFlagResult
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.tasks.backend.facade.contracts import DesktopAccessReason
-from products.tasks.backend.metrics import DesktopAccessOutcome, observe_desktop_access_decision
+from products.tasks.backend.logic.services.desktop_gateway_token import best_customer_trust_score
+from products.tasks.backend.metrics import (
+    DesktopAccessOutcome,
+    observe_desktop_access_decision,
+    observe_desktop_access_flag_unresolved,
+)
 
 from ee.billing.billing_manager import (
     BillingManager,
@@ -89,18 +99,39 @@ def _signed_up_after_cutoff(user: User) -> bool:
     return cutoff is not None and user.date_joined >= cutoff
 
 
-def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bool:
+def _resolve_flag(
+    flag_key: str, user: User, organization: "Organization", person_properties: dict[str, str] | None = None
+) -> bool | None:
     organization_id = str(organization.id)
     enabled = get_feature_flag_or_none(
         flag_key,
         str(user.distinct_id),
         groups={"organization": organization_id},
+        person_properties=person_properties,
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
-    if not isinstance(enabled, bool):
+    return enabled if isinstance(enabled, bool) else None
+
+
+def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bool:
+    enabled = _resolve_flag(flag_key, user, organization)
+    if enabled is None:
         raise DesktopAccessResolutionError(f"Could not evaluate the {flag_key} flag")
+    return enabled
+
+
+def _override_enabled(user: User, organization: "Organization") -> bool:
+    enabled = _resolve_flag(DESKTOP_ACCESS_OVERRIDE_FLAG, user, organization)
+    if enabled is None:
+        logger.warning(
+            "desktop_access_override_unresolved",
+            flag_key=DESKTOP_ACCESS_OVERRIDE_FLAG,
+            organization_id=str(organization.id),
+        )
+        observe_desktop_access_flag_unresolved(flag=DESKTOP_ACCESS_OVERRIDE_FLAG)
+        return False
     return enabled
 
 
@@ -144,7 +175,7 @@ def get_desktop_access_decision(
         return DesktopAccessDecision.ALLOWED
 
     try:
-        if _flag_enabled(DESKTOP_ACCESS_OVERRIDE_FLAG, user, organization):
+        if _override_enabled(user, organization):
             observe_desktop_access_decision(outcome="override")
             return DesktopAccessDecision.ALLOWED
         # The gate flag is evaluated only for users past the cutoff, so existing users pay no extra flag call.
@@ -159,6 +190,163 @@ def get_desktop_access_decision(
         raise
 
     observe_desktop_access_decision(outcome=_DECISION_OUTCOMES[decision])
+    return decision
+
+
+class PostHogAIAccessDecision(StrEnum):
+    """Whether a user gets PostHog AI 2.0 (the sandbox runtime). The value is an internal reason code."""
+
+    GRANDFATHERED = "grandfathered"
+    ALLOWED = "allowed"
+    BETA_OFF = "beta_off"
+    STARTUP_PROGRAM = "startup_program"
+    PREPAID_CREDITS = "prepaid_credits"
+    CREATED_AFTER_CUTOFF = "created_after_cutoff"
+    LOW_TRUST = "low_trust"
+    UNRESOLVED = "unresolved"
+
+    @property
+    def allowed(self) -> bool:
+        return self in (PostHogAIAccessDecision.GRANDFATHERED, PostHogAIAccessDecision.ALLOWED)
+
+
+_POSTHOG_AI_DECISION_VALUES = frozenset(decision.value for decision in PostHogAIAccessDecision)
+
+# Everyone who has PostHog AI 2.0 before the gate keeps it, whatever the beta rules say.
+POSTHOG_AI_GRANDFATHERED_FLAGS = ("phai-sandbox-mode", "tasks")
+POSTHOG_AI_BETA_FLAG = "phai-2-beta"
+_POSTHOG_AI_FUNDING_CACHE_SECONDS = 300
+_POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{user_id}:{flags_fingerprint}"
+# Most page loads come more than a minute after the user's previous one, so a short cache misses on nearly every
+# load, and each miss waits on a remote flag lookup. An edit to a deciding flag changes the cache key, so only other
+# inputs, such as billing or the trust score, can make the UI lag an access change, by up to this long.
+_POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS = 24 * 60 * 60
+# Before the flag definitions load, a flag edit cannot change the cache key, so the cache stays short.
+_POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS = 60
+
+
+@frozen
+class PostHogAIBetaRules:
+    created_before: datetime
+    min_trust_score: float
+
+
+def _posthog_ai_beta_rules(payload: object) -> PostHogAIBetaRules | None:
+    """Reads the beta rules from the flag payload, so they change without a deploy."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        cutoff = datetime.fromisoformat(str(payload["cutoff_date"]))
+        min_trust_score = float(payload["min_trust_score"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return PostHogAIBetaRules(
+        created_before=cutoff if cutoff.tzinfo is not None else cutoff.replace(tzinfo=UTC),
+        min_trust_score=min_trust_score,
+    )
+
+
+def _posthog_ai_person_properties(user: User) -> dict[str, str]:
+    # The targeting flags match on email, so passing it lets the SDK evaluate them locally.
+    return {"email": user.email} if user.email else {}
+
+
+def _resolve_beta(user: User, organization: "Organization") -> FeatureFlagResult | None:
+    organization_id = str(organization.id)
+    try:
+        return posthoganalytics.get_feature_flag_result(
+            POSTHOG_AI_BETA_FLAG,
+            str(user.distinct_id),
+            groups={"organization": organization_id},
+            person_properties=_posthog_ai_person_properties(user),
+            group_properties={"organization": {"id": organization_id}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("posthog_ai_beta_flag_failed", exc_info=True)
+        return None
+
+
+def get_posthog_ai_access_decision(user: User, organization: "Organization") -> PostHogAIAccessDecision:
+    """Fails closed: a denied or unresolved caller gets classic PostHog AI instead."""
+    if not user or not user.is_authenticated or not user.distinct_id:
+        return PostHogAIAccessDecision.UNRESOLVED
+
+    person_properties = _posthog_ai_person_properties(user)
+    # A failed lookup reads as None. Caching it as a denial would hide a flag outage.
+    flag_unresolved = False
+    for flag in POSTHOG_AI_GRANDFATHERED_FLAGS:
+        enabled = _resolve_flag(flag, user, organization, person_properties)
+        if enabled:
+            return PostHogAIAccessDecision.GRANDFATHERED
+        flag_unresolved = flag_unresolved or enabled is None
+    if flag_unresolved:
+        return PostHogAIAccessDecision.UNRESOLVED
+
+    beta = _resolve_beta(user, organization)
+    if beta is None:
+        return PostHogAIAccessDecision.UNRESOLVED
+    if not beta.enabled:
+        return PostHogAIAccessDecision.BETA_OFF
+    rules = _posthog_ai_beta_rules(beta.payload)
+    if rules is None:
+        logger.warning("posthog_ai_beta_rules_invalid", flag_key=POSTHOG_AI_BETA_FLAG)
+        return PostHogAIAccessDecision.UNRESOLVED
+
+    try:
+        funding = _cached_funding_decision(user, organization, _POSTHOG_AI_FUNDING_CACHE_SECONDS)
+    except DesktopAccessResolutionError:
+        return PostHogAIAccessDecision.UNRESOLVED
+    if funding == DesktopAccessDecision.STARTUP_PLAN:
+        return PostHogAIAccessDecision.STARTUP_PROGRAM
+    if funding == DesktopAccessDecision.PREPAID_CREDITS:
+        return PostHogAIAccessDecision.PREPAID_CREDITS
+    if organization.created_at >= rules.created_before:
+        return PostHogAIAccessDecision.CREATED_AFTER_CUTOFF
+    if best_customer_trust_score(organization) < rules.min_trust_score:
+        return PostHogAIAccessDecision.LOW_TRUST
+    return PostHogAIAccessDecision.ALLOWED
+
+
+def _deciding_flags_fingerprint() -> str | None:
+    all_definitions = posthoganalytics.feature_flag_definitions()
+    if all_definitions is None:
+        return None
+    deciding_keys = {*POSTHOG_AI_GRANDFATHERED_FLAGS, POSTHOG_AI_BETA_FLAG}
+    definitions = [definition for definition in all_definitions if definition.get("key") in deciding_keys]
+    serialized = json.dumps(sorted(definitions, key=lambda definition: definition["key"]), sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
+
+def get_cached_posthog_ai_access_decision(
+    user: User, organization: "Organization", *, cache_seconds: int = _POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS
+) -> PostHogAIAccessDecision:
+    """For page renders, so a load does not wait on remote flag lookups. Enforcement points call the uncached
+    decision. An unresolved decision is never cached."""
+    flags_fingerprint = _deciding_flags_fingerprint()
+    if flags_fingerprint is None:
+        cache_seconds = min(cache_seconds, _POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS)
+    cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(
+        organization_id=organization.id, user_id=user.pk, flags_fingerprint=flags_fingerprint
+    )
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        logger.warning("posthog_ai_access_decision_cache_read_failed", exc_info=True)
+        cached = None
+    if isinstance(cached, str) and cached in _POSTHOG_AI_DECISION_VALUES:
+        return PostHogAIAccessDecision(cached)
+    decision = get_posthog_ai_access_decision(user, organization)
+    if decision != PostHogAIAccessDecision.UNRESOLVED:
+        try:
+            cache.set(cache_key, decision.value, timeout=cache_seconds)
+        except Exception:
+            logger.warning("posthog_ai_access_decision_cache_write_failed", exc_info=True)
     return decision
 
 

@@ -14,7 +14,7 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, WorkerHeal
 const PASSIVE_WINDOW_MAX_ENTRIES: usize = 10_000;
 
 /// Stable identity for a worker: its base HTTP URL (e.g. `http://10.0.0.1:9001`).
-/// Used as the key for health, routing pins, and in-flight load so the worker
+/// Used as the key for health, placement, and in-flight load so the worker
 /// set can change at runtime without the index-shifting hazards of a `Vec`.
 pub type WorkerId = Arc<str>;
 
@@ -245,9 +245,8 @@ impl From<&Config> for WorkerRegistryConfig {
 /// All transitions respect a `min_state_duration` cooldown to prevent flapping.
 ///
 /// A worker that has been `Unhealthy` for at least `dead_declaration` is
-/// considered **dead** — the Dispatcher uses this to drop sticky pins so the
-/// next batch can re-route around the worker. A worker removed from the pool
-/// entirely is also reported dead.
+/// considered **dead**. A worker removed from the pool entirely is also
+/// reported dead.
 pub struct WorkerRegistry {
     workers: DashMap<WorkerId, WorkerHealth>,
     config: WorkerRegistryConfig,
@@ -339,7 +338,7 @@ impl WorkerRegistry {
     }
 
     /// Whether a worker is dead — Unhealthy for at least `dead_declaration`, or
-    /// no longer in the pool at all (so its sticky pins get dropped).
+    /// no longer in the pool at all.
     pub fn is_dead(&self, worker: &str) -> bool {
         self.workers
             .get(worker)

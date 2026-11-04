@@ -136,7 +136,12 @@ export async function uploadRunOutputVersion(
     projectId: string,
     taskId: string,
     runId: string,
-    { name, content, contentType }: { name: string; content: string; contentType: string }
+    {
+        name,
+        content,
+        contentType,
+        baseArtifactId,
+    }: { name: string; content: string; contentType: string; baseArtifactId: string }
 ): Promise<string> {
     const file = new File([content], name, { type: contentType })
     const {
@@ -158,6 +163,7 @@ export async function uploadRunOutputVersion(
                 type: TaskRunArtifactTypeEnumApi.Output,
                 storage_path: prepared.storage_path,
                 content_type: contentType,
+                base_artifact_id: baseArtifactId,
             },
         ],
     })

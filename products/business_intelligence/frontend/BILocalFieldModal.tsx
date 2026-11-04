@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -27,7 +27,7 @@ export function BILocalFieldModal(): JSX.Element | null {
     })
     const { options, optionsLoading, hasMore, optionsError } = useValues(valuesLogic)
     const { setSearch, loadMore, loadOptions } = useActions(valuesLogic)
-    if (!draft || !definition) {
+    if (!draft || !definition || definition.kind === 'expression') {
         return null
     }
     const error = !draft.name.trim() ? 'Enter a name' : localFieldError(definition)
@@ -177,15 +177,34 @@ export function BILocalFieldModal(): JSX.Element | null {
                             Add group
                         </LemonButton>
                         <LemonField.Pure label="Other values">
-                            <LemonInput
-                                value={definition.other}
-                                onChange={(other) =>
-                                    setLocalFieldDraft({ ...draft, localDefinition: { ...definition, other } })
+                            <LemonSelect
+                                value={definition.preserveUngrouped ?? false}
+                                options={[
+                                    { value: true, label: 'Keep each ungrouped value' },
+                                    { value: false, label: 'Combine in Other' },
+                                ]}
+                                onChange={(preserveUngrouped) =>
+                                    setLocalFieldDraft({
+                                        ...draft,
+                                        localDefinition: { ...definition, preserveUngrouped },
+                                    })
                                 }
+                                data-attr="bi-group-ungrouped"
                             />
+                            {!definition.preserveUngrouped && (
+                                <LemonInput
+                                    value={definition.other}
+                                    onChange={(other) =>
+                                        setLocalFieldDraft({ ...draft, localDefinition: { ...definition, other } })
+                                    }
+                                />
+                            )}
                         </LemonField.Pure>
                         <p className="m-0 text-xs text-secondary">
-                            Unlisted values use this label. Missing values stay missing.
+                            {definition.preserveUngrouped
+                                ? 'Ungrouped values keep their original labels. A group with the same label combines with that value.'
+                                : 'Unlisted values use the Other label.'}{' '}
+                            Missing values stay missing.
                         </p>
                     </>
                 )}

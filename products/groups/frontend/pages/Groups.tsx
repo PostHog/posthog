@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -43,6 +44,7 @@ export function GroupsScene(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -84,16 +86,25 @@ export function GroupsScene(): JSX.Element {
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
-                        {hasCustomerAnalyticsEnabled && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                data-attr={`new-group-${groupTypeIndex}`}
-                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                            >
-                                New {aggregationLabel(groupTypeIndex).singular}
-                            </LemonButton>
-                        )}
+                        {hasCustomerAnalyticsEnabled &&
+                            (todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    data-attr={`new-group-${groupTypeIndex}`}
+                                    onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                                >
+                                    New {aggregationLabel(groupTypeIndex).singular}
+                                </LemonButton>
+                            ))}
                     </>
                 }
             />

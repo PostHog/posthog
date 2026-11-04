@@ -153,9 +153,6 @@ class CallMCPServerTool(MaxTool):
             return states[tool_name]
         inst = self._get_installation(server_url)
         gateway_server_id = inst.get("gateway_server_id")
-        if gateway_server_id is None:
-            return _APPROVAL_DEFAULT
-        # An org rule can match a tool the installation has no row for yet.
         state = await database_sync_to_async(_get_unlisted_tool_state)(
             str(inst["id"]), self._team.id, gateway_server_id, self._user, tool_name
         )
@@ -353,7 +350,7 @@ class CallMCPServerTool(MaxTool):
 
         inst["sensitive_configuration"] = updated
         self._installations_by_url[server_url] = inst
-        self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
+        self._server_headers.setdefault(server_url, {}).update({"Authorization": f"Bearer {updated['access_token']}"})
 
     def _get_installation(self, server_url: str) -> dict:
         inst = self._installations_by_url.get(server_url)

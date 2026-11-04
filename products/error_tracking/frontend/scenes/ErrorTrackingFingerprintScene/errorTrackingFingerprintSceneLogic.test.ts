@@ -38,14 +38,14 @@ describe('errorTrackingFingerprintSceneLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['resolveFingerprintSuccess'])
 
-        expect(router.values.location.pathname).toMatch(/\/error_tracking\/issue-1$/)
+        expect(router.values.location.pathname).toMatch(/\/error-tracking\/issue-1$/)
         expect(router.values.searchParams).toEqual(expectedParams)
     })
 
     it('extracts the raw, still-encoded fingerprint segment from the pathname', () => {
-        expect(rawFingerprintPathSegment('/project/1/error_tracking/fingerprint/%24uper%2Fstrange%23fp')).toEqual(
+        expect(rawFingerprintPathSegment('/project/1/error-tracking/fingerprint/%24uper%2Fstrange%23fp')).toEqual(
             '%24uper%2Fstrange%23fp'
         )
-        expect(rawFingerprintPathSegment('/project/1/error_tracking/issue-id')).toBeNull()
+        expect(rawFingerprintPathSegment('/project/1/error-tracking/issue-id')).toBeNull()
     })
 })

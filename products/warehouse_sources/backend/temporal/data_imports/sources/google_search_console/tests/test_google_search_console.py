@@ -8,6 +8,8 @@ from django.db import OperationalError
 import requests
 from google.auth.exceptions import RefreshError, TransportError
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -19,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     QUOTA_MAX_RETRIES,
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
+    GoogleSearchConsoleServerError,
     _credentials,
     _get_integration,
     _initial_start_date,
@@ -98,14 +101,14 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
     integration.refresh_token = "refresh-token"
 
     def fake_get(*args, **kwargs):
-        calls.append("Integration.objects.get")
+        calls.append("IntegrationManager.get")
         return integration
 
-    monkeypatch.setattr(gsc.Integration.objects, "get", fake_get)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", fake_get)
 
     creds = _credentials(integration_id=1, team_id=1)
 
-    assert calls == ["close_old_connections", "Integration.objects.get"]
+    assert calls == ["close_old_connections", "IntegrationManager.get"]
     assert creds.refresh_token == "refresh-token"
 
 
@@ -113,7 +116,7 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
     monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
-    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", get)
     sleeps: list[float] = []
     monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
 
@@ -123,6 +126,17 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
     assert get.call_count == 4
     assert sleeps == [2, 4, 6]
+
+
+def test_get_integration_raises_a_stable_missing_text_without_retry(monkeypatch):
+    get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.IntegrationManager.google_search_console.oauth, "get", get)
+
+    with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
+        _get_integration(integration_id=1, team_id=2)
+
+    assert get.call_count == 1
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):
@@ -364,20 +378,6 @@ def test_list_sitemaps_percent_encodes_the_property(monkeypatch):
     # The property is a path segment, so `sc-domain:` and any `/` in a URL-prefix property
     # must be escaped or Google resolves a different (or non-existent) route.
     session.get.assert_called_once_with(f"{gsc.GSC_API_BASE}/sites/sc-domain%3Aexample.com/sitemaps")
-
-
-def test_unknown_resource_name_raises():
-    config = GoogleSearchConsoleSourceConfig(
-        site_url="https://example.com/",
-        google_search_console_integration_id=1,
-    )
-    with pytest.raises(ValueError, match="Unknown Google Search Console schema"):
-        google_search_console_source(
-            config=config,
-            resource_name="not_a_real_schema",
-            team_id=1,
-            resumable_source_manager=mock.MagicMock(),
-        )
 
 
 def _fake_response(status_code: int, json_body: dict | None = None, headers: dict | None = None):
@@ -707,6 +707,9 @@ def test_normalize_site_url(raw, expected):
         # An uppercase bare hostname is lowercased to match Google's canonical property names.
         ("PlotLens.AI", ["https://plotlens.ai/"], "https://plotlens.ai/"),
         ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # A bare www hostname matches the domain property of the bare domain.
+        ("www.example.com", ["sc-domain:example.com"], "sc-domain:example.com"),
+        ("www.example.com/blog", ["sc-domain:example.com"], None),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
         # A root URL whose site is registered only as a domain property.
@@ -716,6 +719,10 @@ def test_normalize_site_url(raw, expected):
         ("https://example.com/blog/", ["sc-domain:example.com"], None),
         ("https://plotlens.ai/", ["https://other.com/"], None),
         ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
+        # A domain property whose site is registered only as a root URL-prefix property.
+        ("sc-domain:example.com", ["https://example.com/"], "https://example.com/"),
+        ("sc-domain:example.com", ["http://www.example.com/"], "http://www.example.com/"),
+        ("sc-domain:example.com", ["https://example.com/blog/"], None),
     ],
 )
 def test_suggest_registered_site(site_url, registered, expected):
@@ -777,4 +784,28 @@ def test_property_listing_separates_quota_from_permission_denial(
     )
 
     with pytest.raises(expected_error, match=expected_match):
+        list(response.items())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("resource_name", ["sites", "sitemaps"])
+def test_property_listing_marks_server_error_retryable(monkeypatch, resource_name):
+    # `list_sites`/`list_sitemaps` have no inline retry budget, so a bare Google-side 5xx used to
+    # reach `get_non_retryable_errors` as an unmarked HTTPError and get reported as an exception
+    # even though Temporal retries it anyway.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(500)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: session)
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    with pytest.raises(GoogleSearchConsoleServerError, match=r"\(retryable\)"):
         list(response.items())  # type: ignore[arg-type]

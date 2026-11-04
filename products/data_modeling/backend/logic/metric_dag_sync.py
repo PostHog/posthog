@@ -9,7 +9,7 @@ import structlog
 from posthog.hogql.database.database import Database
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
-from products.data_modeling.backend.logic.saved_query_dag_sync import replace_incoming_edges
+from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes, lock_dag, replace_incoming_edges
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node, NodeType
 
@@ -90,6 +90,9 @@ def mark_metric_node_degraded(team: "Team", metric_id: UUID, name: str, error: s
         node.save(update_fields=["name", "properties"])
 
 
-def delete_metric_node(team: "Team", metric_id: UUID) -> int:
-    deleted, _ = Node.objects.filter(team=team, metric_id=metric_id).delete()
-    return deleted
+def delete_metric_node(team: "Team", metric_id: UUID) -> None:
+    nodes = Node.objects.filter(team=team, metric_id=metric_id)
+    with transaction.atomic():
+        for dag_id in sorted(set(nodes.values_list("dag_id", flat=True)), key=str):
+            lock_dag(team.pk, dag_id)
+        delete_nodes(team.pk, nodes)

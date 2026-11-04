@@ -10,11 +10,13 @@
 // `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
 // viewer); read `currentRunStatus` / `isTerminalRunStatus` off it for a status badge with no UI.
 export { runStreamLogic, isTerminalRunStatus, INITIAL_PERMISSION_MODE } from '../logics/runStreamLogic'
+export { prefetchRunStream } from '../logics/runPrefetch'
 export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/runStreamLogic'
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
 export { messageRatingsLogic } from '../logics/messageRatingsLogic'
+export type { MessageRating, MessageRatingOrNull } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
@@ -36,13 +38,15 @@ export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
-// --- Attached-context store + injection hook (headless) ---
-// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
-// trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
-export { attachedContextLogic } from '../logics/attachedContextLogic'
+// --- Chat skin ---
+// Here, not in ./primitives, because surfaces that load eagerly (the composer on the AI-first homepage) read it.
+export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
+
+// --- Attached-context injection hook (headless) ---
+// `useAttachedContext` registers a provider in the shell's context store for the lifetime of a mount.
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
-export { attachedContextItemKey } from '../types/contextTypes'
 // Contextual welcome headlines: a host registers headlines matching what the user is looking at,
 // and the composer's empty state picks from them instead of the generic defaults.
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
@@ -84,12 +88,6 @@ export { useForegroundStream } from '../hooks/useForegroundStream'
 export { useMcpToolApplyBack } from '../hooks/useMcpToolApplyBack'
 export type { ApplyOn, McpToolApplyContext, UseMcpToolApplyBackOptions } from '../hooks/useMcpToolApplyBack'
 
-// --- Panel view state (headless) ---
-// Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a
-// header back button — outside the lazy panel chunk (Tier 1 `api/runner`).
-export { runnerPanelLogic } from '../logics/runnerPanelLogic'
-export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPanelLogic'
-
 // --- Composer seed hand-off (headless) ---
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
@@ -97,3 +95,9 @@ export { composerSeedLogic } from '../logics/composerSeedLogic'
 export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
 export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'
+
+// The staff debug-logs preference, for hosts that render their own overflow menu around it.
+export { debugLogsLogic } from '../logics/debugLogsLogic'
+
+// One task's record, with its archive (delete) loader, for hosts that act on a task outside the runner scene.
+export { taskLogic } from '../logics/taskLogic'

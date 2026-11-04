@@ -681,6 +681,10 @@ The rule that defines the shape: **do not file a report that only describes a ch
     One such steward per product surface **replaced a dozen per-scanner digest scouts** that filed a report every day whether or not anything happened, most of which were then auto-paused for being ignored.
   - **Skill steward.** The maintained object is a shared skill: keep its catalog true to `system.*`, work its handover queue, log its changelog.
     Holds `llm_skill:write` and names the set of skills it tends.
+  - **One-canvas maintainer.** The maintained object is one canvas, for example "all the work I have in flight": open PRs, inbox reports, tasks, and next actions.
+    Holds `canvas:write`. A scout run cannot create a canvas, so a person creates it once and the body names its id; the scout stores the id in the scratchpad and never makes a second one.
+    Each run reads the source with `canvas-source-retrieve` and publishes only when the content changed, passing the version it read as `expected_current_version_id`. Every publish queues a build and adds a version, so an hourly scout that republishes unchanged content fills the version history with noise.
+    Prefer a canvas that reads live data through the `ph` SDK, so the scout changes the structure only when the shape of the work changes. Load `building-canvases` for the authoring loop.
   - **Artifact in a repo.** When the maintained thing lives in a repository (an internal research site, a docs slice, a data file), the steward has no write scope to use; it files `immediately_actionable` reports with `repository` set so autostart opens a draft PR carrying the exact edit, and treats the merged PR as the write.
     See the dispatcher pattern for the contract that makes those PRs land.
 - **Cadence:** hourly is normal for a steward over fast-moving infrastructure, because the maintained set is small and a quiet hour costs a handful of tool calls.

@@ -115,6 +115,8 @@ class TestExperimentVariants(_VisionAPITestCase):
                         "theme": "Hesitates at checkout",
                         "statement": "Waits on the payment step.",
                         "count": 9,
+                        # A denominator below its own count would show a share above 100%.
+                        "read": 5,
                         "example_observation_ids": [str(control.id), str(test.id)],
                     }
                 ],
@@ -123,6 +125,8 @@ class TestExperimentVariants(_VisionAPITestCase):
                         "theme": "Hesitates at checkout",
                         "statement": "Rarely waits.",
                         "count": 2,
+                        # A theme counted from a later run carries its own, smaller denominator.
+                        "read": 20,
                         "example_observation_ids": [str(uuid.uuid4()), "not-an-id"],
                     }
                 ],
@@ -132,6 +136,7 @@ class TestExperimentVariants(_VisionAPITestCase):
                     "theme": "Hesitates at checkout",
                     "statement": "Control waits more.",
                     "counts": {"control": 9, "test": 2},
+                    "read": {"test": 20},
                 }
             ],
         }
@@ -158,10 +163,12 @@ class TestExperimentVariants(_VisionAPITestCase):
                 "theme": "Hesitates at checkout",
                 "statement": "Waits on the payment step.",
                 "count": 9,
+                "read": None,
                 "example_observation_ids": [str(control.id)],
             }
         ]
         assert by_key["test"]["digest"][0]["example_observation_ids"] == []
+        assert by_key["test"]["digest"][0]["read"] == 20
         assert by_key["control"]["analysis_observations"] == 30
         assert by_key["beta"]["digest"] == [] and by_key["beta"]["analysis_observations"] == 0
         assert body["differences"] == payload["differences"]

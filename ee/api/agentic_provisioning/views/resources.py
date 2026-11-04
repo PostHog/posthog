@@ -23,16 +23,10 @@ from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
-from ee.api.agentic_provisioning.serializers import (
-    GitHubIntegrationSerializer,
-    ResourceCreateSerializer,
-    RotateCredentialsSerializer,
-    WizardRunSerializer,
-)
+from ee.api.agentic_provisioning.serializers import ResourceCreateSerializer, RotateCredentialsSerializer
 from ee.api.agentic_provisioning.teams import ProjectIdCollisionError, resolve_or_create_project_team
 from ee.api.agentic_provisioning.tokens import remove_team_from_token_scopes
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
-from ee.api.agentic_provisioning.wizard import create_wizard_run, link_github_grant_to_team
 
 
 def _access_configuration_response(
@@ -215,73 +209,3 @@ class ResourceRemoveView(BearerResourceAPIView):
         capture_provisioning_event("resource_removed", "success", team_id=team_id)
 
         return Response({"status": "removed", "id": resource_id})
-
-
-class GitHubIntegrationView(BearerResourceAPIView):
-    """Link a GitHub installation to the team from a stored grant."""
-
-    @rate_limited("github_integrations")
-    def post(self, request: Request, resource_id: str) -> Response:
-        user = cast(User, request.user)
-        access_token = cast(OAuthAccessToken, request.auth)
-
-        team = self.get_scoped_team(resource_id, access_token)
-
-        data = self.validated_body(
-            GitHubIntegrationSerializer, request, resource_id=resource_id, context={"resource_id": resource_id}
-        )
-
-        integration, already_linked = link_github_grant_to_team(
-            partner=access_token.application,
-            user=user,
-            team=team,
-            grant_id=str(data["grant_id"]),
-            installation_id=str(data["installation_id"]),
-        )
-
-        return Response(
-            {
-                "status": "complete",
-                "id": resource_id,
-                "github_integration": {
-                    "integration_id": str(integration.id),
-                    "gh_login": (integration.config or {}).get("connecting_user_github_login"),
-                    "already_linked": already_linked,
-                },
-            }
-        )
-
-
-class WizardRunsView(BearerResourceAPIView):
-    """Kick off a cloud wizard run against a repository the team's GitHub
-    integration can reach.
-
-    Starting a coding-agent run inside a customer's repository reaches a long way past
-    provisioning a project, so it needs its own grant rather than following from a partner
-    being allowed to provision resources at all. ``create_wizard_run`` enforces that, for
-    this endpoint and the account-request wizard block alike.
-    """
-
-    # charge="manual": the charge lives inside create_wizard_run, which the bundled
-    # account-request wizard block also calls, so retries can't double-spend and the
-    # capability check runs before any quota is spent on either path.
-    @rate_limited("wizard_runs", charge="manual")
-    def post(self, request: Request, resource_id: str) -> Response:
-        user = cast(User, request.user)
-        access_token = cast(OAuthAccessToken, request.auth)
-
-        team = self.get_scoped_team(resource_id, access_token)
-
-        data = self.validated_body(
-            WizardRunSerializer, request, resource_id=resource_id, context={"resource_id": resource_id}
-        )
-
-        run_payload = create_wizard_run(
-            partner=access_token.application,
-            user_id=user.id,
-            team=team,
-            repository=str(data["repository"]),
-            branch=data["branch"],
-        )
-
-        return Response({"status": "complete", "id": resource_id, "wizard_run": run_payload})

@@ -3,6 +3,7 @@ import uuid
 import datetime as dt
 import tempfile
 import threading
+import dataclasses
 from decimal import Decimal
 from typing import Any
 
@@ -79,6 +80,37 @@ class TestAggregateAddActionStats:
         assert stats["amount"].null_count == 3
         assert stats["amount"].min_value == "3"
 
+    def test_mixed_type_columns_aggregate_independently(self) -> None:
+        utc = dt.UTC
+        add_actions = pa.table(
+            {
+                "path": ["a.parquet", "b.parquet", "c.parquet"],
+                "size_bytes": [100, 200, 300],
+                "num_records": [10, None, 5],
+                "null_count.id": [0, 0, 0],
+                "min.id": [7, 1, 4],
+                "max.id": [9, 30, 4],
+                "null_count.name": [1, None, 2],
+                "min.name": ["éclair", "apple", None],
+                "max.name": ["zebra", "émile", None],
+                "null_count.created_at": [None, None, None],
+                "min.created_at": [dt.datetime(2024, 3, 1, tzinfo=utc), None, dt.datetime(2024, 1, 1, tzinfo=utc)],
+                "max.created_at": [dt.datetime(2024, 3, 2, tzinfo=utc), None, dt.datetime(2025, 1, 1, tzinfo=utc)],
+                "min.unregistered": [1, 2, 3],
+            }
+        )
+        columns = {"id": "Int64", "name": "String", "created_at": "DateTime64", "payload": "String"}
+
+        row_count, stats = _aggregate_add_action_stats(add_actions, columns)
+
+        assert row_count == 15
+        assert {name: dataclasses.astuple(stat) for name, stat in stats.items()} == {
+            "id": ("Int64", 0, "1", "30", True),
+            "name": ("String", 3, "apple", "émile", True),
+            "created_at": ("DateTime64", None, "2024-01-01 00:00:00+00:00", "2025-01-01 00:00:00+00:00", True),
+            "payload": ("String", None, None, None, False),
+        }
+
     def test_column_without_log_stats_marks_has_min_max_false(self) -> None:
         # A column present in the table but with no min/max/null in the Delta log (e.g. nested type).
         add_actions = pa.table({"num_records": [5]})
@@ -135,6 +167,7 @@ class TestAggregateAddActionStats:
             # text column, which rejects it outright (DataError: "PostgreSQL text fields cannot
             # contain NUL (0x00) bytes"). It must be stripped here, before the DB write.
             ("ab\x00c", "z\x00", "abc", "z"),
+            ([1, 2], [3], "[1, 2]", "[3]"),
         ],
     )
     def test_min_max_coerced_to_string(self, min_val, max_val, expected_min, expected_max) -> None:
@@ -565,6 +598,8 @@ class TestComputeTableStatisticsSync:
         [
             ("a_file_was_removed", "remove", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("the_schema_changed", "metadata", 8, dt.timedelta(days=2), {"amount": "long"}, True),
+            ("a_later_commit_made_it_a_string", "to_string", 9, dt.timedelta(days=2), {"amount": "string"}, True),
+            ("a_later_commit_made_it_a_long", "to_long", 9, dt.timedelta(days=2), {"amount": "long"}, True),
             ("a_file_carries_no_stats", "no_stats", 8, dt.timedelta(days=2), {"amount": "long"}, True),
             ("a_column_was_added", "append", 8, dt.timedelta(days=2), {"amount": "long", "total": "long"}, False),
             (
@@ -591,9 +626,19 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(
             team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in columns}
         )
-        self._stored(team, table, age=age)
+        if commit_kind == "to_long":
+            self._stored(team, table, age=age, min_value="apple", max_value="pear")
+        else:
+            self._stored(team, table, age=age)
         commit: list[dict[str, Any]]
-        if commit_kind == "remove":
+        commits: dict[int, list[dict[str, Any]]] = {}
+        if commit_kind == "to_string":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=("a", "z", 0))]
+            commits[8] = [self._add(10, amount=(1, 60, 0))]
+        elif commit_kind == "to_long":
+            commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 60, 0))]
+            commits[8] = [self._add(10, amount=("banana", "plum", 0))]
+        elif commit_kind == "remove":
             commit = [self._add(1, amount=(1, 1, 0)), {"remove": {"path": "old.parquet", "dataChange": True}}]
         elif commit_kind == "metadata":
             commit = [{"metaData": {"schemaString": "{}"}}, self._add(1, amount=(1, 1, 0))]
@@ -611,7 +656,9 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
         with (
-            patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
+            patch.object(
+                comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits.get(version, commit)
+            ) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -627,17 +674,17 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == table_version
 
     def test_an_unparseable_stored_value_falls_back_without_leaking_it(self) -> None:
-        # A stored bound written under an earlier column type (say string) cannot be parsed under a
-        # changed type (say long): `int("not-a-number")` raises `ValueError` with the raw text in its
-        # message. The fold must fall back to a full scan, and neither the capture nor the log line it
-        # reports on may repeat that text.
+        # A stored bound that does not parse under the column's type, with no schema change in the
+        # commit range to explain it: `int("not-a-number")` raises `ValueError` with the raw text in
+        # its message. The fold must fall back to a full scan, and neither the capture nor the log
+        # line it reports on may repeat that text.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value="not-a-number", max_value="not-a-number-either")
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=8, delta_types={"amount": "long"})
         with (
-            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]),
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -645,7 +692,6 @@ class TestComputeTableStatisticsSync:
 
         assert result["status"] == "done"
         assert result["basis"] == "full"
-        assert not mock_read.called
         mock_capture.assert_called_once()
         reported = str(mock_capture.call_args[0][0])
         assert "not-a-number" not in reported
@@ -1064,6 +1110,23 @@ class TestComputeTableStatisticsSync:
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
         assert result == {"status": "skipped", "reason": "no_files"}
+
+    @parameterized.expand([("at_the_cap", 2, "done"), ("over_the_cap", 3, "skipped")])
+    def test_add_action_scan_is_capped_by_files_times_columns(
+        self, _name: str, file_count: int, expected_status: str
+    ) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={"amount": "Int64", "currency": "String"})
+        helper = self._mock_delta(pa.table({"num_records": [1] * file_count}))
+        helper.get_delta_table.return_value.file_uris.return_value = [f"f{i}.parquet" for i in range(file_count)]
+        with patch(DELTA_HELPER_PATH, return_value=helper), patch.object(comp, "MAX_ADD_ACTION_CELLS", 4):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == expected_status
+        if expected_status == "skipped":
+            assert result == {"status": "skipped", "reason": "too_many_files"}
+            helper.get_delta_table.return_value.get_add_actions.assert_not_called()
+            assert not WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id).exists()
 
 
 @pytest.mark.django_db(transaction=True)

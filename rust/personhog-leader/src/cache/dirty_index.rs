@@ -7,9 +7,16 @@ use dashmap::DashMap;
 
 use super::PersonCacheKey;
 
+/// The changelog partition a mark's record lives in.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Stream {
+    pub topic: Arc<str>,
+    pub partition: u32,
+}
+
 /// A mark for a person whose latest acked state may not yet be applied to
 /// Postgres by the writer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirtyMark {
     /// Version of the latest acked changelog record for this person.
     /// Recovery cross-checks it against the record it fetches: the two
@@ -27,6 +34,7 @@ pub struct DirtyMark {
     /// The person's routing partition, denormalized so pruning can work
     /// per partition without rehashing keys.
     pub partition: u32,
+    pub stream: Stream,
     /// Whether the marked record is a death document. The prune returns
     /// only these pairs, so the settle never touches live persons' keys.
     pub is_deleted: bool,
@@ -39,9 +47,11 @@ pub struct PrunedMarks {
     pub death_marks: Vec<(PersonCacheKey, DirtyMark)>,
 }
 
-/// A partition's reclaim queue: `(offset, key)` entries in rough offset
-/// order, popped from the head as the writer's committed offset passes them.
+/// `(offset, key)` entries in rough offset order, popped as the writer's commit passes them.
 type ReclaimQueue = Arc<Mutex<VecDeque<(i64, PersonCacheKey)>>>;
+
+/// One reclaim queue per cache partition and stream feeding it.
+type QueueKey = (u32, Stream);
 
 /// Maximum queue pops per prune lock hold (see `prune_chunk`).
 pub const PRUNE_CHUNK: usize = 4_096;
@@ -73,15 +83,10 @@ const SHRINK_CAPACITY_FLOOR: usize = 4 * PRUNE_CHUNK;
 /// proportional to the marks actually reclaimed — never the index size —
 /// which is what lets the prune loop run every second.
 ///
-/// The queue is a hint; the map is the truth. Every marked key has exactly
-/// one live queue entry, carrying some offset at or below its map offset:
-/// `mark` enqueues only brand-new keys, so a re-marked key's queue entry
-/// goes stale, and when the prune pops it and finds the map ahead of the
-/// committed offset it re-enqueues the entry at the map's offset instead
-/// of removing the mark. Task scheduling can also interleave near-
-/// simultaneous marks slightly out of offset order; the prune stops at the
-/// first unapplied head, so an inversion only delays the entries behind it
-/// until a later tick.
+/// The map is the truth and the queues are a hint. Each marked key has a queue
+/// entry under its mark's home (partition and stream), at or below its offset.
+/// The prune re-queues an entry whose mark moved ahead, and drops one whose mark
+/// moved home. Out-of-order marks only delay the entries behind them.
 ///
 /// The index is soft-bounded by `max_entries`: under a sustained writer
 /// outage it would otherwise grow one mark per unique person written —
@@ -101,12 +106,9 @@ pub struct DirtyIndex {
     /// queue gone instead of racing the drain. Entries popped before the
     /// detach have already had their map marks removed; everything else
     /// is still in the queue for the drain — no entry escapes a release.
-    queues: DashMap<u32, ReclaimQueue>,
-    /// Highest offset ever marked per partition since its last clear.
-    /// Map offsets only grow and pruning removes low offsets first, so
-    /// while any mark lives this equals the largest live mark — an O(1)
-    /// read for the writer-lag gauge.
-    max_marked: DashMap<u32, i64>,
+    queues: DashMap<QueueKey, ReclaimQueue>,
+    /// Highest offset marked per queue since its last clear, for the writer-lag gauge.
+    max_marked: DashMap<QueueKey, i64>,
     /// Entry count maintained alongside the map: `DashMap::len()` takes a
     /// read lock on every shard, which is too expensive for the admission
     /// check on the write hot path. Kept in step by `mark` (insert only)
@@ -137,21 +139,21 @@ impl DirtyIndex {
         self.size.load(Ordering::Relaxed) < self.max_entries || self.map.contains_key(key)
     }
 
-    /// Record the latest acked offset for a person. Writers hold the
-    /// per-key lock, so marks normally arrive in offset order; the guard
-    /// against regressing keeps a concurrent warm-seeding pass from
-    /// clobbering a newer mark with an older replayed one. The map is
-    /// updated before the queue so a concurrent prune popping the entry
-    /// always sees the mark.
+    /// Record the latest acked offset for a person. A replayed mark never moves one
+    /// backwards within a home; a mark that moves home replaces the old one. The map
+    /// updates before the queue, so a concurrent prune always sees the mark.
     pub fn mark(&self, key: PersonCacheKey, mark: DirtyMark) {
-        let partition = mark.partition;
+        let queue_key = (mark.partition, mark.stream.clone());
         let offset = mark.offset;
-        let is_new = match self.map.entry(key.clone()) {
+        let enqueue = match self.map.entry(key.clone()) {
             Entry::Occupied(mut entry) => {
-                if mark.offset > entry.get().offset {
+                // A newer generation's record outranks any offset of an older one.
+                let current = entry.get();
+                let moved = mark.partition != current.partition || mark.stream != current.stream;
+                if moved || mark.offset > current.offset {
                     *entry.get_mut() = mark;
                 }
-                false
+                moved
             }
             Entry::Vacant(entry) => {
                 entry.insert(mark);
@@ -160,13 +162,13 @@ impl DirtyIndex {
             }
         };
         self.max_marked
-            .entry(partition)
+            .entry(queue_key.clone())
             .and_modify(|max| *max = (*max).max(offset))
             .or_insert(offset);
-        if is_new {
+        if enqueue {
             let queue = Arc::clone(
                 self.queues
-                    .entry(partition)
+                    .entry(queue_key)
                     .or_insert_with(|| Arc::new(Mutex::new(VecDeque::new())))
                     .value(),
             );
@@ -178,7 +180,7 @@ impl DirtyIndex {
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<DirtyMark> {
-        self.map.get(key).map(|entry| *entry.value())
+        self.map.get(key).map(|entry| entry.value().clone())
     }
 
     /// Return the map's spare capacity to the allocator. Removal never
@@ -205,14 +207,19 @@ impl DirtyIndex {
     /// is empty, or it was detached by a concurrent `clear_partition` —
     /// the re-fetch is what lets a release end an in-flight pass instead
     /// of racing its drain.
-    pub fn prune_chunk(&self, partition: u32, committed: i64) -> (PrunedMarks, bool) {
+    pub fn prune_chunk(
+        &self,
+        partition: u32,
+        stream: &Stream,
+        committed: i64,
+    ) -> (PrunedMarks, bool) {
         let mut pruned = PrunedMarks {
             removed: 0,
             death_marks: Vec::new(),
         };
         let Some(queue) = self
             .queues
-            .get(&partition)
+            .get(&(partition, stream.clone()))
             .map(|entry| Arc::clone(entry.value()))
         else {
             return (pruned, true);
@@ -232,28 +239,24 @@ impl DirtyIndex {
             }
             budget -= 1;
             let (_, key) = queue.pop_front().expect("front was just observed");
-            // The removal re-checks the map's offset under the shard
-            // lock: between the pop and here the key may have been
+            // The removal re-checks the map's home and offset under the
+            // shard lock: between the pop and here the key may have been
             // re-marked, and removing the newer mark would silently
             // reopen the stale-fallback hole.
-            if let Some(entry) = self.map.remove_if(&key, |_, mark| mark.offset < committed) {
+            if let Some(entry) = self.map.remove_if(&key, |_, mark| {
+                mark.partition == partition && mark.stream == *stream && mark.offset < committed
+            }) {
                 removed += 1;
                 pruned.removed += 1;
                 if entry.1.is_deleted {
                     pruned.death_marks.push(entry);
                 }
             } else if let Some(mark) = self.map.get(&key) {
-                // Superseded: the live mark is ahead of the committed
-                // offset, and the entry just popped was this key's only
-                // queue presence (`mark` enqueues keys once). Dropping
-                // it would leave the mark unreclaimable — pops are the
-                // only reclaim path — so re-enqueue at the map's
-                // offset. The tail lands past the committed threshold,
-                // so the head check terminates the pass before
-                // re-processing it; the resulting disorder only delays
-                // that key's reclaim, since removal is always re-proved
-                // against the map.
-                queue.push_back((mark.offset, key.clone()));
+                // The live mark is newer: re-queue it at its offset. An entry whose mark
+                // moved home is stale here and dropped.
+                if mark.partition == partition && mark.stream == *stream {
+                    queue.push_back((mark.offset, key.clone()));
+                }
             }
         }
         self.size.fetch_sub(removed, Ordering::Relaxed);
@@ -270,18 +273,30 @@ impl DirtyIndex {
         (pruned, exhausted)
     }
 
-    /// Drop every mark on `partition` — used when the partition is released
-    /// to another owner, whose warming rebuilds its own marks.
+    /// Drop every mark homed on `partition`, across every stream feeding it.
+    /// A queued key whose live mark moved to another home is left to that home.
     pub fn clear_partition(&self, partition: u32) -> usize {
-        let Some((_, queue)) = self.queues.remove(&partition) else {
-            return 0;
-        };
-        self.max_marked.remove(&partition);
-        let mut queue = queue.lock().expect("dirty index queue lock poisoned");
+        let keys: Vec<QueueKey> = self
+            .queues
+            .iter()
+            .filter(|entry| entry.key().0 == partition)
+            .map(|entry| entry.key().clone())
+            .collect();
         let mut removed = 0;
-        while let Some((_, key)) = queue.pop_front() {
-            if self.map.remove(&key).is_some() {
-                removed += 1;
+        for queue_key in keys {
+            let Some((_, queue)) = self.queues.remove(&queue_key) else {
+                continue;
+            };
+            self.max_marked.remove(&queue_key);
+            let mut queue = queue.lock().expect("dirty index queue lock poisoned");
+            while let Some((_, key)) = queue.pop_front() {
+                if self
+                    .map
+                    .remove_if(&key, |_, mark| mark.partition == partition)
+                    .is_some()
+                {
+                    removed += 1;
+                }
             }
         }
         self.size.fetch_sub(removed, Ordering::Relaxed);
@@ -293,9 +308,8 @@ impl DirtyIndex {
         removed
     }
 
-    /// Partitions that currently hold marks — the prune loop's targeting
-    /// set for the writer committed-offset fetch.
-    pub fn partitions_with_marks(&self) -> Vec<u32> {
+    /// Cache partitions and the streams on which they hold marks.
+    pub fn streams_with_marks(&self) -> Vec<(u32, Stream)> {
         self.queues
             .iter()
             .filter(|entry| {
@@ -305,14 +319,14 @@ impl DirtyIndex {
                     .expect("dirty index queue lock poisoned")
                     .is_empty()
             })
-            .map(|entry| *entry.key())
+            .map(|entry| entry.key().clone())
             .collect()
     }
 
-    /// Highest live marked offset for a partition, if any — feeds the
-    /// writer-lag gauge.
-    pub fn max_offset(&self, partition: u32) -> Option<i64> {
-        let has_marks = self.queues.get(&partition).is_some_and(|queue| {
+    /// Highest live marked offset on a stream, for the writer-lag gauge.
+    pub fn max_offset(&self, partition: u32, stream: &Stream) -> Option<i64> {
+        let queue_key = (partition, stream.clone());
+        let has_marks = self.queues.get(&queue_key).is_some_and(|queue| {
             !queue
                 .value()
                 .lock()
@@ -322,7 +336,7 @@ impl DirtyIndex {
         if !has_marks {
             return None;
         }
-        self.max_marked.get(&partition).map(|max| *max.value())
+        self.max_marked.get(&queue_key).map(|max| *max.value())
     }
 
     pub fn len(&self) -> usize {
@@ -351,11 +365,19 @@ mod tests {
         }
     }
 
+    fn stream(partition: u32) -> Stream {
+        Stream {
+            topic: Arc::from("personhog_updates"),
+            partition,
+        }
+    }
+
     fn mark(offset: i64, partition: u32) -> DirtyMark {
         DirtyMark {
             version: offset,
             offset,
             partition,
+            stream: stream(partition),
             is_deleted: false,
         }
     }
@@ -373,7 +395,7 @@ mod tests {
             death_marks: Vec::new(),
         };
         loop {
-            let (pruned, exhausted) = index.prune_chunk(partition, committed);
+            let (pruned, exhausted) = index.prune_chunk(partition, &stream(partition), committed);
             total.removed += pruned.removed;
             total.death_marks.extend(pruned.death_marks);
             if exhausted {
@@ -494,7 +516,7 @@ mod tests {
 
         // The first chunk of an in-flight pass reclaims its bounded slice
         // and reports the pass unfinished.
-        let (removed, exhausted) = index.prune_chunk(0, total);
+        let (removed, exhausted) = index.prune_chunk(0, &stream(0), total);
         assert_eq!(removed.removed, PRUNE_CHUNK);
         assert!(!exhausted);
 
@@ -505,7 +527,7 @@ mod tests {
 
         // The paused pass re-fetches, observes the detachment, and ends
         // instead of racing the drain it would otherwise double-count.
-        let (removed, exhausted) = index.prune_chunk(0, total);
+        let (removed, exhausted) = index.prune_chunk(0, &stream(0), total);
         assert_eq!(removed.removed, 0);
         assert!(exhausted);
 
@@ -524,11 +546,11 @@ mod tests {
             index.mark(key(offset), death_mark(offset, 0));
         }
 
-        let (first, exhausted) = index.prune_chunk(0, total);
+        let (first, exhausted) = index.prune_chunk(0, &stream(0), total);
         assert_eq!(first.death_marks.len(), PRUNE_CHUNK);
         assert!(!exhausted);
 
-        let (rest, exhausted) = index.prune_chunk(0, total);
+        let (rest, exhausted) = index.prune_chunk(0, &stream(0), total);
         assert_eq!(rest.death_marks.len(), 100);
         assert!(exhausted);
         assert!(index.is_empty());
@@ -555,16 +577,144 @@ mod tests {
         index.mark(key(2), mark(9, 0));
         index.mark(key(3), mark(2, 7));
 
-        let mut partitions = index.partitions_with_marks();
+        let mut partitions: Vec<u32> = index
+            .streams_with_marks()
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
         partitions.sort_unstable();
         assert_eq!(partitions, vec![0, 7]);
-        assert_eq!(index.max_offset(0), Some(9));
-        assert_eq!(index.max_offset(7), Some(2));
-        assert_eq!(index.max_offset(3), None);
+        assert_eq!(index.max_offset(0, &stream(0)), Some(9));
+        assert_eq!(index.max_offset(7, &stream(7)), Some(2));
+        assert_eq!(index.max_offset(3, &stream(3)), None);
 
         prune_all(&index, 0, 100);
-        assert_eq!(index.max_offset(0), None);
-        assert_eq!(index.partitions_with_marks(), vec![7]);
+        assert_eq!(index.max_offset(0, &stream(0)), None);
+        let left: Vec<u32> = index
+            .streams_with_marks()
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(left, vec![7]);
+    }
+
+    /// Two streams under one partition prune apart and clear together.
+    #[test]
+    fn streams_under_one_partition_prune_apart_and_clear_together() {
+        let index = DirtyIndex::new(1_000);
+        let old = Stream {
+            topic: Arc::from("personhog_updates_old"),
+            partition: 1,
+        };
+        index.mark(key(1), mark(4, 65));
+        index.mark(
+            key(2),
+            DirtyMark {
+                stream: old.clone(),
+                ..mark(900, 65)
+            },
+        );
+
+        let (pruned, _) = index.prune_chunk(65, &stream(65), 100);
+        assert_eq!(pruned.removed, 1);
+        assert!(index.get(&key(1)).is_none());
+        assert!(index.get(&key(2)).is_some());
+        assert_eq!(index.max_offset(65, &old), Some(900));
+
+        index.mark(key(2), mark(5, 65));
+        assert_eq!(index.get(&key(2)).unwrap().stream, stream(65));
+        assert_eq!(index.clear_partition(65), 1);
+        assert!(index.streams_with_marks().is_empty());
+    }
+
+    #[test]
+    fn pruning_a_stream_terminates_when_a_key_was_re_marked_on_a_newer_stream() {
+        let old = Stream {
+            topic: Arc::from("personhog_updates_old"),
+            partition: 0,
+        };
+        for committed in [1_457, i64::MAX] {
+            let index = DirtyIndex::new(1_000);
+            index.mark(
+                key(1),
+                DirtyMark {
+                    stream: old.clone(),
+                    ..mark(900, 0)
+                },
+            );
+            index.mark(key(1), mark(12, 0));
+            let mut chunks = 0;
+            loop {
+                let (_, exhausted) = index.prune_chunk(0, &old, committed);
+                chunks += 1;
+                if exhausted {
+                    break;
+                }
+                assert!(
+                    chunks < 64,
+                    "the old stream never exhausts at committed {committed}"
+                );
+            }
+            assert_eq!(index.get(&key(1)).unwrap().stream, stream(0));
+            // Refiled under its own stream, the mark is reclaimable there.
+            assert_eq!(index.max_offset(0, &old), None);
+            assert_eq!(prune_all(&index, 0, 13).removed, 1);
+            assert!(index.get(&key(1)).is_none());
+        }
+    }
+
+    #[test]
+    fn a_key_that_moved_home_survives_the_old_homes_clear_and_prune() {
+        // Shrink 8 -> 4: old partition 5 and new partition 1 share keys.
+        let old5 = Stream {
+            topic: Arc::from("personhog_updates_old"),
+            partition: 5,
+        };
+        let index = DirtyIndex::new(1_000);
+        index.mark(
+            key(1),
+            DirtyMark {
+                partition: 5,
+                stream: old5.clone(),
+                ..mark(900, 5)
+            },
+        );
+        // The new home's warm replays the same record: equal offset, new partition.
+        index.mark(
+            key(1),
+            DirtyMark {
+                partition: 1,
+                stream: old5.clone(),
+                ..mark(900, 1)
+            },
+        );
+        assert_eq!(index.get(&key(1)).unwrap().partition, 1);
+
+        // Old-5's last prune and its release both leave the moved mark alone.
+        let (pruned, exhausted) = index.prune_chunk(5, &old5, 1_457);
+        assert_eq!((pruned.removed, exhausted), (0, true));
+        assert_eq!(index.clear_partition(5), 0);
+        assert_eq!(index.get(&key(1)).unwrap().partition, 1);
+
+        // And the new home reclaims it once the writer applies the old record.
+        let (pruned, _) = index.prune_chunk(1, &old5, 901);
+        assert_eq!(pruned.removed, 1);
+        assert!(index.get(&key(1)).is_none());
+
+        // The release may also come first, before any prune touched old-5.
+        let index = DirtyIndex::new(1_000);
+        for partition in [5, 1] {
+            index.mark(
+                key(1),
+                DirtyMark {
+                    partition,
+                    stream: old5.clone(),
+                    ..mark(900, partition)
+                },
+            );
+        }
+        assert_eq!(index.clear_partition(5), 0);
+        assert_eq!(index.get(&key(1)).unwrap().partition, 1);
     }
 
     #[test]

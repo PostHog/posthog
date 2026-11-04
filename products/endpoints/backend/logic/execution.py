@@ -42,7 +42,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import _process_query_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
 from posthog.api.services.query import process_query_model
 from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
@@ -53,8 +53,14 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     is_api_key_access_method,
     tag_queries,
+    tags_context,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    ExposedCHQueryError,
+)
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
     APIQueriesBudgetExceeded,
@@ -65,6 +71,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
@@ -75,11 +82,11 @@ from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQu
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
-    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -124,17 +131,23 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
-# from capture and re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+_ENDPOINT_USER_QUERY_ERRORS = tuple(
+    error for error in USER_QUERY_ERRORS if error not in (CHQueryErrorUnknownIdentifier, CHQueryErrorUnsupportedMethod)
+)
+
+_NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
+    *_ENDPOINT_USER_QUERY_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
 )
 
 
-def _is_query_guardrail_error(error: BaseException) -> bool:
-    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> bool:
+    if materialized and isinstance(error, CHQueryErrorUnknownTable):
+        return False
+    return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
 # Connection loss outside SQLSTATE class 08 (connection_exception).
@@ -631,12 +644,32 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
+        except ValidationError:
+            execution_status = "user_error"
+            error_label = "ValidationError"
+            raise
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.CONCURRENCY,
+                scope=EndpointRateLimitReason.CONCURRENCY.value,
+            )
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many concurrent requests. Please try again later.",
+            )
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.READ_BUDGET,
+                scope=EndpointRateLimitReason.READ_BUDGET.value,
+            )
             raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
@@ -767,6 +800,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+            data_freshness_seconds = version.data_freshness_seconds
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -801,52 +835,51 @@ class EndpointExecutionService(PydanticModelMixin):
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
-            tag_queries(
+            with tags_context(
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
-            )
+            ):
+                # Compute dynamic cache TTL: time remaining until data_freshness window expires
+                cache_ttl = None
+                if materialized_at and data_freshness_seconds:
+                    remaining = (
+                        materialized_at + timedelta(seconds=data_freshness_seconds) - timezone.now()
+                    ).total_seconds()
+                    if remaining <= 0:
+                        logger.warning(
+                            "endpoint_materialization_behind_sla",
+                            endpoint_name=endpoint.name,
+                            team_id=self.team.pk,
+                            data_freshness_seconds=data_freshness_seconds,
+                            last_run_at=materialized_at.isoformat(),
+                            remaining_seconds=remaining,
+                        )
+                        tag_queries(endpoint_materialization_behind=True)
+                    cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
 
-            # Compute dynamic cache TTL: time remaining until data_freshness window expires
-            cache_ttl = None
-            if materialized_at and version.data_freshness_seconds:
-                remaining = (
-                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
-                ).total_seconds()
-                if remaining <= 0:
-                    logger.warning(
-                        "endpoint_materialization_behind_sla",
-                        endpoint_name=endpoint.name,
-                        team_id=self.team.pk,
-                        data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=materialized_at.isoformat(),
-                        remaining_seconds=remaining,
-                    )
-                    tag_queries(endpoint_materialization_behind=True)
-                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
-
-            result = self._execute_query_and_respond(
-                query_request_data,
-                data.client_query_id,
-                cache_age_seconds=cache_ttl,
-                extra_result_fields=extra_fields,
-                debug=debug,
-                headers=deprecation_headers,
-                pagination=pagination,
-                limit_context=strategy.materialized_limit_context,
-            )
-
-            if self._is_cache_stale(result, materialized_at):
-                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
                     data.client_query_id,
+                    cache_age_seconds=cache_ttl,
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
                     limit_context=strategy.materialized_limit_context,
                 )
+
+                if self._is_cache_stale(result, materialized_at):
+                    query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                    result = self._execute_query_and_respond(
+                        query_request_data,
+                        data.client_query_id,
+                        extra_result_fields=extra_fields,
+                        debug=debug,
+                        headers=deprecation_headers,
+                        pagination=pagination,
+                        limit_context=strategy.materialized_limit_context,
+                    )
 
             if isinstance(result.data, dict):
                 strategy.clean_response_sentinels(result.data)
@@ -877,14 +910,13 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if materialized_at and version.data_freshness_seconds:
+            if materialized_at and data_freshness_seconds:
                 age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / data_freshness_seconds)
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            if _is_non_reportable_query_error(e, materialized=True):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -993,8 +1025,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",

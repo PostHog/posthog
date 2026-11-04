@@ -20,6 +20,7 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
+    CreateStaticCohortForFlagResponseApi,
     DependentFlagApi,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
@@ -28,6 +29,7 @@ import type {
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
     FeatureFlagRollOutToEveryoneRequestApi,
+    FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -783,15 +785,15 @@ export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: str
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
+): Promise<CreateStaticCohortForFlagResponseApi> => {
+    return apiMutator<CreateStaticCohortForFlagResponseApi>(
+        getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
@@ -825,15 +827,21 @@ export const getFeatureFlagsDisableCreateUrl = (projectId: string, id: number) =
  *
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsDisableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsDisableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
     })
 }
 
@@ -847,16 +855,23 @@ export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) =>
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsEnableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsEnableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
     })
 }
 
@@ -1008,7 +1023,8 @@ export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number)
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const featureFlagsUnarchiveCreate = async (
     projectId: string,

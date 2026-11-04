@@ -6,7 +6,7 @@ Feature-level guides follow the same convention: the content lives in `<dir>/AGE
 
 ## Architecture
 
-PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop, web, and mobile.
+PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop and web.
 
 Principle: logic is portable; hosts are thin.
 
@@ -43,7 +43,6 @@ Hosts:
 
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
-- `apps/mobile`: React Native host.
 
 ## Rules
 
@@ -74,7 +73,7 @@ Enforced by Biome `noRestrictedImports`.
 - `api-client` and `workspace-client` may import `shared` and relevant `platform` contracts. No UI or Node host syscalls.
 - `workspace-server` may import `shared`, `platform` contracts, Node modules, and workspace-server code. Never `core` or `ui`.
 - `core` may import `shared`, `platform`, `workspace-client`, `api-client`, and other core code. Never `ui`, `workspace-server`, `electron`, `node:*`, `trpcClient`, or host-router runtime.
-- `ui` may import `core`, `platform`, `shared`, `@posthog/quill`, and UI feature public files. Never `workspace-server`, `electron`, `node:*`, or `trpcClient`.
+- `ui` may import `core`, `api-client`, `workspace-client`, `platform`, `shared`, `@posthog/quill`, `@posthog/quill-charts`, and UI feature public files. Never `workspace-server`, `electron`, `node:*`, or `trpcClient`.
 - `apps/<host>` may import any package and its own host adapters.
 
 ## Core Eligibility
@@ -195,7 +194,7 @@ packages/ui/src/features/<feature>/
 - Tokens are standalone `export const TOKEN = Symbol.for("posthog.<area>.<thing>")` consts, defined beside the interface in the owning package. Standalone consts infer `unique symbol`, which is what lets a `BindingMap` key on them; object-literal token bags do not and are forbidden.
 - Each composition root (`apps/code` main + renderer, `apps/web`, `packages/workspace-server`) owns a `BindingMap` interface mapping every token it binds to the bound type, and constructs `new TypedContainer<BindingMap>()` (from `@inversifyjs/strongly-typed`). `bind`/`get`/`isBound` are then checked against the map at compile time.
 - Services bind in feature `.module.ts` files with `ContainerModule` (typed via `TypedContainerModule<BindingMap>` where the root is typed).
-- Hosts load modules in `desktop-contributions.ts` or the equivalent web/mobile composition file.
+- Hosts load modules in `desktop-contributions.ts` or the equivalent web composition file.
 - Hosts bind platform implementations in `desktop-services.ts`, `main/index.ts`, or host equivalents.
 - Hosts call `setRootContainer(container)` before resolving services through React or host seams.
 - `CONTRIBUTION` starts subscriptions, commands, routes, menus, and feature boot.
@@ -226,23 +225,7 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
-- `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
-- `pnpm --filter @posthog/code generate-client`: regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
-
-## Mobile Host Types
-
-`apps/mobile` typechecks against a baseline of pre-existing errors, not against zero.
-`pnpm typecheck` runs it like every other package; `scripts/check-mobile-types.mjs` fails only on errors absent from `scripts/mobile-type-baseline.json`.
-
-Metro strips types instead of checking them, so before this the mobile host was the one place a shared-package change could break without CI noticing — a new method on a `@posthog/platform` interface, a renamed `@posthog/core` export.
-
-After fixing baselined errors, shrink the baseline:
-
-```bash
-node scripts/check-mobile-types.mjs --prune
-```
-
-Do not use `--init` to baseline new errors.
+- `pnpm --filter @posthog/api-client generate-client` (or the `@posthog/code` alias): regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
 
 ## API client
 
@@ -255,15 +238,17 @@ It contains only what `packages/api-client/endpoint-allowlist.json` names:
 
 Everything those reference is generated with them. The full schema documents thousands of routes, and generating all of them made every backend change churn this file; the allowlist keeps a regen to the routes the desktop uses.
 
+The generator is `packages/api-client/scripts/update-openapi-client.ts`. `hogli build:openapi` runs it after the other OpenAPI generators, and Backend CI's "Validate OpenAPI types" job runs `hogli build:openapi` on backend PRs. A backend change that alters an allowlisted endpoint or schema therefore gets the regenerated `generated.ts` committed to its PR automatically, together with the frontend and MCP types. If the generator fails in CI (for example, an allowlisted path left the schema), the job fails. Released desktop apps still call that path, so remove it from the allowlist and its call sites in a desktop PR first, then from the backend.
+
 To call a new endpoint or import a new schema type:
 
 1. Add the path template to `paths`, or the schema name to `schemas`.
 2. From the repo root, run `hogli build:openapi-schema` to write `frontend/tmp/openapi.json` from the checkout.
-3. Run `pnpm --filter @posthog/code generate-client`. It fails if an allowlisted path or schema is not in the schema, naming it, and formats the output with prettier so the diff shows only what changed.
+3. Run `pnpm --filter @posthog/api-client generate-client`. It fails if an allowlisted path or schema is not in the schema, naming it, and formats the output with prettier so the diff shows only what changed.
 4. Run `pnpm typecheck`. A call site whose path is not allowlisted fails with `not assignable to keyof GetEndpoints` (or the matching method); add the path and regenerate.
 5. Commit `generated.ts` together with the allowlist change.
 
-Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live.
+Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
 
 Raw `fetch` calls through `this.api.fetcher.fetch` with a hand-built path do not need an allowlist entry, and endpoints that leave the schema surface as a generator error on the next regen: remove them from the allowlist, and typecheck shows any call site that still used them.
 

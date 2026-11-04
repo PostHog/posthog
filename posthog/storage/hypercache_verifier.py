@@ -334,8 +334,19 @@ def _verify_and_fix_batch(
         logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
         cache_batch_data = {}
 
-    # Batch-check expiry tracking
-    expiry_status = batch_check_expiry_tracking(teams, config)
+    # Batch-check expiry tracking. An empty result skips expiry fixes for this batch,
+    # so a failed read does not mark every team as missing from the expiry set.
+    try:
+        expiry_status = batch_check_expiry_tracking(teams, config)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as e:
+        logger.warning(
+            "Batch expiry tracking check failed, skipping expiry fixes for this batch",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        expiry_status = {}
 
     # Batch-check which teams should skip fixes (e.g., grace period for recently updated flags)
     # This is done once per batch to avoid N+1 queries

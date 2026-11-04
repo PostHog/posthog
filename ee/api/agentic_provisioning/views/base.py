@@ -23,7 +23,7 @@ from rest_framework.views import APIView
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.authentication import GitHubGrantsAuthentication, ProvisioningBearerAuthentication
+from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, render_provisioning_error
 from ee.api.agentic_provisioning.ratelimits import (
     BudgetDeclaration,
@@ -72,7 +72,7 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
             raise TypeError(
                 f"{cls.__name__} declares no authentication_classes. Provisioning endpoints are "
                 "partner-facing, so set authentication_classes (for example to "
-                "GitHubGrantsAuthentication) or, if it must authenticate inside the "
+                "ProvisioningBearerAuthentication) or, if it must authenticate inside the "
                 "handler, set authenticates_in_handler = True."
             )
 
@@ -83,7 +83,7 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
     # skips authenticated requests that carry no personal API key, which is
     # every bearer-authenticated provisioning call.
     # Flows whose key only appears mid-handler (token exchange, account
-    # request partner quota, wizard runs) call the throttling helpers instead.
+    # request partner quota) call the throttling helpers instead.
     partner_throttle_classes: ClassVar[list[type[BaseThrottle]]] = []
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -177,18 +177,6 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
         if not serializer.is_valid():
             raise ProvisioningError("invalid_request", first_error_message(serializer.errors), resource_id=resource_id)
         return serializer.validated_data
-
-
-class GitHubGrantsAPIView(ProvisioningAPIView):
-    """Base for the GitHub grant endpoints.
-
-    The partner rides ``request.auth``, having proven itself with either a signed
-    ``private_key_jwt`` assertion or a verified client secret. A public partner is identified
-    only by a client_id anyone can send, so it never reaches these endpoints, and a confidential
-    one still needs ``can_use_github_grants`` granted.
-    """
-
-    authentication_classes = [GitHubGrantsAuthentication]
 
 
 class BearerResourceAPIView(ProvisioningAPIView):

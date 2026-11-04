@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import TrendsQueryResponse
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
 
@@ -18,6 +19,7 @@ from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    viewer_counts_by_insight,
 )
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -83,6 +85,31 @@ class TestInsightReads(BaseTest):
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
 
+    def test_viewer_counts_count_recent_signed_in_viewers_of_the_team(self) -> None:
+        viewed = Insight.objects.create(team=self.team, name="Viewed")
+        unviewed = Insight.objects.create(team=self.team, name="Unviewed")
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+        recent = now() - timedelta(days=1)
+        for viewer in (self.user, self._create_user("second@example.com")):
+            InsightViewed.objects.create(team=self.team, user=viewer, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self._create_user("old@example.com"),
+            insight=viewed,
+            last_viewed_at=now() - timedelta(days=40),
+        )
+        InsightViewed.objects.create(team=None, user=None, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(team=other_team, user=self.user, insight=other_team_insight, last_viewed_at=recent)
+
+        counts = viewer_counts_by_insight(
+            team_id=self.team.pk,
+            insight_ids={viewed.pk, unviewed.pk, other_team_insight.pk},
+            since=now() - timedelta(days=30),
+        )
+
+        assert counts == {viewed.pk: 2}
+
 
 class TestRunCachedTrendsQuery(BaseTest):
     def tearDown(self) -> None:
@@ -103,7 +130,11 @@ class TestRunCachedTrendsQuery(BaseTest):
             )
 
             result = run_cached_trends_query(
-                query=query, team=self.team, max_execution_time_seconds=20, cache_age_seconds=900
+                query=query,
+                team=self.team,
+                max_execution_time_seconds=20,
+                cache_age_seconds=900,
+                ch_user=ClickHouseUser.SIGNALS,
             )
 
         assert result.results == [{"aggregated_value": 12}]
@@ -111,6 +142,7 @@ class TestRunCachedTrendsQuery(BaseTest):
         assert runner_type.call_args.kwargs["query"] == query
         assert runner_type.call_args.kwargs["team"] == self.team
         assert runner_type.call_args.kwargs["hogql_settings"].max_execution_time == 20
+        assert runner_type.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         assert runner_type.return_value.is_query_service is True
         assert runner_type.return_value.run.call_args.kwargs["cache_age_seconds"] == 900
         assert (

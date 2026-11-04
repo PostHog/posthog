@@ -17,10 +17,14 @@ pub mod reconcile;
 pub mod tile;
 
 pub use decode::{decode_seed, DecodedSeed};
-pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs, ScannedAtMs};
+pub use ids::{
+    ClaimEpoch, ConditionHash, ConditionHashError, CoverageStartMs, RunBoundaryMs, RunId, SChunkMs,
+    ScannedAtMs,
+};
 pub use person::{PersonSeed, PersonSeedError, MAX_PERSON_SEED_HASHES};
 pub use reconcile::{
-    BehavioralShapeHash, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope, ReconcileTile,
-    ReconcileTileError, ScopeKind, ShapeHashError, UnknownScopeKind,
+    BehavioralShapeHash, CatalogMiss, PersonShapeHash, ReconcileCompleteMarker, ReconcileMarker,
+    ReconcileScope, ReconcileTile, ReconcileTileError, ReconcileWithheldMarker, ScopeKind,
+    ShapeHashError, UnknownScopeKind, WithheldReason,
 };
 pub use tile::SeedTile;

@@ -1,20 +1,32 @@
 import './CohortCriteriaRowBuilder.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
+import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { getRowShape, renderField } from 'scenes/cohorts/CohortFilters/constants'
+import { getRowShape } from 'scenes/cohorts/CohortFilters/constants'
+import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+
+import {
+    FlagCallCriterionProblem,
+    MAX_LOOKBACK_DAYS,
+    moveNoticeProblem,
+} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -27,6 +39,17 @@ export interface CohortCriteriaRowBuilderProps {
     onChangeType?: (nextType: BehavioralFilterType) => void
 }
 
+const MOVE_NOTICE_EFFECTS: Record<FlagCallCriterionProblem, string> = {
+    type: 'When the move finishes, this criterion stops matching new flag calls. To keep it matching, change it to "Completed event", "Did not complete event" or "Completed an event multiple times".',
+    window: `When the move finishes, this criterion counts every flag call only if its range is relative to today and goes back ${MAX_LOOKBACK_DAYS} days or less, such as "Last 30 days".`,
+    filters:
+        'When the move finishes, PostHog may not be able to calculate this cohort. To keep it working, filter this criterion on event properties only.',
+}
+
+function moveNoticeText(problem: FlagCallCriterionProblem): string {
+    return `Feature flag called is moving out of the events table. ${MOVE_NOTICE_EFFECTS[problem]}`
+}
+
 export function CohortCriteriaRowBuilder({
     type,
     groupIndex,
@@ -37,6 +60,13 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const moveNoticeEvents = eventsWithMoveNotice(
+        currentTeam?.flag_evaluations_mode,
+        useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
+    )
+    const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
+    const flagCallProblem = moveNoticeProblem(criteria, moveNoticeEvents)
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.
@@ -167,6 +197,19 @@ export function CohortCriteriaRowBuilder({
                             </div>
                         </div>
                     )}
+                    {flagCallProblem !== null && (
+                        <LemonBanner
+                            className="my-2"
+                            type="warning"
+                            action={
+                                announcementUrl
+                                    ? { children: 'Learn more', to: announcementUrl, targetBlank: true }
+                                    : undefined
+                            }
+                        >
+                            {moveNoticeText(flagCallProblem)}
+                        </LemonBanner>
+                    )}
                 </>
             </KeaField>
         </div>
@@ -175,8 +218,16 @@ export function CohortCriteriaRowBuilder({
 
 export interface LogicalRowDividerProps {
     logicalOperator: FilterLogicalOperator
+    tooltip?: string
 }
 
-export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
-    return <LemonDivider className="logical-row-divider my-4" label={logicalOperator} />
+export function LogicalRowDivider({ logicalOperator, tooltip }: LogicalRowDividerProps): JSX.Element {
+    const label = tooltip ? (
+        <Tooltip title={tooltip} openOnClick placement="right">
+            <span tabIndex={0}>{logicalOperator}</span>
+        </Tooltip>
+    ) : (
+        logicalOperator
+    )
+    return <LemonDivider className="logical-row-divider my-4" label={label} />
 }

@@ -34,6 +34,53 @@ describe('scout trial result presentation', () => {
         expect(report.variants[0].is_baseline).toBe(true)
     })
 
+    it.each([{ judged_runs: 1, excluded_runs: 1 }, { judged_runs: 1, judge_errors: 1 }, { judged_runs: 1 }])(
+        'leaves incomplete versions unranked even with more passes: %s',
+        (incomplete) => {
+            const report = {
+                ...trialFixtureReport,
+                variants: trialFixtureReport.variants.map((variant) =>
+                    variant.is_baseline ? variant : { ...variant, ...incomplete }
+                ),
+            }
+
+            expect(
+                trialVersionResults(report, rows).map(({ variant, rank, excluded }) => [variant.label, rank, excluded])
+            ).toEqual([
+                ['Baseline', 1, false],
+                ['Candidate prompt', null, true],
+            ])
+        }
+    )
+
+    it('keeps versions with unknown checks ranked by confirmed passes', () => {
+        const report = {
+            ...trialFixtureReport,
+            variants: trialFixtureReport.variants.map((variant) => ({
+                ...variant,
+                criteria: variant.criteria.map((criterion) => ({
+                    ...criterion,
+                    passed: variant.is_baseline ? 0 : 1,
+                    failed: 0,
+                    unknown: variant.is_baseline ? 2 : 1,
+                })),
+            })),
+        }
+
+        expect(
+            trialVersionResults(report, rows).map(({ variant, rank, excluded, counts }) => [
+                variant.label,
+                rank,
+                excluded,
+                counts.passed,
+                counts.unknown,
+            ])
+        ).toEqual([
+            ['Candidate prompt', 1, false, 2, 2],
+            ['Baseline', 2, false, 0, 4],
+        ])
+    })
+
     test.each(['missing', 'unknown', 'known', 'zero'] as const)('keeps %s cost distinct from free runs', (state) => {
         const inputs =
             state === 'missing'

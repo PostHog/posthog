@@ -216,6 +216,7 @@ class EvaluationReportRun(UUIDTModel):
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["report", "-created_at"]),
+            models.Index(fields=["report", "-period_end"], name="llma_eval_run_period_end_idx"),
         ]
 
     report = models.ForeignKey(

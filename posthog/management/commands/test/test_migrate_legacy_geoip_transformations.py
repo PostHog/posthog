@@ -5,10 +5,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog
 
 GEOIP_TEMPLATE_CODE = """
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {

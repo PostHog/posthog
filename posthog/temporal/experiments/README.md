@@ -35,6 +35,20 @@ When a schedule triggers, it starts a workflow that:
 2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
 
+Each metric activity stores its result through the experiments facade (`record_daily_metric_result`, `record_daily_metric_failure`).
+The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
+A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
+A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
+
+Discovery queues each metric with its calculation key, and the activity reads the settings again when it builds the query runner.
+Before the query runs, the activity checks that the runner's settings still give the queued key, in the key version of that key.
+When they do not, the activity skips the metric: it stores no result or failure, sends no notification, and returns `skipped=True` without a retry.
+The workflow counts such metrics as skipped, not as failed, and the next scheduled run computes them under the new settings.
+
+The significance notification compares a new daily result with the metric's newest earlier completed point that is compatible with it: a point under either key version of the metric's config, or whose display key is the version 1 key.
+So neither a key version change nor a settings change that version 1 does not cover sends a repeated notification.
+Without any earlier point, every significant variant counts as newly significant, as on the first point of a new experiment.
+
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
 `experiment-drop-timeseries-publish-2026-10`.
@@ -99,9 +113,23 @@ The timeseries workflows keep one schedule per hour, because each runs its own m
 can outlive its hour. This one starts other workflows and returns, so a single schedule with a
 `SKIP` overlap policy covers it.
 
-It skips an experiment whose recalculation is already running, or whose last one finished within
-the hour. That freshness check ignores `timeseries_sync` rows, which carry a timeseries run's
-window rather than a full recalculation.
+Discovery skips an experiment before its exposure query when:
+
+- its recalculation is already running,
+- its last one finished within the hour on a recent window,
+- no release condition of its flag has a rollout above 0%,
+- it has no metric that the recalculation computes, inline or saved,
+- its last 3 exposure checks in a row found fewer than 50 exposures, and the last one ran less than 7 days ago.
+
+The exposure back-off keeps its state in Redis, one key per experiment (`experiments:exposure_backoff:v1:<experiment_id>`) with a 14-day TTL renewed on every write.
+Each exposure check below 50 adds 1 to the count, a check at 50 or more deletes the key, and a failed exposure query leaves it unchanged.
+Discovery reads every key in one `MGET`.
+A Redis error or an unreadable key never skips an experiment: the exposure gate decides as it would without the back-off.
+
+The freshness check ignores `timeseries_sync` rows, which carry a timeseries run's window rather
+than a full recalculation. Discovery reads these with a fixed number of queries for the whole hour,
+and sends the skipped event for each experiment it drops. The start step checks the running and
+recent rules again, to catch a run that started after discovery.
 
 The coordinator never waits for the runs it starts. Each run's outcome lands on its own
 `ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and

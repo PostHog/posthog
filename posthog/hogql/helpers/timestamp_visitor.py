@@ -133,6 +133,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
 
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
@@ -152,7 +153,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             return (
                 (
                     isinstance(table_type, ast.TableType)
-                    and isinstance(table_type.table, EventsTable)
+                    and isinstance(table_type.table, EventsTable | FlagEvaluationsTable)
                     and resolved_field.name == "timestamp"
                 )
                 or (

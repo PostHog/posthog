@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.core import signing
 from django.db import transaction
@@ -13,6 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -22,7 +23,14 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
+from products.stamphog.backend.facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    RoutingMode,
+)
+from products.stamphog.backend.facade.github import StamphogGitHubError
 from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
@@ -75,8 +83,9 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("enabled", {"enabled": False}),
-            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
+            ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -111,19 +120,26 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("names_the_review_mode", {"review_mode": ReviewMode.LABEL}, status.HTTP_403_FORBIDDEN),
-            ("turns_reviews_off", {"enabled": False}, status.HTTP_403_FORBIDDEN),
-            ("turns_reviews_on", {"enabled": True}, status.HTTP_201_CREATED),
-            ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
+            ("names_the_review_mode", None, {"review_mode": ReviewMode.ALL}, status.HTTP_403_FORBIDDEN),
+            ("turns_reviews_off", None, {"enabled": False}, status.HTTP_403_FORBIDDEN),
+            ("turns_reviews_on", None, {"enabled": True}, status.HTTP_201_CREATED),
+            ("leaves_the_defaults", None, {}, status.HTTP_201_CREATED),
+            ("names_the_routing_mode", None, {"routing_mode": RoutingMode.FALLBACK}, status.HTTP_403_FORBIDDEN),
+            (
+                "manager_names_the_routing_mode",
+                "manager",
+                {"routing_mode": RoutingMode.FALLBACK},
+                status.HTTP_201_CREATED,
+            ),
         ]
     )
     def test_member_create_is_gated_only_when_it_names_a_review_field(
-        self, _name: str, extra: dict, expected_status: int
+        self, _name: str, stamphog_level: str | None, extra: dict, expected_status: int
     ) -> None:
         # Spelling out a review policy is the same decision whichever verb carries it, so create
         # gates on the field being present, like update does. Turning reviews on, or leaving the
         # fields out, stays an editor's job: the row binds disabled at sync and routes no digest.
-        self._login_as_member()
+        self._login_as_member(stamphog_level=stamphog_level)
 
         response = self.client.post(self.url, {"repository": "PostHog/new", **extra}, format="json")
 
@@ -143,16 +159,22 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
 
-    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+    @parameterized.expand(
+        [
+            ("turns_reviews_off", {"enabled": False}),
+            ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
+        ]
+    )
+    def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
         # An admin must be able to hand the review switch to somebody through the normal access
         # control settings, or the manager gate would be an admin-only hardcode.
         config_id = self._create_config()
         self._login_as_member(stamphog_level="manager")
 
-        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["enabled"] is False
+        assert {field: response.json()[field] for field in payload} == payload
 
     @parameterized.expand(
         [
@@ -242,6 +264,36 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["user_access_level"] == expected
+
+    @parameterized.expand(
+        [
+            # An answer is cached, so the second open costs no GitHub call.
+            ("found", "inst-1", "version: 1\n", None, "found", 1),
+            ("missing", "inst-1", None, None, "missing", 1),
+            # A failed check hides the setting rather than offering it for a repository it cannot route, and asks again.
+            ("github_error", "inst-1", None, StamphogGitHubError("boom", status_code=502), "unavailable", 2),
+            ("no_installation", "", None, None, "unavailable", 0),
+        ]
+    )
+    def test_owners_file_reports_whether_the_default_branch_has_one(
+        self,
+        _name: str,
+        installation_id: str,
+        text: str | None,
+        error: Exception | None,
+        expected: str,
+        expected_reads: int,
+    ) -> None:
+        config_id = self._create_config()
+        StamphogRepoConfig.objects.unscoped().filter(id=config_id).update(installation_id=installation_id)
+
+        with patch(f"{_CLIENT}.get_default_branch_file", return_value=text, side_effect=error) as read_file:
+            responses = [self.client.get(f"{self.url}{config_id}/owners_file/") for _ in range(2)]
+
+        assert [response.status_code for response in responses] == [status.HTTP_200_OK] * 2
+        assert [response.json() for response in responses] == [{"owners_file": expected}] * 2
+        read = call("PostHog/posthog", "owners.yaml", priority=Priority.NORMAL)
+        assert read_file.call_args_list == [read] * expected_reads
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation
@@ -385,9 +437,10 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_malformed_config_id_is_a_404(self) -> None:
+    @parameterized.expand([("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",)])
+    def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
-        response = self.client.get(f"{self.url}not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/{resource}/not-a-uuid/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cannot_delete_other_teams_config(self) -> None:
@@ -481,7 +534,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("new_row", None, status.HTTP_201_CREATED),
             ("paused_row", "42", status.HTTP_200_OK),
-            # A placeholder's label mode was set without proving GitHub access, so it resets on binding.
+            # A placeholder's all mode was set without proving GitHub access, so it resets on binding.
             ("placeholder_row", "", status.HTTP_200_OK),
         ]
     )
@@ -497,17 +550,22 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 repository="acme/alpha",
                 installation_id=existing_installation,
                 enabled=False,
-                review_mode=ReviewMode.LABEL,
+                review_mode=ReviewMode.ALL,
             )
         self._login_as_member()
 
-        response = self.client.post(f"{self.url}add_repository/", {"repository": "acme/alpha"}, format="json")
+        with patch(f"{_VIEWS}.create_trigger_label.delay") as queue_label:
+            response = self.client.post(f"{self.url}add_repository/", {"repository": "acme/alpha"}, format="json")
 
         assert response.status_code == expected_status, response.content
         config = StamphogRepoConfig.objects.unscoped().get(team_id=self.team.id, repository="acme/alpha")
         assert (config.enabled, config.installation_id, config.connected_by_user_id) == (True, "42", self.user.id)
-        expected_mode = ReviewMode.ALL if existing_installation in (None, "") else ReviewMode.LABEL
+        expected_mode = ReviewMode.LABEL if existing_installation in (None, "") else ReviewMode.ALL
         assert config.review_mode == expected_mode
+        expected_calls = (
+            [call(team_id=self.team.id, config_id=str(config.id))] if expected_mode == ReviewMode.LABEL else []
+        )
+        assert queue_label.call_args_list == expected_calls
 
     @parameterized.expand(
         [
@@ -978,15 +1036,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
         # enabled=True for a private repo and have reviews start the moment a teammate installs. The
         # review policy resets for the same reason: label mode pointed at a label nobody uses would
-        # go live, reviewing nothing, the moment a manager turns the row on.
+        # go live, reviewing nothing, the moment a manager turns the row on. Routing does not wait for
+        # the row to turn on, so a preset routing mode would request reviewers as soon as it binds.
         manual = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id,
             repository="PostHog/posthog",
             installation_id="",
             enabled=True,
             digest_enabled=True,
-            review_mode=ReviewMode.LABEL,
+            review_mode=ReviewMode.ALL,
             trigger_label="nobody-uses-this",
+            routing_mode=RoutingMode.ALWAYS,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1000,8 +1060,9 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.connected_by_user_id == self.user.id
         assert manual.enabled is False
         assert manual.digest_enabled is False
-        assert manual.review_mode == ReviewMode.ALL
+        assert manual.review_mode == ReviewMode.LABEL
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
+        assert manual.routing_mode == RoutingMode.OFF
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -1016,7 +1077,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             repository="PostHog/posthog",
             installation_id="41",
             enabled=True,
-            review_mode=ReviewMode.LABEL,
+            review_mode=ReviewMode.ALL,
             connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
@@ -1028,7 +1089,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
-        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
+        assert stale.review_mode == ReviewMode.ALL  # including the review policy
         assert stale.connected_by_user_id == self.user.id
         # The restamp reads its before-value from the locked row, so the log names who held the
         # connection before this sync took it over.

@@ -3,20 +3,21 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { isHttpsUrl } from 'lib/utils/url'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { IntegrationType, OrganizationType } from '~/types'
 
-import { billingAlertsLogic } from './billingAlertsLogic'
-import { billingAlertRequestError, destinationKey } from './billingAlertUtils'
-import { billingAlertsDestinationsDeleteCreate } from './generated/api'
+import { billingAlertsDestinationsDeleteCreate } from 'products/billing/frontend/generated/api'
 import type {
     BillingAlertConfigurationApi,
     BillingAlertDestinationCreateDataApi,
     BillingAlertDestinationSummaryApi,
-} from './generated/api.schemas'
+} from 'products/billing/frontend/generated/api.schemas'
+
+import { billingAlertsLogic } from './billingAlertsLogic'
+import { billingAlertRequestError, destinationKey } from './billingAlertUtils'
 
 export type BillingAlertNotificationType = 'slack' | 'teams' | 'webhook'
 

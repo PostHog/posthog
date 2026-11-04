@@ -1,18 +1,20 @@
 import dataclasses
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 TableName = str
 PropertySourceColumnName = str
 PropertyGroupName = str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PropertyGroupDefinition:
     key_filter_expression: str
     key_filter_function: Callable[[str], bool]
-    codec: str = "ZSTD(1)"
+    codec: str | None = "ZSTD(1)"
     is_materialized: bool = True
     column_type_name: str = "map"
     column_name: Optional[str] = None
@@ -34,13 +36,14 @@ class PropertyGroupDefinition:
         if not self.is_materialized:
             return column_definition
 
+        codec_clause = f"CODEC({self.codec})" if self.codec is not None else ""
         return f"""\
             {column_definition}
             MATERIALIZED mapSort(
                 mapFilter((key, _) -> {self.key_filter_expression},
                 CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
             )
-            CODEC({self.codec})
+            {codec_clause}
         """
 
     def get_index_definitions(
@@ -54,13 +57,24 @@ class PropertyGroupDefinition:
         yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
 
+PropertyGroupDefinitions = Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]
+
+
+@frozen
+class ColumnPropertyGroup:
+    source_column: PropertySourceColumnName
+    group_name: PropertyGroupName
+    definition: PropertyGroupDefinition
+
+
+def iter_groups(definitions: PropertyGroupDefinitions) -> Iterator[ColumnPropertyGroup]:
+    for source_column, groups in definitions.items():
+        for group_name, definition in groups.items():
+            yield ColumnPropertyGroup(source_column=source_column, group_name=group_name, definition=definition)
+
+
 class PropertyGroupManager:
-    def __init__(
-        self,
-        groups: Mapping[
-            TableName, Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]
-        ],
-    ) -> None:
+    def __init__(self, groups: Mapping[TableName, PropertyGroupDefinitions]) -> None:
         self.__groups = groups
 
     def get_property_group_columns(
@@ -81,11 +95,10 @@ class PropertyGroupManager:
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
         part of a CREATE TABLE statement.
         """
-        for source_column, groups in self.__groups[table].items():
-            for group_name, group_definition in groups.items():
-                yield group_definition.get_column_definition(source_column, group_name)
-                for index_definition in group_definition.get_index_definitions(source_column, group_name):
-                    yield f"INDEX {index_definition}"
+        for group in iter_groups(self.__groups[table]):
+            yield group.definition.get_column_definition(group.source_column, group.group_name)
+            for index_definition in group.definition.get_index_definitions(group.source_column, group.group_name):
+                yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
         self,
@@ -214,18 +227,38 @@ event_property_group_definitions = {
     },
 }
 
+
+def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGroupDefinitions:
+    """The same groups for a Distributed table, which declares the columns but computes nothing."""
+    return {
+        column_name: {
+            group_name: dataclasses.replace(group_definition, is_materialized=False)
+            for group_name, group_definition in column_group_definitions.items()
+        }
+        for column_name, column_group_definitions in definitions.items()
+    }
+
+
+# Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is left out because a
+# $feature/* map would copy a large share of each flag call's JSON. HogQL therefore reads $feature/* keys from the
+# JSON on this table. No column on this table family carries a CODEC.
+flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
+    "properties": {
+        "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
+    },
+    "person_properties": {
+        "custom": dataclasses.replace(event_property_group_definitions["person_properties"]["custom"], codec=None),
+    },
+}
+
 property_groups = PropertyGroupManager(
     {
         "sharded_events": event_property_group_definitions,
-        "events": {
-            # the events distributed table shares the same property group names and types as the sharded_events table,
-            # just without the materialize statements
-            column_name: {
-                group_name: dataclasses.replace(group_definition, is_materialized=False)
-                for group_name, group_definition in column_group_definitions.items()
-            }
-            for column_name, column_group_definitions in event_property_group_definitions.items()
-        },
+        # the events distributed table shares the same property group names and types as the sharded_events table,
+        # just without the materialize statements
+        "events": without_materialization(event_property_group_definitions),
+        "sharded_flag_evaluations": flag_evaluations_property_group_definitions,
+        "flag_evaluations": without_materialization(flag_evaluations_property_group_definitions),
         "logs_distributed": {
             "attributes": {
                 "str": PropertyGroupDefinition(

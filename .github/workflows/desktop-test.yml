@@ -4,12 +4,21 @@ on:
     # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
+        inputs:
+            run-suite:
+                description: Whether this suite needs to run; an empty value uses local change detection.
+                type: string
+                required: false
+                default: ''
+            run-e2e:
+                description: Whether package changes require end-to-end tests.
+                type: string
+                required: false
+                default: ''
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
             POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY:
-                required: false
-            POSTHOG_CODE_E2E_GATEWAY_URL:
                 required: false
     # Master coverage comes from this cron and from the release tag job, which
     # dispatches this workflow on the tree it tags. Pull requests and merge queue
@@ -32,8 +41,9 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
+            contents: read
             pull-requests: read
         outputs:
             # On master pushes the filter step is skipped and everything runs.
@@ -42,11 +52,20 @@ jobs:
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
             packages: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.packages }}
         steps:
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
+              if: github.event_name == 'pull_request'
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
             # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               # forks can't read org secrets, so fall back to github.token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -54,10 +73,9 @@ jobs:
             - name: Detect relevant changes
               id: filter
               if: github.event_name == 'pull_request'
-              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              uses: ./.github/actions/paths-filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: every
                   filters: |
                       # Wider excludes than desktop-quality.yml, which keeps .vscode and
                       # .claude in scope because Biome lints them. Only documentation
@@ -85,7 +103,7 @@ jobs:
     unit-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -95,19 +113,22 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -117,7 +138,8 @@ jobs:
             # auto-saves on every run (PRs included, ungatable), which the workflow
             # lint forbids. Saves are gated to master pushes below.
             - name: Restore pnpm store
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -139,7 +161,7 @@ jobs:
     electron-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -149,19 +171,22 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -171,14 +196,16 @@ jobs:
             # auto-saves on every run (PRs included, ungatable), which the workflow
             # lint forbids. Saves are gated to master pushes below.
             - name: Restore pnpm store
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
             - name: Restore Playwright browsers cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               id: playwright-cache
               with:
                   path: ~/.cache/ms-playwright
@@ -187,7 +214,8 @@ jobs:
                       playwright-${{ runner.os }}-
 
             - name: Restore Electron binary cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ~/.cache/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -230,7 +258,8 @@ jobs:
                   CI: true
 
             - name: Upload Playwright report
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/upload-artifact@v7.0.1
               # Keys off the step outcome, not failure(): the test step is continue-on-error, so a
               # failing suite no longer reds the job on its own and failure() would never fire here.
               if: ${{ !cancelled() && steps.run-e2e.outcome == 'failure' }}
@@ -251,7 +280,8 @@ jobs:
                   CI: true
 
             - name: Upload web Playwright report
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/upload-artifact@v7.0.1
               if: ${{ !cancelled() && steps.run-web-e2e.outcome == 'failure' }}
               with:
                   name: web-playwright-report
@@ -269,8 +299,7 @@ jobs:
         # after the unit + Electron jobs pass — a red tree never reaches the
         # gateway — and only when a products/desktop/packages/ file changed. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
-        # present (fork PRs never see it) and POSTHOG_CODE_E2E_GATEWAY_URL points at
-        # a runner-reachable gateway. Drives cheap models (claude-haiku-4-5 /
+        # present (fork PRs never see it). Drives cheap models (claude-haiku-4-5 /
         # gpt-5-mini), so a run is a handful of short turns.
         needs: [changes, unit-test, electron-test]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
@@ -288,7 +317,7 @@ jobs:
         # batch merges cleanly, which is what a queue run is for. A model timeout there
         # removes a PR that changes no desktop code from the queue. The PR's own run
         # still covers every branch that really changes products/desktop/packages/.
-        if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && ((inputs.run-suite != '' && inputs.run-e2e == 'true') || (inputs.run-suite == '' && needs.changes.result == 'success' && (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -298,19 +327,22 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -320,7 +352,8 @@ jobs:
             # auto-saves on every run (PRs included, ungatable), which the workflow
             # lint forbids. Saves are gated to master pushes below.
             - name: Restore pnpm store
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -331,7 +364,8 @@ jobs:
 
             - name: Save pnpm store
               if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/save@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -351,13 +385,10 @@ jobs:
               working-directory: packages/agent
               run: pnpm --filter agent run test:e2e
               # The suite reads these POSTHOG_CODE_E2E_* names directly
-              # (packages/agent/packages/agent/e2e/config.ts). The personal API key is an org
-              # secret; the URL and model/environment overrides are org vars.
+              # (packages/agent/packages/agent/e2e/config.ts).
               env:
                   POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
-                  # Accept the URL from either an org var or an org secret — it has ended
-                  # up in both places, and vars.* can't see secrets.
-                  POSTHOG_CODE_E2E_GATEWAY_URL: ${{ vars.POSTHOG_CODE_E2E_GATEWAY_URL || secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
+                  POSTHOG_CODE_E2E_GATEWAY_URL: https://ai-gateway.us.posthog.com
                   POSTHOG_CODE_E2E_CLAUDE_MODEL: ${{ vars.POSTHOG_CODE_E2E_CLAUDE_MODEL }}
                   POSTHOG_CODE_E2E_CODEX_MODEL: ${{ vars.POSTHOG_CODE_E2E_CODEX_MODEL }}
                   # Optional: set vars.POSTHOG_CODE_E2E_ENVIRONMENT=cloud to exercise the

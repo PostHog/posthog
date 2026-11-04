@@ -11,9 +11,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings, get_or_instance_setting
 from posthog.egress.slack.transport import slack_request
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -83,8 +85,7 @@ class SupportSlackAuthorizeView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     def get(self, request: Request, *args, **kwargs) -> Response:
-        support_settings = get_instance_settings(["SUPPORT_SLACK_APP_CLIENT_ID"])
-        client_id = str(support_settings.get("SUPPORT_SLACK_APP_CLIENT_ID") or "")
+        client_id = get_or_instance_setting("SUPPORT_SLACK_APP_CLIENT_ID", CredentialsCaller.CONVERSATIONS)
         if not client_id:
             return Response({"error": "Support Slack OAuth client ID is not configured"}, status=503)
 
@@ -168,9 +169,14 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not code:
         return _error_response(next_path, "missing_code", 400)
 
-    support_settings = get_instance_settings(["SUPPORT_SLACK_APP_CLIENT_ID", "SUPPORT_SLACK_APP_CLIENT_SECRET"])
-    client_id = str(support_settings.get("SUPPORT_SLACK_APP_CLIENT_ID") or "")
-    client_secret = str(support_settings.get("SUPPORT_SLACK_APP_CLIENT_SECRET") or "")
+    try:
+        support_settings = get_many_or_instance_settings(
+            ["SUPPORT_SLACK_APP_CLIENT_ID", "SUPPORT_SLACK_APP_CLIENT_SECRET"], CredentialsCaller.CONVERSATIONS
+        )
+    except CredentialsServiceFailure:
+        return _error_response(next_path, "support_slack_unavailable", 503)
+    client_id = str(support_settings["SUPPORT_SLACK_APP_CLIENT_ID"])
+    client_secret = str(support_settings["SUPPORT_SLACK_APP_CLIENT_SECRET"])
     if not client_id or not client_secret:
         return _error_response(next_path, "support_slack_not_configured", 503)
 

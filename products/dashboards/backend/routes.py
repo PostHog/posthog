@@ -1,6 +1,5 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
-from posthog.settings import EE_AVAILABLE
 
 from products.dashboards.backend.api import dashboard, dashboard_templates
 
@@ -29,16 +28,3 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_dashboard_sharing",
         ["team_id", "dashboard_id"],
     )
-
-    # EE-only collaborator sub-route. Previously registered in ee/urls.py against
-    # the (now product-local) dashboards routers — co-locating it here removes
-    # ee/urls.py's coupling to dashboards' router handles.
-    if EE_AVAILABLE:
-        from ee.api import dashboard_collaborator
-
-        dashboards_router.register(
-            r"collaborators",
-            dashboard_collaborator.DashboardCollaboratorViewSet,
-            "project_dashboard_collaborators",
-            ["project_id", "dashboard_id"],
-        )

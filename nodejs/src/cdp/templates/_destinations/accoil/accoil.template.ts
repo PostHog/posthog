@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    status: 'stable',
     free: true,
     type: 'destination',
     id: 'template-accoil',

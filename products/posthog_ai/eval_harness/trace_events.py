@@ -1,5 +1,4 @@
-"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace,
-$ai_evaluation) to a PostHog client.
+"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace) to PostHog.
 
 Consumes a ``ParsedLog`` produced by ``acp_log.parse_log`` plus scoring
 results from Braintrust. Owns the constants shared with scorer tracing
@@ -16,7 +15,6 @@ from typing import Any
 from posthoganalytics import Posthog
 
 from .acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
-from .engines.types import CaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -287,78 +285,4 @@ def emit_trace_root(
         artifacts_summary=artifacts_summary,
         scores=scores,
         token_usage=token_usage,
-    )
-
-
-def emit_evaluation_events(
-    client: Posthog,
-    experiment_id: str,
-    experiment_name: str,
-    eval_results: list[CaseResult],
-    *,
-    namespace: str,
-    run_metadata: RunMetadata,
-    scorer_traces: dict[tuple[str, str], str] | None = None,
-) -> None:
-    """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
-
-    ``scorer_traces`` maps ``(case_name, scorer_name)`` to the trace_id of
-    the scorer's LLM call. If available, ``$ai_trace_id`` on the event
-    points to the scorer trace (for inspecting the scorer's reasoning).
-    """
-    formatted_name = f"{namespace}/{experiment_name}"
-
-    for result in eval_results:
-        case_name = result.input.get("name", "unknown") if isinstance(result.input, dict) else "unknown"
-        metadata = result.metadata or {}
-        agent_trace_id = metadata.get("trace_id")
-        item_id = str(uuid.uuid4())
-
-        # $ai_output = last assistant message
-        last_message = ""
-        if isinstance(result.output, dict):
-            last_message = result.output.get("last_message", "")
-
-        for scorer_name, score_value in (result.scores or {}).items():
-            # Prefer scorer trace_id (links to scorer's LLM reasoning);
-            # fall back to agent trace_id
-            scorer_trace_id = scorer_traces.get((case_name, scorer_name)) if scorer_traces else None
-            trace_id = scorer_trace_id or agent_trace_id
-
-            properties: dict[str, Any] = {
-                **run_metadata,
-                "$ai_eval_source": namespace,
-                "$ai_evaluation_type": "offline",
-                "$ai_experiment_id": experiment_id,
-                "$ai_experiment_name": formatted_name,
-                "$ai_experiment_item_id": item_id,
-                "$ai_experiment_item_name": case_name,
-                "$ai_metric_name": scorer_name,
-                "$ai_metric_version": "1",
-                "$ai_result_type": "numeric",
-                "$ai_score_min": 0,
-                "$ai_score_max": 1,
-                "$ai_status": "ok" if score_value is not None else "error",
-            }
-            if score_value is not None:
-                properties["$ai_score"] = score_value
-            properties["$ai_trace_id"] = trace_id or str(uuid.uuid4())
-            if trace_id:
-                properties["$ai_target_id"] = trace_id
-                properties["$ai_target_type"] = "trace_id"
-            if isinstance(result.input, dict):
-                prompt = result.input.get("prompt", "")
-                if prompt:
-                    properties["$ai_input"] = prompt
-            if last_message:
-                properties["$ai_output"] = last_message
-            if result.expected is not None:
-                properties["$ai_expected"] = result.expected
-
-            client.capture(distinct_id=DISTINCT_ID, event="$ai_evaluation", properties=properties)
-
-    logger.info(
-        "Emitted evaluation events for experiment '%s' (%d results)",
-        experiment_name,
-        len(eval_results),
     )

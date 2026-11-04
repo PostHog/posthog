@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -12,7 +14,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 
 
-class TestResearchAgentRunnerConfiguration(BaseTest):
+class TestResearchAgentRunnerConfiguration(SimpleTestCase):
     def test_streaming_nodes_includes_root(self):
         self.assertIn(AssistantNodeName.ROOT, STREAMING_NODES)
 

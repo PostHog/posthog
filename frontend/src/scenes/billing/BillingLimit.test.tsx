@@ -6,13 +6,14 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingProductV2Type, BillingType } from '~/types'
 
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 
 // Zero out current/projected usage so submitting never triggers the below-usage warning
 // dialog — this test is about the Save/Remove button wiring, not that branch.
@@ -105,5 +106,21 @@ describe('BillingLimit', () => {
             'You do not have a billing limit set for PostHog Desktop (usage-based).'
         )
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
+    })
+
+    // Billing answers a limit write for a flagged product with a 400, so the control must not render.
+    it.each([
+        ['renders the limit control for a product that allows a limit', false, true],
+        ['renders nothing for a product without billing limits', true, false],
+    ])('%s', async (_name, noBillingLimit, rendersControl) => {
+        await seedBilling({ product_analytics: 500 })
+        render(
+            <Provider>
+                <BillingLimit product={{ ...makeProduct(), no_billing_limit: noBillingLimit }} />
+            </Provider>
+        )
+
+        expect(screen.queryByTestId('billing-limit-input-wrapper-product_analytics') !== null).toBe(rendersControl)
+        expect(screen.queryByText('Edit limit') !== null).toBe(rendersControl)
     })
 })

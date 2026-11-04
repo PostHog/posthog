@@ -20,6 +20,7 @@ export function DeliverySections({
     scope,
     scopeLabel,
     sourceId,
+    repo,
     comparison = null,
     comparisonFailed = false,
 }: {
@@ -27,11 +28,13 @@ export function DeliverySections({
     scope: DeliveryScope
     scopeLabel: string
     sourceId: string | null
+    /** The 'owner/name' in the page's path. */
+    repo: string | null
     /** An author's comparison with their own team, which adds the team's row to the ready-to-merge card. */
     comparison?: DeliveryComparisonApi | null
     comparisonFailed?: boolean
 }): JSX.Element {
-    const summaryLogic = deliverySummaryLogic({ scope, sourceId })
+    const summaryLogic = deliverySummaryLogic({ scope, sourceId, repo })
     const { summary, summaryLoading, summaryFailed } = useValues(summaryLogic)
     const { loadSummary } = useActions(summaryLogic)
 

@@ -9,6 +9,7 @@ export interface EffectiveFilterOverrides {
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
     interval: { value: IntervalType; source: OverrideSource } | null
     filterTestAccounts: { value: boolean; source: OverrideSource } | null
+    compareFilter: { value: NonNullable<DashboardFilter['compareFilter']>; source: OverrideSource } | null
     ignoresDashboardFilters: boolean
 }
 
@@ -68,6 +69,9 @@ export function getEffectiveFilterOverrides(
         tileFilters?.filterTestAccounts,
         dashboardFilters?.filterTestAccounts
     )
+    const tileCompareFilter = tileFilters?.compareFilter as DashboardFilter['compareFilter']
+    const dashboardCompareFilter = dashboardFilters?.compareFilter as DashboardFilter['compareFilter']
+    const compareFilter = resolveScalarOverride(tileCompareFilter, dashboardCompareFilter)
 
     return {
         propertyGroups,
@@ -75,6 +79,7 @@ export function getEffectiveFilterOverrides(
         breakdown,
         interval,
         filterTestAccounts,
+        compareFilter,
         ignoresDashboardFilters: tileIgnoresDashboard,
     }
 }

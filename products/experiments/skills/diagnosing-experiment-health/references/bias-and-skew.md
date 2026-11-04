@@ -38,6 +38,7 @@ problem (A3/A4), not a query-scope problem.
 
 The SQL in this file follows the query rules in `diagnostic-snapshot.md`: the experiment's exposure event, the flag's variant keys, a window with both ends set, and no test-account filter.
 The exposure event is `resolved_exposure_event`, unless `exposure_criteria.exposure_config` names `$experiment_exposure`: then it is that event ("Which event, which property" in `diagnostic-snapshot.md`).
+When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
 The queries count `person_id`.
 On a flag aggregated by a group type (`feature_flag.filters.aggregation_group_type_index` is set), put `$group_<index>` in its place and leave out the rows where it is empty.
 When a result is compared with `$multiple`, leave out the keys in `excluded_variants`: the experiment never counts them.
@@ -60,14 +61,14 @@ On an experiment with a custom exposure event these queries read the flag's call
 
 ## A1 — Multi-variant exclusion bias on uneven split [HIGH]
 
-This is the signal behind the in-app banner "Setup likely introduced bias".
+This is the signal behind the in-app warning "The uneven split may bias the results".
 
 **Evidence.** The banner's check reports a finding when **all four** hold:
 
 - `multiple_variant_handling == "exclude"` (the default)
-- the variant rollouts are uneven.
-  A variant at 0% counts, so a flag at 0/50/50 is uneven.
-- the share of people in more than one variant is above **0.1%**.
+- the variants that the flag serves and the analysis keeps have shares more than one point apart.
+  A variant at 0% and an excluded variant don't count, so a flag at 0/50/50 is even, and a flag that serves one variant gets no finding.
+- the share of people in more than one variant is above **0.1%**, and at least 5 people are in more than one variant.
   The value is `exposures.bias_risk.multiple_variant_percentage`: the `$multiple` count over all exposures.
 - the experiment has no end date.
   After the end the check reports nothing, and the banner is gone.
@@ -126,8 +127,9 @@ That holds for an even split, and a user may quote it: the banner is the product
 MUST read the product's value.
 MUST NOT run the test on event counts of your own: raw exposure events include test accounts, responses that are no variant, repeated events of one person and events outside the analysis window.
 
-<!-- Source for maintainers (may rot): _calculate_srm and SRM_MINIMUM_SAMPLE_SIZE in
-products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py; hasSampleRatioMismatch in
+<!-- Source for maintainers (may rot): _calculate_srm in
+products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py; sample_ratio_test and
+SRM_MINIMUM_SAMPLE_SIZE in products/experiments/backend/health/checks/srm.py; hasSampleRatioMismatch in
 products/experiments/frontend/health/exposureHealth.ts. -->
 
 **What it means.** The distribution of exposed people differs from the flag's current split by more than chance allows.
@@ -376,6 +378,15 @@ Five states exist, checked from `experiment-get` alone:
 | "The experiment is running, but all users see a single variant"             | Running, the first release condition matches everyone at 100%, and one variant holds 100% of the split                                      | End with a conclusion, or adjust the variant distribution                                  |
 | "The experiment is not running, but users are exposed to multiple variants" | Ended, the flag is active, more than one variant is above 0%, and a release condition is above 0%                                           | Disable the flag, or resume the experiment                                                 |
 | "The experiment is not running, but users are exposed to multiple variants" | Not launched (also after a reset), not archived, the flag is active, more than one variant is above 0%, and a release condition is above 0% | Disable the flag, or start the experiment                                                  |
+
+The table shows the page's own rules. When the page shows the health findings, it takes the banner from the server's flag-state finding instead. For an ended experiment, the `flag_live_after_end` finding also reads the flag's calls and the other experiments on the flag:
+
+- When another experiment on the flag is running, or launched after this one ended, the flag's state belongs to that experiment, and the finding is absent. Do not advise disabling the flag from this experiment, even when the banner says so. Disabling it stops a running experiment.
+- A draft experiment on the flag, no recorded call of the flag in the last 3 days, or calls that PostHog can't read yet make the finding info, not a warning. A page that shows the health findings shows no banner then.
+
+For a draft, the server's finding is absent when another experiment on the flag is running, because the flag's state belongs to that experiment.
+The `flag_shared` finding reports the draft instead.
+Do not advise disabling the flag or starting the draft then (E15 in `mid-run-changes.md`).
 
 "Adjust the variant distribution" on a running experiment is a change of the split, with what that does to the people already exposed (E3 in `mid-run-changes.md`).
 Say so before the user restores a split.

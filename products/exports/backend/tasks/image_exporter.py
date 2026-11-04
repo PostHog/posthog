@@ -33,14 +33,16 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import export_limit_context
+from products.exports.backend.facade.api import export_execution_mode, export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
+    is_reportable_export_failure,
 )
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
@@ -64,6 +66,11 @@ def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str
     if not insight_cache_keys:
         return ""
     return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
+
+
+def _exporter_url(query_string: str) -> str:
+    # absolute_uri rejects a `%5c` anywhere in its input, but cache keys embed path-cleaning regexes with backslashes
+    return f"{absolute_uri('/exporter')}?{query_string}"
 
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
@@ -239,18 +246,18 @@ def _export_to_png(
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
+            url_to_render = _exporter_url(f"token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
+            url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
+            url_to_render = _exporter_url(
+                f"token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", REPLAY_WRAPPER_SELECTOR)
             screenshot_width = exported_asset.export_context.get("width", 1400)
@@ -275,9 +282,7 @@ def _export_to_png(
             # the `/exporter` query string.
             encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
-            )
+            url_to_render = _exporter_url(f"token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}")
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
@@ -300,13 +305,14 @@ def _export_to_png(
             legend_param = (
                 "&legend=true" if _insight_query_wants_legend(exported_asset.export_context["source"]) else ""
             )
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            url_to_render = _exporter_url(f"token={access_token}{legend_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.export_context["source"])
             page_load_timeout = 100
         else:
             raise InvalidExportContext(
-                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context"
+                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context",
+                reportable=True,
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -504,7 +510,10 @@ def _screenshot_asset_browserless(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render, final=True
             )
 
-            page.set_viewport_size({"width": width, "height": final_height})
+            if final_height != height:
+                page.set_viewport_size({"width": width, "height": final_height})
+                # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
+                page.wait_for_timeout(500)
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise
@@ -557,6 +566,7 @@ def export_image(
                 # Falls back to the saved insight query for subscriptions and other server-initiated exports.
                 export_context = exported_asset.export_context or {}
                 query_override = export_context.get("source")
+                insight_execution_mode = export_execution_mode(export_context)
 
                 dashboard_variables = None
                 tile_filters_override = None
@@ -582,7 +592,7 @@ def export_image(
                         exported_asset.insight,
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
-                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        execution_mode=insight_execution_mode,
                         # Background render (no request user); attribute the read to the export owner.
                         user=exported_asset.created_by,
                         variables_override=None,
@@ -606,7 +616,7 @@ def export_image(
                             exported_asset.insight,
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
-                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            execution_mode=insight_execution_mode,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
@@ -704,6 +714,23 @@ def export_image(
                         "dashboard_id": exported_asset.dashboard_id,
                     },
                 )
-            else:
+            # The creator is still a member but has no access to a resource the query needs (e.g. web analytics).
+            elif isinstance(e, UserAccessControlError):
+                report_creator_access_revoked(
+                    user=exported_asset.created_by,
+                    team=exported_asset.team,
+                    source="export",
+                    error=e,
+                    reason="missing_resource_access",
+                    properties={
+                        "exported_asset_id": exported_asset.id,
+                        "insight_id": exported_asset.insight_id,
+                        "dashboard_id": exported_asset.dashboard_id,
+                        "resource": e.resource,
+                        "required_level": e.required_level,
+                    },
+                )
+            # A broken saved query is the user's to fix, and the asset already records it.
+            elif is_reportable_export_failure(e):
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise

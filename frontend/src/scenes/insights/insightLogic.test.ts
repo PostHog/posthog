@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,7 +45,6 @@ import { insightsApi } from './utils/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
-    events: [{ id: 3 }],
     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
 }
 
@@ -88,11 +88,13 @@ const partialInsight44 = {
     filters: API_FILTERS,
 }
 
-const patchResponseFor = (
-    payload: Record<string, any>,
-    id: string,
-    filters: Record<string, any>
-): Record<string, any> => {
+const TILES_ON_DASHBOARDS_1_2_3 = [
+    { id: 11, dashboard_id: 1 },
+    { id: 12, dashboard_id: 2 },
+    { id: 13, dashboard_id: 3 },
+]
+
+const patchResponseFor = (id: string, filters: Record<string, any>): Record<string, any> => {
     return {
         result: id === '42' ? ['result from api'] : null,
         id: id === '42' ? 42 : 43,
@@ -101,7 +103,6 @@ const patchResponseFor = (
         name: id === '42' ? undefined : 'Foobar 43',
         description: id === '42' ? undefined : 'Lorem ipsum.',
         tags: id === '42' ? undefined : ['good'],
-        dashboards: payload['dashboards'],
         dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : undefined,
     }
 }
@@ -112,7 +113,6 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         short_id: Insight42,
         result: ['result 42'],
         query: API_QUERY,
-        dashboards: [],
         dashboard_tiles: [],
         saved: true,
         name: 'new name',
@@ -190,7 +190,7 @@ describe('insightLogic', () => {
                                         result: ['result 42'],
                                         filters: API_FILTERS,
                                         name: 'original name',
-                                        dashboards: [1, 2, 3],
+                                        dashboard_tiles: TILES_ON_DASHBOARDS_1_2_3,
                                     },
                                     { id: 43, short_id: Insight43, result: ['result 43'], filters: API_FILTERS },
                                 ],
@@ -211,7 +211,7 @@ describe('insightLogic', () => {
                                     short_id: shortId.toString(),
                                     filters: JSON.parse(url.searchParams.get('filters') || 'false') || API_FILTERS,
                                     name: 'original name',
-                                    dashboards: [1, 2, 3],
+                                    dashboard_tiles: TILES_ON_DASHBOARDS_1_2_3,
                                 },
                             ],
                         },
@@ -263,9 +263,7 @@ describe('insightLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async ({ request, params }) => {
-                    const payload = (await request.json()) as Record<string, any>
                     const response = patchResponseFor(
-                        payload,
                         params.id as string,
                         JSON.parse(new URL(request.url).searchParams.get('filters') || 'false')
                     )
@@ -437,6 +435,29 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
+        it.each([true, false])('only fetches the definition when notebook retention is %s', async (retain) => {
+            const requests: URL[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        requests.push(new URL(request.url))
+                        return { results: [insightModelWith({})] }
+                    },
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42, retainResponseOnUnmount: retain })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+            expect(requests).toHaveLength(1)
+            expect(requests[0].searchParams.get('basic')).toBe(retain ? 'true' : null)
+
+            logic.unmount()
+            logic = insightLogic({ dashboardItemId: Insight42, retainResponseOnUnmount: retain })
+            logic.mount()
+            expect(!!logic.values.insight.query).toBe(retain)
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+        })
+
         const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
@@ -624,6 +645,57 @@ describe('insightLogic', () => {
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
+    test.each([
+        {
+            name: 'a saved insight stays on the dashboards it sits on',
+            insightProps: {
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    id: 42,
+                    short_id: Insight42,
+                    query: examples.FunnelsQuery,
+                    result: {},
+                    dashboard_tiles: TILES_ON_DASHBOARDS_1_2_3,
+                },
+            },
+            expectedPlacements: [],
+        },
+        {
+            name: 'a new insight goes on the dashboard it was started from',
+            insightProps: {
+                dashboardItemId: 'new',
+                cachedInsight: { ...createEmptyInsight('new'), dashboards: [MOCK_DASHBOARD_ID] },
+            },
+            expectedPlacements: [[12, MOCK_DASHBOARD_ID]],
+        },
+    ] as { name: string; insightProps: InsightLogicProps; expectedPlacements: number[][] }[])(
+        'saving: $name',
+        async ({ insightProps, expectedPlacements }) => {
+            const update = jest.spyOn(api, 'update')
+            const create = jest.spyOn(api, 'create')
+            const addToDashboard = jest
+                .spyOn(insightsApi, 'addToDashboard')
+                .mockImplementation(async (_insightId, dashboardId) => ({ id: 99, dashboard_id: dashboardId }))
+            logic = insightLogic(insightProps)
+            logic.mount()
+            insightDataLogic(insightProps).mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveInsight()
+            }).toFinishAllListeners()
+
+            const insightWrites = [...update.mock.calls, ...create.mock.calls].filter(([url]) =>
+                /\/insights\/?(\d+\/?)?$/.test(url)
+            )
+            expect(insightWrites).toHaveLength(1)
+            expect(insightWrites[0][1]).not.toHaveProperty('dashboards')
+            expect(addToDashboard.mock.calls).toEqual(expectedPlacements)
+            update.mockRestore()
+            create.mockRestore()
+            addToDashboard.mockRestore()
+        }
+    )
+
     test('updateInsight updates dashboards', async () => {
         savedInsightsLogic().mount()
         logic = insightLogic({
@@ -638,10 +710,12 @@ describe('insightLogic', () => {
         await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
     })
 
-    test('updateInsight resolves id from short_id when id is missing', async () => {
-        // Simulates the race condition where updateInsight fires before loadInsight
-        // completes: the insight has a short_id but no numeric id yet (e.g. when
-        // adding to a dashboard immediately after saving a new insight).
+    test('addInsightToDashboard resolves id from short_id when id is missing', async () => {
+        // Simulates the race condition where the insight is added to a dashboard right after a new
+        // insight is saved, before loadInsight completes: it has a short_id but no numeric id yet.
+        const addToDashboard = jest
+            .spyOn(insightsApi, 'addToDashboard')
+            .mockResolvedValue({ id: 99, dashboard_id: MOCK_DASHBOARD_ID })
         logic = insightLogic({
             dashboardItemId: Insight42,
             cachedInsight: {
@@ -652,8 +726,11 @@ describe('insightLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.updateInsight({ dashboards: [MOCK_DASHBOARD_ID] })
-        }).toDispatchActions(['updateInsightSuccess'])
+            logic.actions.addInsightToDashboard(MOCK_DASHBOARD_ID)
+        }).toDispatchActions(['addInsightToDashboardSuccess'])
+
+        expect(addToDashboard).toHaveBeenCalledWith(42, MOCK_DASHBOARD_ID)
+        addToDashboard.mockRestore()
     })
 
     test('after save as from a dashboard tile, the editor state stays on the tile insight until navigation opens the copy', async () => {
@@ -775,11 +852,8 @@ describe('insightLogic', () => {
                     tile: { insight: { id: 42 } } as DashboardTile,
                     dashboardId: 3,
                 })
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
-                })
+            }).toFinishAllListeners()
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2])
         })
 
         it('does not reacts to removal of a different tile from dashboard', async () => {
@@ -788,51 +862,51 @@ describe('insightLogic', () => {
                     tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                })
+            }).toFinishAllListeners()
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2, 3])
         })
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2] }),
-                })
+            }).toFinishAllListeners()
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2])
         })
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                })
+            }).toFinishAllListeners()
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2, 3])
         })
 
         it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
             await expectLogic(logic, () => {
-                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                insightsModel.actions.insightsAddedToDashboard({
+                    dashboardId: 1234,
+                    tiles: [
+                        { id: 900, insightId: 0 },
+                        { id: 901, insightId: 1 },
+                        { id: 902, insightId: 42 },
+                    ],
                 })
+            }).toFinishAllListeners()
+            expect(logic.values.insight.dashboard_tiles).toContainEqual({ id: 902, dashboard_id: 1234 })
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2, 3, 1234])
         })
 
         it('does not react to duplication of dashboard that did not include this insight', async () => {
             await expectLogic(logic, () => {
-                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 2] })
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                insightsModel.actions.insightsAddedToDashboard({
+                    dashboardId: 1234,
+                    tiles: [
+                        { id: 900, insightId: 0 },
+                        { id: 901, insightId: 1 },
+                        { id: 902, insightId: 2 },
+                    ],
                 })
+            }).toFinishAllListeners()
+            expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toEqual([1, 2, 3])
         })
     })
 
@@ -1057,9 +1131,28 @@ describe('insightLogic', () => {
                 expect.stringContaining('/insights/42'),
                 expect.objectContaining({ deleted: true })
             )
+            expect((api.update as jest.Mock).mock.calls[0][1]).not.toHaveProperty('dashboards')
 
             const expectedUrl = dashboardId ? urls.dashboard(dashboardId) : urls.savedInsights()
             await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
+        })
+
+        it('undo puts the insight back on its dashboards, except one deleted in the meantime', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            const addToDashboard = jest
+                .spyOn(insightsApi, 'addToDashboard')
+                .mockImplementation(async (_insightId, dashboardId) => ({ id: 99, dashboard_id: dashboardId }))
+
+            dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+            logic.actions.confirmDeleteInsight(null)
+            await expectLogic(logic).toFinishAllListeners()
+            await info.mock.calls[0][1]?.button?.action()
+
+            expect(addToDashboard.mock.calls).toEqual([
+                [42, 1],
+                [42, 2],
+            ])
+            addToDashboard.mockRestore()
         })
 
         it('restores insight on undo from dashboard', async () => {
@@ -1094,6 +1187,9 @@ describe('insightLogic', () => {
 
         it('fetches clean insight before duplicating', async () => {
             jest.spyOn(api, 'create')
+            const addToDashboard = jest
+                .spyOn(insightsApi, 'addToDashboard')
+                .mockImplementation(async (_insightId, dashboardId) => ({ id: 99, dashboard_id: dashboardId }))
 
             logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             await expectLogic(logic).toFinishAllListeners()
@@ -1105,6 +1201,17 @@ describe('insightLogic', () => {
                 expect.objectContaining({ name: 'original name (copy)' }),
                 expect.anything()
             )
+            expect(api.create).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ dashboards: expect.anything() }),
+                expect.anything()
+            )
+            expect(addToDashboard.mock.calls).toEqual([
+                [12, 1],
+                [12, 2],
+                [12, 3],
+            ])
+            addToDashboard.mockRestore()
         })
 
         it('falls back to original insight when fetch fails', async () => {
@@ -1448,7 +1555,6 @@ describe('insightLogic', () => {
             dashboardsModel.actions.updateDashboardInsight(
                 insightModelWith({
                     query: dashboardOverriddenQuery,
-                    dashboards: [MOCK_DASHBOARD_ID],
                     dashboard_tiles: [{ dashboard_id: MOCK_DASHBOARD_ID }],
                 }),
                 undefined,
@@ -1462,7 +1568,7 @@ describe('insightLogic', () => {
             dashboardsModel.actions.updateDashboardInsight(
                 insightModelWith({
                     query: dashboardOverriddenQuery,
-                    dashboards: [MOCK_DASHBOARD_ID],
+                    dashboard_tiles: [{ dashboard_id: MOCK_DASHBOARD_ID }],
                 })
             )
 

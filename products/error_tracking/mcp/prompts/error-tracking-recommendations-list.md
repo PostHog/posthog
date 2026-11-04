@@ -6,7 +6,7 @@ Surface only the few recommendations that matter — don't dump every row. Skip 
 
 # Response envelope (every recommendation)
 
-- `type`: one of `alerts`, `rate_limits`, `source_maps`, `long_running_issues`.
+- `type`: one of `alerts`, `rate_limits`, `source_maps`.
 - `meta`: type-specific payload — see the per-type sections below.
 - `completed`: `true` means the recommended action is already satisfied. Nothing to do — skip it.
 - `dismissed_at`: set if the user dismissed this recommendation. Skip dismissed ones unless the user explicitly asks.
@@ -24,5 +24,3 @@ Only act on recommendations that are not `completed` and not dismissed.
   ```
 
   If frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill.
-
-- `long_running_issues` — `meta.issues` lists stale active issues (first seen over a week ago, still recurring). To act, use the `triaging-error-issues` skill to work through them, or `investigating-error-issue` to root-cause one.

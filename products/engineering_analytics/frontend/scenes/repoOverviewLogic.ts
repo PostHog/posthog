@@ -14,6 +14,7 @@ import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/prev
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     PullRequestRow,
+    awaitsRepoForward,
     engineeringAnalyticsLogic,
     loaderStatusFromError,
     toPullRequestRow,
@@ -315,6 +316,9 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     })),
 
     afterMount(({ actions }) => {
+        if (awaitsRepoForward()) {
+            return
+        }
         actions.loadAttention()
         actions.loadOverview()
         actions.loadRepoActivity()

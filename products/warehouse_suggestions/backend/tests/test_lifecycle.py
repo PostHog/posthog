@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -9,12 +10,18 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionDraft,
     SuggestionPayload,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
@@ -22,16 +29,30 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
+from products.warehouse_suggestions.backend.logic.access import can_take
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
+from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
 from .test_accept import REPORT
 
+NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
+READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
+REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
+READS_NOW = busy_reads(
+    human_reads=200,
+    human_duration_ms=100_000,
+    human_read_bytes=10**9,
+    background_duration_ms=50_000,
+    background_read_bytes=10**9,
+)
+REFRESHES_NOW = SubjectRefreshes(runs=30, duration_ms=600_000, read_bytes=10**12)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
@@ -46,6 +67,15 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
         freshness_after_seconds=86400,
         live_sources=(),
         unknown_sources=(),
+    ),
+    WarehouseSuggestionKind.UNMATERIALIZE: UnmaterializePayload(
+        subject_name="orders",
+        refresh_seconds_per_month=3600,
+        refresh_bytes_per_month=0,
+        live_seconds_per_month=20,
+        live_bytes_per_month=0,
+        read_seconds=5,
+        query_fingerprint="fingerprint",
     ),
 }
 
@@ -175,6 +205,47 @@ class TestApplyRun(BaseTest):
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().status == expected
 
     @parameterized.expand(
+        [
+            ("unmaterialized_by_a_suggestion", 60, True, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("stopped_by_a_deprecate_or_a_manual_revert", 60, False, WarehouseSuggestionStatus.PROPOSED, 1),
+            ("accepted_inside_the_cooldown", 10, False, WarehouseSuggestionStatus.ACCEPTED, 0),
+        ]
+    )
+    def test_an_accepted_materialize_returns_when_drafted_again_after_the_cooldown(
+        self,
+        _name: str,
+        accepted_days_ago: int,
+        unmaterialized_by_a_suggestion: bool,
+        expected_status: WarehouseSuggestionStatus,
+        reproposed: int,
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        materialize = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)
+        first_run = [materialize]
+        if unmaterialized_by_a_suggestion:
+            first_run.append(self._draft(ctx, WarehouseSuggestionKind.UNMATERIALIZE, view_id, 1))
+        apply_run(ctx, self.team, first_run, NOW - timedelta(days=accepted_days_ago), surface=True)
+        suggestions = WarehouseSuggestion.objects.for_team(self.team.pk)
+        suggestions.filter(kind=WarehouseSuggestionKind.MATERIALIZE).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=accepted_days_ago),
+            realized_seconds_saved_per_month=1.0,
+        )
+        suggestions.filter(kind=WarehouseSuggestionKind.UNMATERIALIZE).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=40)
+        )
+
+        apply_run(ctx, self.team, [materialize], NOW, surface=False)
+
+        row = suggestions.get(kind=WarehouseSuggestionKind.MATERIALIZE)
+        assert (row.status, row.reproposed_count, row.realized_seconds_saved_per_month) == (
+            expected_status,
+            reproposed,
+            None,
+        )
+
+    @parameterized.expand(
         [("expired", WarehouseSuggestionStatus.EXPIRED), ("auto_resolved", WarehouseSuggestionStatus.AUTO_RESOLVED)]
     )
     def test_a_closed_suggestion_revives_into_the_queue_when_its_evidence_returns(
@@ -190,6 +261,130 @@ class TestApplyRun(BaseTest):
 
         revived = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         assert (revived.status, revived.surfaced_at) == (WarehouseSuggestionStatus.PROPOSED, None)
+
+    @parameterized.expand(
+        [
+            ("creator_who_can_edit", "member", WarehouseSuggestionKind.MATERIALIZE, True),
+            ("creator_who_left_the_organization", "left", WarehouseSuggestionKind.MATERIALIZE, False),
+            ("creator_who_cannot_edit_the_catalog", "catalog_viewer", WarehouseSuggestionKind.CERTIFY, False),
+            ("no_creator", "none", WarehouseSuggestionKind.MATERIALIZE, False),
+        ]
+    )
+    def test_assigns_surfaced_view_suggestions_to_a_creator_who_can_accept_them(
+        self, _name: str, creator_state: str, kind: WarehouseSuggestionKind, expect_assigned: bool
+    ) -> None:
+        creator = self._creator(creator_state)
+        views = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=creator
+            )
+            for name in ("orders", "refunds")
+        ]
+        if creator_state == "catalog_viewer":
+            self._restrict_catalog_to_viewer()
+        ctx = context(
+            team_reads({}),
+            views=[view(saved_query.id, created_by_id=creator.pk if creator else None) for saved_query in views],
+            team_id=self.team.pk,
+        )
+        drafts = [self._draft(ctx, kind, saved_query.id, 1) for saved_query in views]
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, drafts, NOW, surface=True)
+
+        assignee_ids = set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("assignee_id", flat=True))
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        expected_assignee = creator.pk if expect_assigned and creator else None
+        assert (assignee_ids, notified) == (
+            {expected_assignee},
+            [str(expected_assignee)] if expect_assigned else [],
+        )
+
+    @parameterized.expand([("kept_access_to_the_view", False), ("lost_access_to_the_view", True)])
+    def test_a_resurfaced_suggestion_keeps_its_assignee_only_while_they_can_accept_it(
+        self, _name: str, access_revoked: bool
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        apply_run(ctx, self.team, [draft], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(assignee=teammate)
+        if access_revoked:
+            self._enable_access_control()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(saved_query.id),
+                organization_member=teammate.organization_memberships.get(),
+                access_level="none",
+            )
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        assert (row.surfaced_at is not None, row.assignee_id, notified) == (
+            True,
+            None if access_revoked else teammate.pk,
+            [] if access_revoked else [str(teammate.pk)],
+        )
+
+    @parameterized.expand(
+        [
+            ("accepted_during_the_run", {"status": WarehouseSuggestionStatus.ACCEPTED}, None),
+            ("reassigned_during_the_run", {"assignee_id": "teammate"}, "teammate"),
+        ]
+    )
+    def test_the_job_leaves_a_suggestion_someone_changed_while_it_was_assigning(
+        self, _name: str, change: dict[str, object], expected_assignee: str | None
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id, created_by_id=self.user.pk)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        concurrent_change = {key: teammate.pk if value == "teammate" else value for key, value in change.items()}
+
+        def checked_while_someone_changes_it(team: Team, user: User, suggestion: WarehouseSuggestion) -> bool:
+            WarehouseSuggestion.objects.for_team(self.team.pk).update(**concurrent_change)
+            return can_take(team, user, suggestion)
+
+        with (
+            patch(CAN_TAKE, side_effect=checked_while_someone_changes_it),
+            patch(NOTIFY) as notify,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (row.assignee_id, notify.call_count) == (teammate.pk if expected_assignee else None, 0)
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    def _creator(self, creator_state: str) -> User | None:
+        if creator_state == "none":
+            return None
+        if creator_state == "left":
+            return User.objects.create(email="left@example.com", first_name="Left")
+        return self.user
+
+    def _restrict_catalog_to_viewer(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
 
     def test_auto_resolves_when_the_view_is_gone_or_already_handled(self) -> None:
         deleted_id, materialized_id = uuid4(), uuid4()
@@ -243,6 +438,121 @@ class TestApplyRun(BaseTest):
         apply_run(later, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
+
+    @parameterized.expand(
+        [
+            (
+                "materialize_measured_after_acceptance",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
+                (4300.0, 5e12 - 1e12 - 10**9),
+            ),
+            (
+                "materialize_priced_at_todays_read_volume",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                replace(READS_NOW, human_reads=2000, human_duration_ms=1_000_000, human_read_bytes=10 * 10**9),
+                REFRESHES_NOW,
+                (48400.0, 50e12 - 1e12 - 10 * 10**9),
+            ),
+            (
+                "materialize_nobody_reads_it",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                None,
+                REFRESHES_NOW,
+                (-600.0, -1e12),
+            ),
+            (
+                "materialize_no_refresh_rows",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                READ_COST_BEFORE,
+                READS_NOW,
+                None,
+                (None, None),
+            ),
+            (
+                "materialize_window_holds_reads_from_before",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=2),
+                READ_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
+                (None, None),
+            ),
+            (
+                "materialize_scored_before_read_cost_was_kept",
+                WarehouseSuggestionKind.MATERIALIZE,
+                True,
+                timedelta(days=40),
+                {},
+                READS_NOW,
+                REFRESHES_NOW,
+                (None, None),
+            ),
+            (
+                "unmaterialize_measured_after_acceptance",
+                WarehouseSuggestionKind.UNMATERIALIZE,
+                False,
+                timedelta(days=40),
+                REFRESH_COST_BEFORE,
+                READS_NOW,
+                None,
+                (4850.0, 5e12 - 2 * 10**9),
+            ),
+            (
+                "unmaterialize_materialized_again",
+                WarehouseSuggestionKind.UNMATERIALIZE,
+                True,
+                timedelta(days=40),
+                REFRESH_COST_BEFORE,
+                READS_NOW,
+                REFRESHES_NOW,
+                (None, None),
+            ),
+        ]
+    )
+    def test_records_the_savings_an_accepted_suggestion_realized(
+        self,
+        _name: str,
+        kind: WarehouseSuggestionKind,
+        materialized_now: bool,
+        accepted_ago: timedelta,
+        score_inputs: dict[str, float],
+        reads_now: SubjectReads | None,
+        refreshes_now: SubjectRefreshes | None,
+        expected: tuple[float | None, float | None],
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        apply_run(ctx, self.team, [self._draft(ctx, kind, view_id, 1)], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - accepted_ago, score_inputs=score_inputs
+        )
+        later = context(
+            team_reads(
+                {view_subject(view_id): reads_now} if reads_now else {},
+                refreshes={view_id: refreshes_now} if refreshes_now else None,
+            ),
+            views=[view(view_id, materializes=materialized_now)],
+            team_id=self.team.pk,
+        )
+
+        apply_run(later, self.team, [], NOW, surface=False)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (row.realized_seconds_saved_per_month, row.realized_bytes_saved_per_month) == expected
 
 
 CERTIFY = WarehouseSuggestionKind.CERTIFY

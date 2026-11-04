@@ -98,7 +98,18 @@ class AutoresearchPipelineAdmin(admin.ModelAdmin):
         ),
         ("Population", {"fields": ("training_population", "inference_population")}),
         ("Output", {"fields": ("output_person_property",)}),
-        ("Budget & schedule", {"fields": ("iteration_budget", "iteration_budget_remaining", "cadence_days")}),
+        (
+            "Budget & schedule",
+            {
+                "fields": (
+                    "iterations_per_run",
+                    "research_interval_days",
+                    "cadence_days",
+                    "iteration_budget",
+                    "iteration_budget_remaining",
+                )
+            },
+        ),
         ("Stop criteria", {"fields": ("success_auc", "plateau_iterations")}),
         ("Dates", {"fields": ("created_at", "updated_at", "last_scored_at")}),
     )

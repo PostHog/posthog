@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import {
-    buildInsufficientScopeChallenge,
     findPostHogPermissionError,
     formatPermissionErrorMessage,
     handleToolError,
@@ -11,6 +10,7 @@ import {
     PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
+import { buildInsufficientScopeChallenge } from '@/lib/missing-scope'
 
 const captureException = vi.fn()
 vi.mock('@/lib/posthog', () => ({
@@ -84,47 +84,33 @@ describe('formatPermissionErrorMessage', () => {
         expect(text).toContain('PostHog API permission denied')
         expect(text).toContain('HTTP 403')
     })
+
+    it('tells a project-scoped token to use organization access on an organization endpoint', () => {
+        const error = new PostHogPermissionError({
+            detail: 'API keys with scoped projects are only supported on project-based endpoints.',
+            url: 'https://us.posthog.com/api/organizations/abc/billing/subscription/',
+            method: 'GET',
+        })
+
+        const text = formatPermissionErrorMessage(error)
+
+        expect(text).toContain('organization endpoint')
+        expect(text).toContain('"All access"')
+        expect(text).not.toContain('have access to this project')
+    })
 })
 
 describe('buildInsufficientScopeChallenge', () => {
-    it('follows RFC 6750 §3.1 when a scope is known', () => {
-        const error = new PostHogPermissionError({
-            detail: "API key missing required scope 'user:read'",
-            missingScope: 'user:read',
-            url: 'https://us.posthog.com/api/users/@me/',
-            method: 'GET',
-        })
-
-        expect(buildInsufficientScopeChallenge(error)).toBe(
-            'Bearer error="insufficient_scope", scope="user:read", error_description="API key missing required scope \'user:read\'"'
+    it('names every required scope in one RFC 6750 §3.1 challenge', () => {
+        expect(buildInsufficientScopeChallenge(['person:read', 'cohort:read', 'person:read'])).toBe(
+            'Bearer error="insufficient_scope", scope="person:read cohort:read"'
         )
     })
 
-    it('omits scope when unknown', () => {
-        const error = new PostHogPermissionError({
-            detail: 'team access denied',
-            url: 'https://us.posthog.com/api/projects/1/',
-            method: 'GET',
-        })
-
-        expect(buildInsufficientScopeChallenge(error)).toBe(
-            'Bearer error="insufficient_scope", error_description="team access denied"'
+    it('drops a value that is not an OAuth scope token, so it cannot break the header', () => {
+        expect(buildInsufficientScopeChallenge(['user:read', 'bad" scope', 'x\ny'])).toBe(
+            'Bearer error="insufficient_scope", scope="user:read"'
         )
-    })
-
-    it('strips control chars and balances quotes in detail', () => {
-        const error = new PostHogPermissionError({
-            detail: 'hi "there"\nthis is bad',
-            missingScope: 'user:read',
-            url: 'https://us.posthog.com/api/users/@me/',
-            method: 'GET',
-        })
-
-        const header = buildInsufficientScopeChallenge(error)
-        // Double quotes inside error_description must be swapped out and newlines dropped.
-        expect(header).not.toMatch(/"there"/)
-        expect(header).not.toMatch(/\n/)
-        expect(header).toContain(`error_description="hi 'there'this is bad"`)
     })
 })
 
@@ -254,12 +240,22 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
         vi.restoreAllMocks()
     })
 
-    it('throws PostHogPermissionError with the parsed missingScope', async () => {
+    it.each([
+        { label: 'no challenge', challenge: undefined, challengeScopes: undefined },
+        {
+            label: 'a step-up challenge',
+            challenge: 'Bearer error="insufficient_scope", scope="user:read organization:read"',
+            challengeScopes: ['user:read', 'organization:read'],
+        },
+    ])('throws PostHogPermissionError with the parsed scopes for $label', async ({ challenge, challengeScopes }) => {
         const mockFetch = vi.fn().mockResolvedValue(
             new Response(permissionDeniedBody, {
                 status: 403,
                 statusText: 'Forbidden',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(challenge ? { 'WWW-Authenticate': challenge } : {}),
+                },
             })
         )
         vi.stubGlobal('fetch', mockFetch)
@@ -278,6 +274,7 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
         expect(result.error).toBeInstanceOf(PostHogPermissionError)
         const permissionError = result.error as PostHogPermissionError
         expect(permissionError.missingScope).toBe('user:read')
+        expect(permissionError.challengeScopes).toEqual(challengeScopes)
         expect(permissionError.method).toBe('GET')
         expect(permissionError.url).toBe('https://us.posthog.com/api/users/@me/')
 

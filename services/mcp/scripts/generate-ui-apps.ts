@@ -302,9 +302,11 @@ function generateDispatchModule(apps: DispatchApp[]): string {
                 return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={data as ${data_type}} />,`
             }
             if (app.type === 'custom') {
-                const { data_type, view_component, view_prop } = app.config.render_ui
+                const { data_type, view_component, view_prop, link_prop, app_prop } = app.config.render_ui
                 const dataExpression = data_type ? `data as ${data_type}` : 'data'
-                return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={${dataExpression}} />,`
+                const args = ['data', ...(link_prop ? ['openLink'] : []), ...(app_prop ? ['app'] : [])].join(', ')
+                const extraProps = `${link_prop ? ` ${link_prop}={openLink}` : ''}${app_prop ? ` ${app_prop}={app}` : ''}`
+                return `    '${app.appKey}': ({ ${args} }) => <${view_component} ${view_prop}={${dataExpression}}${extraProps} />,`
             }
             const pascalName = kebabToPascal(app.appKey)
             return `    '${app.appKey}': ({ data, app }) => <${pascalName}Content data={data as ${app.config.list_data_type}} app={app} />,`

@@ -5,30 +5,37 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import {
-    PREDICTION_SEGMENTS,
     likelySegmentFeatureFlagUrl,
     likelySegmentWorkflowUrl,
     predictionBreakdownInsightUrl,
 } from '../predictionSegments'
+import { PersonPropertySetting } from './PersonPropertySetting'
+import { SectionCard } from './SectionCard'
 
 export function PredictionActionsPanel(): JSX.Element | null {
-    const { pipeline } = useValues(autoresearchPipelineLogic)
+    const { pipeline, segmentThresholds, segmentDefinitions, personPropertyDisabledReason } =
+        useValues(autoresearchPipelineLogic)
     const { reportPredictionLinkClicked } = useActions(autoresearchPipelineLogic)
 
     const outputProperty = pipeline?.output_person_property
     if (!pipeline || !outputProperty) {
         return null
     }
-    const likelyRange = PREDICTION_SEGMENTS[0].range.toLowerCase()
+    const likelyRange = segmentDefinitions?.[0].probabilityRange.toLowerCase() ?? 'as likely'
+    const segmentsLoading =
+        personPropertyDisabledReason ?? (!segmentThresholds ? 'Segments are still loading' : undefined)
 
     return (
-        <div className="border rounded p-4 bg-surface-primary">
-            <h3 className="font-semibold mb-1">Act on these predictions</h3>
-            <p className="text-sm text-secondary mb-3">Each link opens a prefilled draft. Review it, then save.</p>
+        <SectionCard
+            title="Act on these predictions"
+            description="Each link opens a prefilled draft. Review it, then save."
+        >
+            <PersonPropertySetting source="actions_panel" />
             <div className="flex flex-col gap-1">
                 <LemonButton
                     icon={<IconFlag />}
-                    to={likelySegmentFeatureFlagUrl(outputProperty)}
+                    to={segmentThresholds ? likelySegmentFeatureFlagUrl(outputProperty, segmentThresholds) : undefined}
+                    disabledReason={segmentsLoading}
                     onClick={() => reportPredictionLinkClicked('feature_flag')}
                     data-attr="autoresearch-predictions-create-flag"
                     fullWidth
@@ -37,7 +44,8 @@ export function PredictionActionsPanel(): JSX.Element | null {
                 </LemonButton>
                 <LemonButton
                     icon={<IconDecisionTree />}
-                    to={likelySegmentWorkflowUrl(outputProperty)}
+                    to={segmentThresholds ? likelySegmentWorkflowUrl(outputProperty, segmentThresholds) : undefined}
+                    disabledReason={segmentsLoading}
                     onClick={() => reportPredictionLinkClicked('workflow')}
                     data-attr="autoresearch-predictions-create-workflow"
                     fullWidth
@@ -46,7 +54,12 @@ export function PredictionActionsPanel(): JSX.Element | null {
                 </LemonButton>
                 <LemonButton
                     icon={<IconGraph />}
-                    to={predictionBreakdownInsightUrl(pipeline, outputProperty)}
+                    to={
+                        personPropertyDisabledReason
+                            ? undefined
+                            : predictionBreakdownInsightUrl(pipeline, outputProperty)
+                    }
+                    disabledReason={personPropertyDisabledReason}
                     onClick={() => reportPredictionLinkClicked('insight')}
                     data-attr="autoresearch-predictions-create-insight"
                     fullWidth
@@ -54,6 +67,6 @@ export function PredictionActionsPanel(): JSX.Element | null {
                     Chart {pipeline.target_event} by predicted probability
                 </LemonButton>
             </div>
-        </div>
+        </SectionCard>
     )
 }

@@ -16,5 +16,8 @@ load_from:
     - python_module: posthog.dags.locations.growth
     - python_module: posthog.dags.locations.shared
     - python_module: posthog.dags.locations.signals
+    # Needs torch (`uv sync --group inbox-ranking`), so it stays off by default.
+    # See products/signals/dags/inbox_ranking/README.md before you uncomment it.
+    # - python_module: posthog.dags.locations.signals_ml
     - python_module: posthog.dags.locations.ingestion
     - python_module: posthog.dags.locations.web_analytics

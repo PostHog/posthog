@@ -102,7 +102,7 @@ function ExpandedRunRow({
     return (
         <BindLogic logic={autoresearchPipelineLogic} props={{ id: PIPELINE_ID }}>
             <div className={WIDTH_CLASS[width]}>
-                <TrainingRunRow run={RUN} />
+                <TrainingRunRow run={RUN} runNumber={1} />
             </div>
         </BindLogic>
     )

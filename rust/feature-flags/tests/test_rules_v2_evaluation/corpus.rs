@@ -3,13 +3,13 @@ use std::path::PathBuf;
 
 use feature_flags::flags::config_v2::Config;
 use feature_flags::flags::evaluate_v2::{
-    Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties, RuleKind,
+    Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties,
 };
 use feature_flags::flags::flag_models::FeatureFlag;
 use serde_json::{json, Value};
 
 pub fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.3.1")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_contract")
 }
 
 pub fn load(path: &str) -> Value {
@@ -28,6 +28,40 @@ pub fn value_cases() -> Vec<Value> {
         .as_array()
         .unwrap()
         .clone()
+}
+
+/// Expands each case to the shape of the other corpora: `defaults.flag`, `defaults.context`
+/// overlaid with the case's own context fields, and the `legacy` rendering of its value.
+pub fn experiment_cases() -> Vec<Value> {
+    let corpus = load("corpus/v2_experiment_evaluation.json");
+    let defaults = &corpus["defaults"];
+    let mut cases = corpus["cases"].as_array().unwrap().clone();
+    for case in &mut cases {
+        let mut context = defaults["context"].clone();
+        for (field, value) in case["context"].as_object().into_iter().flatten() {
+            context[field] = value.clone();
+        }
+        case["flag"] = defaults["flag"].clone();
+        case["context"] = context;
+        case["legacy"] = legacy(&case["expected"]["value"]);
+    }
+    cases
+}
+
+/// The typed value corpus's legacy rendering table; a failure has no value and renders as null.
+pub fn legacy(value: &Value) -> Value {
+    match value {
+        Value::Null | Value::Bool(false) => {
+            json!({"enabled": false, "variant": null, "value": false, "payload": null})
+        }
+        Value::Bool(true) => {
+            json!({"enabled": true, "variant": null, "value": true, "payload": null})
+        }
+        Value::String(_) => {
+            json!({"enabled": true, "variant": value, "value": value, "payload": null})
+        }
+        _ => json!({"enabled": true, "variant": null, "value": true, "payload": value}),
+    }
 }
 
 pub fn read(case: &Value) -> FeatureFlag {
@@ -74,21 +108,20 @@ pub fn context<'a>(
 }
 
 fn rule_json(rule: MatchedRule) -> Value {
-    json!({"id": rule.id.to_string(), "index": rule.index, "rule_type": match rule.kind {
-        RuleKind::TargetedRelease => "targeted_release", RuleKind::PercentageRollout => "percentage_rollout",
-    }})
+    json!({"id": rule.id.to_string(), "index": rule.index, "rule_type": rule.kind.as_str()})
 }
 
 pub fn result_json(result: Result<Evaluation, EvaluationError>) -> Value {
     match result {
-        Ok(Evaluation::TargetingMatch { value, rule }) => {
-            json!({"status":"success","value":value,"reason":"targeting_match","rule":rule_json(rule)})
-        }
-        Ok(Evaluation::RolloutMiss { value, rule }) => {
-            json!({"status":"success","value":value,"reason":"rollout_miss","rule":rule_json(rule)})
-        }
-        Ok(Evaluation::NoRuleMatch { value }) => {
-            json!({"status":"success","value":value,"reason":"no_rule_match"})
+        Ok(evaluation) => {
+            let mut json = json!({"status": "success", "value": evaluation.value(), "reason": evaluation.code()});
+            if let Some(rule) = evaluation.rule() {
+                json["rule"] = rule_json(rule);
+            }
+            if let Some(variant) = evaluation.variant_key() {
+                json["variant"] = json!(variant);
+            }
+            json
         }
         Err(error) => json!({"status":"error","error": match error {
             EvaluationError::MissingContext => "missing_context", EvaluationError::InvalidProperty => "invalid_property",

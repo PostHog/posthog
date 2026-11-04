@@ -56,9 +56,9 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
         return batch
     }
 
-    public async commit(batch: MlKeyBatch): Promise<void> {
+    public async commit(batch: MlKeyBatch, used?: Iterable<MlSessionIdentity>): Promise<void> {
         const startedAt = performance.now()
-        await batch.commit()
+        await batch.commit(used)
         MlMirrorMetrics.observeMlKeyPhase('commit', performance.now() - startedAt)
     }
 

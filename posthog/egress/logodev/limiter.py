@@ -5,7 +5,7 @@ credentials from that account, so the whole instance draws from a single shared 
 constant scope. logo.dev limits requests per month by plan, with no per-minute or hourly limit, so
 the defaults are deliberately modest operator ceilings. Icon bytes are never stored server-side (logo.dev gates that behind a
 data-caching license), so upstream volume is deduped only per user, by the browser caching that
-:mod:`posthog.cdp.services.icons` directs — steady-state traffic tracks unique (user, icon) first
+:mod:`products.cdp.backend.services.icons` directs — steady-state traffic tracks unique (user, icon) first
 views per day. Raise the settings below if that outgrows the defaults.
 
 Importing this module registers the policy as a side effect — import it (directly or via

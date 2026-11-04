@@ -49,9 +49,7 @@ WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
-# metrics2 serves the hours before the cut-over. metrics4_samples serves the cut-over hour and later.
-# The view is temporary. After 2026-10-14, the 30-day retention removes all metrics2 data.
-METRICS4_VIEW_METRICS2_START = "2026-08-25 00:00:00"
+# The first hour that metrics4_samples serves. The view skips earlier rows, which overlap the old metrics2 data.
 METRICS4_VIEW_CUTOVER = "2026-09-14 00:00:00"
 
 # Each tuple maps an input column to its metrics4 array element type.
@@ -76,6 +74,10 @@ _ARRAY_CODECS: dict[str, str] = {
     "count": " CODEC(T64, Default)",
     "histogram_counts": " CODEC(T64, Default)",
 }
+
+# The ingest MV does not write these arrays, so new rows store an empty array.
+# Do not ARRAY JOIN them with the other point arrays: the lengths do not agree.
+METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS: frozenset[str] = frozenset({"observed_timestamp"})
 
 
 def _db() -> str:
@@ -203,6 +205,8 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
     # The granule can contain multiple metric names and time buckets.
     # The time_bucket minmax index lets an hour filter skip the complete granule.
     # The metrics2 table uses idx_timestamp_minmax for the same purpose.
+    # The service_freshness_by_hour projection keeps the newest point of each service and hour, also from series
+    # without labels. A read of it does not read the timestamp arrays.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 (
@@ -228,7 +232,16 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+    PROJECTION service_freshness_by_hour
+    (
+        SELECT
+            team_id,
+            time_bucket,
+            service_name,
+            max(arrayMax(timestamp_arr))
+        GROUP BY team_id, time_bucket, service_name
+    )
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
@@ -236,7 +249,8 @@ ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
-    ttl_only_drop_parts = 1
+    ttl_only_drop_parts = 1,
+    deduplicate_merge_projection_mode = 'rebuild'
 """
 
 
@@ -343,6 +357,7 @@ def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     group_arrays = ",\n".join(
         f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+        if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
@@ -491,7 +506,7 @@ def METRICS4_INPUT_TO_METRICS4_RESOURCE_ATTRIBUTES_MV() -> str:
 
 
 def METRICS4_VIEW_SQL() -> str:
-    # The view gives the metrics2 row shape. ARRAY JOIN makes one row for each point.
+    # The view gives one row for each point, in the old metrics2 row shape. ARRAY JOIN expands the arrays.
     # Partial rows of one series-hour hold different points, so no FINAL is necessary.
     db = _db()
     return f"""
@@ -502,37 +517,7 @@ SELECT
     time_bucket,
     series_fingerprint,
     resource_fingerprint,
-    timestamp,
-    observed_timestamp,
-    original_expiry_timestamp,
-    service_name,
-    metric_type,
-    value,
-    count,
-    histogram_bounds,
-    histogram_counts,
-    trace_id,
-    span_id,
-    trace_flags,
-    has_labels,
-    unit,
-    aggregation_temporality,
-    is_monotonic,
-    instrumentation_scope
-FROM {db}.metrics2
-WHERE time_bucket > toDateTime('{METRICS4_VIEW_METRICS2_START}')
-    AND time_bucket < toDateTime('{METRICS4_VIEW_CUTOVER}')
-    AND timestamp > toDateTime('{METRICS4_VIEW_METRICS2_START}')
-    AND timestamp < toDateTime('{METRICS4_VIEW_CUTOVER}')
-UNION ALL
-SELECT
-    team_id,
-    metric_name,
-    time_bucket,
-    series_fingerprint,
-    resource_fingerprint,
     point_timestamp AS timestamp,
-    point_observed_timestamp AS observed_timestamp,
     toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
     service_name,
     metric_type,
@@ -551,7 +536,6 @@ SELECT
 FROM {db}.{METRICS4_SAMPLES_TABLE_NAME}
 ARRAY JOIN
     timestamp_arr AS point_timestamp,
-    observed_timestamp_arr AS point_observed_timestamp,
     value_arr AS point_value,
     count_arr AS point_count,
     histogram_counts_arr AS point_histogram_counts,

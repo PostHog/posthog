@@ -2,10 +2,9 @@
 //!
 //! The v0 and v1 pipelines stamp their overflow and rate-limit decisions in
 //! opposite orders (v0 runs the global rate limiter before the burst limiter,
-//! v1 after) and reach the broker through separate sinks. Both must still put
-//! the same event on the same lane, with the same partition-key presence and
-//! the same person-processing header, because those three things are the wire
-//! contract downstream ingestion reads.
+//! v1 after). Both must still put the same event on the same lane, with the
+//! same partition-key presence and the same person-processing header, because
+//! those three things are the wire contract downstream ingestion reads.
 //!
 //! Each case runs the real pipeline on both paths and asserts both against an
 //! explicit expectation, not merely against each other, so two paths that drift
@@ -173,7 +172,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     }
 }
 
-/// Drive the real v1 pipeline through its sink router and read the record at
+/// Drive the real v1 pipeline through its outputs and read the record at
 /// `observe` off the mock producer.
 async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let mut builder = TestStateBuilder::new();
@@ -198,23 +197,24 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         .await
         .expect("v1 pipeline must accept the batch");
 
-    let cfg = test_utils::test_kafka_config();
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), batch_size, "v1 must produce every event");
-        let record = &records[observe];
-        Observed {
-            lane: if record.topic == cfg.topic_main {
-                Lane::Main
-            } else if record.topic == cfg.topic_overflow {
-                Lane::Overflow
-            } else {
-                Lane::Other(record.topic.clone())
-            },
-            has_key: record.key.is_some(),
-            person_processing_disabled: record.header("force_disable_person_processing")
-                == Some("true"),
-        }
-    })
+    let cfg = test_utils::test_outputs_config();
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), batch_size, "v1 must produce every event");
+    let record = &records[observe];
+    Observed {
+        lane: if *record.topic == *cfg.analytics_main_topic {
+            Lane::Main
+        } else if *record.topic == *cfg.analytics_overflow_topic {
+            Lane::Overflow
+        } else {
+            Lane::Other(record.topic.to_string())
+        },
+        has_key: record.key.is_some(),
+        person_processing_disabled: record
+            .headers
+            .force_disable_person_processing
+            .unwrap_or(false),
+    }
 }
 
 /// The matrix. Cases with a burst limiter armed send two events and observe

@@ -14,6 +14,8 @@ from posthog.models.uploaded_media import (
     save_content_to_object_storage,
     sniff_image_content_type,
 )
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +27,9 @@ MAX_FILENAME_LENGTH = 255
 # and "!" so an attacker-controlled filename can't inject markdown link/image
 # syntax when we render it as `[name](url)` / `![name](url)`.
 _FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
+_REHOSTED_MEDIA_URL_RE = re.compile(
+    r"/uploaded_media/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 
 def sanitize_attachment_filename(name: str | None) -> str:
@@ -54,6 +59,11 @@ def resolve_attachment_content_type(content: bytes, declared_content_type: str) 
     return sniff_image_content_type(content)
 
 
+# Marks files that a support channel re-hosted. Ticket cleanup deletes only these, because a
+# team file can also have no created_by (its uploader was removed) and can be linked from a message.
+CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE = "conversations_attachment"
+
+
 def save_file_to_uploaded_media(
     team: Team,
     file_name: str,
@@ -65,6 +75,21 @@ def save_file_to_uploaded_media(
     """Persist a file to object storage via UploadedMedia.
 
     Returns the absolute URL on success, None on failure.
+    """
+    uploaded_media = save_uploaded_media(team, file_name, content_type, content, validate_images=validate_images)
+    return uploaded_media.get_absolute_url() if uploaded_media else None
+
+
+def save_uploaded_media(
+    team: Team,
+    file_name: str,
+    content_type: str,
+    content: bytes,
+    *,
+    validate_images: bool = True,
+) -> UploadedMedia | None:
+    """Persist a file to object storage via UploadedMedia, or return None on failure.
+
     Unless validate_images is False, stores the type that resolve_attachment_content_type
     returns, and rejects bytes that it finds invalid.
     """
@@ -84,6 +109,7 @@ def save_file_to_uploaded_media(
         file_name=file_name,
         content_type=content_type,
         created_by=None,
+        purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
     )
     try:
         save_content_to_object_storage(uploaded_media, content)
@@ -106,7 +132,7 @@ def save_file_to_uploaded_media(
         content_type=content_type,
         bytes_size=len(content),
     )
-    return uploaded_media.get_absolute_url()
+    return uploaded_media
 
 
 def attachment_link_label(attachment: dict[str, Any]) -> str:
@@ -170,3 +196,24 @@ def build_content_with_images(
             }
         )
     return content, rich_content
+
+
+def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) -> None:
+    """Delete files that were re-hosted for a message that no ticket comment will reference."""
+    media_ids = {
+        match.group(1)
+        for attachment in attachments
+        if (match := _REHOSTED_MEDIA_URL_RE.search(attachment.get("url") or ""))
+    }
+    if not media_ids:
+        return
+    for media in UploadedMedia.objects.filter(
+        team_id=team.id, id__in=media_ids, purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
+    ):
+        if media.media_location:
+            try:
+                object_storage.delete(media.media_location)
+            except ObjectStorageError:
+                logger.warning("conversations_attachment_discard_failed", team_id=team.id, media_id=str(media.id))
+                continue
+        media.delete()

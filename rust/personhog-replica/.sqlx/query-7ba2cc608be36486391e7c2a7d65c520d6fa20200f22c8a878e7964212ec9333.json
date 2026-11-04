@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.distinct_id as \"distinct_id!\", d.person_id as \"person_id!\", p.uuid as \"person_uuid?\",\n                   COALESCE(d.version, 0)::bigint as \"version!\", d.is_deleted as \"is_deleted!\",\n                   p.is_deleted as \"person_is_deleted?\"\n            FROM posthog_persondistinctid d\n            LEFT JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id\n            WHERE d.team_id = $1 AND d.distinct_id = ANY($2)\n            ORDER BY d.distinct_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "person_uuid?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "person_is_deleted?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "7ba2cc608be36486391e7c2a7d65c520d6fa20200f22c8a878e7964212ec9333"
+}

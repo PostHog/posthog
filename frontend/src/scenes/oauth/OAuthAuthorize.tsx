@@ -172,11 +172,18 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount, projectCreationForbiddenReason } =
+        useValues(organizationLogic)
+    // Plan and role data is only loaded for the current organization, so the backend decides for any other one
+    const isCurrentOrganizationSelected = selectedOrganization === currentOrganization?.id
 
     const handleShowCreateProject = (): void => {
+        if (!isCurrentOrganizationSelected) {
+            setShowCreateProject(true)
+            return
+        }
         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => setShowCreateProject(true), {
-            currentUsage: currentOrganization?.teams?.length,
+            currentUsage: currentOrganizationProjectCount,
         })
     }
 
@@ -388,7 +395,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                     disabledReason={
                                                         !selectedOrganization
                                                             ? 'Select an organization first'
-                                                            : (projectCreationForbiddenReason ?? undefined)
+                                                            : isCurrentOrganizationSelected
+                                                              ? (projectCreationForbiddenReason ?? undefined)
+                                                              : undefined
                                                     }
                                                     onClick={handleShowCreateProject}
                                                 />
@@ -454,10 +463,16 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             <li key={row.key} className="flex items-center space-x-2">
                                                 <IconCheck color="var(--success)" className="shrink-0" />
                                                 <span className="font-medium">{row.description}</span>
-                                                {!allScopesRequired && (
-                                                    <Tooltip title={`${appName} requires this permission`}>
-                                                        <LemonTag>Required</LemonTag>
+                                                {row.alreadyGranted ? (
+                                                    <Tooltip title={`You granted this to ${appName} before`}>
+                                                        <LemonTag>Already granted</LemonTag>
                                                     </Tooltip>
+                                                ) : (
+                                                    !allScopesRequired && (
+                                                        <Tooltip title={`${appName} requires this permission`}>
+                                                            <LemonTag>Required</LemonTag>
+                                                        </Tooltip>
+                                                    )
                                                 )}
                                             </li>
                                         ))}

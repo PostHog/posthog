@@ -1,6 +1,6 @@
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast, get_args
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -62,6 +62,13 @@ DeclaredCredentialType = Literal[
 # `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
 # a credential, so no class may declare it.
 CredentialType = Literal[DeclaredCredentialType, "unattributed"]
+CREDENTIAL_TYPE_CHOICES: tuple[CredentialType, ...] = get_args(CredentialType)
+# The credential types whose `credential_id` customers can read. Each id names a login session or a
+# key that the customer can look up and revoke through the PostHog API. Never add `service_jwt`: its
+# id is the audience of an internal PostHog service.
+CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES: frozenset[CredentialType] = frozenset(
+    {"session", "personal_api_key", "project_secret_key"}
+)
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
 ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
@@ -389,6 +396,18 @@ class ActivityLogVisibilityManager:
 activity_visibility_manager = ActivityLogVisibilityManager()
 
 
+def is_uncached_reverse_one_to_one(field: Any, *instances: models.Model | None) -> bool:
+    """True for a reverse one-to-one that no instance holds in its cache.
+
+    Each side then reads the same related row with its own query, so the two values cannot differ.
+    """
+    return (
+        field.one_to_one
+        and not field.concrete
+        and not any(instance is not None and field.is_cached(instance) for instance in instances)
+    )
+
+
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:
     """
     Get the fields that have changed on a model.
@@ -418,6 +437,9 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
 
         # Skip deferred fields to avoid triggering DB refresh which would lose pending changes
         if field.name in before_deferred or field.name in after_deferred:
+            continue
+
+        if is_uncached_reverse_one_to_one(field, before_update, after_update):
             continue
 
         if hasattr(before_update, field.name) and hasattr(after_update, field.name):

@@ -462,10 +462,9 @@ class TestSQLV2Run(APIBaseTest):
     )
     @override_settings(DEBUG=False)
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
-    def test_widget_only_access(self, _name, payload, expected_status, start_workflow, enqueue, _widget, _python):
+    def test_hogql_access_without_full_compute(self, _name, payload, expected_status, start_workflow, enqueue, _python):
         response = self.client.post(self.run_url, data={"node_id": "n1", **payload}, format="json")
         assert response.status_code == expected_status
         assert enqueue.call_count == (1 if expected_status == 200 else 0)
@@ -1944,20 +1943,19 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
 class TestNotebookFlagResolution(SimpleTestCase):
     @parameterized.expand(
         [
-            ("neither", False, False, True, False),
-            ("python_only", True, False, True, True),
-            ("widgets_only", False, True, True, False),
-            ("both", True, True, True, True),
-            ("anonymous", True, True, False, False),
+            ("disabled", False, True, False),
+            ("enabled", True, True, True),
+            ("anonymous", True, False, False),
         ]
     )
     def test_full_compute_requires_python_flag(
-        self, _name: str, python_enabled: bool, widgets_enabled: bool, has_user: bool, expected: bool
+        self, _name: str, python_enabled: bool, has_user: bool, expected: bool
     ) -> None:
-        enabled = {"revamped-py-notebooks": python_enabled, "notebook-generated-widgets": widgets_enabled}
         user = Mock(spec=User, distinct_id="example-user", organization=None) if has_user else None
         with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
-            feature_enabled.side_effect = lambda flag, *_args, **_kwargs: enabled.get(flag, False)
+            feature_enabled.side_effect = lambda flag, *_args, **_kwargs: (
+                flag == "revamped-py-notebooks" and python_enabled
+            )
             assert is_sql_v2_enabled(user) is expected
 
     @parameterized.expand([("enabled", True), ("disabled", False)])

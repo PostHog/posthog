@@ -38,9 +38,11 @@ def _signal(team_id: int) -> EmitSignalInputs:
 
 
 class _Recorder:
-    def __init__(self, over_quota: bool, safety_failures: int = 0) -> None:
+    def __init__(self, over_quota: bool, safety_failures: int = 0, mixed_batch: bool = False) -> None:
         self.over_quota = over_quota
         self.safety_failures = safety_failures
+        self.mixed_batch = mixed_batch
+        self.safety_sources: list[str | None] = []
         self.quota_checks = 0
         self.safety_checks = 0
         self.flushes = 0
@@ -61,6 +63,9 @@ async def _drive(recorder: _Recorder) -> None:
     @activity.defn(name="safety_filter_activity")
     async def fake_safety(_input: SafetyFilterInput) -> SafetyFilterOutput:
         recorder.safety_checks += 1
+        recorder.safety_sources.append(_input.source_id)
+        if _input.source_id == "unsafe":
+            return SafetyFilterOutput(safe=False, threat_type="test", explanation=None)
         if recorder.safety_failures > 0:
             recorder.safety_failures -= 1
             raise ApplicationError("safety provider unavailable", non_retryable=True)
@@ -84,13 +89,16 @@ async def _drive(recorder: _Recorder) -> None:
             activities=[fake_quota, fake_safety, fake_flush, fake_grouping],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
+            unsafe = _signal(1)
+            unsafe.source_id = "unsafe"
             handle = await env.client.start_workflow(
                 BufferSignalsWorkflow.run,
-                BufferSignalsInput(team_id=1),
+                BufferSignalsInput(team_id=1, pending_signals=[unsafe, _signal(1)] if recorder.mixed_batch else []),
                 id=f"buffer-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
-            await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
+            if not recorder.mixed_batch:
+                await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
             terminal = recorder.gate_reached if recorder.over_quota else recorder.flow_done
             await asyncio.wait_for(terminal.wait(), timeout=30)
             with suppress(RPCError):
@@ -119,10 +127,12 @@ async def test_under_quota_batch_flows_through():
 
 
 @pytest.mark.asyncio
-async def test_safety_failure_requeues_the_drained_batch():
-    recorder = _Recorder(over_quota=False, safety_failures=1)
+@pytest.mark.parametrize("mixed_batch", [False, True])
+async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
+    recorder = _Recorder(over_quota=False, safety_failures=1, mixed_batch=mixed_batch)
     await _drive(recorder)
-    assert recorder.safety_checks == 2
+    assert recorder.safety_checks == 2 + int(mixed_batch)
+    assert recorder.safety_sources.count("unsafe") == int(mixed_batch)
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
 
@@ -154,17 +164,24 @@ async def test_check_activity_attributes_drop_to_the_limit_that_fired(
         ),
         patch(f"{BUFFER_MODULE}.metrics.increment_dropped") as dropped,
         patch(f"{BUFFER_MODULE}.capture_signal_report_daily_limit_paused") as capture,
+        patch("products.signals.backend.temporal.drop_telemetry.posthoganalytics.capture") as analytics_capture,
     ):
+        signals = [_signal(ateam.id) for _ in range(3)]
         result = await ActivityEnvironment().run(
             check_signals_quota_limited_activity,
-            CheckSignalsQuotaInput(team_id=ateam.id, signal_count=3),
+            CheckSignalsQuotaInput(team_id=ateam.id, signal_count=3, signals=signals),
         )
 
     assert result is expected
+    dropped_events = [c.kwargs for c in analytics_capture.call_args_list if c.kwargs["event"] == "signal_dropped"]
     if expected_reason is None:
         dropped.assert_not_called()
+        assert dropped_events == []
     else:
         dropped.assert_called_once_with(stage="ingestion", reason=expected_reason, count=3)
+        # Every dropped signal gets its own terminal event, so the loss shows up per signal.
+        assert sorted(e["properties"]["source_id"] for e in dropped_events) == sorted(s.source_id for s in signals)
+        assert {e["properties"]["reason"] for e in dropped_events} == {f"ingestion:{expected_reason}"}
     # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
     # the quota drop wins the single-reason metric attribution.
     if daily_limited:

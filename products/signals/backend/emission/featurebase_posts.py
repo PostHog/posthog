@@ -1,6 +1,6 @@
 """Signal emitter for featurebase `posts` (record kind: feedback).
 
-`createdAt` is an ISO string.
+`created_at` is an ISO string.
 """
 
 from products.signals.backend.emission._common import make_flat_emitter
@@ -8,7 +8,7 @@ from products.signals.backend.emission._prompts import FEEDBACK_ACTIONABILITY_PR
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
-FEATUREBASE_FIELDS = ("id", "title", "content", "status", "tags", "upvotes", "createdAt")
+FEATUREBASE_FIELDS = ("id", "title", "content", "status", "tags", "upvotes", "created_at")
 
 FEATUREBASE_CONFIG = SignalSourceTableConfig(
     source_product="featurebase",
@@ -19,11 +19,11 @@ FEATUREBASE_CONFIG = SignalSourceTableConfig(
         id_field="id",
         title_field="title",
         body_field="content",
-        extra_fields=("status", "tags", "upvotes", "createdAt"),
+        extra_fields=("status", "tags", "upvotes", "created_at"),
         json_list_fields=("tags",),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="createdAt",
+    partition_field="created_at",
     partition_field_is_datetime_string=True,
     fields=FEATUREBASE_FIELDS,
     max_records=500,

@@ -23,7 +23,7 @@ import re
 import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
@@ -35,13 +35,18 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +65,7 @@ SLACK_WEBHOOK_TIMEOUT_SECONDS = 3
 
 def resolve_user_mentions_text(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -136,9 +141,21 @@ def decode_slack_entities(text: str) -> str:
     return text.replace("&gt;", ">").replace("&amp;", "&")
 
 
+_RE_SLACK_LINK = re.compile(r"<(https?://[^|>\s]+)(?:\|[^>]*)?>")
+
+
+def unwrap_slack_links(text: str) -> str:
+    """Rewrite Slack's `<url>` and `<url|label>` link tokens to the bare URL, for a reader that wants plain text.
+
+    Run it on wire text, before ``decode_slack_entities``: only there are `<` and `>` Slack's own
+    delimiters and never text the user typed.
+    """
+    return _RE_SLACK_LINK.sub(r"\1", text)
+
+
 def _resolve_and_decode(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -154,7 +171,7 @@ def _resolve_and_decode(
     return decode_slack_entities(resolved)
 
 
-def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
+def decode_slack_event_text(slack: SlackIntegration, integration: WorkspaceIntegration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
     Trigger sites all want the same thing: drop the bot's self-ping (it's just
@@ -533,7 +550,7 @@ def messages_at_or_before(messages: list[SlackThreadMessage], bound_ts: str) -> 
 
 def collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
@@ -614,7 +631,7 @@ def collect_thread_messages(
 
 def cached_collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
@@ -696,6 +713,13 @@ class RunFooter:
     # The project the thread's task belongs to, so a reader can tell which project's
     # data the answer was drawn from.
     project: str | None = None
+    # Whose plan pays for the run, for example "Your ChatGPT plan". Absent on PostHog credits.
+    plan: str | None = None
+    # Whether the run shares charts as insight links instead of images, so reply analytics can
+    # compare the two delivery modes. Not rendered.
+    chart_links: bool = False
+    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
+    thread_cost_usd: Decimal | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -705,7 +729,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project))
+        return any((self.task_url, self.model, self.project, self.plan, self.thread_cost_usd is not None))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -728,15 +752,14 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
         # The id is the install this reply posts through, read off stored thread state
         # rather than off the message, and all this reads from the row is the Slack
         # workspace it belongs to.
-        integration = (
-            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
-            .only("integration_id")
-            .first()
-        )
-        user = User.objects.filter(pk=created_by_id).first()
-        if integration is None or user is None:
+        try:
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
+        except IntegrationNotFound:
             return None
-        if not multiple_accessible_projects(slack_team_id=integration.integration_id, user=user):
+        user = User.objects.filter(pk=created_by_id).first()
+        if user is None:
+            return None
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id or "", user=user):
             return None
         team = Team.objects.filter(pk=team_id).only("name").first()
     except Exception:
@@ -752,7 +775,39 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
     return team.name if team else None
 
 
-def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
+_SLACK_USER_ID = re.compile(r"[UW][A-Z0-9]+")
+
+
+def _plan_label(state: dict[str, Any] | None, *, task_id: Any, integration_id: int | None) -> str | None:
+    """Whose plan pays for the run, or `None` on PostHog credits.
+
+    The person who sent the turn reads "Your". When someone who joined the thread sent it, the
+    reply mentions the thread creator, so everyone reading can see and reach whose plan pays.
+    """
+    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415
+    from products.tasks.backend.facade.api import get_run_plan  # noqa: PLC0415
+
+    plan = get_run_plan(state)
+    if plan is None:
+        return None
+    if plan.owner_user_id is not None and plan.owner_user_id == (state or {}).get("slack_actor_user_id"):
+        return f"Your {plan.plan_name}"
+    if integration_id is None:
+        return plan.plan_name
+    owner_slack_user_id = (
+        SlackThreadTaskMapping.objects.filter(integration_id=integration_id, task_id=task_id)
+        .values_list("mentioning_slack_user_id", flat=True)
+        .first()
+    )
+    # The id goes into the footer's mrkdwn unescaped, so only a well-formed one becomes a mention.
+    if not owner_slack_user_id or not _SLACK_USER_ID.fullmatch(owner_slack_user_id):
+        return plan.plan_name
+    return f"<@{owner_slack_user_id}>'s {plan.plan_name}"
+
+
+def load_run_footer(
+    run_id: str | UUID | None, *, integration_id: int | None, include_thread_cost: bool = False
+) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -764,6 +819,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
     ``integration_id`` is the install the reply is posted through, and the workspace
     behind it is what the project segment is judged against. Required rather than
     defaulted, so a new caller cannot drop the segment without saying so.
+
+    ``include_thread_cost`` is for the reply that closes a turn.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -777,6 +834,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
         if run is None:
             return RunFooter()
         state = parse_run_state(run.state)
+        plan = _plan_label(run.state, task_id=run.task_id, integration_id=integration_id)
         return RunFooter(
             run_id=str(run.id),
             task_id=str(run.task_id),
@@ -788,14 +846,53 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 integration_id=integration_id,
                 created_by_id=run.created_by_id,
             ),
+            plan=plan,
+            chart_links=bool((run.state or {}).get("slack_chart_links")),
+            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
+            thread_cost_usd=_thread_cost(run, integration_id=integration_id)
+            if include_thread_cost and plan is None
+            else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
+def _thread_cost(run: "TaskRunDTO", *, integration_id: int | None) -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` outside the rollout or when unknown.
+
+    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
+    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    newest requests can be missing here. A later reply's total then includes them.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_footer_cost_enabled  # noqa: PLC0415
+    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
+
+    if integration_id is None or run.task_created_at is None:
+        return None
+    try:
+        integration = IntegrationManager.slack.oauth.get(run.team_id, integration_id)
+        if not is_slack_app_footer_cost_enabled(integration, run.created_by_distinct_id):
+            return None
+        return get_task_usage(
+            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
+        ).token_cost_usd
+    except Exception:
+        # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
+        logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
+        return None
+
+
+def describe_thread_cost(cost_usd: Decimal) -> str:
+    """A cost under one cent shows as `<$0.01`, so that it does not read as free."""
+    if cost_usd < Decimal("0.01"):
+        return "Thread cost: <$0.01"
+    return f"Thread cost: ${cost_usd:.2f}"
+
+
 def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the model, then the project it answered from.
+    """What the run is, as footer segments: the model, the thread cost, the plan that pays for
+    it, then the project it answered from.
 
     Shared by the reply footer and the progress message so the two cannot describe one
     run differently, and so the escaping below has a single home.
@@ -803,6 +900,10 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     segments: list[str] = []
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.thread_cost_usd is not None:
+        segments.append(describe_thread_cost(footer.thread_cost_usd))
+    if footer.plan:
+        segments.append(footer.plan)
     if footer.project:
         # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
         # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
@@ -959,7 +1060,7 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def app_home_url(integration: Integration) -> str | None:
+def app_home_url(integration: WorkspaceIntegration, *, tab: str = "home") -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
     The native `slack://` form rather than the https `app_redirect` one: the reader is
@@ -973,7 +1074,7 @@ def app_home_url(integration: Integration) -> str | None:
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
         return None
-    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab={tab}"
 
 
 def personal_integrations_url(team_id: int) -> str:
@@ -983,6 +1084,11 @@ def personal_integrations_url(team_id: int) -> str:
     deep-links to this settings page instead of starting an OAuth flow from Slack.
     """
     return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
+def ai_subscriptions_url(team_id: int) -> str:
+    """Where someone connects their own ChatGPT plan for Codex tasks."""
+    return _public_url(f"/project/{team_id}/settings/environment-ai-subscriptions")
 
 
 def project_web_url(team_id: int) -> str:
@@ -1004,7 +1110,7 @@ def _public_url(path: str) -> str:
     return absolute_uri(path)
 
 
-def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
+def viewer_has_code_access(integration: WorkspaceIntegration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
     Asked about the reader rather than the task's creator: the two can differ, and a link

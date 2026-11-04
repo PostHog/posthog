@@ -18,14 +18,20 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportField,
+    BatchExportInsertInputs,
+    HttpBatchExportInputs,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
-    reads_native_events_source,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -36,12 +42,6 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 
 NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
-_NATIVE_MUTATION_PROPERTIES = {
-    "$set": "set",
-    "$set_once": "set_once",
-    "$unset": "unset",
-    "$group_set": "group_set",
-}
 
 
 class RetryableResponseError(Exception):
@@ -82,9 +82,9 @@ async def raise_for_status(response: aiohttp.ClientResponse):
             raise NonRetryableResponseError(response.status, text)
 
 
-def http_default_fields(reads_native_source: bool = False) -> list[BatchExportField]:
+def http_default_fields() -> list[BatchExportField]:
     """Return default fields used in HTTP batch export, currently supporting only migrations."""
-    fields = [
+    return [
         BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="timestamp", alias="timestamp"),
         BatchExportField(expression="_inserted_at", alias="_inserted_at"),
@@ -93,9 +93,6 @@ def http_default_fields(reads_native_source: bool = False) -> list[BatchExportFi
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
-    if reads_native_source:
-        fields.extend(BatchExportField(expression=alias, alias=alias) for alias in _NATIVE_MUTATION_PROPERTIES.values())
-    return fields
 
 
 class HeartbeatDetails:
@@ -203,14 +200,11 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_schema is not None:
-            raise NotImplementedError("Batch export schema is not supported for HTTP export")
-
-        if inputs.batch_export_model is not None:
-            if inputs.batch_export_model.name != "events":
-                raise NotImplementedError("HTTP export only supports the events model")
-            if inputs.batch_export_model.schema is not None:
-                raise NotImplementedError("HTTP export does not support schemas")
+        model = migrate_batch_export_model(inputs.batch_export_model)
+        if isinstance(model, BatchExportEventsCustomModel):
+            raise NotImplementedError("HTTP export does not support schemas")
+        if not isinstance(model, BatchExportEventsModel):
+            raise NotImplementedError("HTTP export only supports the events model")
 
         use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
 
@@ -218,21 +212,11 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         is_backfill = inputs.get_is_backfill()
 
-        # Only the native source projects the mutation columns; a legacy table carries the same keys
-        # in its `properties`.
-        native_source = reads_native_events_source(
-            use_new_events_schema=use_native_schema,
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            is_backfill=is_backfill,
-            backfill_details=inputs.backfill_details,
-        )
-        fields = http_default_fields(native_source)
+        fields = http_default_fields()
         columns = [field["alias"] for field in fields]
 
-        filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
-        if filters is not None and len(filters) > 0:
+        filters = model.filters
+        if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
                 filters, team_id=inputs.team_id, values=None
             )
@@ -326,9 +310,6 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                         properties = row["properties"]
                         properties = json.loads(properties) if properties else {}
-                        for property_name, column in _NATIVE_MUTATION_PROPERTIES.items():
-                            if value := row.get(column):
-                                properties[property_name] = json.loads(value)
                         properties["$geoip_disable"] = True
 
                         if row["event"] == "$autocapture" and row["elements_chain"] is not None:
@@ -422,7 +403,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,

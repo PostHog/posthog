@@ -64,15 +64,25 @@ The value must be between 1 and `MAX_BACKFILL_DAYS`. A request outside that rang
 rather than being narrowed to the default, because an import whose timestamps are quietly replaced
 looks successful and writes most of its records onto the ingest time.
 
-`MAX_BACKFILL_DAYS` is per-deployment, so turning it on grants the capability to every project on
-that deployment.
+`MAX_BACKFILL_DAYS` is per-deployment. Which teams may use it is decided by the logs consumer's
+`LOGS_BACKFILL_ENABLED_TEAMS` list, which is empty in production by default. This service has no team
+ID, so it marks each message from a `backfill_days` request with a `backfill_days` header, and the
+logs consumer drops the whole message when the team is not on the list. That drop also happens
+after a 200, and is counted per team in the `records_dropped_backfill_not_enabled` usage metric.
+Row age cannot replace the header, because a backfill request can carry recent records.
 
 The future bound stays at 24 hours whatever `backfill_days` says. A timestamp ahead of the
 ingest time is a client clock error in every case, and accepting one would let a single client
 write rows past the end of every other query range on the team.
 
-Imported records take their retention from the ingest time, not from their own timestamp, so a
-backfill expires `retention_days` after it is imported.
+A backfill keeps only the records that are still inside the team's retention. A record whose
+timestamp plus its retention is already in the past is dropped by the logs consumer before it is
+written, even though this service answered the request with a 200. Dropped records are counted
+per team in the `records_dropped_retention_expired` usage metric. A record that is kept expires
+`retention_days` after it is imported, not after its own timestamp.
+
+Each message carries a `min_timestamp` header, the earliest record timestamp in it, so the
+consumer only decodes and checks the messages that can hold an expired record.
 
 ## Response codes
 

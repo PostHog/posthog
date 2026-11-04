@@ -462,6 +462,32 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
     })
 
+    it('adds an `expand` param that restores the expandable fields the response omits by default', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            input_schema: 'ThingGetSchema',
+            response: { exclude: ['secret'], expandable: ['items.*.body'] },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'thing-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(".extend({ expand: z.array(z.enum(['items.*.body'])).min(1).optional()")
+        expect(result.code).toContain('const { expand: _expand, ...parsedParams } = ThingGetSchema().parse(params)')
+        expect(result.code).toContain(
+            "omitResponseFields(result, ['secret', ...(['items.*.body'] as const).filter((path) => !params.expand?.includes(path))])"
+        )
+    })
+
     it('throws when selectable is set without an include allowlist', () => {
         const config: ToolConfig = {
             operation: 'things_list',
@@ -988,6 +1014,36 @@ describe('anyOf / oneOf body schemas (discriminated unions)', () => {
 })
 
 describe('rename_params', () => {
+    it('maps a query alias to the original HTTP key and preserves its schema override', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            rename_params: { tile_ids: 'dashboard_tile_ids' },
+            param_overrides: { tile_ids: { input_schema: 'DashboardInsightTileIdsSchema', aliases: ['tile_ids'] } },
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [{ in: 'query', name: 'tile_ids', schema: { type: 'string' } }],
+            },
+        })
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('dashboard_tile_ids:')
+        expect(result.code).toContain('DashboardInsightTileIdsSchema')
+        expect(result.code).toContain('tile_ids: params.dashboard_tile_ids')
+        expect(result.code).not.toContain('ThingsListBody')
+        expect(result.code).toContain("normalizeParamAliases({ dashboard_tile_ids: ['tile_ids'] })")
+    })
+
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
             operation: 'things_create',
@@ -1559,12 +1615,18 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
-    it('rejects response.include with response.exclude', () => {
-        const result = ToolConfigSchema.safeParse({
-            operation: 'things_list',
-            enabled: true,
-            response: { include: ['id'], exclude: ['name'] },
-        })
+    it.each([
+        { name: 'rejects response.include with response.exclude', response: { include: ['id'], exclude: ['name'] } },
+        {
+            name: 'rejects response.expandable with response.include',
+            response: { include: ['id'], expandable: ['body'] },
+        },
+        {
+            name: 'rejects a response.expandable path that response.exclude also removes',
+            response: { exclude: ['body'], expandable: ['body'] },
+        },
+    ])('$name', ({ response }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_get', enabled: true, response })
         expect(result.success).toBe(false)
     })
 
@@ -2260,6 +2322,40 @@ describe('generateToolCode with confirmed_action', () => {
     })
 })
 
+describe('object-json-string cast', () => {
+    const resolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/service-names/',
+            operation: {
+                operationId: 'things_service_names_retrieve',
+                parameters: [
+                    { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                    { in: 'query', name: 'dateRange', required: false, schema: { type: 'string' } },
+                ],
+            },
+        })
+
+    it('wraps the param with castObjectToJsonString and imports the helper', () => {
+        const result = generateToolCode(
+            'things-service-names',
+            {
+                operation: 'things_service_names_retrieve',
+                enabled: true,
+                param_overrides: { dateRange: { cast: 'object-json-string' } },
+            },
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('z.preprocess(castObjectToJsonString')
+        expect(result.castHelperImports.has('castObjectToJsonString')).toBe(true)
+    })
+})
+
 describe('optional param with state fallback', () => {
     const resolved = (): ResolvedOperation =>
         makeResolved({
@@ -2315,6 +2411,53 @@ describe('optional param with state fallback', () => {
         // demand the id the fallback exists to supply.
         const collapsed = result.code.replace(/\s+/g, ' ')
         expect(collapsed).toContain('.optional()).optional()')
+    })
+
+    it('sends the state-resolved value for a body field, not the omitted param', () => {
+        const bodyConfig: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            param_overrides: {
+                organization: {
+                    description: 'Organization ID. If omitted, uses the active organization.',
+                    optional: true,
+                    fallback: 'orgId',
+                },
+            },
+        }
+        const bodyResolved = makeResolved({
+            method: 'POST',
+            path: '/api/things/',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    organization: { type: 'string' },
+                                    title: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = generateToolCode(
+            'things-create',
+            bodyConfig,
+            bodyResolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('body["organization"] = organization')
+        expect(collapsed).not.toContain('body["organization"] = params.organization')
     })
 })
 
@@ -2679,6 +2822,32 @@ describe('hooks', () => {
         expect(code).toContain("import hooks_thingList from '@/tools/tool-hooks'")
         expect(code).toContain("import { withToolHooks } from '@/tools/tool-hooks'")
         expect(code).toMatch(/handler: withToolHooks\(\s*hooks_thingList,\s*async \(context: Context/)
+    })
+
+    it('passes the built request body through transformRequestBody', () => {
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: { 'application/json': { schema: { properties: { name: { type: 'string' } } } } },
+                },
+            },
+        })
+        const config: ToolConfig = { operation: 'things_create', enabled: true, hooks: 'tool-hooks' }
+
+        const { code } = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(code).toContain('body: await transformRequestBody(hooks_thingsCreate, context, params, body)')
     })
 
     it('leaves tools without hooks unwrapped', () => {

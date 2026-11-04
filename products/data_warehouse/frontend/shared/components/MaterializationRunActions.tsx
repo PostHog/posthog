@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
@@ -59,7 +57,6 @@ export function MaterializationRunActions({
         updateDataWarehouseSavedQuery,
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!savedQuery) {
         return null
@@ -87,6 +84,13 @@ export function MaterializationRunActions({
         savedQuery.user_access_level
     )
     const refreshReason = materializationRefreshPending ? 'Refreshing materialization status' : undefined
+    // The saved query and the runs load independently, so the saved query can arrive first and
+    // `running` then reads false because the run list is still empty, not because nothing runs.
+    // Deleting through that window leaves a run writing to a view that is gone. A run started in that
+    // window has no earlier job to compare against, so it stops waiting on the first job it sees. A
+    // failed request re-enables the actions rather than stranding the user, since nothing else
+    // retries it on mount.
+    const runStateReason = !dataModelingJobs && !dataModelingJobsError ? 'Checking for a running refresh' : undefined
     // Another product owns these views, so the `kind` prop cannot decide on its own: the SQL editor
     // renders this component without it, and an endpoint-origin view then looks like a plain one.
     // The saved query names its owner, and deleting through it either fails or breaks that product.
@@ -105,11 +109,7 @@ export function MaterializationRunActions({
             ownerReason ||
             refreshReason ||
             (deletingView ? 'Deleting view' : undefined) ||
-            // The saved query and the runs load independently, so the saved query can arrive first and
-            // `running` then reads false because the run list is still empty, not because nothing runs.
-            // Deleting through that window leaves a run writing to a view that is gone. A failed request
-            // re-enables the item rather than stranding the user, since nothing else retries it on mount.
-            (!dataModelingJobs && !dataModelingJobsError ? 'Checking for a running refresh' : undefined) ||
+            runStateReason ||
             (running || startingMaterialization ? 'Materialization is currently running' : undefined) ||
             (updatingDataWarehouseSavedQuery || materializationActionLoading ? 'Updating materialization' : undefined),
         onClick: () =>
@@ -149,9 +149,7 @@ export function MaterializationRunActions({
                         materializeDataWarehouseSavedQuery(
                             viewId,
                             defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                            !incrementalDraftTouched ||
-                                kind === 'endpoint' ||
-                                !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                            !incrementalDraftTouched || kind === 'endpoint'
                                 ? undefined
                                 : incrementalDraft.enabled && incrementalDraft.incrementalKey
                                   ? {
@@ -184,6 +182,7 @@ export function MaterializationRunActions({
     const busyReason =
         refreshReason ||
         (deletingView ? 'Deleting view' : undefined) ||
+        runStateReason ||
         (updatingDataWarehouseSavedQuery
             ? 'Saving materialization settings'
             : materializationActionLoading
@@ -290,8 +289,7 @@ export function MaterializationRunActions({
                             : []),
                         ...(kind !== 'endpoint'
                             ? [
-                                  ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
-                                  savedQuery.incremental?.enabled
+                                  ...(savedQuery.incremental?.enabled
                                       ? [
                                             {
                                                 label: 'Run full refresh',

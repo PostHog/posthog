@@ -120,9 +120,20 @@
             color 0.1s ease;
     }
 
-    .quill-select__item:focus {
+    .quill-select__item:is(:focus, :hover) {
         color: var(--foreground);
         background-color: var(--fill-hover);
+    }
+
+    /* Matches the ring Button gives a highlighted row. Select's rows are not Buttons, so the border is an inset shadow. */
+    .quill-select__item[data-highlighted] {
+        box-shadow:
+            inset 0 0 0 1px var(--ring),
+            var(--quill-row-ring);
+    }
+
+    .quill-select__item[data-highlighted]:hover {
+        box-shadow: none;
     }
 
     .quill-select__item:not(:hover)[aria-selected='true'] {
@@ -163,6 +174,15 @@
         background-color: color-mix(in oklab, var(--border) 50%, transparent);
     }
 
+    /* A group pads itself, so a margin on the side that faces a group doubles the gap. */
+    .quill-select__group + .quill-select__separator {
+        margin-top: 0;
+    }
+
+    .quill-select__separator:has(+ .quill-select__group) {
+        margin-bottom: 0;
+    }
+
     .quill-select__scroll-button {
         top: 0;
         left: 50%;
@@ -184,6 +204,11 @@
 
     .quill-select__scroll-button--up {
         top: var(--spacing);
+    }
+
+    /* The selection check. An app whose row icons draw thinner lines sets the variable to match them. */
+    .quill-select__indicator-icon {
+        stroke-width: var(--quill-indicator-stroke-width, 2);
     }
 
     @media (prefers-reduced-motion: reduce) {

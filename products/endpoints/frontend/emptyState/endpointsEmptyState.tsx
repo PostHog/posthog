@@ -30,7 +30,7 @@ export const endpointsEmptyState: SceneProductEmptyState = {
         PrimaryAction: CreateFirstEndpointButton,
         skippable: false,
         docsUrl: 'https://posthog.com/docs/endpoints',
-        previewLabel: 'Your endpoints, once created',
+        previewLabel: 'Example: how your endpoints will look',
         Preview: EndpointPreview,
     },
 }

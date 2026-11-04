@@ -1,12 +1,12 @@
 use crate::{
     api::{
         body_read_metrics::BodyReadDuration,
-        concurrency_metrics::ConcurrencyLimitWait,
+        concurrency_metrics::{ConcurrencyEnterTime, ConcurrencyLimitWait},
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
+        request_outcome::OutcomeMarks,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse,
-            ServiceResponse,
+            FlagsQueryParams, FlagsResponse, FlagsResponseV4, LegacyFlagsResponse, ServiceResponse,
         },
     },
     config::BotFilterMode,
@@ -18,7 +18,8 @@ use crate::{
         FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
     },
     router,
-    utils::{bot_detection, user_agent::UserAgentInfo},
+    team::request_blocklist,
+    utils::{bot_detection, forwarded_for, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
 use axum::extract::{Extension, MatchedPath, Query, State};
@@ -28,8 +29,6 @@ use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use governor::clock;
-use serde_json;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, OnceLock};
 use tracing::Instrument;
@@ -48,56 +47,12 @@ fn extract_request_id(headers: &HeaderMap) -> Uuid {
 /// Extracts client IP address from request headers, checking X-Forwarded-For first
 /// then falling back to the direct client IP. Matches Python's get_ip_address function.
 fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
-    // Check X-Forwarded-For header first (case-insensitive)
-    if let Some(forwarded_for) = headers.get("X-Forwarded-For") {
-        if let Ok(forwarded_str) = forwarded_for.to_str() {
-            // Take the first IP from the comma-separated list
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                let trimmed = first_ip.trim();
-
-                // Strip port from IP address if present (Azure gateway compatibility)
-                let ip_without_port = if trimmed.starts_with('[') {
-                    // IPv6 with port (e.g., "[::1]:8080")
-                    trimmed
-                        .split(']')
-                        .next()
-                        .and_then(|s| s.strip_prefix('['))
-                        .unwrap_or(trimmed)
-                } else if trimmed.contains('.') {
-                    // Likely IPv4 - check for port after the last dot
-                    if let Some(colon_idx) = trimmed.rfind(':') {
-                        if let Some(last_dot_idx) = trimmed.rfind('.') {
-                            if colon_idx > last_dot_idx {
-                                // Port comes after the last dot, so this is IPv4:port
-                                &trimmed[..colon_idx]
-                            } else {
-                                // Colon before last dot? Malformed, return as-is
-                                trimmed
-                            }
-                        } else {
-                            // Has colon but no dot? Shouldn't happen for IPv4
-                            trimmed
-                        }
-                    } else {
-                        // No colon, just return the IP
-                        trimmed
-                    }
-                } else {
-                    // No dots and no brackets - assume IPv6 without port
-                    // IPv6 can have colons as part of the address, so don't strip
-                    trimmed
-                };
-
-                // Try to parse the IP address
-                if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
-                    return parsed_ip;
-                }
-            }
-        }
-    }
-
-    // Fall back to the direct client IP
-    fallback_ip
+    headers
+        .get("X-Forwarded-For")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(forwarded_for::parse_entry)
+        .unwrap_or(fallback_ip)
 }
 
 /// Updates the canonical log with rate limit info and returns the error for early return.
@@ -167,35 +122,25 @@ fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
     is_from_legacy_decide: bool,
-    v3_enabled: bool,
+    v4_enabled: bool,
 ) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
     // `None` is preserved so `get_versioned_response` can apply its
     // decide/non-decide defaults.
-    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
+    let version_num = version.map(parse_version);
 
-    let mut config = ConfigResponse::new();
-    config.set(
-        "supportedCompression",
-        serde_json::json!(["gzip", "gzip-js"]),
-    );
-    config.set(
-        "config",
-        serde_json::json!({"enable_collect_everything": true}),
-    );
-    config.set("toolbarParams", serde_json::json!({}));
-    config.set("isAuthenticated", serde_json::json!(false));
-    config.set("sessionRecording", serde_json::json!(false));
-
-    let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
-    response.config = config;
+    let response = FlagsResponse::minimal(request_id);
 
     let (service_response, _) =
-        get_versioned_response(is_from_legacy_decide, version_num, v3_enabled, response).expect(
+        get_versioned_response(is_from_legacy_decide, version_num, v4_enabled, response).expect(
             "get_versioned_response is total for any (bool, Option<i32>, bool, FlagsResponse)",
         );
     Json(service_response)
+}
+
+fn parse_version(version: &str) -> i32 {
+    version.parse::<i32>().unwrap_or(1)
 }
 
 /// Determines the response format based on whether the request came from decide and the version parameter.
@@ -207,15 +152,15 @@ fn get_minimal_flags_response(
 /// - v>=4 -> FlagsV2 response format
 ///
 /// When the request is not from decide:
-/// - v>=3 -> FlagsV3 response format when `v3_enabled`, otherwise FlagsV2
-/// - v=2 -> FlagsV2 response format
+/// - v=4 -> FlagsV4 response format when `v4_enabled`, otherwise FlagsV2
+/// - any other v>=2 -> FlagsV2 response format
 /// - v=1 or missing -> FlagsV1 response format
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
 fn get_versioned_response(
     is_from_legacy_decide: bool,
     version: Option<i32>,
-    v3_enabled: bool,
+    v4_enabled: bool,
     response: FlagsResponse,
 ) -> Result<(ServiceResponse, &'static str), FlagError> {
     if is_from_legacy_decide {
@@ -247,10 +192,10 @@ fn get_versioned_response(
                 ))
             }
         }
-    } else if serves_flags_v3(is_from_legacy_decide, version, v3_enabled) {
+    } else if serves_flags_v4(is_from_legacy_decide, version, v4_enabled) {
         Ok((
-            ServiceResponse::V3(FlagsResponseV3::from_response(response)),
-            "FlagsV3",
+            ServiceResponse::V4(FlagsResponseV4::from_response(response)),
+            "FlagsV4",
         ))
     } else if version.is_some_and(|v| v >= 2) {
         Ok((ServiceResponse::V2(response), "FlagsV2"))
@@ -262,10 +207,13 @@ fn get_versioned_response(
     }
 }
 
-/// True when [`get_versioned_response`] returns the v3 record. The body log
+/// True when [`get_versioned_response`] returns the v4 record. The body log
 /// uses it too, so the logged record matches the record the client receives.
-fn serves_flags_v3(is_from_legacy_decide: bool, version: Option<i32>, v3_enabled: bool) -> bool {
-    v3_enabled && !is_from_legacy_decide && version.is_some_and(|v| v >= 3)
+///
+/// Only an exact `v=4` selects it: clients already send `v=3` and arbitrary
+/// `v` values (cache busters, typos), and those keep the v2 record.
+fn serves_flags_v4(is_from_legacy_decide: bool, version: Option<i32>, v4_enabled: bool) -> bool {
+    v4_enabled && !is_from_legacy_decide && version == Some(4)
 }
 
 /// Feature flag evaluation endpoint.
@@ -276,6 +224,9 @@ pub async fn flags<C>(
     Extension(rate_limiters): Extension<router::FlagsEndpointRateLimiters<C>>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
+    // Populated by the `record_concurrency_enter` middleware before the
+    // permit wait. Optional for the same reason as `concurrency_wait`.
+    concurrency_enter: Option<Extension<ConcurrencyEnterTime>>,
     // Populated by the `record_concurrency_wait` middleware after
     // `ConcurrencyLimitLayer` hands off a permit. Optional so the handler
     // tolerates the layer pair being removed or temporarily disabled.
@@ -285,6 +236,8 @@ pub async fn flags<C>(
     // the shim being removed or absent on routes that bypass it (e.g. a
     // future `/flags`-only sub-router).
     body_read_duration: Option<Extension<BodyReadDuration>>,
+    // Populated by the `record_request_outcome` middleware.
+    outcome_marks: Option<Extension<OutcomeMarks>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -294,6 +247,9 @@ where
     C: clock::Clock + Clone + Send + Sync + 'static,
 {
     let request_id = extract_request_id(&headers);
+    let request_entered_at = concurrency_enter
+        .map(|Extension(enter)| enter.0)
+        .unwrap_or_else(tokio::time::Instant::now);
 
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
@@ -307,7 +263,7 @@ where
                 &headers,
                 query_params.version.as_deref(),
                 false,
-                state.config.flags_v3_response_enabled,
+                state.config.flags_v4_response_enabled,
             )
             .into_response());
         }
@@ -389,6 +345,8 @@ where
         .map(|v| v == "decide")
         .unwrap_or(false);
 
+    let origin_host = request_blocklist::origin_host(&headers);
+
     // Mutable: the IP rate-limit and bot branches below mark fields on
     // it directly because they run outside the canonical-log scope.
     // Fields resolved inside `run_with_canonical_log` go through
@@ -397,6 +355,7 @@ where
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
+        origin_host: origin_host.clone(),
         lib: ua_info.lib_for_logging().map(str::to_string),
         // The decoded body can override this later. Until then, prefer SDK User-Agent over legacy query params.
         lib_version: initial_lib_version(&ua_info, &query_params),
@@ -404,6 +363,9 @@ where
         queue_time_ms,
         concurrency_limit_wait_ms,
         body_read_ms,
+        outcome_marks: outcome_marks
+            .map(|Extension(marks)| marks)
+            .unwrap_or_default(),
         ..Default::default()
     };
 
@@ -447,7 +409,7 @@ where
             &headers,
             query_params.version.as_deref(),
             is_from_legacy_decide,
-            state.config.flags_v3_response_enabled,
+            state.config.flags_v4_response_enabled,
         )
         .into_response());
     }
@@ -466,11 +428,8 @@ where
     }
 
     // Parse version from query params (needed for response formatting)
-    let query_version = modified_query_params
-        .version
-        .as_deref()
-        .map(|v| v.parse::<i32>().unwrap_or(1));
-    let v3_enabled = state.config.flags_v3_response_enabled;
+    let query_version = modified_query_params.version.as_deref().map(parse_version);
+    let v4_enabled = state.config.flags_v4_response_enabled;
 
     // Install a body-logging side channel only when at least one team is
     // opted in. The OnceLock is filled inside the request decode flow with
@@ -485,8 +444,10 @@ where
 
     let context = RequestContext {
         request_id,
+        request_entered_at,
         state: state.clone(),
         ip,
+        origin_host,
         headers: headers.clone(),
         meta: modified_query_params,
         body,
@@ -574,11 +535,11 @@ where
                 log.team_id,
                 decoded_body,
                 &response,
-                serves_flags_v3(is_from_legacy_decide, query_version, v3_enabled),
+                serves_flags_v4(is_from_legacy_decide, query_version, v4_enabled),
             );
 
             // Determine the response format based on whether request is from decide and version
-            match get_versioned_response(is_from_legacy_decide, query_version, v3_enabled, response)
+            match get_versioned_response(is_from_legacy_decide, query_version, v4_enabled, response)
             {
                 Ok((versioned_response, response_format)) => {
                     log.http_status = 200;
@@ -706,6 +667,7 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
 mod tests {
     use crate::api::types::Compression;
     use rstest::rstest;
+    use std::collections::HashMap;
 
     use super::*;
     use axum::{
@@ -713,6 +675,36 @@ mod tests {
         extract::{FromRequest, Request},
         http::Uri,
     };
+
+    #[rstest]
+    #[case::exact_v4("4", false, true, "FlagsV4")]
+    #[case::v4_setting_off("4", false, false, "FlagsV2")]
+    #[case::v3("3", false, true, "FlagsV2")]
+    #[case::v3_setting_off("3", false, false, "FlagsV2")]
+    #[case::v5("5", false, true, "FlagsV2")]
+    #[case::cache_buster("17380067", false, true, "FlagsV2")]
+    #[case::v2("2", false, true, "FlagsV2")]
+    #[case::fractional_v4("4.0", false, true, "FlagsV1")]
+    #[case::huge("12345678901234567890123456789012345678901234", false, true, "FlagsV1")]
+    #[case::junk("abc", false, true, "FlagsV1")]
+    #[case::decide_v4("4", true, true, "FlagsV2")]
+    #[case::decide_v3("3", true, true, "FlagsV1")]
+    fn test_only_an_exact_v4_selects_the_v4_record(
+        #[case] v: &str,
+        #[case] is_from_legacy_decide: bool,
+        #[case] v4_enabled: bool,
+        #[case] expected: &str,
+    ) {
+        let version = Some(parse_version(v));
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let (_, format) =
+            get_versioned_response(is_from_legacy_decide, version, v4_enabled, response).unwrap();
+        assert_eq!(format, expected);
+        assert_eq!(
+            serves_flags_v4(is_from_legacy_decide, version, v4_enabled),
+            expected == "FlagsV4"
+        );
+    }
 
     #[tokio::test]
     async fn test_query_param_extraction() {

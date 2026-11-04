@@ -6,6 +6,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     DataWarehouseNode,
     EmptyPropertyFilter,
+    EntityType,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
@@ -13,7 +14,10 @@ from posthog.schema import (
     GroupNode,
     HogQLPropertyFilter,
     LifecycleDataWarehouseNode,
+    RetentionEntity,
 )
+
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
 
 from posthog.types import AnyPropertyFilter, EntityNode, FunnelExclusionEntityNode
 
@@ -24,6 +28,25 @@ def is_data_warehouse_node(node: EntityNode) -> bool:
 
 def has_data_warehouse_node(nodes: Sequence[EntityNode]) -> bool:
     return any(is_data_warehouse_node(node) for node in nodes)
+
+
+def is_data_warehouse_entity(node: EntityNode | RetentionEntity | None) -> bool:
+    if isinstance(node, RetentionEntity):
+        return node.type == EntityType.DATA_WAREHOUSE
+    return node is not None and is_data_warehouse_node(node)
+
+
+def every_warehouse_series_reads_flag_calls(nodes: Sequence[EntityNode | RetentionEntity | None]) -> bool:
+    """Whether each data warehouse series in `nodes` reads `posthog.flag_evaluations`. True when there is none.
+
+    A flag calls series takes test account filters and global property filters, as an events series does.
+    A series on any other warehouse table takes neither.
+    """
+    return all(
+        getattr(node, "table_name", None) == FLAG_EVALUATIONS_HOGQL_TABLE
+        for node in nodes
+        if is_data_warehouse_entity(node)
+    )
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> bool:

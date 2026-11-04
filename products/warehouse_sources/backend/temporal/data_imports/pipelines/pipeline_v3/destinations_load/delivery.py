@@ -20,6 +20,7 @@ from collections.abc import Iterable
 import structlog
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.destination_health import record_delivery_failure, record_delivery_success
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -291,10 +292,12 @@ def deliver_batch_to_destinations(
                 error=str(e),
                 msg=f"Failed writing to {destination.name} ({run_ctx.table_name}): {e}",
             )
+            record_delivery_failure(destination, e)
             if isinstance(e, DestinationConfigurationError):
                 raise
             raise DestinationDeliveryError(destination.name, e) from e
 
+        record_delivery_success(destination)
         rows_written = outcome.rows_written if outcome else 0
         duration_seconds = round(time.monotonic() - started_at, 3)
         logger.info(

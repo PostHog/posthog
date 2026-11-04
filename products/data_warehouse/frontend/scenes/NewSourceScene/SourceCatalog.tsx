@@ -8,9 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { AccessControlLevel, AccessControlResourceType, type ExternalDataSourceType } from '~/types'
 
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
@@ -26,7 +24,7 @@ export const CATALOG_TILE_CLASS =
 export const CATALOG_GRID_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3'
 
 export interface SourceCatalogProps {
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 // Memoized so the whole grid doesn't re-render per keystroke in the search input or request
@@ -53,6 +51,9 @@ const SourceTile = memo(function SourceTile({
             </div>
             <div className="flex flex-col items-start gap-2 min-w-0 text-left">
                 <div className="font-medium text-sm leading-tight line-clamp-2">{item.label}</div>
+                {item.description && (
+                    <div className="text-xs text-secondary leading-snug line-clamp-2">{item.description}</div>
+                )}
                 {comingSoon ? (
                     <>
                         <LemonTag type="warning">Coming soon</LemonTag>
@@ -154,6 +155,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
         selectedCategory,
         selectedCategoryLabel,
         hasCrossCategoryMatches,
+        customSourceItem,
         registeredInterestSources,
         sourceRequestModalOpen,
         sourceRequestText,
@@ -229,6 +231,19 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                                     Clear filters
                                 </Link>{' '}
                                 or request one below.
+                            </div>
+                        )}
+                        {customSourceItem && !hasCrossCategoryMatches && !accessDisabledReason && (
+                            <div className="text-muted text-sm">
+                                If the tool has a REST API, you can connect it with a{' '}
+                                <Link
+                                    to={customSourceItem.url}
+                                    onClick={() => selectSourceType(customSourceItem)}
+                                    data-attr="catalog-empty-custom-source"
+                                >
+                                    {customSourceItem.label}
+                                </Link>
+                                .
                             </div>
                         )}
                         {/* Sources bring data into PostHog; users after an export (e.g. searching

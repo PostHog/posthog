@@ -59,8 +59,10 @@ pub fn build_catalog(
         config.symbol_store_cache_max_bytes,
     )));
     let parse_limiter = ParseLimiter::new(
-        config.symbol_set_large_parse_bytes,
-        config.symbol_set_max_concurrent_large_parses,
+        config.symbol_set_large_parse_bytes.get(),
+        config.symbol_set_max_concurrent_large_parses.get(),
+        config.symbol_set_parse_memory_budget_bytes.get(),
+        config.symbol_set_parse_memory_multiplier.get(),
     );
 
     let smp = SourcemapProvider::new(config).with_chunk_id_rescue(

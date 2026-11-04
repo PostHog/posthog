@@ -10,8 +10,10 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.data_modeling.backend.facade.api import HasDependentsError
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
 
@@ -64,6 +66,7 @@ def deactivate_stale_materializations() -> None:
     3. The materialization was enabled at least 30 days ago (saved_query.created_at)
     4. The version was last executed over 30 days ago (via API key), or it is a superseded
        version that was never executed
+    5. No other view, endpoint or metric reads the saved query
 
     For matching versions, the materialization is reverted to save resources.
     """
@@ -103,18 +106,42 @@ def deactivate_stale_materializations() -> None:
         return
 
     deactivated_count = 0
+    skipped_count = 0
+    dependency_services: dict[int, EndpointMaterializationDependencyService] = {}
 
     for version in stale_versions:
+        team_id = version.endpoint.team_id
+        log_context = {
+            "endpoint_id": str(version.endpoint.id),
+            "endpoint_name": version.endpoint.name,
+            "version": version.version,
+            "team_id": team_id,
+            "saved_query_name": version.saved_query.name if version.saved_query else None,
+        }
+        dependency_service = dependency_services.setdefault(team_id, EndpointMaterializationDependencyService(team_id))
+        try:
+            dependency_service.check_deletable(version)
+        except HasDependentsError as error:
+            logger.info(
+                "deactivate_stale_materialization_skipped_dependents",
+                dependents=len(error.dependents),
+                **log_context,
+            )
+            skipped_count += 1
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="skipped_dependents").inc()
+            continue
+        except Exception:
+            logger.exception("deactivate_stale_materialization_dependents_check_failed", **log_context)
+            skipped_count += 1
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="skipped_dependents").inc()
+            continue
         try:
             _deactivate_version_materialization(version)
         except Exception as e:
             logger.exception(
                 "deactivate_stale_materialization_failed",
-                endpoint_id=str(version.endpoint.id),
-                endpoint_name=version.endpoint.name,
-                version=version.version,
-                team_id=version.endpoint.team_id,
                 error=str(e),
+                **log_context,
             )
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="deactivate_stale", status="error").inc()
             continue
@@ -124,6 +151,7 @@ def deactivate_stale_materializations() -> None:
     logger.info(
         "deactivate_stale_materializations_completed",
         deactivated_count=deactivated_count,
+        skipped_count=skipped_count,
     )
 
 

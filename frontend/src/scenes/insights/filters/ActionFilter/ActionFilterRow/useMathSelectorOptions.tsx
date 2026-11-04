@@ -6,14 +6,9 @@ import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lem
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { isInsightVizNode, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { MathType } from '~/queries/schema/schema-general'
-import {
-    TRAILING_MATH_TYPES,
-    getMathTypeWarning,
-    isInsightVizNode,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { TRAILING_MATH_TYPES, getMathTypeWarning } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
@@ -55,6 +50,7 @@ export function useMathSelectorOptions({
     onMathSelect,
     trendsDisplayCategory,
     allowedMathTypes,
+    excludedMathTypes,
     query,
     mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
@@ -140,6 +136,9 @@ export function useMathSelectorOptions({
         .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
+            if (excludedMathTypes?.has(key.split('::')[0])) {
+                return false
+            }
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(mathTypeKey)

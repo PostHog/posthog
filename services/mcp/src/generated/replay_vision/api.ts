@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 56 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -409,6 +409,137 @@ export const VisionAlertsResetCreateParams = () => zod.object({
 })
 
 /**
+ * Groups of near-duplicate issue observations, each one scanner's sessions that tell the same story, such as one bug many people hit. Narrower than themes. Use it to find the issues that reach the most people.
+ */
+export const VisionGroupsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsListQueryByVariantDefault = false
+
+export const visionGroupsListQueryIncludeRoutineDefault = false
+export const visionGroupsListQueryLimitDefault = 20
+export const visionGroupsListQueryLimitMax = 100
+
+export const visionGroupsListQueryOffsetDefault = 0
+export const visionGroupsListQueryOffsetMin = 0
+
+export const visionGroupsListQueryOrderDefault = `people`
+
+export const VisionGroupsListQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsListQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsListQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionGroupsListQueryLimitMax)
+        .default(visionGroupsListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionGroupsListQueryOffsetMin)
+        .default(visionGroupsListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionGroupsListQueryOrderDefault)
+        .describe(
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
+        ),
+})
+
+/**
+ * One group's counts and examples over the window.
+ */
+export const VisionGroupsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsRetrieveQueryByVariantDefault = false
+
+export const visionGroupsRetrieveQueryIncludeRoutineDefault = false
+
+export const VisionGroupsRetrieveQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
+        ),
+})
+
+/**
  * A session's observations across every scanner the caller can read, plus the team-level semantic
  * `search` action, which resolves its own scanner scope instead of this queryset.
  */
@@ -458,8 +589,20 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -497,6 +640,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
+        ),
     triggered_by: zod
         .string()
         .optional()
@@ -513,6 +662,18 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -671,6 +832,122 @@ export const EnvironmentVisionQuotaSpendSeriesRetrieveParams = () => zod.object(
 })
 
 /**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const VisionRequestsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionRequestsCreateBodySessionIdsItemMax = 128
+
+export const visionRequestsCreateBodySessionIdsMax = 200
+
+export const visionRequestsCreateBodyInlineOnePromptMax = 20000
+
+export const visionRequestsCreateBodyInlineOneModelDefault = `gemini-3-flash-preview`
+export const visionRequestsCreateBodyIdempotencyKeyMax = 200
+
+export const visionRequestsCreateBodyReferenceDefault = ``
+export const visionRequestsCreateBodyReferenceMax = 200
+
+export const visionRequestsCreateBodyWaitForSessionEndDefault = false
+
+export const VisionRequestsCreateBody = () => zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionRequestsCreateBodySessionIdsItemMax))
+            .max(visionRequestsCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.'
+            ),
+        scanner_id: zod
+            .string()
+            .optional()
+            .describe('A saved scanner to apply to the sessions. Pass this or `inline`, not both.'),
+        inline: zod
+            .object({
+                built_in: zod
+                    .enum(['summarize_recording'])
+                    .describe('\* `summarize_recording` - Summarize recording')
+                    .optional()
+                    .describe(
+                        'Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.\n\n\* `summarize_recording` - Summarize recording'
+                    ),
+                prompt: zod
+                    .string()
+                    .max(visionRequestsCreateBodyInlineOnePromptMax)
+                    .optional()
+                    .describe(
+                        'What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.'
+                    ),
+                scanner_type: zod
+                    .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+                    .describe(
+                        '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+                    )
+                    .optional()
+                    .describe(
+                        "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                    ),
+                scanner_config: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+                    ),
+                model: zod
+                    .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
+                    .describe(
+                        '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    )
+                    .default(visionRequestsCreateBodyInlineOneModelDefault)
+                    .describe(
+                        'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                    ),
+            })
+            .describe('A question asked inline, without saving a scanner first.')
+            .optional()
+            .describe(
+                'A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both.'
+            ),
+        idempotency_key: zod
+            .string()
+            .max(visionRequestsCreateBodyIdempotencyKeyMax)
+            .optional()
+            .describe(
+                'Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.'
+            ),
+        reference: zod
+            .string()
+            .max(visionRequestsCreateBodyReferenceMax)
+            .default(visionRequestsCreateBodyReferenceDefault)
+            .describe('Your own id for this request, such as a ticket or job id. Returned unchanged.'),
+        wait_for_session_end: zod
+            .boolean()
+            .default(visionRequestsCreateBodyWaitForSessionEndDefault)
+            .describe(
+                "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are."
+            ),
+    })
+    .describe('Body of POST \/vision\/requests\/ - the sessions plus a saved scanner or an inline question.')
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const VisionRequestsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this replay observation request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const VisionScannersListParams = () => zod.object({
@@ -785,16 +1062,16 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
+            ),
         scanner_config: zod
             .unknown()
             .describe(
                 'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
-            ),
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`\/`date_to` are stripped on save — the schedule controls time, not the user.'
             ),
         sampling_rate: zod
             .number()
@@ -818,6 +1095,12 @@ export const VisionScannersCreateBody = () => zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -957,17 +1240,17 @@ export const VisionScannersPartialUpdateBody = () => zod
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
+            ),
         scanner_config: zod
             .unknown()
             .optional()
             .describe(
                 'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
-            ),
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`\/`date_to` are stripped on save — the schedule controls time, not the user.'
             ),
         sampling_rate: zod
             .number()
@@ -991,6 +1274,12 @@ export const VisionScannersPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -1139,6 +1428,22 @@ export const VisionScannersBulkObserveCreateBody = () => zod
             ),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/bulk_observe\/.')
+
+/**
+ * Create a dashboard that charts this scanner's observations, and link it to the scanner.
+ *
+ * The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+ * type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+ * existing dashboard rather than a second one.
+ */
+export const VisionScannersCreateDashboardCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * Copy a scanner into a new disabled scanner named "<name> (copy)".
@@ -1382,6 +1687,18 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -1423,6 +1740,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
+        ),
     triggered_by: zod
         .string()
         .optional()
@@ -1439,6 +1762,18 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1468,8 +1803,20 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1507,6 +1854,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
+        ),
     triggered_by: zod
         .string()
         .optional()
@@ -1523,6 +1876,18 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1551,8 +1916,20 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1590,6 +1967,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
+        ),
     triggered_by: zod
         .string()
         .optional()
@@ -1606,6 +1989,18 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1661,7 +2056,9 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 10
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 15
+
+export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -1746,7 +2143,33 @@ export const VisionScannersScoutsCreateBody = () => zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                    ),
+                lifecycle_locked: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker."
+                    ),
+                allowed_mcp_tools: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+                    ),
+                tool_preset: zod
+                    .enum(['read_only', 'support_notes'])
+                    .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+                    .optional()
+                    .describe(
+                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
+                    ),
+                precheck_query: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax)
+                    .nullish()
+                    .describe(
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
                     ),
                 enabled: zod
                     .boolean()
@@ -1833,6 +2256,12 @@ export const VisionScannersScoutsCreateBody = () => zod
                             .describe(
                                 "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
+                        inbox: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
+                            ),
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
@@ -1868,10 +2297,39 @@ export const VisionScannersScoutsCreateBody = () => zod
             .describe(
                 "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
             ),
+        template_key: zod
+            .enum([
+                'variant-analysis',
+                'daily-digest',
+                'root-cause',
+                'weekly-themes',
+                'trend-watch',
+                'new-issues',
+                'scratch',
+            ])
+            .describe(
+                '\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            )
+            .optional()
+            .describe(
+                'The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.\n\n\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
     )
+
+/**
+ * The scout templates this scanner offers, rendered for it, in the order the picker shows them.
+ */
+export const VisionScannersScoutsTemplatesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    scanner_id: zod.string(),
+})
 
 /**
  * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
@@ -1886,7 +2344,7 @@ export const VisionScannersVariantsListParams = () => zod.object({
 })
 
 /**
- * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ * Draft a full scanner configuration from a natural-language goal and a monthly credit budget.
  */
 export const VisionScannersDraftCreateParams = () => zod.object({
     project_id: zod
@@ -1900,6 +2358,9 @@ export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
 
+export const visionScannersDraftCreateBodyFreeOnlyDefault = false
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
+
 export const VisionScannersDraftCreateBody = () => zod
     .object({
         goal: zod
@@ -1912,7 +2373,27 @@ export const VisionScannersDraftCreateBody = () => zod
             .max(visionScannersDraftCreateBodyMonthlyCreditBudgetMax)
             .optional()
             .describe(
-                "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
+            ),
+        free_only: zod
+            .boolean()
+            .default(visionScannersDraftCreateBodyFreeOnlyDefault)
+            .describe(
+                "Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.'
+            ),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
@@ -1940,12 +2421,6 @@ export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
 
 export const VisionScannersEstimateCreateBody = () => zod
     .object({
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.'
-            ),
         sampling_rate: zod
             .number()
             .min(visionScannersEstimateCreateBodySamplingRateMin)
@@ -2017,6 +2492,93 @@ export const VisionScannersEstimateCreateBody = () => zod
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
 /**
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
+ */
+export const VisionScannersHighlightFeedRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionScannersHighlightFeedRetrieveQueryDateFromDefault = `-7d`
+
+export const visionScannersHighlightFeedRetrieveQueryLimitDefault = 20
+export const visionScannersHighlightFeedRetrieveQueryLimitMax = 50
+
+export const visionScannersHighlightFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMin = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMax = 1000
+
+export const VisionScannersHighlightFeedRetrieveQueryParams = () => zod.object({
+    as_of: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
+        ),
+    categories: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.'
+        ),
+    created_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .default(visionScannersHighlightFeedRetrieveQueryDateFromDefault)
+        .describe(
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days."
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionScannersHighlightFeedRetrieveQueryLimitMax)
+        .default(visionScannersHighlightFeedRetrieveQueryLimitDefault)
+        .describe(
+            'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
+        ),
+    offset: zod
+        .number()
+        .min(visionScannersHighlightFeedRetrieveQueryOffsetMin)
+        .max(visionScannersHighlightFeedRetrieveQueryOffsetMax)
+        .default(visionScannersHighlightFeedRetrieveQueryOffsetDefault)
+        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
+    scanner_ids: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.'),
+    scanner_type: zod
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+        .optional()
+        .describe(
+            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+        ),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.'
+        ),
+})
+
+/**
  * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
@@ -2034,37 +2596,37 @@ export const VisionScannersInlineScanCreateParams = () => zod.object({
         ),
 })
 
+export const visionScannersInlineScanCreateBodyPromptMax = 20000
+
+export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
 
 export const visionScannersInlineScanCreateBodySessionIdsMax = 200
 
-export const visionScannersInlineScanCreateBodyPromptMax = 20000
-
-export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
-export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
-
 export const VisionScannersInlineScanCreateBody = () => zod
     .object({
-        session_ids: zod
-            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
-            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+        built_in: zod
+            .enum(['summarize_recording'])
+            .describe('\* `summarize_recording` - Summarize recording')
+            .optional()
             .describe(
-                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
+                'Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.\n\n\* `summarize_recording` - Summarize recording'
             ),
         prompt: zod
             .string()
             .max(visionScannersInlineScanCreateBodyPromptMax)
+            .optional()
             .describe(
-                'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+                'What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.'
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
                 '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
-            .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
+            .optional()
             .describe(
-                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
             ),
         scanner_config: zod
             .unknown()
@@ -2081,8 +2643,16 @@ export const VisionScannersInlineScanCreateBody = () => zod
             .describe(
                 'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
             ),
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
+            ),
     })
-    .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')
+    .describe(
+        'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
+    )
 
 /**
  * Team-wide scanner counts — independent of list filters, so the overview stays stable.
@@ -2096,9 +2666,9 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
 })
 
 /**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
+ * Recurring kinds of issue in replay observations, each a broad cluster of one scanner's issue observations with a short model-written name. Use it to see what comes up often and what is growing.
  */
-export const VisionScannersSuggestTagsCreateParams = () => zod.object({
+export const VisionThemesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2106,105 +2676,77 @@ export const VisionScannersSuggestTagsCreateParams = () => zod.object({
         ),
 })
 
-export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
+export const visionThemesListQueryLimitDefault = 20
+export const visionThemesListQueryLimitMax = 100
 
-export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
+export const visionThemesListQueryOffsetDefault = 0
+export const visionThemesListQueryOffsetMin = 0
 
-export const visionScannersSuggestTagsCreateBodyTagsMax = 200
+export const visionThemesListQueryOrderDefault = `people`
 
-export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
-export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
-
-export const VisionScannersSuggestTagsCreateBody = () => zod
-    .object({
-        prompt: zod
-            .string()
-            .max(visionScannersSuggestTagsCreateBodyPromptMax)
-            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
-        tags: zod
-            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
-            .max(visionScannersSuggestTagsCreateBodyTagsMax)
-            .optional()
-            .describe('The categories already configured, so suggestions never duplicate one the user has.'),
-        multi_label: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
-            .describe('Whether the classifier assigns multiple tags per session.'),
-        allow_freeform_tags: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
-            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
-        scanner_id: zod
-            .string()
-            .nullish()
-            .describe(
-                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
-
-/**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
- */
-export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
-
-export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
-export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
-
-export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+export const VisionThemesListQueryParams = () => zod.object({
     date_from: zod
         .string()
         .min(1)
-        .default(visionScannersWatchFeedRetrieveQueryDateFromDefault)
+        .optional()
         .describe(
-            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days."
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
         ),
     date_to: zod
         .string()
         .min(1)
         .optional()
-        .describe(
-            'Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.'
-        ),
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
     limit: zod
         .number()
         .min(1)
-        .max(visionScannersWatchFeedRetrieveQueryLimitMax)
-        .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
+        .max(visionThemesListQueryLimitMax)
+        .default(visionThemesListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionThemesListQueryOffsetMin)
+        .default(visionThemesListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionThemesListQueryOrderDefault)
         .describe(
-            'Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.'
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
         ),
-    scanner_ids: zod
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+})
+
+/**
+ * One search theme's counts and examples over the window.
+ */
+export const VisionThemesRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisionThemesRetrieveQueryParams = () => zod.object({
+    date_from: zod
         .string()
         .min(1)
         .optional()
-        .describe('Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.'),
-    scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
-        .optional()
         .describe(
-            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
         ),
-    search: zod
+    date_to: zod
         .string()
         .min(1)
         .optional()
-        .describe(
-            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it."
-        ),
-    tags: zod
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    scanner_id: zod
         .string()
-        .min(1)
         .optional()
-        .describe(
-            'Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.'
-        ),
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
 })

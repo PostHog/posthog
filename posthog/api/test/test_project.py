@@ -13,7 +13,8 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectCreateRequestSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
-from posthog.api.team import TeamCustomerAnalyticsConfigSerializer, TeamSerializer
+from posthog.api.team.team_config import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -25,12 +26,14 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade.api import get_team_experiments_settings
+from products.experiments.backend.facade.testing import set_team_experiments_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -51,6 +54,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for field_name in ("id", "organization", "created_at", "api_token", "home_tab_dashboard"):
             self.assertNotIn(field_name, serializer.fields)
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
+
+    def test_conversations_settings_ai_reply_modes_requires_an_object(self):
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -160,7 +171,43 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         duplicate_project.refresh_from_db()
         self.assertEqual(duplicate_project.product_description, "still saveable")
 
-    def test_cannot_create_second_demo_project(self):
+    @parameterized.expand(
+        [
+            ("this_environment", "this_environment", status.HTTP_200_OK),
+            ("other_environment_of_this_project", "other_environment", status.HTTP_200_OK),
+            ("other_project_in_organization", "other_project", status.HTTP_400_BAD_REQUEST),
+            ("project_in_other_organization", "other_organization", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_logo_media_must_be_uploaded_to_this_project(self, _name: str, uploaded_to: str, expected_status: int):
+        if uploaded_to == "this_environment":
+            team = self.team
+        elif uploaded_to == "other_environment":
+            team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        elif uploaded_to == "other_project":
+            _, team = Project.objects.create_with_team(
+                organization=self.organization, name="Other project", initiating_user=self.user
+            )
+        else:
+            other_organization = Organization.objects.create(name="Other organization")
+            _, team = Project.objects.create_with_team(
+                organization=other_organization, name="Other project", initiating_user=None
+            )
+        media = UploadedMedia.objects.create(team=team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.project.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["logo_media_id"], str(media.id))
+            self.assertEqual(self.project.logo_media_id, media.id)
+        else:
+            self.assertEqual(response.json()["attr"], "logo_media_id")
+            self.assertIsNone(self.project.logo_media_id)
+
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_cannot_create_second_demo_project(self, _mock_create_demo_data: MagicMock):
         # Create first demo project
         Project.objects.create_with_team(
             organization=self.organization, name="First Demo", initiating_user=self.user, team_fields={"is_demo": True}
@@ -505,7 +552,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
-    def test_demo_projects_not_counted_toward_limit(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_demo_projects_not_counted_toward_limit(self, _mock_create_demo_data: MagicMock):
         # Set project limit to 2
         self.organization.available_product_features = [
             {
@@ -618,6 +666,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.delete(f"/api/projects/{self.project.id}")
 
         self.assertEqual(response.status_code, expected_status)
+        if project_count > 1:
+            mock_get_billing.assert_not_called()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
@@ -1000,7 +1050,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         with (
             capture_db_queries() as queries,
-            patch("posthog.api.team.report_user_action") as mock_report,
+            patch("posthog.api.team.conversations_settings.report_user_action") as mock_report,
         ):
             with (
                 patch.object(Team.objects, "select_for_update", simulate_integration_update),
@@ -1346,7 +1396,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
-        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
+        default_pins = [
+            {"kind": "custom_property", "id": definition_response.json()["id"]},
+            {"kind": "account_field", "id": "stripe_customer_id"},
+        ]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
@@ -1437,26 +1490,53 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
 
-    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
-        # A missing stamp would let the auto-enrollment job override a human's disable
-        # on its next run. Other settings must not stamp it.
+    def test_experiments_config_ignores_precomputation_toggle(self):
+        # A write here would stamp the row as manual and stop the auto-enrollment job from
+        # managing the team, so the field is read-only for project admins.
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"default_cuped_enabled": True},
+            {"experiment_precomputation_enabled": True, "default_cuped_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertIsNone(config.precomputation_enabled_set_by)
+        self.assertFalse(response.json()["experiment_precomputation_enabled"])
+        experiments_settings = get_team_experiments_settings(self.project.id)
+        self.assertFalse(experiments_settings.experiment_precomputation_enabled)
+        self.assertTrue(experiments_settings.default_cuped_enabled)
+
+    def test_experiments_config_changes_are_logged_as_team_activity(self):
+        # The first read creates the config row with defaults, which is not a change anyone made.
+        self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        team_activity = ActivityLog.objects.filter(team_id=self.project.id, scope="Team", item_id=str(self.project.id))
+        self.assertEqual(team_activity.count(), 0)
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
-            {"experiment_precomputation_enabled": True},
+            {"default_cuped_enabled": True, "experiment_precomputation_enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+        log = team_activity.get()
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+        assert log.detail is not None
+        # Precomputation is managed by PostHog, so only the customer's own setting is recorded.
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
+
+    def test_experiments_config_created_with_non_default_values_is_logged(self):
+        # The Django admin creates the row and sets values in one save, so there is no update to diff.
+        set_team_experiments_config(team_id=self.team.id, default_cuped_enabled=True)
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
 
     def test_experiments_config_recalculation_times_write_and_clear(self):
         response = self.client.patch(
@@ -1465,8 +1545,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         # Old clients still PATCH the retired experiment_recalculation_time field;
         # it must be ignored, not rejected.
@@ -1476,8 +1557,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
@@ -1485,8 +1567,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(get_team_experiments_settings(self.project.id).experiment_recalculation_times)
 
     @parameterized.expand(
         [
@@ -1507,6 +1588,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("zero", 0, status.HTTP_400_BAD_REQUEST),
+            ("one", 1, status.HTTP_400_BAD_REQUEST),
+            ("above_one", 1.5, status.HTTP_400_BAD_REQUEST),
+            ("negative", -0.5, status.HTTP_400_BAD_REQUEST),
+            ("ninety_percent", 0.9, status.HTTP_200_OK),
+        ]
+    )
+    def test_experiments_config_confidence_level_must_be_between_zero_and_one(self, _name, level, expected_status):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_experiment_confidence_level": level},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "default_experiment_confidence_level")
+        else:
+            self.assertEqual(response.json()["default_experiment_confidence_level"], "0.90")
 
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's

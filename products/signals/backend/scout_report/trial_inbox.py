@@ -9,15 +9,18 @@ from typing import TYPE_CHECKING, cast
 from django.db.models import QuerySet
 
 from pydantic import JsonValue
-from rest_framework import exceptions
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework import exceptions, serializers
 from rest_framework.response import Response
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.models import User
+from posthog.paging import Page, PageRequest
 
+from products.signals.backend.artefact_schemas import ActionabilityAssessment
 from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
+from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
 if TYPE_CHECKING:
     from products.signals.backend.views import SignalReportViewSet
@@ -27,6 +30,10 @@ class TrialInboxReads:
     SUPPORTED_LIST_PARAMETERS = frozenset(
         {
             "search",
+            "created_after",
+            "priority",
+            "actionability",
+            "already_addressed",
             "status",
             "include_all_statuses",
             "include_source_metadata",
@@ -52,6 +59,22 @@ class TrialInboxReads:
     def _github_login(self) -> str | None:
         return self.view._get_github_login(cast(User, self.view.request.user))
 
+    @cached_property
+    def _source_reports_naming_viewer(self) -> set[str]:
+        source_ids = [report.source_report_id for report in self.store.reports() if report.source_report_id]
+        user = cast(User, self.view.request.user)
+        return {
+            str(report_id)
+            for report_id in report_ids_naming_reviewers(
+                team_id=self.store.run.team_id,
+                user_uuids=[str(user.uuid)],
+                github_logins=[self._github_login] if self._github_login else [],
+                logins_match_unidentified_only=False,
+            )
+            .filter(report_id__in=source_ids)
+            .values_list("report_id", flat=True)
+        }
+
     def _decorate(
         self, report: TrialReport, document: dict[str, JsonValue], *, include_source_metadata: bool = True
     ) -> dict[str, JsonValue]:
@@ -67,6 +90,11 @@ class TrialInboxReads:
             )
             document["source_products"] = cast(list[JsonValue], sorted(source_products))
             document["scout_name"] = self.store.run.skill_name
+        if report.source_report_id and any(
+            artefact["type"] == "actionability_judgment" for artefact in report.artefacts
+        ):
+            # The source annotation excludes non-actionable reports before private decisions are applied.
+            document["is_suggested_reviewer"] = report.source_report_id in self._source_reports_naming_viewer
         for artefact in reversed(report.artefacts):
             if artefact["type"] != "suggested_reviewers":
                 continue
@@ -100,6 +128,12 @@ class TrialInboxReads:
                 changed_fields.add("repo_slug")
         if any(artefact["type"] == "repo_selection" for artefact in report.artefacts):
             changed_fields.add("repo_slug")
+        for artefact in reversed(report.artefacts):
+            if artefact["type"] == "actionability_judgment":
+                report.apply_actionability(document, ActionabilityAssessment.model_validate(artefact["content"]))
+                break
+        if any(artefact["type"] == "priority_judgment" for artefact in report.artefacts):
+            changed_fields.add("priority")
         for field in changed_fields:
             if field in report.document:
                 document[field] = report.document[field]
@@ -161,6 +195,12 @@ class TrialInboxReads:
             reason = f"This scout run cannot compare inbox filters: {', '.join(sorted(unsupported))}."
             self.store.invalidate(reason)
             raise exceptions.ValidationError({"detail": reason})
+        clauses = self.view._parse_signal_report_ordering()
+        ranking_fields = {self.view._SIGNAL_REPORT_ORDERING_FIELDS[name] for name in self.view._RANKING_ORDERING_HEADS}
+        if any(clause.lstrip("-") in ranking_fields for clause in clauses):
+            reason = "This scout run cannot compare inbox ordering by ranking scores."
+            self.store.invalidate(reason)
+            raise exceptions.ValidationError({"ordering": reason})
 
     @staticmethod
     def _tokens(value: str | None) -> list[str]:
@@ -235,7 +275,16 @@ class TrialInboxReads:
             for row in self.view._render_report_rows(list(originals), include_source_metadata=include_source_metadata)
         }
         statuses = self.view._visible_statuses()
-        search = (self.view.request.query_params.get("search") or "").casefold()
+        query = self.view.request.query_params
+        search = (query.get("search") or "").casefold()
+        created_after = (
+            serializers.DateTimeField().to_internal_value(query["created_after"])
+            if query.get("created_after")
+            else None
+        )
+        priorities = [priority.upper() for priority in self._tokens(query.get("priority"))]
+        actionabilities = self._tokens(query.get("actionability"))
+        already_addressed = self.view._bool_query_param("already_addressed")
         matched: dict[str, set[str]] = {}
         result = []
         for report in reports:
@@ -246,9 +295,21 @@ class TrialInboxReads:
                 self.overlay(report, live.get(report.source_report_id or "")),
                 include_source_metadata=include_source_metadata,
             )
+            document["inbox_merge_key"] = None
             if document.get("status") not in statuses:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
+                continue
+            if (
+                created_after is not None
+                and datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00")) < created_after
+            ):
+                continue
+            if priorities and document.get("priority") not in priorities:
+                continue
+            if actionabilities and document.get("actionability") not in actionabilities:
+                continue
+            if already_addressed is not None and document.get("already_addressed") is not already_addressed:
                 continue
             if not self._matches_sources(report, originals, matched):
                 continue
@@ -286,26 +347,26 @@ class TrialInboxReads:
             return value if isinstance(value, (int, float)) else 0
         return str(value or "")
 
-    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
-        self._validate_parameters()
-        queryset = self.view.filter_queryset(self.view.get_queryset())
-        private = self.store.reports()
-        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
-        queryset = queryset.exclude(id__in=[report.id for report in private])
-        count = queryset.count() + len(documents)
-        if count_only:
-            return Response({"count": count, "next": None, "previous": None, "results": []})
-        paginator = self.view.paginator
-        if not isinstance(paginator, LimitOffsetPagination):
-            raise exceptions.ValidationError({"detail": "This scout run requires limit/offset inbox pagination."})
-        paginator.request = self.view.request
-        paginator.limit = paginator.get_limit(self.view.request)
-        paginator.offset = paginator.get_offset(self.view.request)
-        paginator.count = count
-        limit = paginator.limit or count
+    def _merged_count(self, queryset: QuerySet[SignalReport], documents: Sequence[Mapping[str, object]]) -> int:
+        return queryset.count() + len(documents)
+
+    def _merged_page(
+        self,
+        queryset: QuerySet[SignalReport],
+        documents: Sequence[Mapping[str, object]],
+        page: PageRequest,
+        *,
+        include_source_metadata: bool,
+    ) -> Page[Mapping[str, object]]:
+        """One page of production rows and this run's private reports, sorted together.
+
+        The private reports are not in Postgres, so the sort happens in Python. It sorts a window of
+        production rows that is just wide enough to hold every row of the page.
+        """
+        count = self._merged_count(queryset, documents)
         # At most this run's private reports can shift a production row across the requested offset.
-        start = max(0, paginator.offset - len(documents))
-        production = list(queryset[start : paginator.offset + limit])
+        start = max(0, page.offset - len(documents))
+        production = list(queryset[start : page.offset + page.limit])
         merged: list[Mapping[str, object]] = [
             *self.view._render_report_rows(production, include_source_metadata=include_source_metadata),
             *documents,
@@ -315,8 +376,29 @@ class TrialInboxReads:
             clauses.append("id")
         for clause in reversed(clauses):
             merged.sort(key=lambda row: self._sort_value(row, clause.lstrip("-")), reverse=clause.startswith("-"))
-        offset = paginator.offset - start
-        return paginator.get_paginated_response(merged[offset : offset + limit])
+        offset = page.offset - start
+        return Page(results=merged[offset : offset + page.limit], count=count)
+
+    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
+        self._validate_parameters()
+        queryset = self.view.filter_queryset(self.view.get_queryset())
+        private = self.store.reports()
+        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
+        queryset = queryset.exclude(id__in=[report.id for report in private])
+        if count_only:
+            count = self._merged_count(queryset, documents)
+            return Response({"count": count, "next": None, "previous": None, "results": []})
+        # The view's own paginator pages this list too, so both paths share one limit cap.
+        paginator = self.view.paginator
+        if not isinstance(paginator, FacadeLimitOffsetPagination):
+            raise exceptions.ValidationError({"detail": "This scout run requires limit/offset inbox pagination."})
+        page = paginator.read_facade_page(
+            self.view.request,
+            lambda page_request: self._merged_page(
+                queryset, documents, page_request, include_source_metadata=include_source_metadata
+            ),
+        )
+        return paginator.get_paginated_response(page.results)
 
 
 def private_report_artefacts(store: ScoutTrialStore, report_id: str) -> list[SignalReportArtefact]:

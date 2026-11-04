@@ -294,6 +294,35 @@ describe("classifyPromptFailure", () => {
     ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
     ["boom", "upstream_timeout", "transient", true],
+    ["boom", "upstream_stream_terminated", "transient", true],
+    ["boom", "upstream_connection_error", "transient", true],
+    ["boom", "upstream_provider_failure", "transient", true],
+    ["boom", "upstream_unknown", "unknown", false],
+    ["boom", "upstream_request_rejected", "request_rejected", false],
+    [
+      "API Error: Request timed out",
+      "upstream_request_rejected",
+      "request_rejected",
+      false,
+    ],
+    [
+      "Internal error: API Error: 400 invalid_request_error",
+      undefined,
+      "request_rejected",
+      false,
+    ],
+    [
+      "unexpected status 422 Unprocessable Entity",
+      undefined,
+      "request_rejected",
+      false,
+    ],
+    [
+      '{"error":{"type":"invalid_request_error","message":"Unsupported parameter"}}',
+      undefined,
+      "request_rejected",
+      false,
+    ],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",
@@ -368,7 +397,11 @@ describe("isFatalSessionError", () => {
     "exceeded this model context window limit",
     'API Error: 413 {"error":{"message":"Request rejected"}}',
     "api error:413",
-  ])("does not treat the request size error %j as fatal", (message) => {
+    "API Error: 400 invalid_request_error",
+    "API Error: 404 Not Found",
+    "unexpected status 422 Unprocessable Entity",
+    '{"error":{"type":"invalid_request_error","message":"Unsupported parameter"}}',
+  ])("does not treat the request rejection %j as fatal", (message) => {
     expect(isFatalSessionError(`Internal error: ${message}`)).toBe(false);
     expect(isFatalSessionError("Internal error", message)).toBe(false);
   });

@@ -10,11 +10,7 @@ import { SUPPORT_KIND_TO_SUBJECT, supportLogic } from './supportLogic'
 
 // Mirrors navigationLogic's `mode === 'full'` (the condition that mounts <SidePanel />), derived from
 // sources supportLogic can't import without a billingLogic init cycle. Keep here, not in supportLogic.
-function shouldUseSidePanel(searchParams: Record<string, any>): boolean {
-    const zenFromUrl = searchParams?.zen !== undefined && searchParams.zen !== 'false' && searchParams.zen !== '0'
-    if (zenFromUrl) {
-        return false
-    }
+function shouldUseSidePanel(): boolean {
     if (organizationLogic.findMounted()?.values.isCurrentOrganizationUnavailable) {
         return false
     }
@@ -27,12 +23,12 @@ export type supportRouterLogicType = MakeLogicType<{}, {}>
 export const supportRouterLogic = kea<supportRouterLogicType>([
     path(['lib', 'components', 'support', 'supportRouterLogic']),
     urlToAction(() => ({
-        '*': (_, searchParams, hashParams) => {
+        '*': (_, _searchParams, hashParams) => {
             if (supportLogic.findMounted()?.values.isSupportFormOpen) {
                 return
             }
 
-            const target = shouldUseSidePanel(searchParams) ? 'sidePanel' : 'modal'
+            const target = shouldUseSidePanel() ? 'sidePanel' : 'modal'
 
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 

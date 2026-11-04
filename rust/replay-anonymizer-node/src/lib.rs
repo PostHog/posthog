@@ -8,12 +8,13 @@
 //! `tests/fixtures/`, which the Jest suite runs against through this addon.
 //!
 //! It also carries the image-scrub sidecar's pixel layout conversions (`pixels`), which fill model
-//! inputs in place in typed arrays that the sidecar allocates, and the produce lanes' ref dedup
-//! caches (`dedup`), which hold their entries outside the V8 heap.
+//! inputs in place in typed arrays that the sidecar allocates, its SVG rasterizer (`svg`), and the
+//! produce lanes' ref dedup caches (`dedup`), which hold their entries outside the V8 heap.
 
 mod brotli;
 mod dedup;
 mod pixels;
+mod svg;
 
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -27,7 +28,7 @@ use posthog_replay_anonymizer::collect::{image_ref, url_ref};
 use posthog_replay_anonymizer::snapshot::{AnonymizedMessage, ImageEntry};
 use posthog_replay_anonymizer::{
     is_public_host, politeness_key, snapshot, try_canonicalize, AllowLists, FailKind,
-    ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
+    ImageCollection, PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
@@ -38,28 +39,6 @@ use serde::Deserialize;
 compile_error!(
     "replay-anonymizer-node requires panic=unwind: catch_unwind is the fail-closed guard"
 );
-
-/// Deferred-parallel image scrubbing is the production default; `REPLAY_ANONYMIZER_PARALLEL_IMAGES=0`
-/// (or `false`) is the rollback lever to the inline path. Worker count comes from
-/// `REPLAY_ANONYMIZER_IMAGE_THREADS` (see the core crate's `images` module).
-static IMAGE_POLICY: std::sync::OnceLock<ImagePolicy> = std::sync::OnceLock::new();
-
-fn image_policy() -> ImagePolicy {
-    *IMAGE_POLICY.get_or_init(|| {
-        // Forgiving parse: this is an incident rollback lever, so common falsy spellings count.
-        let disabled = std::env::var("REPLAY_ANONYMIZER_PARALLEL_IMAGES").is_ok_and(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "0" | "false" | "off" | "no"
-            )
-        });
-        if disabled {
-            ImagePolicy::Inline
-        } else {
-            ImagePolicy::Parallel
-        }
-    })
-}
 
 // The allow lists are immutable per process; set once at startup via `initAnonymizer`.
 static ALLOW: RwLock<Option<AllowLists>> = RwLock::new(None);
@@ -188,6 +167,21 @@ fn opt_dedup_cache_arg(
     }
 }
 
+fn opt_max_image_bytes_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<Option<usize>> {
+    let value = match cx.argument_opt(index) {
+        Some(v) if v.is_a::<JsUndefined, _>(cx) || v.is_a::<JsNull, _>(cx) => return Ok(None),
+        Some(v) => v.downcast_or_throw::<JsNumber, _>(cx)?.value(cx),
+        None => return Ok(None),
+    };
+    // A wrong cap must fail the call rather than silently fall back to the default.
+    if !(value.is_finite() && value >= 1.0 && value.fract() == 0.0 && value <= usize::MAX as f64) {
+        return cx.throw_range_error(format!(
+            "maxImageBytes must be a positive integer, got {value}"
+        ));
+    }
+    Ok(Some(value as usize))
+}
+
 fn time_bucket_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<u64> {
     let bucket = cx.argument::<JsNumber>(index)?.value(cx);
     if !(bucket.is_finite() && bucket >= 0.0 && bucket.fract() == 0.0) {
@@ -232,14 +226,18 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         Some(cache) => Some((cache, time_bucket_arg(&mut cx, 8)?)),
         None => None,
     };
+    let max_image_bytes = opt_max_image_bytes_arg(&mut cx, 9)?;
     if team_id.is_none() && content_key.is_some() {
         return cx.throw_error("contentKey requires teamId");
     }
     let image_collection = match (team_id.clone(), content_key) {
-        (Some(team_id), Some(content_key)) => Some(ImageCollection {
-            team_id,
-            content_key,
-        }),
+        (Some(team_id), Some(content_key)) => {
+            let mut collection = ImageCollection::new(team_id, content_key);
+            if let Some(max_image_bytes) = max_image_bytes {
+                collection.max_image_bytes = max_image_bytes;
+            }
+            Some(collection)
+        }
         _ => None,
     };
     let produced_ref_filter = ProducedRefFilter {
@@ -284,7 +282,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     allow,
                     &mut payload,
                     snapshot::AnonymizeOpts {
-                        image_policy: image_policy(),
+                        web_only: true,
                         ..Default::default()
                     },
                     Some(&timings),
@@ -518,6 +516,15 @@ fn rgb_to_rgba_ffi(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     convert_in_place(&mut cx, rgb, rgba, pixels::rgb_to_rgba)
 }
 
+fn rasterize_svg_ffi(mut cx: FunctionContext) -> JsResult<JsBuffer> {
+    let document = cx.argument::<JsUint8Array>(0)?;
+    let rendered = svg::rasterize_svg(document.as_slice(&cx));
+    match rendered {
+        Ok(png) => JsBuffer::from_slice(&mut cx, &png),
+        Err(reason) => cx.throw_error(reason),
+    }
+}
+
 fn ref_dedup_cache_new(mut cx: FunctionContext) -> JsResult<JsBox<DedupCacheHandle>> {
     let capacity = cx.argument::<JsNumber>(0)?.value(&mut cx);
     if !(capacity.is_finite() && capacity >= 0.0 && capacity.fract() == 0.0) {
@@ -634,6 +641,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("rgbToChw", rgb_to_chw_ffi)?;
     cx.export_function("rgbToNormalizedChw", rgb_to_normalized_chw_ffi)?;
     cx.export_function("rgbToRgba", rgb_to_rgba_ffi)?;
+    cx.export_function("rasterizeSvg", rasterize_svg_ffi)?;
     cx.export_function("refDedupCacheNew", ref_dedup_cache_new)?;
     cx.export_function("refDedupCacheClaimRefs", ref_dedup_cache_claim_refs)?;
     cx.export_function("refDedupCacheReleaseRefs", ref_dedup_cache_release_refs)?;

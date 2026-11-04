@@ -1,6 +1,8 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
+import { LRUCache } from 'lru-cache'
+import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
@@ -27,6 +29,7 @@ import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
+import { noteOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -73,6 +76,46 @@ const dnsLookupsInFlight = new Gauge({
     help: 'Number of dns.lookup() calls currently awaiting a result',
 })
 
+const dnsNegativeCacheCounter = new Counter({
+    name: 'node_dns_negative_cache_total',
+    help: 'Lookups the DNS negative cache skipped because the hostname recently returned ENOTFOUND',
+    labelNames: ['result'],
+})
+
+// Only ENOTFOUND is cached: a timeout or SERVFAIL can be the resolver's fault, and caching it would fail healthy
+// destinations while the resolver is under load. The key is the hostname, which is customer-supplied and unbounded, so
+// the entry count is capped as well as the age.
+const dnsNegativeCache = new LRUCache<string, true>({ max: 10_000, ttl: 10_000 })
+
+// The hosts file matches a name exactly, so 'alias.test.' misses an 'alias.test' entry from Docker's --add-host or
+// Kubernetes hostAliases.
+function readHostsFileNames(): Set<string> {
+    try {
+        return new Set(
+            readFileSync('/etc/hosts', 'utf8')
+                .split('\n')
+                .flatMap((line) => line.replace(/#.*/, '').trim().split(/\s+/).slice(1))
+                .map((name) => name.toLowerCase())
+        )
+    } catch {
+        return new Set()
+    }
+}
+
+const hostsFileNames = readHostsFileNames()
+
+// The trailing dot skips the cluster search domains, so a missing hostname costs one query instead of one per domain.
+// A single-label name such as a Docker service name resolves only through the search domains, so it stays as given.
+// dns.lookup returns an IP literal without a DNS query, but it treats '1.1.1.1.' as a name that fails with ENOTFOUND.
+function dnsLookupName(hostname: string): string {
+    return hostname.includes('.') &&
+        !hostname.endsWith('.') &&
+        net.isIP(hostname) === 0 &&
+        !hostsFileNames.has(hostname.toLowerCase())
+        ? `${hostname}.`
+        : hostname
+}
+
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
 export type FetchOptions = {
     method?: string
@@ -87,6 +130,10 @@ export type FetchOptions = {
     // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time. Pass a constant:
     // each distinct value keeps a dispatcher for the life of the process, and at most 8 values are allowed.
     http2IdleTimeoutMs?: number
+    // Requests with different groups never share an HTTP/2 session. APNs can reject a provider token from one developer
+    // team on a session that already carried another team's token. Requires `allowH2`.
+    http2ConnectionGroup?: string
+    maxResponseBytes?: number
 }
 
 export type FetchResponse = {
@@ -110,6 +157,13 @@ export class InvalidRequestError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResponseTooLargeError extends Error {
+    constructor(maxBytes: number) {
+        super(`Response body is larger than the ${maxBytes} byte limit`)
+        this.name = 'ResponseTooLargeError'
     }
 }
 
@@ -155,6 +209,10 @@ function validateUrl(url: string): URL {
  * We must check these before passing the URL to undici.
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
+    // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
+    // would never run in a test and would reach production unexercised.
+    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+
     if (allowUnsafe) {
         return
     }
@@ -224,17 +282,27 @@ function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
 async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
+    const cacheKey = hostname.toLowerCase().replace(/\.$/, '')
+    if (dnsNegativeCache.has(cacheKey)) {
+        dnsNegativeCacheCounter.inc({ result: 'hit' })
+        throw new ResolutionError('Invalid hostname')
+    }
     const lookupStartedAt = performance.now()
     dnsLookupsInFlight.inc()
     try {
-        addrinfo = await dns.lookup(hostname, { all: true })
+        addrinfo = await dns.lookup(dnsLookupName(hostname), { all: true })
         dnsLookupDuration.observe({ outcome: 'success' }, performance.now() - lookupStartedAt)
-    } catch {
+    } catch (error) {
         dnsLookupDuration.observe({ outcome: 'failure' }, performance.now() - lookupStartedAt)
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOTFOUND') {
+            dnsNegativeCache.set(cacheKey, true)
+        }
         throw new ResolutionError('Invalid hostname')
     } finally {
         dnsLookupsInFlight.dec()
     }
+    // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
+    dnsNegativeCache.delete(cacheKey)
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
@@ -414,7 +482,8 @@ if (
     )
 }
 
-type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null }
+type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null; release?: () => void }
+type GroupedSecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate; pending: number; evicted: boolean }
 
 // undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher. The two
 // routes keep separate maps so a caller cannot exhaust one route's budget with timeouts it only ever uses on the other.
@@ -423,18 +492,27 @@ const sharedSecureH2Agents: Record<SecureRoute, Map<number, SecureDispatcher>> =
     proxy: new Map(),
 }
 const MAX_SECURE_H2_AGENTS = 8
+const groupedSecureH2Agents = new Map<string, GroupedSecureDispatcher>()
+const MAX_GROUPED_SECURE_H2_AGENTS = 1000
+// An evicted dispatcher stays here until its close() finishes, so shutdown can still destroy one that holds an unread
+// body.
+const drainingGroupedSecureH2Agents = new Set<Dispatcher>()
 // Node clamps a setTimeout delay above this value to 1 ms. A session would then close as soon as it goes idle.
 const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
 let sharedAgentsClosed = false
+
+function assertValidH2IdleTimeout(idleTimeoutMs: number): void {
+    // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
+    if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
+        throw new InvalidRequestError(`http2IdleTimeoutMs must be a number between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
+    }
+}
 
 function getSecureH2Agent(
     useProxy: boolean,
     idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
 ): SecureDispatcher {
-    // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
-    if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
-        throw new InvalidRequestError(`http2IdleTimeoutMs must be a number between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
-    }
+    assertValidH2IdleTimeout(idleTimeoutMs)
     const agents = sharedSecureH2Agents[routeOf(useProxy)]
     let agent = agents.get(idleTimeoutMs)
     if (!agent) {
@@ -453,11 +531,79 @@ function getSecureH2Agent(
     return agent
 }
 
-function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): SecureDispatcher {
+function getGroupedSecureH2Agent(
+    useProxy: boolean,
+    group: string,
+    idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+): SecureDispatcher {
+    assertValidH2IdleTimeout(idleTimeoutMs)
+    const key = `${routeOf(useProxy)}:${idleTimeoutMs}:${group}`
+    let agent = groupedSecureH2Agents.get(key)
+    if (agent) {
+        groupedSecureH2Agents.delete(key)
+    } else {
+        if (sharedAgentsClosed) {
+            throw new undiciErrors.ClientDestroyedError()
+        }
+        agent = {
+            dispatcher: makeSecureDispatcher({ useProxy, allowH2: true, keepAliveTimeoutMs: idleTimeoutMs }),
+            gate: new ColdStartGate(idleTimeoutMs),
+            pending: 0,
+            evicted: false,
+        }
+        if (groupedSecureH2Agents.size >= MAX_GROUPED_SECURE_H2_AGENTS) {
+            const [oldestKey, oldest] = groupedSecureH2Agents.entries().next().value!
+            groupedSecureH2Agents.delete(oldestKey)
+            oldest.evicted = true
+            drainingGroupedSecureH2Agents.add(oldest.dispatcher)
+            if (oldest.pending === 0) {
+                closeDrainingAgent(oldest.dispatcher)
+            }
+        }
+    }
+    groupedSecureH2Agents.set(key, agent)
+    // A request can wait in the cold-start gate before it reaches undici, and close() rejects a request dispatched
+    // after it runs. So an evicted dispatcher closes only once every request that picked it has been dispatched.
+    const picked = agent
+    picked.pending++
+    let released = false
+    return {
+        dispatcher: picked.dispatcher,
+        gate: picked.gate,
+        release: () => {
+            if (released) {
+                return
+            }
+            released = true
+            picked.pending--
+            if (picked.evicted && picked.pending === 0) {
+                closeDrainingAgent(picked.dispatcher)
+            }
+        },
+    }
+}
+
+function closeDrainingAgent(dispatcher: Dispatcher): void {
+    void dispatcher
+        .close()
+        .catch(() => {})
+        .finally(() => drainingGroupedSecureH2Agents.delete(dispatcher))
+}
+
+function getSecureDispatcher(options: {
+    allowH2?: boolean
+    http2IdleTimeoutMs?: number
+    http2ConnectionGroup?: string
+}): SecureDispatcher {
     const useProxy = useProxyForTeam()
+    if (options.http2ConnectionGroup !== undefined && !options.allowH2) {
+        throw new InvalidRequestError('http2ConnectionGroup requires allowH2')
+    }
     // useProxyForTeam only returns true when a proxy URL was configured, so the agent exists whenever it is needed.
     const secure = options.allowH2
-        ? getSecureH2Agent(useProxy, options.http2IdleTimeoutMs)
+        ? options.http2ConnectionGroup !== undefined
+            ? getGroupedSecureH2Agent(useProxy, options.http2ConnectionGroup, options.http2IdleTimeoutMs)
+            : getSecureH2Agent(useProxy, options.http2IdleTimeoutMs)
         : {
               dispatcher: useProxy && sharedSecureProxyAgent ? sharedSecureProxyAgent : sharedSecureAgent,
               gate: null,
@@ -487,6 +633,8 @@ export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
         ...(sharedSecureProxyAgent ? [sharedSecureProxyAgent] : []),
         sharedInsecureAgent,
         ...Object.values(sharedSecureH2Agents).flatMap((route) => [...route.values()].map((h2) => h2.dispatcher)),
+        ...[...groupedSecureH2Agents.values()].map((h2) => h2.dispatcher),
+        ...drainingGroupedSecureH2Agents,
     ]
     const stillOpen = new Set(agents)
     const closed = Promise.allSettled(agents.map((agent) => agent.close().finally(() => stillOpen.delete(agent)))).then(
@@ -596,7 +744,18 @@ export async function _fetch(
 
     const readBody = (): Promise<string> => {
         if (!bodyPromise) {
-            bodyPromise = readAndDestroyBody(result.body).finally(() => lifecycle?.onBodyDone())
+            const maxBytes = options.maxResponseBytes
+            const read =
+                maxBytes === undefined
+                    ? readAndDestroyBody(result.body)
+                    : readCappedBody(result.body, maxBytes, false).then(({ bytes, overLimit }) => {
+                          if (overLimit) {
+                              throw new ResponseTooLargeError(maxBytes)
+                          }
+                          const text = bytes.toString('utf8')
+                          return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+                      })
+            bodyPromise = read.finally(() => lifecycle?.onBodyDone())
         }
         return bodyPromise
     }
@@ -664,8 +823,10 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     let lifecycle: RequestLifecycle | undefined
+    let release: (() => void) | undefined
     try {
-        const { dispatcher, gate } = getSecureDispatcher(options)
+        const { dispatcher, gate, release: releaseDispatcher } = getSecureDispatcher(options)
+        release = releaseDispatcher
         options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
         const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
@@ -675,6 +836,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         lifecycle?.onError()
         throw error
     } finally {
+        release?.()
         inflightExternalRequests.dec()
     }
 }
@@ -684,6 +846,7 @@ export type StreamedFetchOptions = {
     timeoutMs: number
     allowH2?: boolean
     http2IdleTimeoutMs?: number
+    http2ConnectionGroup?: string
 }
 
 export type StreamedResponse = {
@@ -784,8 +947,10 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
     inflightExternalRequests.inc()
     let result: Dispatcher.ResponseData
     let lifecycle: RequestLifecycle | undefined
+    let release: (() => void) | undefined
     try {
-        const { dispatcher, gate } = getSecureDispatcher(options)
+        const { dispatcher, gate, release: releaseDispatcher } = getSecureDispatcher(options)
+        release = releaseDispatcher
         const signal = AbortSignal.timeout(options.timeoutMs)
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
         result = await request(parsed.toString(), {
@@ -799,6 +964,8 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         lifecycle?.onError()
         inflightExternalRequests.dec()
         throw error
+    } finally {
+        release?.()
     }
     lifecycle?.onHeaders()
 

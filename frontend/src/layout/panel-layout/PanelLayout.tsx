@@ -1,5 +1,6 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -13,8 +14,7 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { NavBar } from './navbar/NavBar'
 import { PanelLayoutPanels } from './navbar/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'
-import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
-import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
+import { PROJECT_TREE_KEY, projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
     base: 'gap-0 w-fit relative h-[calc(100dvh-var(--terminal-dock-height,0px))] z-[var(--z-layout-panel)]',
@@ -67,7 +67,7 @@ const panelLayoutStyles = cva({
     ],
 })
 
-export function PanelLayout({ className }: { className?: string }): JSX.Element {
+export const PanelLayout = memo(function PanelLayout({ className }: { className?: string }): JSX.Element {
     const {
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
@@ -106,6 +106,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         isMobileLayout,
                         isLayoutNavCollapsed,
                     }),
+                    '[--side-panel-width:initial] [--scene-layout-rect-width:initial] [--scene-layout-rect-right:initial]',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -188,4 +189,4 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
             />
         </>
     )
-}
+})

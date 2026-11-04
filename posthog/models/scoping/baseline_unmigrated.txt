@@ -42,7 +42,6 @@ DataModelingJob
 DataWarehouseCredential
 DataWarehouseJoin
 DataWarehouseManagedViewSet
-DataWarehouseModelPath
 DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
@@ -181,7 +180,6 @@ UploadedMedia
 UserHomeSettings
 UserInterview
 UserInterviewTopic
-UserProductList
 UserRepoPreference
 UserScenePersonalisation
 WebAnalyticsFilterPreset

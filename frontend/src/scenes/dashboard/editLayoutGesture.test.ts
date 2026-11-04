@@ -14,21 +14,16 @@ describe('editLayoutGesture', () => {
 
     describe('resolveResizeHandleDirection', () => {
         it.each([
-            ['n', 150, 0, 'n'],
             ['s', 150, 200, 's'],
             ['w', 0, 100, 'w'],
             ['e', 300, 100, 'e'],
-            ['n', 10, 0, 'nw'],
-            ['n', 295, 0, 'ne'],
             ['s', 10, 200, 'sw'],
             ['s', 295, 200, 'se'],
-            ['w', 0, 10, 'nw'],
+            ['w', 0, 10, 'w'],
             ['w', 0, 195, 'sw'],
-            ['e', 300, 10, 'ne'],
+            ['e', 300, 10, 'e'],
             ['e', 300, 195, 'se'],
             // Corner presses pass through directly, ignoring the edge-upgrade thresholds.
-            ['nw', 150, 100, 'nw'],
-            ['ne', 150, 100, 'ne'],
             ['sw', 150, 100, 'sw'],
             ['se', 150, 100, 'se'],
         ])('maps edge %s at (%i, %i) to handle %s', (edge, clientX, clientY, expected) => {
@@ -151,27 +146,28 @@ describe('editLayoutGesture', () => {
         it('replays the mousedown on the matching resize handle once it renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 200), 's', moveEvent(150, 188))
             flushFrames() // handle not rendered yet — keeps waiting
 
-            const handle = mountResizeHandle('n')
+            const handle = mountResizeHandle('s')
             handle.addEventListener('mousedown', onHandleMouseDown)
+            grid.className = 'react-grid-layout dashboard-edit-mode'
             flushFrames()
 
             expect(onHandleMouseDown).toHaveBeenCalledTimes(1)
             const replayed = onHandleMouseDown.mock.calls[0][0] as MouseEvent
             expect(replayed.clientX).toBe(150)
-            expect(replayed.clientY).toBe(0)
+            expect(replayed.clientY).toBe(200)
             expect(replayed.bubbles).toBe(true)
         })
 
         it('does not replay if the mouse button is released before the handle renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 200), 's', moveEvent(150, 188))
             window.dispatchEvent(new MouseEvent('mouseup'))
 
-            const handle = mountResizeHandle('n')
+            const handle = mountResizeHandle('s')
             handle.addEventListener('mousedown', onHandleMouseDown)
             flushFrames(3)
 
@@ -181,10 +177,10 @@ describe('editLayoutGesture', () => {
         it('gives up after the frame budget if edit mode never renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 200), 's', moveEvent(150, 188))
             flushFrames(15)
 
-            const handle = mountResizeHandle('n')
+            const handle = mountResizeHandle('s')
             handle.addEventListener('mousedown', onHandleMouseDown)
             flushFrames(3)
 
@@ -216,6 +212,8 @@ describe('editLayoutGesture', () => {
 
             continueDragGestureInEditMode(pressEvent(cardMeta, 50, 20), moveEvent(80, 45))
             grid.className = 'react-grid-layout dashboard-edit-mode'
+            flushFrames()
+            gridItem.classList.add('react-draggable-dragging')
             flushFrames()
             document.removeEventListener('mousemove', onDocumentMouseMove)
 

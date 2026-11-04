@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib import admin
 from django.contrib.admin import AdminSite
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
@@ -31,7 +31,7 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 
-class TestOAuthSidebarRegrouping(BaseTest):
+class TestOAuthSidebarRegrouping(SimpleTestCase):
     def _patched_get_app_list(self):
         site = AdminSite()
         site.get_app_list = lambda request, app_label=None: [  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -136,7 +136,7 @@ class TestUserAdmin(BaseTest):
             form.clean_passkeys_enabled_for_2fa()
 
 
-class TestPluginAttachmentInline(BaseTest):
+class TestPluginAttachmentInline(SimpleTestCase):
     def test_parsed_json_escapes_html_in_values(self):
         inline = PluginAttachmentInline(MagicMock(), MagicMock())
         attachment = MagicMock()
@@ -240,7 +240,7 @@ class TestProductAdminRegistration:
         assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
-class TestOrganizationMemberInlineConfig(BaseTest):
+class TestOrganizationMemberInlineConfig(SimpleTestCase):
     def test_invited_by_is_readonly_and_never_rendered_as_user_select(self):
         # Regression guard: invited_by must not become an editable FK select in admin inlines.
         assert "invited_by" in OrganizationMemberInline.fields

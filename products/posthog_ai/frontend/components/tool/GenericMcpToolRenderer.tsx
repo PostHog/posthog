@@ -51,7 +51,9 @@ export function getMcpToolPresentation(
         ? `Call ${toolLabel}`
         : isMcp
           ? `Call ${serverName} – ${toolLabel} (MCP)`
-          : message.title || displayName || toolLabel || (message.kind && KIND_LABELS[message.kind]) || ''
+          : message.proxiedToolName
+            ? `Call ${message.proxiedToolName} (MCP)`
+            : message.title || displayName || toolLabel || (message.kind && KIND_LABELS[message.kind]) || ''
     // The PostHog MCP asks the agent for a one-sentence `context` on every call. It is the only
     // harness-independent description of intent, so it reads better in the row than the command.
     const context = typeof message.rawInput.context === 'string' ? message.rawInput.context.trim() : ''

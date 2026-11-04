@@ -64,6 +64,8 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 # Each commit since the last computation is one small object-store read; past this many the full
 # Add-action scan is the cheaper path again.
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
+# Files x columns cap for the Add-action scan: Arrow holds about 12 bytes per cell, so the default is ~300 MB.
+MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "25000000"))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -116,6 +118,21 @@ class _ColumnStat:
     has_min_max: bool
 
 
+def _arrow_extreme(values: Any, which: str) -> Any:
+    """The smallest or largest non-null value of one Arrow column as a Python value, or None."""
+    import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    try:
+        return pc.min_max(values)[which].as_py()
+    except pa.ArrowNotImplementedError:
+        # Arrow has no ordering for some types (list, struct), but Python can still compare their values.
+        non_null = [v for v in values.to_pylist() if v is not None]
+        if not non_null:
+            return None
+        return min(non_null) if which == "min" else max(non_null)
+
+
 def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tuple[int, dict[str, _ColumnStat]]:
     """Aggregate the Delta log's per-file stats into per-column whole-table stats.
 
@@ -124,29 +141,30 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
     Returns `(row_count, {column_name: _ColumnStat})`. Columns with no log stats get `has_min_max=False`.
     """
     import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+    import pyarrow.compute as pc  # noqa: PLC0415
 
-    # deltalake>=1.x returns an arro3 RecordBatch (no `to_pydict`); pa.table() normalizes both that
-    # (via the Arrow C interface) and an already-pyarrow input to a pyarrow Table we can read as a dict.
-    data = pa.table(add_actions).to_pydict()
-    row_count = sum(n for n in data.get("num_records", []) if n is not None)
+    # deltalake>=1.x hands back an arro3 RecordBatch; the Arrow aggregates below avoid one Python object per file x column.
+    data = add_actions if isinstance(add_actions, pa.Table | pa.RecordBatch) else pa.table(add_actions)
+    present = set(data.schema.names)
+    row_count = (pc.sum(data.column("num_records")).as_py() or 0) if "num_records" in present else 0
 
     result: dict[str, _ColumnStat] = {}
     for name, definition in (columns or {}).items():
         null_key, min_key, max_key = f"null_count.{name}", f"min.{name}", f"max.{name}"
 
         # `null_count = None` (unknown) when the log carried no per-file null counts — either the key is
-        # absent or every file's value is None. Mirrors the min/max guard below; a real zero stays 0.
-        null_values = [v for v in data.get(null_key, []) if v is not None] if null_key in data else []
-        null_count = sum(null_values) if null_values else None
+        # absent or every file's value is None. `pc.sum` skips nulls and returns null when none remain;
+        # a real zero stays 0.
+        null_count = pc.sum(data.column(null_key)).as_py() if null_key in present else None
 
-        mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
-        maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []
+        min_raw = _arrow_extreme(data.column(min_key), "min") if min_key in present else None
+        max_raw = _arrow_extreme(data.column(max_key), "max") if max_key in present else None
         # A source string column can carry a NUL (0x00) byte; min_value/max_value land in a Postgres
         # text column, which rejects it outright. Stripping it is consistent with treating these
         # bounds as approximate (delta-rs already truncates long strings here).
-        min_value = str(min(mins)).replace("\x00", "") if mins else None
-        max_value = str(max(maxs)).replace("\x00", "") if maxs else None
-        has_min_max = bool(mins or maxs)
+        min_value = str(min_raw).replace("\x00", "") if min_raw is not None else None
+        max_value = str(max_raw).replace("\x00", "") if max_raw is not None else None
+        has_min_max = min_raw is not None or max_raw is not None
 
         result[name] = _ColumnStat(
             column_type=clean_type(_column_type(definition)) or "unknown",
@@ -363,13 +381,17 @@ class _FoldState:
         if isinstance(null_count, int) and not isinstance(null_count, bool):
             self.null_count = (self.null_count or 0) + null_count
         min_value = stats.get("minValues", {}).get(name)
-        if min_value is not None:
-            parsed = _parse_log_value(self.delta_type, min_value)
-            self.min_value = parsed if self.min_value is None else min(self.min_value, parsed)
         max_value = stats.get("maxValues", {}).get(name)
+        self.include(
+            _parse_log_value(self.delta_type, min_value) if min_value is not None else None,
+            _parse_log_value(self.delta_type, max_value) if max_value is not None else None,
+        )
+
+    def include(self, min_value: Any, max_value: Any) -> None:
+        if min_value is not None:
+            self.min_value = min_value if self.min_value is None else min(self.min_value, min_value)
         if max_value is not None:
-            parsed = _parse_log_value(self.delta_type, max_value)
-            self.max_value = parsed if self.max_value is None else max(self.max_value, parsed)
+            self.max_value = max_value if self.max_value is None else max(self.max_value, max_value)
 
 
 def _fold_commit_stats(
@@ -411,17 +433,16 @@ def _fold_commit_stats(
         # scan re-derives them instead.
         if not isinstance(delta_type, str) and (stored.min_value is not None or stored.max_value is not None):
             return None
-        states[name] = _FoldState(
-            delta_type=delta_type,
-            null_count=stored.null_count,
-            min_value=_parse_stored_value(delta_type, stored.min_value) if stored.min_value is not None else None,
-            max_value=_parse_stored_value(delta_type, stored.max_value) if stored.max_value is not None else None,
-        )
+        states[name] = _FoldState(delta_type=delta_type, null_count=stored.null_count, min_value=None, max_value=None)
     if len(row_counts) != 1:
         return None
     row_count = row_counts.pop()
 
-    for version in range(base_version + 1, delta_version + 1):
+    # Stats and stored bounds parse under the current schema, but an older file or the stored row
+    # carries its bounds in the type of its own time. Newest first, a commit that changed the schema
+    # stops the fold before anything older is parsed; every aggregate here ignores order.
+    for version in range(delta_version, base_version, -1):
+        added_stats: list[str] = []
         for action in read_commit_actions(version):
             kinds = set(action) - _NEUTRAL_ACTIONS
             if not kinds:
@@ -431,13 +452,22 @@ def _fold_commit_stats(
             add = action["add"]
             if not add.get("dataChange", True) or not add.get("stats"):
                 return None
-            stats = json.loads(add["stats"], parse_float=Decimal)
+            added_stats.append(add["stats"])
+        for raw_stats in added_stats:
+            stats = json.loads(raw_stats, parse_float=Decimal)
             num_records = stats.get("numRecords")
             if not isinstance(num_records, int) or isinstance(num_records, bool):
                 return None
             row_count += num_records
             for name, state in states.items():
                 state.fold(stats, name)
+
+    for name, state in states.items():
+        stored = existing[name]
+        state.include(
+            _parse_stored_value(state.delta_type, stored.min_value) if stored.min_value is not None else None,
+            _parse_stored_value(state.delta_type, stored.max_value) if stored.max_value is not None else None,
+        )
 
     return row_count, {
         name: _ColumnStat(
@@ -595,6 +625,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         delta_version=delta_version,
         log=log,
     )
+    file_count: int | None = None
     if folded is not None:
         row_count, stats_by_column = folded
         basis = "incremental"
@@ -608,6 +639,16 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
                 emit_completed("skipped", reason="no_delta_table")
                 return {"status": "skipped", "reason": "no_delta_table"}
             delta_version = delta_table.version()
+        file_count = len(delta_table.file_uris())
+        if file_count * len(columns) > MAX_ADD_ACTION_CELLS:
+            emit_completed(
+                "skipped",
+                reason="too_many_files",
+                file_count=file_count,
+                target_columns=len(columns),
+                delta_version=delta_version,
+            )
+            return {"status": "skipped", "reason": "too_many_files"}
         add_actions = delta_table.get_add_actions(flatten=True)
         if add_actions.num_rows == 0:
             emit_completed("skipped", reason="no_files")
@@ -630,7 +671,14 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         for column_name, stat in stats_by_column.items():
             _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
 
-    log.info("warehouse_statistics.done", columns=len(stats_by_column), row_count=row_count, basis=basis)
+    log.info(
+        "warehouse_statistics.done",
+        columns=len(stats_by_column),
+        row_count=row_count,
+        basis=basis,
+        file_count=file_count,
+        target_columns=len(columns),
+    )
     emit_completed("done", columns=len(stats_by_column), row_count=row_count, delta_version=delta_version, basis=basis)
     return {"status": "done", "columns": len(stats_by_column), "row_count": row_count, "basis": basis}
 

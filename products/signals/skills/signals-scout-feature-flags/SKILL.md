@@ -17,6 +17,17 @@ scout-tags:
 metadata:
   owner_team: signals
   scope: feature_flags
+scout-precheck-query: |
+  SELECT 'flags' AS source, count() AS total
+  FROM system.feature_flags
+  WHERE deleted = 0
+  HAVING total > 0
+  UNION ALL
+  SELECT '$feature_flag_called' AS source, count() AS total
+  FROM events
+  WHERE event = '$feature_flag_called'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  HAVING total > 0
 ---
 
 # Signals scout: feature flags
@@ -39,6 +50,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: are flags even in use?
+
+A scheduled run can start with a `<precheck_result>` block. A `flags` row counts the flags that are not deleted. A `$feature_flag_called` row counts the calls of the last 7 days. A run starts only when at least one row is present, so the zero-roster, zero-calls case does not occur. Use the rows in place of the count query below to pick the case.
 
 Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
 

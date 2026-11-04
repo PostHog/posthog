@@ -6,7 +6,7 @@
 
 FROM posthog-sandbox-base
 
-COPY local-workspace/.npmrc local-workspace/package.json local-workspace/pnpm-lock.yaml local-workspace/pnpm-workspace.yaml /local-workspace/
+COPY local-workspace/package.json local-workspace/pnpm-lock.yaml local-workspace/pnpm-workspace.yaml /local-workspace/
 COPY local-workspace/packages/agent/package.json /local-workspace/packages/agent/package.json
 COPY local-workspace/packages/enricher/package.json /local-workspace/packages/enricher/package.json
 COPY local-workspace/packages/git/package.json /local-workspace/packages/git/package.json

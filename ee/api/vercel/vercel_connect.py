@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
@@ -17,14 +18,15 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
-from ee.vercel.client import APIError, VercelAPIClient
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
+from ee.vercel.client import APIError, OAuthTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +44,10 @@ CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
 CONNECT_NONCE_COOKIE_PREFIX = "ph_vercel_connect_"
 CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
+INSTALL_STATE_COOKIE_PREFIX = "__Host-ph_vercel_install_state_"
+MAX_PENDING_INSTALL_STATES = 5
+INSTALL_CONTINUATION_CACHE_PREFIX = "vercel_connect_install_next:"
+INSTALL_CONTINUATION_SALT = "vercel_connect_install"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
 
@@ -57,9 +63,13 @@ def _load_connect_session(token: str) -> dict:
         raise signing.BadSignature("Invalid or expired token")
 
 
-def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+def _per_flow_cookie_name(prefix: str, flow_secret: str) -> str:
     # One cookie per link flow, so a second flow in the same browser does not replace the first flow's cookie.
-    return CONNECT_NONCE_COOKIE_PREFIX + hashlib.sha256(browser_nonce.encode()).hexdigest()[:16]
+    return prefix + hashlib.sha256(flow_secret.encode()).hexdigest()[:16]
+
+
+def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+    return _per_flow_cookie_name(CONNECT_NONCE_COOKIE_PREFIX, browser_nonce)
 
 
 def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
@@ -108,6 +118,130 @@ def _load_browser_bound_session(request: Request, token: str) -> dict:
         {"reason": reason, "integration": "vercel"},
     )
     raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _install_state_cookie_name(state: str) -> str:
+    return _per_flow_cookie_name(INSTALL_STATE_COOKIE_PREFIX, state)
+
+
+def _install_continuation_cache_key(state: str) -> str:
+    return INSTALL_CONTINUATION_CACHE_PREFIX + hashlib.sha256(state.encode()).hexdigest()
+
+
+def _save_install_continuation(state: str, continuation: dict) -> None:
+    cache.set(
+        _install_continuation_cache_key(state),
+        encrypt_payload(continuation, salt=INSTALL_CONTINUATION_SALT, jti=False),
+        timeout=CONNECT_SESSION_TIMEOUT,
+    )
+
+
+def _install_continuation(state: str) -> dict | None:
+    token = cache.get(_install_continuation_cache_key(state))
+    if not token:
+        return None
+    try:
+        return decrypt_payload(token, salt=INSTALL_CONTINUATION_SALT, ttl=CONNECT_SESSION_TIMEOUT)
+    except InvalidToken:
+        return None
+
+
+def _forget_install_continuation(state: str) -> None:
+    # Runs after Vercel's code is spent, so failing here would strand the user; the entry expires anyway.
+    try:
+        cache.delete(_install_continuation_cache_key(state))
+    except Exception as e:
+        capture_exception(e, {"reason": "install_continuation_cleanup_failed", "integration": "vercel"})
+
+
+def _drop_excess_install_state_cookies(request: Request, response: HttpResponse) -> None:
+    # Any code starts a flow before it is validated, and every request to this host carries these cookies.
+    pending = sorted(name for name in request.COOKIES if name.startswith(INSTALL_STATE_COOKIE_PREFIX))
+    for name in pending[MAX_PENDING_INSTALL_STATES - 1 :]:
+        response.delete_cookie(name, path="/", samesite="Lax")
+
+
+def _redirect_through_vercel_install(request: Request, continuation: dict) -> HttpResponse:
+    # A Marketplace install calls back without a state, so nothing ties its code to this browser. Vercel's
+    # external install flow returns the state we send, and the state cookie ties that state to this browser.
+    state = secrets.token_urlsafe(32)
+    slug = quote(settings.VERCEL_INTEGRATION_SLUG, safe="")
+    response = HttpResponseRedirect(f"https://vercel.com/integrations/{slug}/new?{urlencode({'state': state})}")
+    _save_install_continuation(state, continuation)
+    _drop_excess_install_state_cookies(request, response)
+    response.set_cookie(
+        _install_state_cookie_name(state),
+        state,
+        max_age=CONNECT_SESSION_TIMEOUT,
+        # The __Host- prefix stops a sibling posthog.com subdomain from setting a state cookie that passes the check.
+        # A host-only cookie is enough because Vercel sends both callback requests to the one configured Redirect URL.
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
+
+
+def _clear_install_state_cookie(response: HttpResponse, state: str) -> None:
+    response.delete_cookie(_install_state_cookie_name(state), path="/", samesite="Lax")
+
+
+def _reject_install_return_without_state(request: Request) -> None:
+    if request.query_params.get("source") != "external":
+        return
+
+    # Vercel's install page sent this request without the state we gave it, so another redirect could loop.
+    capture_exception(
+        Exception("Vercel connect: install returned without a state"),
+        {"reason": "missing_state_after_install_redirect", "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _require_install_state_from_this_browser(request: Request, state: str) -> None:
+    cookie_state = request.COOKIES.get(_install_state_cookie_name(state), "")
+    if not cookie_state:
+        reason = "missing_state_cookie"
+    elif secrets.compare_digest(cookie_state.encode(), state.encode()):
+        return
+    else:
+        reason = "state_mismatch"
+
+    capture_exception(
+        Exception("Vercel connect: install state used by a browser that did not start it"),
+        {"reason": reason, "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _require_same_vercel_user(continuation: dict, install_grant: OAuthTokenResponse) -> None:
+    if secrets.compare_digest(continuation["user_id"].encode(), install_grant.user_id.encode()):
+        return
+
+    capture_exception(
+        Exception("Vercel connect: install page returned a different Vercel user"),
+        {"reason": "install_user_mismatch", "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: str) -> OAuthTokenResponse:
+    token_response = VercelAPIClient(bearer_token=None).oauth_token_exchange(
+        code=code,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+    if token_response.error:
+        logger.error(
+            "vercel_connect_token_exchange_failed",
+            error=token_response.error,
+            error_description=token_response.error_description,
+            integration="vercel",
+        )
+        raise exceptions.AuthenticationFailed("Vercel authentication failed")
+    return token_response
 
 
 def _mark_token_used(jti: str) -> bool:
@@ -222,34 +356,38 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             capture_exception(Exception("Vercel connect: missing client configuration"))
             raise exceptions.APIException("Vercel integration not configured")
 
-        client = VercelAPIClient(bearer_token=None)
-        token_response = client.oauth_token_exchange(
-            code=code,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-        )
-
-        if token_response.error:
-            logger.error(
-                "vercel_connect_token_exchange_failed",
-                error=token_response.error,
-                error_description=token_response.error_description,
-                integration="vercel",
+        state = request.query_params.get("state")
+        if not state:
+            _reject_install_return_without_state(request)
+            # Vercel waits for the import on the installation of this Marketplace code, so keep its grant.
+            # The install page code only proves which Vercel user holds this browser.
+            marketplace_grant = _exchange_code(code, client_id, client_secret, redirect_uri)
+            return _redirect_through_vercel_install(
+                request,
+                {
+                    "access_token": marketplace_grant.access_token,
+                    "token_type": marketplace_grant.token_type,
+                    "installation_id": marketplace_grant.installation_id,
+                    "user_id": marketplace_grant.user_id,
+                    "team_id": marketplace_grant.team_id,
+                    "configuration_id": configuration_id,
+                    "next_url": next_url,
+                },
             )
-            raise exceptions.AuthenticationFailed("Vercel authentication failed")
+        _require_install_state_from_this_browser(request, state)
+        continuation = _install_continuation(state)
+        if continuation is None:
+            capture_exception(
+                Exception("Vercel connect: install state has no Marketplace grant"),
+                {"reason": "missing_marketplace_grant", "integration": "vercel"},
+            )
+            raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+        _require_same_vercel_user(continuation, _exchange_code(code, client_id, client_secret, redirect_uri))
 
         browser_nonce = secrets.token_urlsafe(32)
         session_token = _sign_connect_session(
-            {
-                "access_token": token_response.access_token,
-                "token_type": token_response.token_type,
-                "installation_id": token_response.installation_id,
-                "user_id": token_response.user_id,
-                "team_id": token_response.team_id,
-                "configuration_id": configuration_id,
-                "next_url": next_url,
-            },
+            {**continuation, "next_url": continuation.get("next_url") or next_url},
             browser_nonce=browser_nonce,
         )
 
@@ -262,6 +400,8 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             response = HttpResponseRedirect(redirect_to=link_url)
 
         _set_browser_nonce_cookie(request, response, browser_nonce)
+        _clear_install_state_cookie(response, state)
+        _forget_install_continuation(state)
         return response
 
 
@@ -345,7 +485,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.")
 
         for tid in unique_team_ids:
-            if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
+            if IntegrationManager.vercel.oauth.exists(tid):
                 raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
 
         production_team = teams_by_id[production_team_id]
@@ -379,14 +519,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 created_by=user,
             )
 
-            resources: dict[int, Integration] = {}
+            resources: dict[int, IntegrationRecord] = {}
             for tid, team in teams_by_id.items():
-                resources[tid] = Integration.objects.create(
-                    team=team,
-                    kind=Integration.IntegrationKind.VERCEL,
-                    integration_id=str(team.pk),
+                resources[tid] = IntegrationManager.vercel.oauth.create(
+                    team.pk,
+                    external_id=str(team.pk),
                     config={"type": "connectable"},
-                    created_by=user,
+                    created_by_id=user.pk,
                 )
 
         from ee.vercel.integration import VercelIntegration
@@ -397,13 +536,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
-            resource_id=str(production_resource.pk),
+            resource_id=str(production_resource.id),
             product_id="posthog",
             name=production_team.name,
             secrets=env_secrets,
         )
         if not import_result.success:
-            resource_id = str(production_resource.pk)
+            resource_id = str(production_resource.id)
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
@@ -413,10 +552,15 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 resource_id=resource_id,
                 integration="vercel",
             )
+
             with transaction.atomic():
                 org_integration.delete()
                 for resource in resources.values():
-                    resource.delete()
+                    IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+
+            # The rollback leaves nothing behind, so the same session can try the link again.
+            release_used_token(jti)
+
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {

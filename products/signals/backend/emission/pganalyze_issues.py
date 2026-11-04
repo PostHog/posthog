@@ -8,6 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
@@ -158,6 +160,8 @@ def _fetch_issue_page(
         team=team,
         query_type="EmitSignalsNewRecords",
         bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
     )
     if not result.results or not result.columns:
         return []

@@ -1,7 +1,5 @@
 from typing import Optional
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -30,19 +28,7 @@ from products.workflows.backend.services.batch_audience import (
     email_dedupe_group_expr,
 )
 
-AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
-
 QUERY_TYPE = "workflows_audience_count_v2"
-
-
-def use_audience_query_v2(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            AUDIENCE_QUERY_V2_FLAG,
-            str(team.uuid),
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult:
@@ -68,8 +54,8 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
     times more likely to land in the sample, and the estimate would drift back toward a
     person count. Hashing the group gives every group the same chance.
     """
-    # Defence-in-depth mirror of get_batch_audience_count: a new supported key must be
-    # taught to this function too, instead of silently getting the email grouping.
+    # Defence-in-depth against a new dedupe key slipping past the endpoint's allowlist: a new
+    # supported key must be taught to this function too, instead of silently getting the email grouping.
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 

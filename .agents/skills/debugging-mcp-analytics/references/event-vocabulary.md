@@ -56,6 +56,7 @@ On `$mcp_tool_call` unless noted. These are the properties any instrumented serv
 | `$mcp_resource_name`                            | On resource events.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `$session_id`                                   | The standard PostHog session id, materialized. The usual grouping key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `$mcp_source`                                   | Always `posthog_mcp_analytics`. The reliable way to isolate MCP events from everything else on the `events` table.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `$mcp_interface`                                | `mcp` from an MCP server on `@posthog/mcp` (TS 0.22.3+), `webmcp` from a tool a web page registered through WebMCP and posthog-js captured in the browser. WebMCP events carry no transport, client, or harness properties, and `$mcp_server_name` is the page hostname. Absent on older events, so treat a missing value as `mcp`.                                                                                                                                                                                                                                                                                                       |
 
 ## Server-stamped properties
 
@@ -107,9 +108,8 @@ reads as alias-free.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
-A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
-`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
-hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows.
+`execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties

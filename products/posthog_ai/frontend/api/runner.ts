@@ -24,3 +24,4 @@ export { SidePanelRunner, type SidePanelRunnerProps } from '../components/SidePa
 // `SidePanelRunner`. `channelId` files the created task in a tasks channel, `initialRepositoryConfig` sets the
 // starting repo, and `onTaskCreated` gives the new task id back, so the host decides what to open.
 export { EmbeddedTaskComposer, type EmbeddedTaskComposerProps } from '../components/EmbeddedTaskComposer'
+export type { ComposerPrefillRequest } from '../scenes/TaskTracker/components/TaskComposer'

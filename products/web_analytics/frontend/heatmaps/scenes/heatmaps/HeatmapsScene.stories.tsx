@@ -63,6 +63,14 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/': savedList,
+                '/api/projects/:team_id/heatmap_capture/settings/': {
+                    capture_mode: 'all',
+                    url_allowlist: [],
+                    enforcement_enabled: false,
+                    can_capture_all_urls: true,
+                    capture_url_limit: null,
+                },
+                '/api/projects/:team_id/heatmap_capture/pages/': { pages: [] },
             },
         }),
     ],
@@ -72,3 +80,13 @@ export default meta
 type Story = StoryObj<{}>
 
 export const List: Story = {}
+
+export const ListNarrow: Story = {
+    decorators: [
+        (Story) => (
+            <div className="[&_main]:max-w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}

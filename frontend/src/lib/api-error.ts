@@ -23,6 +23,8 @@ export function isFeatureFlagGatedError(error: unknown): boolean {
 /** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
 export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
+export const TABLE_ACCESS_DENIED_ERROR_CODE = 'table_access_denied'
+
 /**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`
@@ -30,6 +32,13 @@ export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_excee
  */
 export function isApprovalRequiredError(error: { status?: number; data?: any } | null | undefined): boolean {
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
+}
+
+/** The flag API refuses an edit that lowers exposure when the request asks for a reason and sends none. */
+export function isRollbackReasonRequiredError(
+    error: { status?: number; code?: string | null } | null | undefined
+): boolean {
+    return error?.status === 409 && error?.code === 'rollback_reason_required'
 }
 
 /** Potentially transient failures; a gateway error does not prove that the backend did no work. */
@@ -91,8 +100,16 @@ export function isScopeNotFoundError(error: unknown): boolean {
     if (failure?.status !== 404) {
         return false
     }
-    const detail = failure.detail ?? failure.data?.detail
-    return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
+    return isScopeNotFoundMessage(failure.detail ?? failure.data?.detail)
+}
+
+/**
+ * Whether a message is the `detail` of a dead scope. An `ApiError` takes its message from that
+ * `detail`, and the automatic unhandled-rejection capture keeps the message but not the status, so
+ * `before_send` can only match on this.
+ */
+export function isScopeNotFoundMessage(message: unknown): boolean {
+    return typeof message === 'string' && SCOPE_NOT_FOUND_DETAILS.has(message)
 }
 
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
@@ -222,6 +239,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 409 && failure.data?.current_version !== undefined) {
+        return false
+    }
+    if (isRollbackReasonRequiredError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)

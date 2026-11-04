@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import DataWarehouseNode, TrendsQuery
@@ -16,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializableVariable,
     MaterializationNotSupportedError,
@@ -23,9 +26,9 @@ from products.endpoints.backend.materialization_transforms import (
     build_endpoint_hogql,
     transform_query_for_materialization,
 )
+from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-
-pytestmark = [pytest.mark.django_db]
 
 
 class TestVariableAnalysis(APIBaseTest):
@@ -239,17 +242,62 @@ class TestVariableAnalysis(APIBaseTest):
         assert "Unsupported operator" in reason
         assert var_infos == []
 
-    def test_variable_in_select_blocked(self):
+    @parameterized.expand(
+        [
+            ("select_only", "SELECT count(), {variables.x} as x FROM events", "not used in WHERE"),
+            (
+                "lambda_argument",
+                "SELECT count() FROM events WHERE arrayExists(d -> properties.$current_url LIKE d, splitByChar(',', {variables.x}))",
+                "must be compared directly to a column",
+            ),
+            (
+                "arithmetic_operand",
+                "SELECT count() FROM events WHERE toFloat(properties.price) = {variables.x} + 1",
+                "must be compared directly to a column",
+            ),
+            (
+                "multi_arg_value_function",
+                "SELECT count() FROM events WHERE toFloat(properties.price) = greatest({variables.x}, 1)",
+                "must be compared directly to a column",
+            ),
+            (
+                "comparison_inside_not",
+                "SELECT count() FROM events WHERE NOT (properties.p = {variables.x})",
+                "must be compared directly to a column",
+            ),
+            (
+                "comparison_inside_function",
+                "SELECT count() FROM events WHERE if(properties.p = {variables.x}, 1, 0)",
+                "must be compared directly to a column",
+            ),
+            (
+                "constant_operand",
+                "SELECT count() FROM events WHERE 'fixed' = {variables.x}",
+                "must be compared directly to a column",
+            ),
+            (
+                "valid_and_buried_usage",
+                "SELECT count() FROM events WHERE event = {variables.x} AND arrayExists(d -> d = 'a', splitByChar(',', {variables.x}))",
+                "must be compared directly to a column",
+            ),
+            (
+                "subquery_comparison",
+                "SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons WHERE properties.email = {variables.x})",
+                "must be compared directly to a column",
+            ),
+        ]
+    )
+    def test_variable_outside_where_comparison_blocked(self, _name: str, hogql: str, expected_reason: str):
         query = {
             "kind": "HogQLQuery",
-            "query": "SELECT count(), {variables.metric_name} as metric_name FROM events",
-            "variables": {"var-1": {"code_name": "metric_name", "value": "total"}},
+            "query": hogql,
+            "variables": {"var-1": {"code_name": "x", "value": "total"}},
         }
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
         assert can_materialize is False
-        assert "not used in WHERE" in reason
+        assert expected_reason in reason
 
     def test_no_variables(self):
         query = {
@@ -1067,6 +1115,40 @@ class TestQueryTransformation(APIBaseTest):
         assert "conflicts with an existing SELECT alias" in reason
         assert var_infos == []
 
+    @parameterized.expand(
+        [
+            (
+                "join_subquery",
+                "SELECT e.event, count() AS c FROM events e "
+                "JOIN (SELECT person_id, properties.segment AS cohort FROM events) s ON e.person_id = s.person_id "
+                "WHERE e.properties.cohort = {variables.cohort} "
+                "GROUP BY e.event",
+            ),
+            (
+                "union_leg",
+                "SELECT event, count() AS c FROM ("
+                "SELECT event, properties, properties.segment AS cohort FROM events "
+                "UNION ALL SELECT event, properties, properties.segment AS cohort FROM events"
+                ") WHERE properties.cohort = {variables.cohort} "
+                "GROUP BY event",
+            ),
+        ]
+    )
+    def test_alias_collision_in_nested_select_rejected_preflight(self, _name, query_str):
+        query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "cohort", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "conflicts with an existing SELECT alias" in reason
+        assert var_infos == []
+
     def test_transform_alias_collision_raises_not_supported(self):
         # Backstop: if the transform is reached directly (bypassing pre-flight) on a colliding
         # query, it raises MaterializationNotSupportedError (a 400), not a bare ValueError (a 500).
@@ -1441,7 +1523,7 @@ class TestQueryTransformation(APIBaseTest):
         assert "event_name" in group_by_part
 
 
-class TestMaterializedQueryExecution(APIBaseTest):
+class TestMaterializedQueryExecution(SimpleTestCase):
     """Test that materialized queries handle pre-aggregated data correctly."""
 
     def test_materialized_query_selects_precomputed_columns(self):
@@ -1482,7 +1564,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         parsed = parse_select(query_str)
 
         assert isinstance(parsed, ast.SelectQuery)
-        transformed = transform_select_for_materialized_table(parsed.select, self.team)
+        transformed = transform_select_for_materialized_table(parsed.select, [])
 
         assert len(transformed) == 2
 
@@ -1504,7 +1586,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         parsed = parse_select(query_str)
 
         assert isinstance(parsed, ast.SelectQuery)
-        transformed = transform_select_for_materialized_table(parsed.select, self.team)
+        transformed = transform_select_for_materialized_table(parsed.select, [])
 
         assert len(transformed) == 1
 
@@ -2171,6 +2253,54 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
             {"event_name": "$pageview"},
         )
 
+    @parameterized.expand(
+        [
+            (
+                "qualified_field",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                True,
+                ["event"],
+            ),
+            (
+                "nested_properties",
+                "SELECT properties.foo.bar, properties.bar FROM events WHERE distinct_id = {variables.user_id}",
+                True,
+                ["foo__bar", "bar"],
+            ),
+            (
+                "unaliased_calls",
+                "SELECT toStartOfDay(timestamp), count() FROM events WHERE distinct_id = {variables.user_id} "
+                "GROUP BY toStartOfDay(timestamp)",
+                True,
+                ["`toStartOfDay(toTimeZone(timestamp, 'UTC'))` AS `toStartOfDay(timestamp)`", "`count()`"],
+            ),
+            (
+                "columns_not_computed",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                False,
+                ["`e.event`"],
+            ),
+        ]
+    )
+    def test_materialized_read_selects_stored_columns_under_declared_names(
+        self, name, query_str, columns_computed, expected_select
+    ):
+        query = {
+            "kind": "HogQLQuery",
+            "query": query_str,
+            "variables": {"var-1": {"code_name": "user_id", "value": "user_0"}},
+        }
+        endpoint = create_endpoint_with_version(name=name, team=self.team, query=query, created_by=self.user)
+        version = endpoint.versions.get()
+        if columns_computed:
+            version.columns = EndpointVersion.extract_columns(query, self.team.pk)
+            version.save()
+
+        select_query, _ = strategy_for(endpoint, version, self.team).build_materialized_select(table_name="mat")
+
+        assert [expr.to_hogql() for expr in select_query.select] == expected_select
+        assert (version.columns is not None) == columns_computed
+
 
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestDownstreamTransformSnapshots(APIBaseTest):
@@ -2269,10 +2399,16 @@ class TestMaterializationAnalyzerGaps(APIBaseTest):
             f"Rejection reason should mention the scalar-subquery pattern. Got: {reason!r}"
         )
 
-    def test_top_level_variable_does_not_force_group_by_on_non_aggregate_select(self):
+    @parameterized.expand(
+        [
+            ("plain_columns", "distinct_id, event, timestamp"),
+            ("combinator_named_function", "distinct_id, coalesce(nullIf(properties.name, ''), distinct_id) AS label"),
+        ]
+    )
+    def test_top_level_variable_does_not_force_group_by_on_non_aggregate_select(self, _name, select_clause):
         query = {
             "kind": "HogQLQuery",
-            "query": "SELECT distinct_id, event, timestamp FROM events WHERE event = {variables.event_name}",
+            "query": f"SELECT {select_clause} FROM events WHERE event = {{variables.event_name}}",
             "variables": {
                 "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
             },

@@ -16,10 +16,10 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { onboardingLogic } from './legacy/onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding/Legacy',
+    title: 'Scenes-Other/Onboarding',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -146,30 +146,6 @@ export const AIObservabilitySDKInstall: Story = {
         return <App />
     },
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
-    },
-}
-
-// The cloud-run experiment arm enabled: a dedicated wizard program must keep its own command
-// and never offer the cloud arm. (The active-run takeover scenario is pinned by
-// WizardInstallStep.test.tsx — staging a run here would write the persisted handle to
-// localStorage, which stories share, contaminating every story rendered after this one.)
-export const AIObservabilitySDKInstallWithCloudRunFlag: Story = {
-    render: () => {
-        useMountedLogic(onboardingLogic)
-        const { setProduct } = useActions(onboardingLogic)
-
-        useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.AI_OBSERVABILITY])
-            router.actions.push(
-                urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL })
-            )
-        })
-
-        return <App />
-    },
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test' },
         testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
     },
 }
@@ -380,3 +356,55 @@ export const InviteTeammates: Story = {
         return <App />
     },
 }
+
+// ==========================================
+// Simple flow (experiment arm)
+// ==========================================
+
+const CONNECTED_APP = {
+    id: '0197c2a2-0000-0000-0000-000000000001',
+    name: 'Claude Code',
+    logo_uri: null,
+    scopes: ['openid'],
+    authorized_at: '2023-05-25T00:00:00Z',
+    is_verified: true,
+    is_first_party: false,
+    is_self_registered: true,
+}
+
+// A new organization has no subscription yet, so the simple flow ends with the plan step.
+function simpleFlowStory(
+    stepKey: OnboardingStepKey,
+    connectedApps: (typeof CONNECTED_APP)[],
+    waitForLoadersToDisappear: boolean
+): Story {
+    return {
+        render: () => {
+            useMountedLogic(onboardingLogic)
+
+            useStorybookMocks({
+                get: { '/api/oauth/connected-apps/': connectedApps, '/api/billing/': { ...billingUnsubscribedJson } },
+            })
+
+            useDelayedOnMountEffect(() => {
+                router.actions.push(urls.simpleOnboarding(), {
+                    step: `${stepKey}:${ProductKey.PRODUCT_ANALYTICS}`,
+                })
+            })
+
+            return <App />
+        },
+        parameters: {
+            featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
+            testOptions: { waitForSelector: '[data-attr="wizard-command-block"]', waitForLoadersToDisappear },
+        },
+    }
+}
+
+// The install step's realtime check keeps a spinner up until the first event arrives.
+export const SimpleFlowInstall: Story = simpleFlowStory(OnboardingStepKey.INSTALL, [], false)
+
+// The MCP step shows a spinner for as long as no agent is connected, which is the state under test.
+export const SimpleFlowConnectMcp: Story = simpleFlowStory(OnboardingStepKey.MCP, [], false)
+
+export const SimpleFlowMcpConnected: Story = simpleFlowStory(OnboardingStepKey.MCP, [CONNECTED_APP], true)

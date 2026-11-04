@@ -1,6 +1,4 @@
-import gzip
 import json
-import asyncio
 import datetime as dt
 from typing import Any
 
@@ -14,36 +12,44 @@ from .constants import (
     SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY,
 )
 
-
-def _compress_redis_data(input_data: str) -> bytes:
-    return gzip.compress(input_data.encode("utf-8"))
-
-
-def _decompress_and_parse_redis_data(raw_redis_data: bytes) -> list[dict[str, Any]]:
-    parsed = json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
-    if not isinstance(parsed, list):
-        raise TypeError(f"Expected list from Redis cache, got {type(parsed).__name__}")
-    return parsed
+_LIST_PIPELINE_BATCH = 5000  # Entries per RPUSH call during list population
+_CHUNK_ACCOUNT_FIELDS = ("Id", "Website")
 
 
-async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[str, Any]] | None:
-    """Retrieve and decompress a cached list from Redis.
+async def _store_json_list(cache_key: str, items: list[dict[str, Any]], ttl: int) -> None:
+    """Each item is its own list entry, so a reader fetches one page with LRANGE instead of parsing the whole dataset."""
+    redis_client = get_async_client()
+    pipe = await redis_client.pipeline()
+    pipe.delete(cache_key)
 
-    Returns:
-        Parsed list, or None if cache miss/error/timeout
-    """
+    for i in range(0, len(items), _LIST_PIPELINE_BATCH):
+        batch = items[i : i + _LIST_PIPELINE_BATCH]
+        pipe.rpush(cache_key, *[json.dumps(item, default=str) for item in batch])
+
+    pipe.expire(cache_key, ttl)
+    await pipe.execute()
+
+
+async def _get_list_page(cache_key: str, offset: int, limit: int) -> list[Any] | None:
+    """Return the raw entries of one page, an empty list past the end, or None when the key is missing."""
+    redis_client = get_async_client()
+    raw_items = await redis_client.lrange(cache_key, offset, offset + limit - 1)
+    if raw_items:
+        return raw_items
+
+    # LRANGE returns nothing both when the key is missing and when the offset is
+    # past the end of the list; LLEN tells those cases apart.
+    total = await redis_client.llen(cache_key)
+    if total and offset >= total:
+        return []
+    return None
+
+
+async def _get_list_length(cache_key: str) -> int | None:
     try:
         redis_client = get_async_client()
-        raw_redis_data = await asyncio.wait_for(redis_client.get(cache_key), timeout=timeout)
-
-        if not raw_redis_data:
-            return None
-
-        return _decompress_and_parse_redis_data(raw_redis_data)
-
-    except TimeoutError:
-        capture_exception(TimeoutError(f"Redis operation timed out after {timeout}s for key {cache_key}"))
-        return None
+        count = await redis_client.llen(cache_key)
+        return count if count > 0 else None
     except Exception as e:
         capture_exception(e)
         return None
@@ -53,70 +59,27 @@ async def store_accounts_in_redis(
     accounts_data: list[dict[str, Any]],
     ttl: int = REDIS_TTL_SECONDS,
 ) -> None:
-    """Store all Salesforce accounts in Redis with gzip compression."""
-    redis_client = get_async_client()
-
-    accounts_json = json.dumps(accounts_data, default=str)
-    compressed_data = _compress_redis_data(accounts_json)
-
-    await redis_client.setex(SALESFORCE_ACCOUNTS_CACHE_KEY, ttl, compressed_data)
+    accounts = [{field: account[field] for field in _CHUNK_ACCOUNT_FIELDS} for account in accounts_data]
+    await _store_json_list(SALESFORCE_ACCOUNTS_CACHE_KEY, accounts, ttl)
 
 
-async def get_accounts_from_redis(
-    offset: int = 0,
-    limit: int = 1000,
-) -> list[dict[str, Any]] | None:
-    """Retrieve accounts chunk from global Redis cache.
-
-    Args:
-        offset: Starting index for pagination
-        limit: Number of accounts to retrieve
-
-    Returns:
-        List of account dictionaries, or None if cache miss/error
-    """
-    all_accounts = await _get_cached_list(SALESFORCE_ACCOUNTS_CACHE_KEY)
-    if all_accounts is None:
+async def get_accounts_from_redis(offset: int = 0, limit: int = 1000) -> list[dict[str, Any]] | None:
+    """Return one page of cached accounts, an empty list past the end, or None when the cache is missing."""
+    raw_items = await _get_list_page(SALESFORCE_ACCOUNTS_CACHE_KEY, offset, limit)
+    if raw_items is None:
         return None
-
-    if offset >= len(all_accounts):
-        return []
-
-    return all_accounts[offset : offset + limit]
+    return [json.loads(item) for item in raw_items]
 
 
 async def get_cached_accounts_count() -> int | None:
-    """Get the total count of cached accounts.
-
-    Returns:
-        Total number of cached accounts, or None if cache miss/error
-    """
-    all_accounts = await _get_cached_list(SALESFORCE_ACCOUNTS_CACHE_KEY)
-    return len(all_accounts) if all_accounts is not None else None
-
-
-_ORG_MAPPINGS_PIPELINE_BATCH = 5000  # Entries per RPUSH call during list population
+    return await _get_list_length(SALESFORCE_ACCOUNTS_CACHE_KEY)
 
 
 async def store_org_mappings_in_redis(
     mappings_data: list[dict[str, Any]],
     ttl: int = REDIS_TTL_SECONDS,
 ) -> None:
-    """Store Salesforce org mappings as a Redis List for efficient pagination.
-
-    Each mapping is stored as a separate JSON entry so LRANGE can return
-    arbitrary pages without decompressing the entire dataset.
-    """
-    redis_client = get_async_client()
-    pipe = await redis_client.pipeline()
-    pipe.delete(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
-
-    for i in range(0, len(mappings_data), _ORG_MAPPINGS_PIPELINE_BATCH):
-        batch = mappings_data[i : i + _ORG_MAPPINGS_PIPELINE_BATCH]
-        pipe.rpush(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, *[json.dumps(m, default=str) for m in batch])
-
-    pipe.expire(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, ttl)
-    await pipe.execute()
+    await _store_json_list(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, mappings_data, ttl)
 
 
 async def _lrange_json_or_none(key: str, start: int, end: int) -> list[dict[str, Any]] | None:
@@ -152,20 +115,13 @@ async def get_org_mappings_page(offset: int = 0, limit: int = 10000) -> list[dic
     when the key is missing or an entry cannot be parsed, so callers never
     mistake an expired cache for a completed run.
     """
-    redis_client = get_async_client()
-    raw_items = await redis_client.lrange(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
-    if raw_items:
-        try:
-            return [json.loads(item) for item in raw_items]
-        except (TypeError, ValueError) as e:
-            raise OrgMappingsCacheMissingError("org mappings cache entries are unreadable") from e
-
-    # LRANGE returns nothing both when the key is missing and when the offset is
-    # past the end of the list; LLEN tells those cases apart.
-    total = await redis_client.llen(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
-    if total and offset >= total:
-        return []
-    raise OrgMappingsCacheMissingError("org mappings cache key is missing")
+    raw_items = await _get_list_page(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, limit)
+    if raw_items is None:
+        raise OrgMappingsCacheMissingError("org mappings cache key is missing")
+    try:
+        return [json.loads(item) for item in raw_items]
+    except (TypeError, ValueError) as e:
+        raise OrgMappingsCacheMissingError("org mappings cache entries are unreadable") from e
 
 
 async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
@@ -183,13 +139,7 @@ async def get_cached_org_mappings_count() -> int | None:
     Returns:
         Total number of cached mappings, or None if key missing
     """
-    try:
-        redis_client = get_async_client()
-        count = await redis_client.llen(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
-        return count if count > 0 else None
-    except Exception as e:
-        capture_exception(e)
-        return None
+    return await _get_list_length(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
 
 
 async def get_stripe_enrichment_watermark() -> tuple[dt.datetime, str] | None:

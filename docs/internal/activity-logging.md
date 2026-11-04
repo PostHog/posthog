@@ -53,6 +53,7 @@ model.save()
 The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
+A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
@@ -127,13 +128,33 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+A relation field stores the related object as `{"id": <pk>}`.
+To store more, such as a name for the describer to show, add a branch for the model to `ActivityDetailEncoder` in `posthog/models/utils.py`.
+Never put a credential field in that branch.
+
 Destination activity logs record changes to `mappings` without their values.
 For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
 Rows written before a field joined `field_with_masked_contents` still store its values.
+Guided Inbox onboarding first saves a draft when the sources step is completed; opening or editing that first step keeps the draft local.
+Later setup changes are recorded while masking the saved draft, including scout instructions and project evidence.
 Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
 The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+`python manage.py clean_destination_secrets --step activity-logs` rewrites them. It is a dry run until you pass `--commit`.
 These protections do not revoke exposed credentials.
+
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
+An explicit replacement value can be stored as a non-secret input.
+Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
+Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+
+New browser configuration builds leave out a site function while one of its secret values would reach the browser.
+That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
 
 ## Writes the signal cannot see
 
@@ -173,6 +194,13 @@ Both activity views display intent without a task link and identify it as self-r
 A task link appears only when the token has a server-set task binding, so intent never implies a verified run.
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
+
+An MCP read writes no activity row, so its intent never reaches the audit log.
+When `ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED` is on, `ActivityLoggingMiddleware` also hands the intent of a successful MCP request to a best-effort Redis buffer for the activity summary (`products/signals/backend/activity_summary/mcp_buffer.py`).
+It does this only for a personal API key or an OAuth token without a sandbox task binding or impersonation, and only for a team that the `activity-summary` flag payload enrolls with `mcp_buffer_enabled`.
+The request thread only appends to an in-process queue; a background thread writes to Redis, so the buffer can drop records but cannot slow down or fail the request.
+When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
+A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
 
 ### Client IP
 
@@ -233,7 +261,9 @@ Unlike `client`, they are evidence of which credential made a change.
 - A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
 - The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
-- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- Customers can read `credential_type` and some ids. `ActivityLogSerializer` in `posthog/api/advanced_activity_logs/viewset.py` serves the `activity_log` and `advanced_activity_logs` endpoints. It returns `credential_type`, and `credential_id` only for the types in `CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES` (`session`, `personal_api_key`, `project_secret_key`). It returns null for every other type and for impersonated rows, whose session belongs to the staff user. `ActivityLog.customer_visible_credential_id` applies that rule. The advanced serializer also builds `$activity_log_entry_created` for customer destinations. The CSV export serializer (`ActivityLogFlatExportSerializer`) carries the same two values in its last columns. The OCSF schema puts `credential_type` under `unmapped`, a session id in `actor.session.uid`, and a key id in `actor.session.credential_uid`.
+- `impersonated_by_id` is internal everywhere. The notifications serializer leaves out all three fields.
+- `system.activity_logs` has `credential_type` and no `credential_id`. A query can select a hidden column by name, so a hidden raw column cannot keep the other ids out.
 - Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
 - The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
 - A partner OAuth class declares `oauth` and passes the token's application id and `impersonated_by_id` to the recorder, as the main OAuth path does, so its rows read the same.
@@ -297,6 +327,7 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 
 - One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
 - One test per bulk-write site that its explicit logging produces the expected rows.
+- Batch object access-rule writes preserve the same changes and actor details as individual writes through `bulk_log_activity`.
 - A `changes_between` test only when the scope adds exclusions or masks.
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 

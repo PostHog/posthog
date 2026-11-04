@@ -144,7 +144,7 @@ export function Trend(props: TrendProps) {
   const names = sql
     ? sqlColumns
     : series.map((row, index) => {
-        const base = breakdown ? breakdownLabel(row.breakdown_value) : eventName(row.action?.id ?? events[index % events.length] ?? row.label ?? "Series");
+        const base = breakdown ? breakdownLabel(row.breakdown_value) : eventName(events[row.order ?? index % events.length] ?? row.label ?? "Series");
         return row.compare_label === "previous" ? base + " (previous)" : base;
       });
   const previousAt = (index: number) => (sql ? comparing && index >= baseColumns.length : series[index]?.compare_label === "previous");
@@ -1050,7 +1050,7 @@ const BAR_DISPLAYS = new Set(["ActionsBar", "ActionsStackedBar", "ActionsUnstack
 
 function seriesName(row: any, index: number): string {
   if (row.breakdown_value !== undefined && row.breakdown_value !== null && row.breakdown_value !== "") return breakdownLabel(row.breakdown_value);
-  return eventName(String(row.label ?? row.action?.name ?? "Series " + (index + 1)));
+  return eventName(String(row.label ?? "Series " + (index + 1)));
 }
 
 function TrendsBody({ rows, display }: { rows: any[]; display: string }) {

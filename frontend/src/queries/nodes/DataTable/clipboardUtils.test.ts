@@ -148,6 +148,19 @@ describe('clipboardUtils', () => {
             expect(result[1][1]).toBe('john@example.com') // asDisplay returns email (person display property)
         })
 
+        it('handles ActorsQuery with a person display name column', () => {
+            const columns = ['person_display_name -- Person', 'properties.email -- Email']
+            const query = createMockQuery(NodeKind.ActorsQuery, { select: columns })
+            const rows: DataTableRow[] = [
+                { result: [{ display_name: 'Ana', id: 'uuid-1', distinct_id: 'ana' }, 'ana@example.com'] },
+            ]
+
+            expect(getCsvTableData(rows, columns, query)).toEqual([
+                ['Person', 'Email'],
+                ['Ana', 'ana@example.com'],
+            ])
+        })
+
         it('handles PersonsNode with nested properties', () => {
             const query = createMockQuery(NodeKind.PersonsNode)
             const columns = ['email', 'properties']
@@ -184,6 +197,31 @@ describe('clipboardUtils', () => {
             expect(result[1]).toContain('click')
             expect(result[1]).toContain('submit')
             expect(result[1]).toContain('form')
+        })
+
+        it.each([
+            {
+                name: 'keeps the query column order and puts flattened sub-columns after their parent',
+                columns: ['b', 'obj', 'a'],
+                rows: [{ result: ['b1', { z: 1, y: 2 }, 'a1'] }, { result: ['b2', { x: 3 }, 'a2'] }],
+                expected: [
+                    ['b', 'obj.z', 'obj.y', 'obj.x', 'a'],
+                    ['b1', 1, 2, '', 'a1'],
+                    ['b2', '', '', 3, 'a2'],
+                ],
+            },
+            {
+                name: 'keeps every value when two columns have the same name',
+                columns: ['id', 'id'],
+                rows: [{ result: [1, 2] }],
+                expected: [
+                    ['id', 'id'],
+                    [1, 2],
+                ],
+            },
+        ])('$name', ({ columns, rows, expected }) => {
+            const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT 1' })
+            expect(getCsvTableData(rows, columns, query)).toEqual(expected)
         })
 
         it('returns empty array for unsupported query types', () => {
@@ -268,8 +306,10 @@ describe('clipboardUtils', () => {
             const rows: DataTableRow[] = [{ result: ['pageview'] }]
 
             copyTableToCsv(rows, columns, query)
+            copyTableToCsv(rows, columns, query, false)
 
-            expect(mockCopyToClipboard).toHaveBeenCalledWith('event\npageview', 'table')
+            expect(mockCopyToClipboard).toHaveBeenNthCalledWith(1, 'event\npageview', 'table')
+            expect(mockCopyToClipboard).toHaveBeenNthCalledWith(2, 'pageview', 'table')
         })
 
         it('shows error on copy failure', () => {
@@ -357,7 +397,6 @@ describe('clipboardUtils', () => {
     describe('copyTableToMarkdown', () => {
         it('copies a padded markdown table to clipboard', () => {
             const query = createMockQuery(NodeKind.HogQLQuery, { query: 'SELECT * FROM events' })
-            // getCsvTableData sorts columns alphabetically: age, city, name
             const columns = ['name', 'age', 'city']
             const rows: DataTableRow[] = [
                 { result: ['Alice', 30, 'New York'] },
@@ -367,10 +406,10 @@ describe('clipboardUtils', () => {
             copyTableToMarkdown(rows, columns, query)
 
             const expected = [
-                '| age | city          | name  |',
-                '| --- | ------------- | ----- |',
-                '| 30  | New York      | Alice |',
-                '| 25  | San Francisco | Bob   |',
+                '| name  | age | city          |',
+                '| ----- | --- | ------------- |',
+                '| Alice | 30  | New York      |',
+                '| Bob   | 25  | San Francisco |',
             ].join('\n')
             expect(mockCopyToClipboard).toHaveBeenCalledWith(expected, 'table')
         })

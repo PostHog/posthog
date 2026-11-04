@@ -17,11 +17,13 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.authentication import (
     CLIENT_NOT_REGISTERED_MESSAGE,
     BearerTokenError,
+    ClientProof,
     ProvisioningAuthentication,
     resolve_bearer_access_token,
 )
@@ -64,18 +66,20 @@ class LimitsView(ProvisioningAPIView):
                 raise ProvisioningError("unauthorized", "Authentication failed", status=401)
             if not app.provisioning.active:
                 raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
+            if app.cannot_meet_provisioning_signature:
+                raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
             return app
 
+        authentication = ProvisioningAuthentication()
         try:
-            result = ProvisioningAuthentication().authenticate(request)
+            result = authentication.authenticate(request)
         except AuthenticationFailed as exc:
             raise ProvisioningError("unauthorized", str(exc.detail), status=401)
         if result is None:
             raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
 
-        partner = result[1]
-        # A public partner presents a client_id anyone can send, which identifies it
-        # without proving the caller is it. Its bearer does.
-        if not partner.requires_client_authentication:
+        # A client_id anyone can send identifies the partner without proving the caller is it.
+        # Its bearer does.
+        if authentication.client_proof is ClientProof.CLIENT_ID:
             raise ProvisioningError("unauthorized", "This client must authenticate with a bearer token", status=401)
-        return partner
+        return result[1]

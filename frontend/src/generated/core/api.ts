@@ -15,19 +15,22 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ConnectedAppApi,
     DataDeletionPreviewApi,
     DataDeletionRequestApi,
     DataDeletionRequestCreateApi,
     DataDeletionRequestInputApi,
     DataDeletionRequestsListParams,
+    DeviceApprovalApi,
+    DeviceDecisionApi,
+    DeviceGrantDetailsApi,
+    DeviceUserCodeApi,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
     EmojiSearchResponseApi,
     EmojiSearchSuggestRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
-    EventMatchRequestApi,
-    EventMatchResponseApi,
     EventPropertyValuesResponseApi,
     EventsValuesRetrieveParams,
     ExportedAssetApi,
@@ -35,8 +38,11 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
+    FileSystemRankedSearchResponseApi,
+    FileSystemSearchRetrieveParams,
     FileSystemShortcutApi,
     FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
@@ -76,6 +82,7 @@ import type {
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PaginatedWorkloadTrustPolicyListApi,
     PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -86,6 +93,7 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    PatchedWorkloadTrustPolicyApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
     ProjectApi,
@@ -105,8 +113,8 @@ import type {
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
-    UploadedMediaCreate201,
     UploadedMediaCreateBody,
+    UploadedMediaCreatedApi,
     UploadedMediaListParams,
     UploadedMediaStartUploadApi,
     UploadedMediaUploadStartedApi,
@@ -131,6 +139,9 @@ import type {
     UsersLoginSessionsListParams,
     UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
+    WorkloadProvidersResponseApi,
+    WorkloadTrustPoliciesListParams,
+    WorkloadTrustPolicyApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -149,6 +160,93 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOauthConnectedAppsListUrl = () => {
+    return `/api/oauth/connected-apps/`
+}
+
+/**
+ * Returns all OAuth applications that can currently act as the requesting user, whether they hold an unexpired access token or an unrevoked refresh token.
+ * @summary List connected OAuth applications
+ */
+export const oauthConnectedAppsList = async (options?: RequestInit): Promise<ConnectedAppApi[]> => {
+    return apiMutator<ConnectedAppApi[]>(getOauthConnectedAppsListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOauthConnectedAppsRevokeCreateUrl = (id: string) => {
+    return `/api/oauth/connected-apps/${id}/revoke/`
+}
+
+/**
+ * Revokes all tokens and grants for the specified application for the current user.
+ * @summary Revoke a connected OAuth application
+ */
+export const oauthConnectedAppsRevokeCreate = async (id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getOauthConnectedAppsRevokeCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getOauthDeviceApproveCreateUrl = () => {
+    return `/api/oauth_device/approve/`
+}
+
+/**
+ * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ */
+export const oauthDeviceApproveCreate = async (
+    deviceApprovalApi: DeviceApprovalApi,
+    options?: RequestInit
+): Promise<DeviceDecisionApi> => {
+    return apiMutator<DeviceDecisionApi>(getOauthDeviceApproveCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceApprovalApi),
+    })
+}
+
+export const getOauthDeviceDenyCreateUrl = () => {
+    return `/api/oauth_device/deny/`
+}
+
+/**
+ * Refuse a device grant, so the client's next poll gets `access_denied`.
+ */
+export const oauthDeviceDenyCreate = async (
+    deviceUserCodeApi: DeviceUserCodeApi,
+    options?: RequestInit
+): Promise<DeviceDecisionApi> => {
+    return apiMutator<DeviceDecisionApi>(getOauthDeviceDenyCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceUserCodeApi),
+    })
+}
+
+export const getOauthDeviceLookupCreateUrl = () => {
+    return `/api/oauth_device/lookup/`
+}
+
+/**
+ * Show what a device code asks for, so the person can check it before approving.
+ */
+export const oauthDeviceLookupCreate = async (
+    deviceUserCodeApi: DeviceUserCodeApi,
+    options?: RequestInit
+): Promise<DeviceGrantDetailsApi> => {
+    return apiMutator<DeviceGrantDetailsApi>(getOauthDeviceLookupCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deviceUserCodeApi),
+    })
+}
 
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -1913,6 +2011,36 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
+export const getFileSystemFrequentListUrl = (projectId: string, params?: FileSystemFrequentListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/frequent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/frequent/`
+}
+
+/**
+ * @summary List frequently viewed files
+ */
+export const fileSystemFrequentList = async (
+    projectId: string,
+    params?: FileSystemFrequentListParams,
+    options?: RequestInit
+): Promise<FileSystemApi[]> => {
+    return apiMutator<FileSystemApi[]>(getFileSystemFrequentListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/home_folder/`
 }
@@ -1952,6 +2080,37 @@ export const fileSystemLogViewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemSearchRetrieveUrl = (projectId: string, params: FileSystemSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/search/`
+}
+
+/**
+ * Ranks entries by words matched, typos, word proximity, name before folder, exact words, word position, exactness, the user's recent views, and recency.
+ * @summary Search files by relevance
+ */
+export const fileSystemSearchRetrieve = async (
+    projectId: string,
+    params: FileSystemSearchRetrieveParams,
+    options?: RequestInit
+): Promise<FileSystemRankedSearchResponseApi> => {
+    return apiMutator<FileSystemRankedSearchResponseApi>(getFileSystemSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2669,27 +2828,6 @@ export const taxonomicSearchIntentClassifyCreate = async (
     })
 }
 
-export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
-}
-
-/**
- * Guess which PostHog core events a search that matched no event name describes.
- * @summary Match an events search to core events
- */
-export const taxonomicSearchIntentMatchEventsCreate = async (
-    projectId: string,
-    eventMatchRequestApi: EventMatchRequestApi,
-    options?: RequestInit
-): Promise<EventMatchResponseApi> => {
-    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(eventMatchRequestApi),
-    })
-}
-
 export const getTerminalNetplayMailboxRetrieveUrl = (
     projectId: string,
     params: TerminalNetplayMailboxRetrieveParams
@@ -2790,7 +2928,7 @@ export const uploadedMediaCreate = async (
     projectId: string,
     uploadedMediaCreateBody?: UploadedMediaCreateBody,
     options?: RequestInit
-): Promise<UploadedMediaCreate201> => {
+): Promise<UploadedMediaCreatedApi> => {
     const formData = new FormData()
     if (uploadedMediaCreateBody?.image !== undefined) {
         formData.append(`image`, uploadedMediaCreateBody.image)
@@ -2799,10 +2937,24 @@ export const uploadedMediaCreate = async (
         formData.append(`purpose`, uploadedMediaCreateBody.purpose)
     }
 
-    return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {
+    return apiMutator<UploadedMediaCreatedApi>(getUploadedMediaCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getUploadedMediaDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/`
+}
+
+/**
+ * Remove an image from its media library. It stops appearing in the library list, but its URL keeps working, so content that already uses it (a sent email, a live template) is not broken.
+ */
+export const uploadedMediaDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUploadedMediaDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -2841,6 +2993,130 @@ export const uploadedMediaStartUploadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(uploadedMediaStartUploadApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesListUrl = (projectId: string, params?: WorkloadTrustPoliciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesList = async (
+    projectId: string,
+    params?: WorkloadTrustPoliciesListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkloadTrustPolicyListApi> => {
+    return apiMutator<PaginatedWorkloadTrustPolicyListApi>(getWorkloadTrustPoliciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/`
+}
+
+export const workloadTrustPoliciesCreate = async (
+    projectId: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPoliciesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesUpdate = async (
+    projectId: string,
+    id: string,
+    workloadTrustPolicyApi: NonReadonly<WorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedWorkloadTrustPolicyApi?: NonReadonly<PatchedWorkloadTrustPolicyApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyApi> => {
+    return apiMutator<WorkloadTrustPolicyApi>(getWorkloadTrustPoliciesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkloadTrustPolicyApi),
+    })
+}
+
+export const getWorkloadTrustPoliciesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/${id}/`
+}
+
+export const workloadTrustPoliciesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkloadTrustPoliciesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWorkloadTrustPoliciesProvidersRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policies/providers/`
+}
+
+export const workloadTrustPoliciesProvidersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkloadProvidersResponseApi> => {
+    return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPoliciesProvidersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -3543,7 +3819,7 @@ export const getUsersPushTokensCreateUrl = (uuid: string) => {
 }
 
 /**
- * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * Register the device for the authenticated user, removing registrations for the same token belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`.
  * @summary Register a push notification token
  */
 export const usersPushTokensCreate = async (

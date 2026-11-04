@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
@@ -236,6 +237,28 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
     assert report.inbox_notified_at is not None
 
 
+@pytest.mark.django_db
+def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            side_effect=[ClickHouseAtCapacity(), []],
+        ) as fetch,
+        patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1
+        ) as dispatch,
+    ):
+        assert _send_report_inbox_notifications(team.id, str(report.id)) == 1
+
+    assert fetch.call_count == 2
+    dispatch.assert_called_once()
+    report.refresh_from_db()
+    assert report.inbox_notified_at is not None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", [NO_TASK, ALREADY_NOTIFIED])
 @pytest.mark.parametrize("github_fails", [False, True])
@@ -300,3 +323,24 @@ async def test_workflow_skips_the_pr_wait_when_the_report_already_notified():
     await _run_workflow(recorder)
     assert recorder.state_calls == 1
     assert recorder.dispatch_calls == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("assigned", [True, False])
+def test_send_queues_the_report_push_again_only_after_assigning_a_default_owner(team, assigned):
+    # The "new report" push is queued on `first_visible_at`, when a reviewerless report pushes to
+    # nobody, so a default owner assigned here only hears about the report if this requeues it.
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.assign_default_owner", return_value=assigned
+        ) as assign,
+        patch("products.signals.backend.inbox_push_notifications.schedule_report_visible_push") as push,
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
+        patch("products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync", return_value=[]),
+        patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1),
+    ):
+        assert _send_report_inbox_notifications(team.id, str(report.id)) == 1
+
+    assign.assert_called_once()
+    assert push.call_count == (1 if assigned else 0)

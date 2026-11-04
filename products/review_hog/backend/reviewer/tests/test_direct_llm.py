@@ -194,7 +194,7 @@ async def _openai_call() -> IssueDeduplication:
 @pytest.mark.parametrize(
     "content,finish_reason,non_retryable",
     [
-        ('{"duplicates": [{"id": "1-1-1"}]}', "stop", None),
+        ('{"duplicates": [{"id": "1-1-1", "duplicate_of": "1-1-2"}]}', "stop", None),
         ('{"duplicates": [', "stop", False),
         ('{"duplicates": [', "length", True),
         (None, None, False),

@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -120,9 +120,10 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** To capture LLM events anonymously, omit the `posthog.distinct_id` resource
+                            attribute and don't set a distinct ID in the PostHog context. See our docs on [anonymous vs
+                            identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn
+                            more.
                         </Markdown>
                     </Blockquote>
 
@@ -136,7 +137,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python'] }),
     ]
 }
 

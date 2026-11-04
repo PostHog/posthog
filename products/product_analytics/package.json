@@ -5,16 +5,21 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
+        "lucide-react": "^0.577.0",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "kea-test-utils": "catalog:",
         "timekeeper": "*"
     },
@@ -23,15 +28,19 @@
         "@posthog/icons": "catalog:",
         "@posthog/quill-components": "workspace:*",
         "@types/d3": "*",
+        "@types/d3-array": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "@types/react-simple-maps": "*",
         "@xyflow/react": "*",
         "clsx": "*",
         "d3": "*",
+        "d3-array": "*",
         "elkjs": "*",
         "fuse.js": "*",
         "natural-orderby": "*",
         "react": "*",
+        "react-dom": "*",
         "react-simple-maps": "*",
         "react-toastify": "*",
         "use-resize-observer": "*"

@@ -381,27 +381,29 @@ def get_survey_responses_count(
         return {}
 
     placeholders: dict[str, ast.Expr] = {"since": ast.Constant(value=earliest_start_date)}
-    conditions = [f"uuid IN {_latest_response_event_uuids_subquery(' AND timestamp >= {since}')}"]
+    scan_conditions = ""
+    if survey_ids:
+        scan_conditions = "\n                AND properties.$survey_id IN {survey_ids}"
+        placeholders["survey_ids"] = ast.Constant(value=survey_ids)
 
+    archived_filter = ""
     if exclude_archived:
         archived_uuids = get_archived_response_uuids(None, team.pk)
         if archived_uuids:
-            conditions.append("uuid NOT IN {archived_uuids}")
+            archived_filter = "\n        WHERE response_uuid NOT IN {archived_uuids}"
             placeholders["archived_uuids"] = ast.Constant(value=sorted(archived_uuids))
-
-    if survey_ids:
-        conditions.append("properties.$survey_id IN {survey_ids}")
-        placeholders["survey_ids"] = ast.Constant(value=survey_ids)
-
-    condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
 
     # HogQL adds a 100-row LIMIT to a top-level SELECT without one, which would silently drop
     # surveys past the first hundred; MAX_SELECT_RETURNED_ROWS is the most a query may return.
     query = f"""
-        SELECT properties.$survey_id AS survey_id, count()
-        FROM events
-        WHERE {RESPONSE_EVENT_FILTER}
-            AND timestamp >= {{since}}{condition_sql}
+        SELECT survey_id, count()
+        FROM (
+            SELECT properties.$survey_id AS survey_id, argMax(uuid, tuple(timestamp, uuid)) AS response_uuid
+            FROM events
+            WHERE {RESPONSE_EVENT_FILTER}
+                AND timestamp >= {{since}}{scan_conditions}
+            GROUP BY survey_id, {SUBMISSION_GROUPING_KEY}
+        ){archived_filter}
         GROUP BY survey_id
         LIMIT {MAX_SELECT_RETURNED_ROWS}
     """

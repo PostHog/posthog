@@ -79,7 +79,7 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
 
 
 @patch("products.surveys.backend.translation.generate_structured_output")
-def test_generate_survey_translation_includes_submit_and_back_button_labels(
+def test_generate_survey_translation_includes_button_labels_and_intro_screen(
     mock_generate_structured_output: Mock,
 ) -> None:
     mock_generate_structured_output.return_value = (
@@ -88,6 +88,9 @@ def test_generate_survey_translation_includes_submit_and_back_button_labels(
                 "root": {
                     "submitButtonText": "Enviar",
                     "backButtonText": "Atras",
+                    "introScreenHeader": "Hola",
+                    "introScreenDescription": "Dos preguntas",
+                    "introScreenButtonText": "Empezar",
                 },
                 "questions": [],
             }
@@ -97,7 +100,15 @@ def test_generate_survey_translation_includes_submit_and_back_button_labels(
     survey = {
         "name": "Customer feedback",
         "type": "popover",
-        "appearance": {"submitButtonText": "Submit", "allowGoBack": True, "backButtonText": "Back"},
+        "appearance": {
+            "submitButtonText": "Submit",
+            "allowGoBack": True,
+            "backButtonText": "Back",
+            "displayIntroScreen": True,
+            "introScreenHeader": "Intro headline source",
+            "introScreenDescription": "Intro description source",
+            "introScreenButtonText": "Intro button source",
+        },
         "translations": {},
         "questions": [],
     }
@@ -109,9 +120,26 @@ def test_generate_survey_translation_includes_submit_and_back_button_labels(
         team_id=1,
     )
 
-    assert translations == {"es": {"submitButtonText": "Enviar", "backButtonText": "Atras"}}
-    assert "translations.es.submitButtonText" in generated_paths
-    assert "translations.es.backButtonText" in generated_paths
+    assert translations == {
+        "es": {
+            "submitButtonText": "Enviar",
+            "backButtonText": "Atras",
+            "introScreenHeader": "Hola",
+            "introScreenDescription": "Dos preguntas",
+            "introScreenButtonText": "Empezar",
+        }
+    }
+    assert {
+        "translations.es.submitButtonText",
+        "translations.es.backButtonText",
+        "translations.es.introScreenHeader",
+        "translations.es.introScreenDescription",
+        "translations.es.introScreenButtonText",
+    } <= set(generated_paths)
+    llm_input = str(mock_generate_structured_output.call_args)
+    assert "Intro headline source" in llm_input
+    assert "Intro description source" in llm_input
+    assert "Intro button source" in llm_input
 
 
 @patch("products.surveys.backend.translation.generate_structured_output")

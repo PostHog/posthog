@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../types'
 
-// Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
+// The success screen's `AuthScene__progress` bar (AuthScene.scss) runs a little longer, so the redirect lands before it fills.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
 
 type PostVerifyResponse = {
@@ -281,6 +281,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     searchParams.email_sent !== 'false'
                 )
                 actions.setView('pending')
+                // Lazy: authStepViewed reads the OAuth cookie through `he`, which every logged-in page would otherwise load.
+                void import('scenes/authentication/shared/authStepViewed')
+                    .then(({ captureAuthStepViewed }) => captureAuthStepViewed('verify_email', null))
+                    .catch(() => {})
             }
         }
         return {

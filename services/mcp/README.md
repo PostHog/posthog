@@ -314,6 +314,8 @@ The cached bytes are kept for thirty days and re-extended on every refresh, so a
 No `learn`, `initialize`, or `discover` request reads the archive from Redis.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+The context-mill omnibus skills are overlaid on that bundle from the shared copy the resource refresh publishes; set `POSTHOG_MCP_OMNIBUS_SKILLS=off` to serve the bundle alone.
+A pinned bundle (`POSTHOG_MCP_SKILLS_SHA256`) serves no overlay, and a product skill keeps its name when an overlay skill collides with it.
 Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
@@ -325,6 +327,8 @@ The fixed command syntax stays in the tool schema, while skill names and bodies 
 Other clients keep the full inline command reference.
 
 ### Tool filtering
+
+In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.
 
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
 
@@ -406,7 +410,21 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
+Startup waits up to 45 seconds for Redis to become ready, including connection retries. If Redis stops reconnecting or the deadline expires, the process exits without starting the HTTP server.
+
 ### Session cache
+
+Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
+
+`switch-project` requires a positive integer `projectId`. It also accepts `project_id` and `new_project_id` as aliases. If several are supplied, `projectId` takes precedence, followed by `project_id`.
+
+Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
+
+Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.
+
+Session defaults are stored once, separately from explicit selections. A delayed lookup can resolve context for its own request without overwriting a completed switch.
+
+If default project discovery fails, later requests retry within the session's original organization. The first successful project discovery wins, and explicit switches still take precedence. An organization switch retains a selected project when the destination's team list confirms that it belongs there, even if the credential cannot read project metadata.
 
 A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
 Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.

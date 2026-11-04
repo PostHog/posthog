@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -8,6 +8,7 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    ExecutionTarget,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -19,35 +20,52 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import clone_expr
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.sql_freshness.classifier import (
+    SqlFreshness,
+    classify,
+    freshness_from_record,
+    freshness_record,
+)
+from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import (
+    execute_managed_trino_query,
+    use_trino_canary,
+    validate_managed_trino_query,
+)
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
+    _sql_classification: SqlFreshness | Reject | None = None
     # p95 duration of a query service HogQL query is 2.78sec
     QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
@@ -61,17 +79,85 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_connection_validated = False
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
+        self._trino_canary = False
         super().__init__(*args, **kwargs)
 
-    # Treat SQL query caching like day insight
+    def _reads_events_route(self) -> bool:
+        # A direct connection runs on another database, so the events route never applies to it.
+        return not self.query.connectionId
+
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
+        freshness = self._sql_classification
+        if freshness is not None and self._api_sql_freshness_enabled:
+            expiry = super().cache_target_age(last_refresh, lazy=lazy)
+            if isinstance(freshness, SqlFreshness) and expiry is not None:
+                return max(expiry, freshness.fresh_until)
+            return expiry
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
+    @cached_property
+    def _api_sql_freshness_enabled(self) -> bool:
+        return (
+            self._reads_events_route()
+            and is_api_key_access_method(get_query_tag_value("access_method"))
+            and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
+        )
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        freshness = self._sql_classification
+        default_stale = super()._is_stale(last_refresh, lazy=lazy)
+        if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
+            return default_stale and datetime.now(UTC) > freshness.fresh_until
+        return default_stale
+
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(self._sql_classification, SqlFreshness):
+            return response
+        return {**response, CACHE_ENTRY_FRESHNESS_KEY: freshness_record(self._sql_classification)}
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
+        self._sql_classification = freshness_from_record(record)
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        classification = self._sql_classification
+        if (
+            classification is None
+            or getattr(self, "_cache_age_override", None) is not None
+            or not self._api_sql_freshness_enabled
+        ):
+            return {}
+        if isinstance(classification, Reject):
+            return {"sql_cache_reason": classification.reason.value}
+        return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
+
+    def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
+        if "events" not in {name.lower() for name in self._queried_table_names}:
+            return Reject(reason=FreshnessReason.NO_EVENTS)
+        try:
+            placeholders = find_placeholders(parse_select(self.query.query))
+            if (
+                placeholders.has_filters
+                or placeholders.placeholder_expressions
+                or any(chain[:1] == ["variables"] for chain in placeholders.placeholder_fields)
+            ):
+                return Reject(reason=FreshnessReason.UNSUPPORTED_PLACEHOLDER)
+            context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
+            resolved = resolve_types(clone_expr(query), context, dialect="hogql")
+        except Exception:
+            return Reject(reason=FreshnessReason.UNPARSEABLE)
+        return classify(
+            resolved,
+            now=datetime.now(UTC),
+            timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+        )
+
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
-        if self._direct_connection_validated and not force:
+        if not force and self._direct_connection_validated:
             return
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:
@@ -87,15 +173,33 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
                     raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+                if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
+                    adapter = get_adapter_for_source(source, team=self.team)
+                    direct_engine = adapter.engine if adapter is not None else None
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
         self._direct_engine = direct_engine
+        self._trino_canary = self._decide_trino_canary(user if user is not None else self.user)
         self._direct_connection_validated = True
+
+    def _decide_trino_canary(self, user: Optional[User]) -> bool:
+        """Decide the Trino lane once per validation. The cache key and the connection both read the result, so
+        a flag change between the two steps cannot store a result under the key of the other lane."""
+        runs_on_managed_trino = self.query.executionTarget == ExecutionTarget.MANAGED_TRINO or (
+            self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN and self._direct_engine == "trino"
+        )
+        return (
+            runs_on_managed_trino
+            and user is not None
+            and use_trino_canary(user.distinct_id, str(self.team.organization_id), limit_context=self.limit_context)
+        )
 
     def get_cache_payload(self) -> dict:
         self._validate_direct_connection()
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+            if self._direct_engine == "trino":
+                payload["managed_warehouse_engine"] = "trino"
         if self._modifiers_override_provided and self.query.modifiers is not None:
             # Old workers preferred query modifiers while new workers prefer the constructor override.
             # Keep their cached results apart during a rolling deploy.
@@ -120,8 +224,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         return payload
 
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        self._validate_direct_connection()
+        # The canary lane can return different results, so they never share a cache entry with the normal lane.
+        return f"{variant}_trino_canary" if self._trino_canary else variant
+
     def query_status_labels(self) -> list[str] | None:
         self._validate_direct_connection()
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self.query.sendRawQuery:
+            return [managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             return [
                 f"{managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
@@ -240,8 +352,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         )
 
+    def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        if self._api_sql_freshness_enabled:
+            with self.timings.measure("sql_freshness"):
+                self._sql_classification = self._classify_sql_freshness(query)
+        return query
+
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
+        self._sql_classification = None
         if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
@@ -249,6 +369,20 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             self.settings.max_execution_time = self.QUERY_SERVICE_MAX_EXECUTION_TIME
 
         self._validate_direct_connection()
+
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            if self.is_query_service and not self.query.sendRawQuery:
+                validate_user_query(self._parse_query()[0], team=self.team)
+            return execute_managed_trino_query(
+                self.query.model_copy(update={"modifiers": self.modifiers}),
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                settings=self.settings or HogQLGlobalSettings(),
+                timings=self.timings,
+                limit_context=self.limit_context,
+                canary=self._trino_canary,
+            )
 
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(
@@ -267,9 +401,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 ch_user=self.ch_user,
                 settings=self.settings,
                 send_raw_query=True,
+                expected_direct_engine=self._direct_engine,
+                trino_canary=self._trino_canary,
             )
 
-        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        query = self._build_query()
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
@@ -310,6 +446,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            expected_direct_engine=self._direct_engine,
+            trino_canary=self._trino_canary,
             **context_kwargs,
         )
         if paginator:

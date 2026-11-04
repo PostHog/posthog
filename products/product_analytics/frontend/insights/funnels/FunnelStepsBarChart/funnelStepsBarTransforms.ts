@@ -1,8 +1,8 @@
-import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
+import type { PointClickData, TooltipConfig, ValueLabelFormatter } from '@posthog/quill-charts'
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+import { type BreakdownKeyType, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { getVisibilityKey } from '../funnelUtils'
@@ -150,6 +150,61 @@ export function resolveFunnelStepClick(
     return { step, series: variant, converted: !clickData.inTrackArea }
 }
 
-export function formatFunnelStepBarLabel(ratePercent: number): string {
-    return percentage(ratePercent / RATE_TO_PERCENT, 0)
+const SMALLEST_SHOWN_RATE = 0.001
+const LARGEST_SHOWN_RATE = 0.999
+
+// Always one decimal: funnels with close steps or low conversion need it, and per-label rules miss cases.
+export function formatFunnelStepRate(rate: number): string {
+    if (rate <= 0 || rate >= 1) {
+        return percentage(rate, 0)
+    }
+    if (rate < SMALLEST_SHOWN_RATE) {
+        return `<${percentage(SMALLEST_SHOWN_RATE, 1)}`
+    }
+    return percentage(Math.min(rate, LARGEST_SHOWN_RATE), 1, true)
+}
+
+export const formatFunnelStepBarLabel: ValueLabelFormatter = (value) => formatFunnelStepRate(value / RATE_TO_PERCENT)
+
+export function getConversionChipStepIndexes(
+    steps: FunnelStepWithConversionMetrics[],
+    {
+        hasBreakdownOrCompare,
+        stepReference,
+        isStepOptional,
+    }: {
+        hasBreakdownOrCompare: boolean
+        stepReference: FunnelStepReference
+        isStepOptional: (stepNumber: number) => boolean
+    }
+): number[] {
+    // With bars relative to the previous step, the bar labels already show step to step conversion.
+    // A breakdown or compare puts several bars in each step, and one chip cannot describe all of them.
+    if (hasBreakdownOrCompare || stepReference !== FunnelStepReference.total) {
+        return []
+    }
+    // A step after an optional step converts from an earlier step, so a chip in that gap would misread.
+    return steps.flatMap((_, index) =>
+        index > 0 && steps[index - 1].count > 0 && !isStepOptional(index) ? [index] : []
+    )
+}
+
+export interface StepBandBox {
+    left: number
+    width: number
+}
+
+export interface StepConversionChipPlacement {
+    /** The step the chip converts into. The chip sits in the gap before this step's bars. */
+    stepIndex: number
+    centerX: number
+}
+
+export function placeStepConversionChips(bands: StepBandBox[]): StepConversionChipPlacement[] {
+    const placements: StepConversionChipPlacement[] = []
+    for (let stepIndex = 1; stepIndex < bands.length; stepIndex++) {
+        const previousRight = bands[stepIndex - 1].left + bands[stepIndex - 1].width
+        placements.push({ stepIndex, centerX: (previousRight + bands[stepIndex].left) / 2 })
+    }
+    return placements
 }

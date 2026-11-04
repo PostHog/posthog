@@ -8,7 +8,8 @@ on:
             - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Per-SHA on push: a shared group keeps one pending run, and the push that replaces it skips the build unless its own diff touches these paths.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -31,7 +32,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -54,7 +55,7 @@ jobs:
     test:
         needs: changes
         name: Unit-test ml-mirror-image-scrub
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.scrub_files == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         permissions:
@@ -73,7 +74,7 @@ jobs:
 
             - name: Install dependencies
               # Standalone package: own lockfile, outside the root pnpm workspace, so ignore the workspace.
-              run: corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
+              run: npm install -g corepack@0.36.0 && corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
 
             - name: Lint
               run: pnpm lint
@@ -104,7 +105,7 @@ jobs:
         # pulls images pushed for them, and each constituent PR already built its own.
         if: |
             !startsWith(github.head_ref, 'trunk-merge/') &&
-            ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
+            ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.scrub_files == 'true') ||
              (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
              (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'))
         runs-on: depot-ubuntu-24.04
@@ -121,24 +122,21 @@ jobs:
         # master → posthog-ml-mirror-image-scrub via the master role; else → the -prs repo via the prs role.
         env:
             ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-ml-mirror-image-scrub' || 'posthog-ml-mirror-image-scrub-prs' }}
-            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE || secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
 
         steps:
             - name: Assert master publish role is configured
               if: github.ref == 'refs/heads/master'
               env:
-                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  MASTER_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |
                   if [[ -z "$MASTER_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
                     exit 1
                   fi
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -254,7 +252,7 @@ jobs:
                         },
                         "release": "ml-mirror-image-scrub",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

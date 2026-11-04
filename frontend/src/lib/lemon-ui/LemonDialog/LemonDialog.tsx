@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -179,6 +179,20 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
     )
 })
 
+// The browser turns Enter on a focused button into a click on that button. Submitting the form as well would run
+// Submit twice, or run it for Cancel.
+function isEnterOnField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
+    return e.key === 'Enter' && !(e.target as HTMLElement).closest('button')
+}
+
+function isImeComposing(e: React.KeyboardEvent<HTMLFormElement>): boolean {
+    return e.nativeEvent.isComposing || e.keyCode === 229
+}
+
+function isEnterHandledByField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
+    return e.defaultPrevented || isImeComposing(e)
+}
+
 export const LemonFormDialog = ({
     initialValues = {},
     onSubmit,
@@ -224,6 +238,9 @@ export const LemonFormDialog = ({
 
     const ref = useRef<LemonDialogRef>(null)
 
+    const isSubmitKey = (e: React.KeyboardEvent<HTMLFormElement>): boolean =>
+        isEnterOnField(e) && !isEnterHandledByField(e) && primaryButton?.htmlType === 'submit' && isFormValid
+
     return (
         <Form
             logic={lemonDialogLogic}
@@ -232,7 +249,7 @@ export const LemonFormDialog = ({
             onKeyDown={
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isSubmitKey(e)) {
                               try {
                                   await onSubmit(form)
                               } catch (error) {
@@ -246,21 +263,23 @@ export const LemonFormDialog = ({
                           }
                       }
                     : (e: React.KeyboardEvent<HTMLFormElement>): void => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isSubmitKey(e)) {
                               void onSubmit(form)
                               ref?.current?.closeDialog()
                           }
                       }
             }
         >
-            <LemonDialog
-                ref={ref}
-                {...props}
-                content={resolvedContent}
-                primaryButton={primaryButton}
-                secondaryButton={secondaryButton}
-                isLoadingCallback={setIsLoading}
-            />
+            <BindLogic logic={lemonDialogLogic} props={logicProps}>
+                <LemonDialog
+                    ref={ref}
+                    {...props}
+                    content={resolvedContent}
+                    primaryButton={primaryButton}
+                    secondaryButton={secondaryButton}
+                    isLoadingCallback={setIsLoading}
+                />
+            </BindLogic>
         </Form>
     )
 }
@@ -286,12 +305,29 @@ export const LemonDialog = LemonDialogComponent as typeof LemonDialogComponent &
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
-    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
+    root.render(
+        <LemonDialog
+            {...props}
+            onAfterClose={() => {
+                props.onAfterClose?.()
+                onDestroy()
+            }}
+        />
+    )
 }
 
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
     // Each dialog gets a unique key so nested dialogs don't share the same
     // lemonDialogLogic instance and corrupt each other's form state.
-    root.render(<LemonFormDialog {...props} dialogKey={uuid()} onAfterClose={onDestroy} />)
+    root.render(
+        <LemonFormDialog
+            {...props}
+            dialogKey={uuid()}
+            onAfterClose={() => {
+                props.onAfterClose?.()
+                onDestroy()
+            }}
+        />
+    )
 }

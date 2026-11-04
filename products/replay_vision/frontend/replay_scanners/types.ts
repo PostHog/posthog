@@ -45,6 +45,8 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'session_id',
     'recording_subject',
     'labeled',
+    'watch_group',
+    'watch_category',
     'order_by',
 ]
 
@@ -67,6 +69,8 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_to',
     'backfill_id',
     'variant',
+    'watch_group',
+    'watch_category',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
@@ -352,18 +356,6 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
 
 // A plain-language description of what each scanner type produces per session, for people who don't yet
 // know the type names. Kept short so it reads as a chip subtitle / tooltip.
-const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
-    monitor: 'yes or no',
-    classifier: 'a category from a set you define',
-    scorer: 'a number score',
-    summarizer: 'a text summary',
-    experiment: 'a text summary per exposed session',
-}
-
-export function scannerTypeOutputHint(scannerType: ScannerType): string {
-    return SCANNER_TYPE_OUTPUT_HINT[scannerType]
-}
-
 /** Section label for a succeeded observation's primary output, shared by the detail page and the dock card. */
 export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     classifier: 'Categories',

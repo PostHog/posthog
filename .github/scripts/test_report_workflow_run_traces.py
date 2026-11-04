@@ -444,26 +444,31 @@ class TestDepotTraces:
                 }
             ],
         }
-        monkeypatch.setattr(
-            reporter.depot_scheduled_runs,
-            "scheduled_workflows",
-            lambda *args, **kwargs: [
-                {"workflow_id": "wf", "created_at": _iso(0)},
-                {"workflow_id": "old", "created_at": _iso(-100)},
-            ],
-        )
+        listed_triggers: list[str] = []
+
+        def list_workflows(*args: object, **kwargs: object) -> list[dict[str, str]]:
+            listed_triggers.append(str(kwargs["trigger"]))
+            # Newest first, as the CLI lists them; the old one must end this trigger's walk only.
+            return [
+                {"workflow_id": "wf", "sha": "a" * 40, "created_at": _iso(0)},
+                {"workflow_id": "old", "sha": "a" * 40, "created_at": _iso(-100000)},
+            ]
+
+        monkeypatch.setattr(reporter.depot_backend_runs, "listed_workflows", list_workflows)
+        monkeypatch.setattr(reporter.depot_backend_runs, "commits_on_master", lambda shas, *_: frozenset(shas))
 
         def depot_response(*args: str) -> str:
             if args[2] == "old":
                 return json.dumps({**shown, "workflow": {**shown["workflow"], "finished_at": _iso(-1)}})
             return json.dumps(shown)
 
-        monkeypatch.setattr(reporter.depot_scheduled_runs, "depot", depot_response)
+        monkeypatch.setattr(reporter.depot_backend_runs, "depot", depot_response)
 
         collection = reporter.collect_depot_runs("PostHog/posthog", RUN_START)
 
         assert collection.complete
-        assert len(collection.runs) == 1
+        assert sorted(listed_triggers) == ["push", "schedule"]
+        assert len(collection.runs) == 2
         run = collection.runs[0]
         assert (run.id, run.attempt, run.provider, run.conclusion) == ("depot:run", 2, "depot", conclusion)
         assert run.path == ".depot/workflows/ci-backend.yml"
@@ -473,6 +478,23 @@ class TestDepotTraces:
         reporter.emit_trace(run, "https://example.com", "token", exporter=exporter)
         assert len(exporter.get_finished_spans()) == 2
         assert reporter.run_resource_attributes(run)["ci.provider"] == "depot"
+
+    def test_a_capped_listing_stays_incomplete_after_branch_runs_are_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        listing = [
+            {"workflow_id": f"wf{i}", "sha": f"{i:040x}", "created_at": _iso(-i)}
+            for i in range(reporter.depot_backend_runs.MAX_LISTED)
+        ]
+        monkeypatch.setattr(reporter.depot_backend_runs, "listed_workflows", lambda *args, **kwargs: listing)
+        monkeypatch.setattr(
+            reporter.depot_backend_runs, "commits_on_master", lambda shas, *_: frozenset(shas) - {f"{0:040x}"}
+        )
+
+        kept, reached_floor = reporter._depot_workflows_since("PostHog/posthog", "push", RUN_START - timedelta(days=1))
+
+        assert len(kept) == reporter.depot_backend_runs.MAX_LISTED - 1
+        assert not reached_floor
 
     def test_failed_depot_reads_hold_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def unavailable(*args: object) -> reporter.Collection:

@@ -274,16 +274,20 @@ describe('TeamManager()', () => {
     })
 
     describe('hasAvailableFeature()', () => {
-        it('returns false by default', async () => {
-            await updateOrganizationAvailableFeatures(postgres, organizationId, [])
-            const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
-            expect(result).toBe(false)
-        })
-
-        it('returns false if the available features does not exist', async () => {
-            await updateOrganizationAvailableFeatures(postgres, organizationId, [
-                { key: 'not_data_pipelines', name: 'Feature 1' },
-            ])
+        it.each<{ name: string; features: ({ key: string; name: string } | null)[] }>([
+            { name: 'by default', features: [] },
+            {
+                name: 'if the available features does not exist',
+                features: [{ key: 'not_data_pipelines', name: 'Feature 1' }],
+            },
+            // A malformed row must load, because a throw fails the batched lookup for every team in it.
+            { name: 'if the available features holds a null entry', features: [null] },
+        ])('returns false $name', async ({ features }) => {
+            await updateOrganizationAvailableFeatures(
+                postgres,
+                organizationId,
+                features as { key: string; name: string }[]
+            )
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(false)
         })
@@ -330,6 +334,13 @@ describe('TeamManager()', () => {
                 expect.objectContaining({ sdk: 'web' }),
                 expect.any(String)
             )
+        })
+
+        it('flips the flag and captures once for a batch that repeats a team', async () => {
+            await teamManager.setTeamsIngestedData([newTeam.id, newTeam.id, newTeam.id])
+
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
         })
 
         it('does nothing on a repeat call through a stale team object', async () => {

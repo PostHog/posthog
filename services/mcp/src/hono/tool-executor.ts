@@ -1,4 +1,4 @@
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { PreparedToolCall } from '@posthog/mcp-analytics'
 
@@ -21,12 +21,17 @@ import {
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
+    isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
+import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
     createExecTool,
     describeApiValidationError,
@@ -34,19 +39,24 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
+    getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
+    missingToolScopeError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     repairArgumentNesting,
     UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
+    type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
+import { readRenderUiData, renderUiDataRequest } from '@/ui-apps/apps/render-ui-data'
 
 import {
     getModelMissingReason,
@@ -56,6 +66,12 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
+import {
+    type GuidanceEngine,
+    type GuidanceNotice,
+    guidanceAnalyticsProperties,
+    attachGuidanceNotice,
+} from './guidance/engine'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -72,6 +88,7 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
     /**
@@ -129,23 +146,41 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
     return scoped
 }
 
+// Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
+export interface ToolCallHooks {
+    carriedContextHandle?: boolean
+    resolveConversation?(conversationId: string): Promise<ResolvedState>
+    beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
+    afterExecute(state: ResolvedState, result: unknown): Promise<void>
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService | undefined
+    private readonly guidance: GuidanceEngine | undefined
 
     constructor(
         catalog: ToolCatalog,
         instructionsBuilder: InstructionsBuilder,
-        skillCatalogService?: SkillCatalogService
+        skillCatalogService?: SkillCatalogService,
+        guidance?: GuidanceEngine
     ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
         this.skillCatalogService = skillCatalogService
+        this.guidance = guidance
+    }
+
+    private async guidanceFor(
+        state: ResolvedState,
+        call: Parameters<GuidanceEngine['evaluate']>[1]
+    ): Promise<GuidanceNotice | undefined> {
+        return this.guidance?.evaluate(state, call)
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state))
+        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state), state.intentPrompt)
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -156,9 +191,9 @@ export class ToolExecutor {
     }
 
     // Guarded because analytics must never break `tools/list`.
-    private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+    private injectAnalyticsParameters(tools: ListToolsResult['tools'], description?: string): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(tools)
+            return getPostHogClient().prepareToolList(tools, description ? { context: { description } } : undefined)
         } catch {
             return tools
         }
@@ -166,7 +201,9 @@ export class ToolExecutor {
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
-            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            const renderUiEntry = state.renderUiEnabled
+                ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
+                : null
             return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
@@ -190,7 +227,7 @@ export class ToolExecutor {
                 return this.instructionsBuilder.buildExecToolEntry(state)
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
-                return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
+                return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
             }
             return undefined
         }
@@ -198,19 +235,27 @@ export class ToolExecutor {
         return this.buildAdvertisedTools(state).find((tool) => tool.name === toolName)
     }
 
-    async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+    async handleToolCall(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        hooks?: ToolCallHooks
+    ): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
         const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        challengeStepUpForGatedTool(toolName, rawArgs, state)
         const originalTool = this.findOriginalTool(toolName, state)
         const rawRequestMeta = params?._meta
         const requestMeta =
             rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
+        const carriedContextHandle =
+            hooks?.carriedContextHandle ??
+            Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -218,18 +263,51 @@ export class ToolExecutor {
             requestMeta,
             state.requestContext
         )
-        // In place, not copied: `RequestStateResolver` gives this one object to both the state
-        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
-        // same session. A batch never reaches here holding a handle, because the dispatcher
-        // refuses a batch containing a modern message and a legacy client carries a session.
+        // RequestContext shares this object so analytics follows the SDK's conversation handle.
         if (preparedCall?.conversationId) {
+            const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId
+            if (
+                !state.requestContext.mcpSessionId &&
+                preparedCall.conversationId !== previousConversationId &&
+                hooks?.resolveConversation
+            ) {
+                // Bind the new handle before execution so this call and its retry share defaults.
+                state = await hooks.resolveConversation(preparedCall.conversationId)
+            }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
+        callState.carriedContextHandle = carriedContextHandle
         const callParams = { ...params, arguments: args }
 
+        const targetToolName =
+            toolName === 'exec' && typeof args.command === 'string'
+                ? parseExecCallInnerToolName(args.command)
+                : toolName
+        const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
+        if (isContextSwitch && !carriedContextHandle) {
+            return this.deliverConversationHandle(
+                {
+                    isError: true,
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Switch not applied. Retry with the returned `conversation_id` and include it on subsequent calls. If your client cannot retain it, pin the project or organization in the connection URL.',
+                        },
+                    ],
+                },
+                preparedCall
+            )
+        }
+
+        const invitation = await hooks?.beforeExecute(callState)
+        if (invitation) {
+            return invitation
+        }
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        return this.deliverConversationHandle(result, preparedCall)
+        const delivered = this.deliverConversationHandle(result, preparedCall)
+        await hooks?.afterExecute(callState, delivered)
+        return delivered
     }
 
     // The agent can only echo a handle it has been given. One exit for every dispatch path,
@@ -252,6 +330,9 @@ export class ToolExecutor {
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         if (toolName === 'exec') {
+            if (state.viaMcpStore) {
+                return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
+            }
             return this.callExecTool(callParams, state, analyticsMeta)
         }
 
@@ -266,7 +347,13 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            const scopeGatedTool = state.findScopeGatedTool(toolName)
+            if (scopeGatedTool) {
+                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
+            }
+            const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
+            return { content: [{ type: 'text', text }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
@@ -315,12 +402,12 @@ export class ToolExecutor {
         preparedCall: PreparedToolCall | undefined
     } {
         try {
+            const carriesContext = Boolean(requestContext.mcpSessionId || requestContext.mcpConversationId)
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
                 originalTool,
                 requestMeta,
-                // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back.
-                sessionId: resolveSessionKey(requestContext),
+                // Wrapper-only analytics hints cannot restore selections, so they must not suppress minting.
+                sessionId: carriesContext ? resolveSessionKey(requestContext) : undefined,
             })
             return {
                 analyticsMeta: {
@@ -418,6 +505,11 @@ export class ToolExecutor {
             stop({ status: 'success' })
 
             const duration = Date.now() - startMs
+            const guidance = await this.guidanceFor(state, {
+                toolName: tool.name,
+                args: validation.data,
+                isError: false,
+            })
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -455,6 +547,7 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...toolResultAnalyticsProperties(response),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -477,11 +570,16 @@ export class ToolExecutor {
                 output: response,
             })
 
-            return response
+            return attachGuidanceNotice(response, guidance)
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
             const classification = classifyToolError(error, tool.name)
+            const guidance = await this.guidanceFor(state, {
+                toolName: tool.name,
+                args: validation.data,
+                isError: true,
+            })
 
             // A skill lookup that misses is not a failure the agent should read as
             // one. The exec dispatcher rewrites the same miss, and a tools-mode
@@ -506,6 +604,7 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -534,16 +633,19 @@ export class ToolExecutor {
             })
 
             if (lookupMiss) {
-                return { content: [{ type: 'text', text: lookupMiss.message }] }
+                return attachGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
             }
 
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(
-                error,
-                tool.name,
-                state.distinctId,
-                sessionUuid,
-                state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+            return attachGuidanceNotice(
+                handleToolError(
+                    error,
+                    tool.name,
+                    state.distinctId,
+                    sessionUuid,
+                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                ),
+                guidance
             )
         }
     }
@@ -555,6 +657,7 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
             skillLookupMissKind: undefined,
@@ -642,6 +745,12 @@ export class ToolExecutor {
             const failureShape = innerFailure
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
+            const guidance = await this.guidanceFor(state, {
+                toolName: execToolName(),
+                execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
+                isError: innerFailure !== undefined,
+            })
 
             void trackToolCall(
                 execToolName(),
@@ -660,15 +769,24 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(execToolName())
             )
 
-            return response
+            return attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
         } catch (error: unknown) {
             const metricTool = execToolName()
             const classification = classifyToolError(error, metricTool)
+            const guidance = await this.guidanceFor(state, {
+                toolName: metricTool,
+                execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+                args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
+                isError: true,
+            })
             if (!execMetrics.innerToolName) {
                 // Match the inner-tool path, which labels rejected input `validation_error`.
                 const status = classification.errorType === 'validation' ? 'validation_error' : 'error'
@@ -685,6 +803,7 @@ export class ToolExecutor {
                     ...execInputShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...execMetrics.commandMeta,
+                    ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
                 this.servedToolDescription(metricTool)
@@ -695,14 +814,17 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return handleToolError(
-                error,
-                metricTool,
-                state.distinctId,
-                sessionUuid,
-                state.suppressAnalytics ||
-                    isPrivateScoutTrialTool(metricTool) ||
-                    isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+            return attachGuidanceNotice(
+                handleToolError(
+                    error,
+                    metricTool,
+                    state.distinctId,
+                    sessionUuid,
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(metricTool) ||
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                ),
+                guidance
             )
         }
     }
@@ -756,6 +878,7 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
             }
@@ -823,8 +946,15 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
-                ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
+                oauthClientId: state.oauthClientId,
+                ...(state.gatewayToolsEnabled
+                    ? {
+                          gatewayToolsProvider: () => this.gatewayToolsFor(state),
+                          gatewayToolFilter: state.gatewayToolFilter,
+                      }
+                    : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.
                 trackCommand: (meta) => {
@@ -841,6 +971,36 @@ export class ToolExecutor {
         }
     }
 
+    /**
+     * Runs the call the render-ui app would make for its data, through the normal dispatch so
+     * scopes, validation and per-tool metrics apply. Any failure, or a preload slower than
+     * `RENDER_UI_PRELOAD_TIMEOUT_MS`, leaves the app to fetch.
+     */
+    private async loadRenderUiAppData(
+        toolName: string,
+        toolInput: Record<string, unknown>,
+        appKey: UiAppKey,
+        state: ResolvedState,
+        analyticsMeta: ToolCallAnalyticsMeta
+    ): Promise<unknown> {
+        const request = renderUiDataRequest(toolName, toolInput, appKey)
+        const preload = this.dispatchToolCall(request.name, { arguments: request.arguments }, state, analyticsMeta)
+            .then((result) => {
+                const data = readRenderUiData(result as CallToolResult, appKey)
+                return data.isError ? undefined : (data.structuredContent ?? undefined)
+            })
+            .catch(() => undefined)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const timeout = new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => resolve(undefined), RENDER_UI_PRELOAD_TIMEOUT_MS)
+        })
+        try {
+            return await Promise.race([preload, timeout])
+        } finally {
+            clearTimeout(timer)
+        }
+    }
+
     private async callRenderUiTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
@@ -849,7 +1009,9 @@ export class ToolExecutor {
         const renderUiTool = createRenderUiTool(
             state.allTools,
             state.context,
-            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+            (toolName, toolInput, appKey) =>
+                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {})
         )
         if (!renderUiTool) {
             return {
@@ -948,6 +1110,23 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
     return classification
 }
 
+// Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,
+// so a step-up client that replays the call after re-consent repeats nothing.
+function challengeStepUpForGatedTool(toolName: string, args: Record<string, unknown>, state: ResolvedState): void {
+    if (!state.supportsStepUp || state.viaMcpStore) {
+        return
+    }
+    const targetToolName =
+        toolName === 'exec' && typeof args.command === 'string' ? parseExecCallInnerToolName(args.command) : toolName
+    if (!targetToolName || state.allTools.some((tool) => tool.name === targetToolName)) {
+        return
+    }
+    const scopeGatedTool = state.findScopeGatedTool(targetToolName)
+    if (scopeGatedTool) {
+        challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
+    }
+}
+
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
     if (error instanceof MCPToolResultError) {
         const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
@@ -967,18 +1146,19 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
-    // ops alerts on. `missing_scope` is the exception: no input the agent sends
-    // fixes it, the connection has to be reauthorized.
+    // ops alerts on. `missing_scope` and `tool_not_granted` are the exceptions: no
+    // input the agent sends fixes them, the grant has to change.
     if (error instanceof ExecCommandError) {
         return {
-            errorType: error.reason === 'missing_scope' ? 'permission' : 'validation',
+            errorType:
+                error.reason === 'missing_scope' || error.reason === 'tool_not_granted' ? 'permission' : 'validation',
             errorCode: error.reason,
         }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 
@@ -1011,21 +1191,9 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
 // the bound external servers get when they pass `error` to the SDK.
 const MAX_ERROR_MESSAGE_LENGTH = 2048
 
-// Matches the truncation the MCP analytics queries apply to `$mcp_error_type`.
-const MAX_ERROR_TOKEN_LENGTH = 200
-
-/**
- * DRF error codes and attrs are server-generated (field names and error codes,
- * never caller values), but they cross a network boundary — strip control
- * characters and cap length so a malformed body can't pollute the property.
- */
-function sanitizeErrorToken(token: string): string | undefined {
-    const sanitized = token
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim()
-        .slice(0, MAX_ERROR_TOKEN_LENGTH)
-    return sanitized || undefined
-}
+// Below the render-ui app's result watchdog (`DEFAULT_WAIT_TIMEOUT_MS`, 20s), so a slow
+// query returns the render directive in time and the app fetches the data itself.
+const RENDER_UI_PRELOAD_TIMEOUT_MS = 15_000
 
 /**
  * Collapses array indexes in a DRF attr path (`actions__2__inputs__email`) to
@@ -1079,7 +1247,7 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (error instanceof ExecCommandError) {
         return `Exec command rejected: ${error.reason}`
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
         return 'Tool call timed out'
     }
     const apiError = findRecoverableApiError(error)
@@ -1200,7 +1368,7 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
  * schema discovery, tool search, and a mistyped verb are indistinguishable, and
  * an `unknown_tool` rejection records nothing about what was attempted. Both
  * values are value-free by construction (see `describeExecCommand`): the verb comes
- * from the closed grammar and the target from this connection's own catalog, so a
+ * from the closed grammar and the target from the server's tool catalog, so a
  * token outside either is recorded as unrecognized rather than echoed.
  */
 function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState): Record<string, unknown> {
@@ -1213,7 +1381,8 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         (name) =>
             state.allTools.some((t) => t.name === name) ||
             state.scopeGatedTools.some((t) => t.name === name) ||
-            state.flagGatedTools.some((t) => t.name === name)
+            state.flagGatedTools.some((t) => t.name === name) ||
+            Object.prototype.hasOwnProperty.call(getToolDefinitions(), name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

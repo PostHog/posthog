@@ -4,7 +4,7 @@ import React from 'react'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { RADIAL_MARGINS } from '../../core/RadialChart'
 import type { ResolvedSeries, ChartTheme, Series } from '../../core/types'
-import { getHogChartTooltip, renderHogChart } from '../../testing'
+import { type ChartAccessor, getChartTooltip, renderChart } from '../../testing'
 import { mockRect } from '../../testing/jsdom'
 import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
@@ -43,60 +43,57 @@ function pointInSlice(layout: PieLayout, sliceIndex: number): { clientX: number;
     }
 }
 
-function sliceLabels(wrapper: HTMLElement): string[] {
-    return Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-slice-label"]')).map(
-        (el) => el.textContent ?? ''
-    )
-}
-
 describe('PieChart', () => {
     it('renders a canvas labeled as a pie chart with one slice per series', () => {
-        const { container } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
+        const { container } = renderChart(<PieChart series={SERIES} theme={THEME} />)
         const canvas = container.querySelector('canvas[aria-label]')
         expect(canvas?.getAttribute('aria-label')).toBe('Pie chart with 2 slices')
     })
 
     it('forwards dataAttr to the chart wrapper', () => {
-        const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} dataAttr="pie-instance" />)
+        const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} dataAttr="pie-instance" />)
         expect(chart.element.getAttribute('data-attr')).toBe('pie-instance')
     })
 
     it('renders one on-slice value label per slice by default', () => {
-        const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
-        const labels = sliceLabels(chart.element)
+        const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
+        const labels = chart.pie.sliceLabels().map((l) => l.text)
         expect(labels).toHaveLength(2)
         expect(labels.join('|')).toContain('50')
     })
 
     it('renders percentage labels when isPercent is set', () => {
-        const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} config={{ isPercent: true }} />)
-        const text = sliceLabels(chart.element).join('|')
+        const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} config={{ isPercent: true }} />)
+        const text = chart.pie
+            .sliceLabels()
+            .map((l) => l.text)
+            .join('|')
         expect(text).toContain('50%')
     })
 
     it('renders value and percentage on one line when sliceValueDisplay is both', () => {
-        const { chart } = renderHogChart(
-            <PieChart series={SERIES} theme={THEME} config={{ sliceValueDisplay: 'both' }} />
-        )
-        expect(sliceLabels(chart.element).join('|')).toContain('50 (50%)')
+        const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} config={{ sliceValueDisplay: 'both' }} />)
+        expect(chart.pie.sliceLabels()[0].lines).toEqual(['50 (50%)'])
     })
 
-    it('suppresses on-slice value labels when showValueOnSlice is false', () => {
-        const { chart } = renderHogChart(
-            <PieChart series={SERIES} theme={THEME} config={{ showValueOnSlice: false }} />
-        )
-        expect(sliceLabels(chart.element)).toHaveLength(0)
+    it.each([
+        ['hidden when showValueOnSlice is false', { showValueOnSlice: false }, false],
+        ['hidden on a donut by default', { innerRadiusRatio: 0.5 }, false],
+        ['shown on a donut that sets showValueOnSlice', { innerRadiusRatio: 0.5, showValueOnSlice: true }, true],
+    ])('on-slice value labels are %s', (_name, config, shown) => {
+        const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} config={config} />)
+        expect(chart.pie.sliceLabels().length > 0).toBe(shown)
     })
 
     it('renders a center label for a donut', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <PieChart series={SERIES} theme={THEME} config={{ innerRadiusRatio: 0.5 }} centerLabel="Total: 100" />
         )
         expect(chart.element.textContent).toContain('Total: 100')
     })
 
     it('renders custom overlay children', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <PieChart series={SERIES} theme={THEME}>
                 <div data-attr="custom-child" />
             </PieChart>
@@ -105,13 +102,13 @@ describe('PieChart', () => {
     })
 
     it('renders an empty pie (zero total) without crashing and with no slice labels', () => {
-        const { chart } = renderHogChart(<PieChart series={[{ key: 'a', label: 'A', data: [0] }]} theme={THEME} />)
-        expect(sliceLabels(chart.element)).toHaveLength(0)
+        const { chart } = renderChart(<PieChart series={[{ key: 'a', label: 'A', data: [0] }]} theme={THEME} />)
+        expect(chart.pie.sliceLabels()).toHaveLength(0)
     })
 
     describe('hover & tooltip', () => {
         it('shows a tooltip for the slice under the cursor', async () => {
-            const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
             const layout = layoutFor(SERIES)
             fireEvent.mouseMove(chart.element, pointInSlice(layout, 0))
             const tooltip = await chart.waitForTooltip()
@@ -120,32 +117,43 @@ describe('PieChart', () => {
         })
 
         it('switches the tooltip to the other slice when the cursor moves', async () => {
-            const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
             const layout = layoutFor(SERIES)
             fireEvent.mouseMove(chart.element, pointInSlice(layout, 1))
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData[0].series.label).toBe('Firefox')
         })
 
+        it('does not repaint the static canvas on hover', async () => {
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
+            let paints = 0
+            const observer = new MutationObserver((records) => (paints += records.length))
+            observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+            const layout = layoutFor(SERIES)
+            fireEvent.mouseMove(chart.element, pointInSlice(layout, 0))
+            fireEvent.mouseMove(chart.element, pointInSlice(layout, 1))
+            await chart.waitForTooltip()
+            expect(paints + observer.takeRecords().length).toBe(0)
+            observer.disconnect()
+        })
+
         it('shows no tooltip when hovering the donut hole', async () => {
-            const { chart } = renderHogChart(
-                <PieChart series={SERIES} theme={THEME} config={{ innerRadiusRatio: 0.5 }} />
-            )
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} config={{ innerRadiusRatio: 0.5 }} />)
             const layout = layoutFor(SERIES, 0.5)
             // Dead center is inside the inner radius — a hit-test miss.
             fireEvent.mouseMove(chart.element, { clientX: layout.cx, clientY: layout.cy })
             await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(getHogChartTooltip()?.textContent ?? '').toBe('')
+            expect(getChartTooltip()?.textContent ?? '').toBe('')
         })
     })
 
     describe('slice click', () => {
         it('invokes onSliceClick with the clicked slice payload', async () => {
             const onSliceClick = jest.fn<void, [RadialSlicePayload]>()
-            const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick} />)
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick} />)
             const layout = layoutFor(SERIES)
             fireEvent.mouseMove(chart.element, pointInSlice(layout, 1))
-            await waitFor(() => expect(getHogChartTooltip()).not.toBeNull())
+            await waitFor(() => expect(getChartTooltip()).not.toBeNull())
             fireEvent.click(chart.element)
             expect(onSliceClick).toHaveBeenCalledWith(
                 expect.objectContaining({ sliceIndex: 1, value: 50, fraction: 0.5 })
@@ -155,7 +163,7 @@ describe('PieChart', () => {
 
         it('does not invoke onSliceClick when the click misses every slice', () => {
             const onSliceClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <PieChart
                     series={SERIES}
                     theme={THEME}
@@ -169,38 +177,76 @@ describe('PieChart', () => {
             fireEvent.click(chart.element)
             expect(onSliceClick).not.toHaveBeenCalled()
         })
+
+        it('shows the tooltip on the first tap and fires onSliceClick on a second tap', async () => {
+            const onSliceClick = jest.fn<void, [RadialSlicePayload]>()
+            // An excluded series makes slice indexes differ from series indexes.
+            const series: Series[] = [
+                { key: 'x', label: 'Safari', data: [10], visibility: { excluded: true } },
+                ...SERIES,
+            ]
+            const { chart } = renderChart(<PieChart series={series} theme={THEME} onSliceClick={onSliceClick} />)
+            const layout = layoutFor(series)
+            // jsdom has no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
+            const tap = (at: { clientX: number; clientY: number }): void => {
+                const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+                fireEvent(chart.element, down)
+                fireEvent.click(chart.element, at)
+            }
+
+            tap(pointInSlice(layout, 0))
+            await waitFor(() => expect(getChartTooltip()?.textContent).toContain('Chrome'))
+            expect(onSliceClick).not.toHaveBeenCalled()
+
+            tap(pointInSlice(layout, 0))
+            expect(onSliceClick).toHaveBeenCalledWith(expect.objectContaining({ sliceIndex: 0 }))
+        })
+
+        it('ignores hover and clicks from an interactive overlay child', () => {
+            const onSliceClick = jest.fn()
+            const { chart, getByRole } = renderChart(
+                <PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick}>
+                    <button data-hog-charts-interactive-overlay="">overlay</button>
+                </PieChart>
+            )
+            const at = pointInSlice(layoutFor(SERIES), 0)
+            fireEvent.mouseMove(chart.element, at)
+            fireEvent.mouseMove(getByRole('button'), at)
+            fireEvent.click(getByRole('button'), at)
+
+            expect(onSliceClick).not.toHaveBeenCalled()
+            expect(getChartTooltip()).toBeNull()
+        })
     })
 
     describe('interactive legend', () => {
-        function legendButtons(container: HTMLElement): HTMLButtonElement[] {
-            return Array.from(
-                container.querySelectorAll<HTMLButtonElement>('[data-attr="hog-chart-pie-legend"] button')
-            )
+        function legendButtons(chart: ChartAccessor): HTMLButtonElement[] {
+            return Array.from(chart.legend()?.querySelectorAll('button') ?? [])
         }
 
         it('renders no legend by default', () => {
-            const { container } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
-            expect(container.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeNull()
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
+            expect(chart.legend()).toBeNull()
         })
 
         it('isolates a slice on legend click and restores them all on a second click', () => {
-            const { container } = renderHogChart(
+            const { chart, container } = renderChart(
                 <PieChart series={SERIES} theme={THEME} config={{ legend: { show: true } }} />
             )
-            expect(legendButtons(container).map((b) => b.textContent)).toEqual(['Chrome', 'Firefox'])
+            expect(legendButtons(chart).map((b) => b.textContent)).toEqual(['Chrome', 'Firefox'])
             expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
                 'Pie chart with 2 slices'
             )
 
-            fireEvent.click(legendButtons(container)[1])
+            fireEvent.click(legendButtons(chart)[1])
             expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
                 'Pie chart with 1 slices'
             )
             // The isolated-away row stays in the legend (dimmed) so it can be restored.
-            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            const dimmed = legendButtons(chart).filter((b) => b.className.includes('opacity-40'))
             expect(dimmed.map((b) => b.textContent)).toEqual(['Chrome'])
 
-            fireEvent.click(legendButtons(container)[1])
+            fireEvent.click(legendButtons(chart)[1])
             expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
                 'Pie chart with 2 slices'
             )
@@ -215,7 +261,7 @@ describe('PieChart', () => {
             }
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             try {
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <PieChart series={SERIES} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
                 const layout = layoutFor(SERIES)

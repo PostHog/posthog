@@ -1,3 +1,4 @@
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { DateRange } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
@@ -7,13 +8,10 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
 import {
     DEFAULT_DATE_RANGE,
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
-    DEFAULT_VIEW_MODE,
     TracingFilters,
     TracingOrderBy,
     TracingOrderDirection,
@@ -213,7 +211,7 @@ export function apmSpansQueryToViewerFilters(input: Record<string, unknown>): Pa
         filterGroup,
         orderBy,
         orderDirection,
-        viewMode: query.flatSpans === true ? 'spans' : DEFAULT_VIEW_MODE,
+        viewMode: query.flatSpans === true ? 'spans' : 'traces',
     }
 }
 

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import re
+import dataclasses
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from django.db.models import Q, QuerySet
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import feature_enabled_or_false
 
 from products.data_warehouse.backend.facade.api import (
     DirectQueryEngine,
@@ -18,6 +22,11 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
+)
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    UPDATE_SHARED_CREDENTIALS_PARAM,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
@@ -31,6 +40,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     AnySource,
@@ -40,7 +50,15 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     source_requires_ssl,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+
+if TYPE_CHECKING:
+    from posthog.integrations import IntegrationUsage
+    from posthog.models.team import Team
+
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+_SOURCE_USAGE_TYPES = frozenset({WAREHOUSE_SOURCE_USAGE_TYPE, UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE})
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
@@ -48,6 +66,11 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
+
+UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE = (
+    "One of the values you entered contains an unsupported character, such as a curly quote. "
+    "Copy the value again from your provider and paste only the value."
 )
 
 UNVERIFIED_CONNECTION_WARNING = (
@@ -62,6 +85,20 @@ def _source_unavailable_message(source_type: str) -> str:
     return (
         f"The {source_type} source isn't available to connect yet. "
         "Choose a different source, or contact support if you were expecting it."
+    )
+
+
+def source_feature_flag_missing(source: AnySource, team: Team) -> bool:
+    """Whether the team lacks the feature flag the source requires before the API serves it."""
+    flag = source.requires_team_feature_flag
+    if flag is None:
+        return False
+    organization_id = str(team.organization_id)
+    return not feature_enabled_or_false(
+        flag,
+        organization_id,
+        groups={"organization": organization_id, "project": str(team.id)},
+        group_properties={"organization": {"id": organization_id}},
     )
 
 
@@ -156,6 +193,10 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     error, so capture it for us and hand back an actionable message — the same treatment schema
     discovery already gives an unexpected error just below the credential check."""
     capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    # http.client encodes header values as latin-1, so a key pasted with a curly quote or similar
+    # character fails mid-request in any source that doesn't check the value up front.
+    if isinstance(error, UnicodeEncodeError):
+        return False, UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 
@@ -462,11 +503,12 @@ def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> No
 
 def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
     """The stored secret values of a source, to mask wherever they appear in its error messages."""
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return frozenset()
     try:
-        source_config = SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).get_source_config
+        source_config = SourceRegistry.get_source(source.source_type).get_source_config
         sensitive = get_sensitive_field_names(source_config.fields)
     except (ValueError, KeyError):
         sensitive = set()
@@ -587,6 +629,69 @@ def has_preserved_credentials(
     return False
 
 
+# The SSH tunnel fields that pick which SSH server receives the tunnel's SSH credentials.
+_SSH_TUNNEL_ENDPOINT_FIELDS = ("host", "port")
+_SSH_TUNNEL_SECRET_FIELDS = ("password", "passphrase", "private_key")
+# Migration 0807 stored the tunnel auth under this key. The config parser reads it before
+# the canonical `auth` key, so a stale block under it shadows the auth an update supplies.
+_LEGACY_SSH_TUNNEL_AUTH_KEY = "auth_type"
+
+
+@frozen
+class _SshTunnelParts:
+    # The tunnel fields other than its auth: enabled, host, port, host_key and the rest.
+    settings: dict[str, Any]
+    # Read from `auth` or the legacy key. It holds the SSH secrets, so repr must not show it.
+    auth: dict[str, Any] = dataclasses.field(repr=False)
+
+
+def _split_ssh_tunnel_auth(tunnel: dict[str, Any], *, reject_conflict: bool) -> _SshTunnelParts:
+    auth_blocks = [tunnel[key] for key in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY) if tunnel.get(key)]
+    if any(not isinstance(block, dict) for block in auth_blocks):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "SSH tunnel auth must be an object."}})
+    if reject_conflict and len(auth_blocks) == 2 and auth_blocks[0] != auth_blocks[1]:
+        raise ValidationError(
+            {"job_inputs": {"ssh_tunnel": "Send the SSH tunnel auth under `auth` only, not also under `auth_type`."}}
+        )
+    return _SshTunnelParts(
+        settings={key: value for key, value in tunnel.items() if key not in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY)},
+        auth=auth_blocks[0] if auth_blocks else {},
+    )
+
+
+def merge_ssh_tunnel(existing: Any, incoming: Any) -> dict[str, Any]:
+    """Merge a partial SSH tunnel update onto the stored tunnel, with the auth under `auth` only.
+
+    The API response omits the SSH secrets, so an update that keeps the endpoint keeps any secret
+    it does not re-supply. An update that changes the host or port must supply a new SSH secret,
+    and no stored secret carries over. Otherwise the credential check would send the stored SSH
+    password to a server that the editor picked.
+    """
+    if not isinstance(incoming, dict):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "Must be an object."}})
+    incoming_parts = _split_ssh_tunnel_auth(incoming, reject_conflict=True)
+    if not isinstance(existing, dict) or not existing:
+        return (
+            {**incoming_parts.settings, "auth": incoming_parts.auth} if incoming_parts.auth else incoming_parts.settings
+        )
+
+    existing_parts = _split_ssh_tunnel_auth(existing, reject_conflict=False)
+    endpoint_changed = any(
+        key in incoming_parts.settings
+        and connection_target_changed(existing_parts.settings.get(key), incoming_parts.settings[key])
+        for key in _SSH_TUNNEL_ENDPOINT_FIELDS
+    )
+    if endpoint_changed and not any(incoming_parts.auth.get(key) for key in _SSH_TUNNEL_SECRET_FIELDS):
+        raise ValidationError("Changing the SSH tunnel host or port requires re-entering your SSH credentials.")
+
+    merged_auth = {**incoming_parts.auth} if incoming_parts.auth else {**existing_parts.auth}
+    if incoming_parts.auth and not endpoint_changed:
+        for key in _SSH_TUNNEL_SECRET_FIELDS:
+            if existing_parts.auth.get(key) and not incoming_parts.auth.get(key):
+                merged_auth[key] = existing_parts.auth[key]
+    return {**existing_parts.settings, **incoming_parts.settings, "auth": merged_auth}
+
+
 def get_direct_connection_metadata(
     *,
     source_impl: Any,
@@ -666,3 +771,40 @@ def _refresh_name_substitutions(
     if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
+
+
+def update_shared_credentials_confirmed(request: Any) -> bool:
+    """True when the request confirms an edit of credentials that other sources or products also use.
+
+    The client sends the flag as a query parameter or in the body.
+    """
+    if request is None:
+        return False
+    value = request.query_params.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    if value is None and isinstance(request.data, Mapping):
+        value = request.data.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    return value is True or str(value).lower() == "true"
+
+
+def denied_source_usages(
+    user_access_control: UserAccessControl | None,
+    team_id: int,
+    usages: Iterable[IntegrationUsage],
+    required_level: AccessControlLevel,
+) -> set[str]:
+    """The ids of the warehouse source usages that the user lacks ``required_level`` access to.
+
+    Credentials that a source shares with other sources must not give a user access that object
+    access controls deny on those sources.
+    """
+    if user_access_control is None:
+        return set()
+    source_ids = {usage.id for usage in usages if usage.type in _SOURCE_USAGE_TYPES}
+    if not source_ids:
+        return set()
+    sources = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+    return {
+        str(source.id)
+        for source in sources
+        if not user_access_control.check_access_level_for_object(source, required_level=required_level)
+    }

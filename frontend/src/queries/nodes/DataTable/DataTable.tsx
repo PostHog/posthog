@@ -2,12 +2,13 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -24,6 +25,7 @@ import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
+import { buildSampleTable } from '~/queries/nodes/DataTable/buildSampleTable'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
@@ -55,6 +57,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
+import { isActorsQuery, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -73,11 +76,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLAggregation,
-    isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isSessionsQuery,
@@ -177,6 +178,7 @@ export function DataTable({
         query: query.source,
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
@@ -209,6 +211,8 @@ export function DataTable({
     // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
     // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
     const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
+    const preComputedAt = response && 'preComputedAt' in response ? response.preComputedAt : undefined
+    const preComputeStale = response && 'preComputeStale' in response ? response.preComputeStale : undefined
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -272,6 +276,11 @@ export function DataTable({
         [sourceFeatures, columnsInResponse, columnsInQuery]
     )
     const contextColumns = context?.columns
+    const columnFormatsRef = useRef<(string | null)[] | undefined>(undefined)
+    columnFormatsRef.current =
+        isHogQLQuery(query.source) && response && 'column_formats' in response
+            ? (response.column_formats as (string | null)[] | undefined)
+            : undefined
     const columnsInLemonTable = useMemo(
         () =>
             allColumns.filter((colName) => {
@@ -279,6 +288,15 @@ export function DataTable({
                 return !col?.queryContextColumn?.hidden
             }),
         [allColumns, contextColumns]
+    )
+    const sampleRowsSource = context?.dataTableSampleRows
+    const hasRows = !!dataTableRows?.length
+    const sampleTable = useMemo(
+        () =>
+            sampleRowsSource && !hasRows
+                ? buildSampleTable(sampleRowsSource, columnsInLemonTable, query, context, dayjs())
+                : undefined,
+        [sampleRowsSource, hasRows, columnsInLemonTable, query, context]
     )
     const orderByForKey = useCallback(
         (key: string): string => {
@@ -355,7 +373,17 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
+                                return renderColumn(
+                                    key,
+                                    value,
+                                    result,
+                                    recordIndex,
+                                    rowCount,
+                                    query,
+                                    setQuery,
+                                    context,
+                                    columnFormatsRef.current?.[index]
+                                )
                             }
                         },
                         sorter: undefined, // using custom sorting code
@@ -971,6 +999,7 @@ export function DataTable({
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
                 downloadQuery={context?.dataTableExportQuery}
+                iconOnly={context?.dataTableExportIconOnly}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1011,7 +1040,12 @@ export function DataTable({
                     {context?.compactDataTableToolbar ? (
                         <>
                             {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
-                                <div className="flex gap-2 items-center flex-wrap">
+                                <div
+                                    className={clsx(
+                                        'flex gap-2 items-center flex-wrap',
+                                        context?.dataTableToolbarClassName
+                                    )}
+                                >
                                     {compactToolbarLeft}
                                     {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
                                         <div className="flex-1" />
@@ -1068,6 +1102,8 @@ export function DataTable({
                                 <PreAggregatedBadge
                                     variant="precomputed"
                                     onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                    computedAt={preComputedAt}
+                                    stale={preComputeStale}
                                 />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
@@ -1126,6 +1162,7 @@ export function DataTable({
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
+                                            sampleTable={sampleTable}
                                             insightProps={insightProps}
                                         />
                                     )
@@ -1147,7 +1184,11 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}

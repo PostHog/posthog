@@ -29,13 +29,13 @@ function makeConsoleLog(overrides: Partial<InspectorListItemConsole> = {}): Insp
     }
 }
 
-function counts(items: any[], groupSimilar = true): number[] {
-    return computeDisplayGroups(items, groupSimilar).map((g) => g.indices.length)
+function counts(items: any[]): number[] {
+    return computeDisplayGroups(items).map((g) => g.indices.length)
 }
 
 describe('computeDisplayGroups', () => {
     it('returns empty for empty input', () => {
-        expect(computeDisplayGroups([], true)).toEqual([])
+        expect(computeDisplayGroups([])).toEqual([])
     })
 
     it('does not group events across non-event items', () => {
@@ -81,11 +81,6 @@ describe('computeDisplayGroups', () => {
         expect(counts(items)).toEqual([2, 1])
     })
 
-    it('disables all grouping when groupSimilar is false', () => {
-        const items = [makeEvent(), makeEvent(), makeConsoleLog(), makeConsoleLog()]
-        expect(counts(items, false)).toEqual([1, 1, 1, 1])
-    })
-
     it('does not group inactivity items', () => {
         const inactivity: InspectorListItemInactivity = {
             type: 'inactivity',
@@ -100,7 +95,7 @@ describe('computeDisplayGroups', () => {
 
     it('tracks correct indices', () => {
         const items = [makeEvent(), makeEvent(), makeConsoleLog(), makeConsoleLog()]
-        const groups = computeDisplayGroups(items, true)
+        const groups = computeDisplayGroups(items)
         expect(groups).toEqual([{ indices: [0, 1] }, { indices: [2, 3] }])
     })
 })

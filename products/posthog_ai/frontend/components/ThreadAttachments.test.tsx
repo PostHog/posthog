@@ -33,11 +33,14 @@ describe('ThreadAttachments', () => {
         expect(image.closest('a')).toHaveAttribute('href', DOWNLOAD_URL)
     })
 
-    it('shows anything else as a badge linking to its download', () => {
-        render(<ThreadAttachments attachments={[{ name: 'rows.csv', ...RESOLVED }]} />)
+    it.each([
+        ['a non-image', 'rows.csv', undefined],
+        ['an image a comment chip already shows', 'comment-1.png', new Set(['comment-1.png'])],
+    ])('shows %s as a badge linking to its download', (_, name, badgeNames) => {
+        render(<ThreadAttachments attachments={[{ name, ...RESOLVED }]} badgeNames={badgeNames} />)
 
-        expect(screen.getByText('rows.csv').closest('a')).toHaveAttribute('href', DOWNLOAD_URL)
-        expect(screen.queryByAltText('rows.csv')).not.toBeInTheDocument()
+        expect(screen.getByText(name).closest('a')).toHaveAttribute('href', DOWNLOAD_URL)
+        expect(screen.queryByAltText(name)).not.toBeInTheDocument()
     })
 
     it('draws the staged file while the upload is still in flight', () => {

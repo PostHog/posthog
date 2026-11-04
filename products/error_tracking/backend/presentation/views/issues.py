@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
@@ -27,8 +28,8 @@ from products.error_tracking.backend.facade import (
     api as facade_api,
     contracts,
     issues as issues_facade,
+    summaries as summaries_facade,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceResultSerializer,
 )
@@ -256,10 +257,59 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the exception is and where it happens.")
+    likely_cause = serializers.CharField(
+        help_text="The model's hypothesis about the cause. Not a confirmed finding. Can be empty."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or environments see the issue.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the issue.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        allow_null=True,
+        help_text="Broad source of the issue, or null when the category model did not answer.",
+    )
+    model = serializers.CharField(help_text="Model that wrote the summary.")
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+    checked_at = serializers.DateTimeField(help_text="When generation last wrote the summary.")
+
+
+class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=contracts.IssueSummaryStatus.choices,
+        help_text=(
+            "ready: `summary` holds the stored summary. "
+            "not_generated: no summary is stored for this issue. A summary is written only when an issue is created. "
+            "unavailable: no summary can be shown. `reason` says why."
+        ),
+    )
+    summary = ErrorTrackingStoredIssueSummarySerializer(
+        allow_null=True, help_text="The stored summary, or null when the status is not ready."
+    )
+    reason = serializers.ChoiceField(
+        choices=contracts.IssueSummaryUnavailableReason.choices,
+        allow_null=True,
+        help_text=(
+            "Why the status is unavailable, else null. restricted: the user may not read a property that the summary "
+            "is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not "
+            "approved AI data processing."
+        ),
+    )
+
+
+def issue_summary_response(team_id: int, issue_id: UUID, *, user: User) -> dict[str, object]:
+    read = summaries_facade.read_issue_summary(team_id, issue_id, user=user)
+    return {
+        "status": read.status,
+        "summary": ErrorTrackingStoredIssueSummarySerializer(read.summary).data if read.summary is not None else None,
+        "reason": read.reason,
+    }
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists", "summary"]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -272,6 +322,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "bulk",
     ]
     serializer_class = ErrorTrackingIssueReadSerializer
+    pagination_class = FacadeLimitOffsetPagination
 
     def _report_issue_change(self, request: request.Request, action: str, properties: dict[str, object]) -> None:
         # Captured server-side because the frontend issue events only see the web app.
@@ -285,11 +336,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        return paginate_via_facade(
-            self,
-            request,
-            lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
-        )
+        return facade_page_response(self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page))
 
     @extend_schema(
         parameters=[
@@ -528,6 +575,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 },
             )
         return Response({"success": True})
+
+    @extend_schema(responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @action(methods=["GET"], detail=True)
+    def summary(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
+        try:
+            issue_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Issue not found")
+        if not facade_api.issue_exists_by_id(self.team_id, issue_id):
+            raise NotFound("Issue not found")
+        return Response(issue_summary_response(self.team_id, issue_id, user=cast(User, request.user)))
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

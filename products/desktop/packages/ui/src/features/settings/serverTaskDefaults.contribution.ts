@@ -3,13 +3,8 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { SERVER_TASK_DEFAULTS_FLAG } from "@posthog/shared";
 import { createAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
-import {
-  FEATURE_FLAGS,
-  type FeatureFlags,
-} from "@posthog/ui/features/feature-flags/identifiers";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
@@ -30,12 +25,9 @@ export class ServerTaskDefaultsContribution implements Contribution {
   constructor(
     @inject(HOST_TRPC_CLIENT)
     private readonly hostClient: HostTrpcClient,
-    @inject(FEATURE_FLAGS)
-    private readonly flags: FeatureFlags,
   ) {}
 
   start(): void {
-    this.flags.onFlagsLoaded(() => void this.reconcile(true));
     useAuthStore.subscribe((state, prev) => {
       if (
         state.authState.currentProjectId !== prev.authState.currentProjectId ||
@@ -47,7 +39,8 @@ export class ServerTaskDefaultsContribution implements Contribution {
     useSettingsStore.subscribe((state, prev) => {
       if (
         state._hasHydrated !== prev._hasHydrated ||
-        state.autoPublishCloudRuns !== prev.autoPublishCloudRuns
+        state.autoPublishCloudRuns !== prev.autoPublishCloudRuns ||
+        state.defaultInitialTaskMode !== prev.defaultInitialTaskMode
       ) {
         void this.reconcile(false);
       }
@@ -58,17 +51,17 @@ export class ServerTaskDefaultsContribution implements Contribution {
   // `fetchAlways` reads the server even when Desktop has nothing new, to pick
   // up a change made on web.
   private async reconcile(fetchAlways: boolean): Promise<void> {
-    if (!this.flags.isEnabled(SERVER_TASK_DEFAULTS_FLAG)) return;
     const settings = useSettingsStore.getState();
     const authState = useAuthStore.getState().authState;
     const projectId = authState.currentProjectId;
     if (!settings._hasHydrated || projectId == null) return;
     const synced = settings.taskDefaultsOnServer[String(projectId)];
     const local = settings.autoPublishCloudRuns;
+    const localMode = settings.defaultInitialTaskMode;
     if (
       !fetchAlways &&
-      synced?.planModeOffered &&
-      synced.autoPublishCloudRuns === local
+      synced?.autoPublishCloudRuns === local &&
+      synced.startInPlanMode === (localMode === "plan")
     ) {
       return;
     }
@@ -95,7 +88,7 @@ export class ServerTaskDefaultsContribution implements Contribution {
       const sync = nextTaskDefaultsSync({
         server: taskDefaults,
         localAutoPublishCloudRuns: local,
-        localInitialTaskMode: settings.defaultInitialTaskMode,
+        localInitialTaskMode: localMode,
         synced,
       });
       if (Object.keys(sync.upload).length > 0) {
@@ -108,13 +101,17 @@ export class ServerTaskDefaultsContribution implements Contribution {
         return;
       }
       const store = useSettingsStore.getState();
-      if (store.autoPublishCloudRuns !== local) {
+      if (
+        store.autoPublishCloudRuns !== local ||
+        store.defaultInitialTaskMode !== localMode
+      ) {
         // The person changed the setting while the request ran. The rerun
         // sends that change.
         this.rerun.add(projectId);
         store.setTaskDefaultsOnServer(projectId, {
           ...sync.synced,
           autoPublishCloudRuns: local,
+          startInPlanMode: localMode === "plan",
         });
         return;
       }
@@ -123,6 +120,23 @@ export class ServerTaskDefaultsContribution implements Contribution {
       store.setTaskDefaultsOnServer(projectId, sync.synced);
       if (sync.pullAutoPublishCloudRuns !== null) {
         store.setAutoPublishCloudRuns(sync.pullAutoPublishCloudRuns);
+      }
+      if (sync.pullInitialTaskMode !== null) {
+        const pulledPlan = sync.pullInitialTaskMode === "plan";
+        for (const [otherId, other] of Object.entries(
+          store.taskDefaultsOnServer,
+        )) {
+          if (
+            otherId !== String(projectId) &&
+            other.startInPlanMode !== undefined
+          ) {
+            store.setTaskDefaultsOnServer(Number(otherId), {
+              ...other,
+              startInPlanMode: pulledPlan,
+            });
+          }
+        }
+        store.setDefaultInitialTaskMode(sync.pullInitialTaskMode);
       }
     } catch (err) {
       log.warn("Failed to sync task defaults with the server", err);

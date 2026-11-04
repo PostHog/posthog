@@ -479,6 +479,8 @@ class TestReusableWidgets(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["count"] == 1
+        assert response.json()["next"] is None
+        assert response.json()["previous"] is None
         assert response.json()["results"][0]["id"] == str(self.widget.id)
         assert response.json()["results"][0]["instance_count"] == 1
         other_team = Team.objects.create(organization=self.organization)
@@ -490,8 +492,7 @@ class TestReusableWidgets(APIBaseTest):
         assert entries[0]["inputs"][0]["slot"] == self.input_name
         assert "demo_data" not in entries[0]
         assert "MDX" in context
-        with patch("products.notebooks.backend.reusable_widgets.is_notebook_widget_enabled", return_value=False):
-            assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
+        assert reusable_widget_catalog_context(team_id=self.team.id, user=None) == ""
 
     def test_catalog_detail_and_demo_frame_start_without_notebook_rows(self) -> None:
         self._publish()
@@ -1014,14 +1015,18 @@ class TestReusableWidgets(APIBaseTest):
             "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=canvas_versions
         ):
             response = self.client.get(url, {"limit": 1})
-            older = self.client.get(url, {"offset": 1, "limit": 1})
+            older = self.client.get(response.json()["next"])
+            newest_again = self.client.get(older.json()["previous"])
         assert response.status_code == 200
+        assert response.json()["previous"] is None
         assert response.json()["count"] == 2
         assert response.json()["next_offset"] == 1
         assert response.json()["results"][0]["id"] == str(latest.id)
         assert response.json()["results"][0]["version"] == 2
         assert response.json()["results"][0]["input_contract"] == []
         assert older.json()["next_offset"] is None
+        assert older.json()["next"] is None
+        assert newest_again.json()["results"] == response.json()["results"]
         assert older.json()["results"][0]["id"] == str(self.version.id)
         assert older.json()["results"][0]["version"] == 1
         assert older.json()["results"][0]["input_contract"][0]["slot"] == self.input_name
