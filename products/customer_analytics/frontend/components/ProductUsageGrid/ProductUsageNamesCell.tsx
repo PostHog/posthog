@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -29,16 +31,17 @@ export function ProductUsageNamesCell({
     loading?: boolean
     onToggle: () => void
 }): JSX.Element {
+    const firstsByPerson = useMemo(
+        () => new Map(firstUse.map((first) => [JSON.stringify([first.row, first.series, first.personId]), first])),
+        [firstUse]
+    )
     if (loading && !people.length) {
         return <Spinner />
     }
     return (
         <div className="flex flex-col items-start gap-1 min-w-24 max-w-40">
             {people.map((person) => {
-                const first = firstUse.find(
-                    (item) =>
-                        item.row === person.row && item.series === person.series && item.personId === person.personId
-                )
+                const first = firstsByPerson.get(JSON.stringify([person.row, person.series, person.personId]))
                 const date = first && dayjs(first.date)
                 const isNew =
                     !!date &&

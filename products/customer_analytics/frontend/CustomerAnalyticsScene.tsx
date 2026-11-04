@@ -43,6 +43,7 @@ import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { ProductUsageTabContent } from './components/ProductUsageGrid/ProductUsageTabContent'
 import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
@@ -110,6 +111,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    if (
+        activeTab === 'product_activity' &&
+        (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] ||
+            !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX])
+    ) {
+        return <NotFound object="page" />
+    }
+
     if (activeTab === 'feature_requests' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
         return <NotFound object="page" />
     }
@@ -170,6 +179,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             content: <AccountsTabContent />,
             link: tabLink(urls.customerAnalyticsAccounts(), 'accounts'),
         })
+        if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX]) {
+            tabs.push({
+                key: 'product_activity',
+                label: 'Product activity',
+                content: <ProductUsageTabContent />,
+                link: tabLink(urls.customerAnalyticsProductActivity(), 'product_activity'),
+            })
+        }
         tabs.push({
             key: 'notes',
             label: 'Notes',
