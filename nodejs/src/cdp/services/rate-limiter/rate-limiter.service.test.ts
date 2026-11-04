@@ -422,13 +422,13 @@ describe('RateLimiterService', () => {
     })
 
     it('shares recipient allowances across projects in an organization while keeping project allowances separate', async () => {
-        const organizations = { 1: randomUUID(), 3: randomUUID(), 4: randomUUID() }
+        const organizations = { 1: randomUUID(), 3: randomUUID(), 4: randomUUID(), 6: randomUUID() }
         const teamManager = {
             getTeam: (id: number) =>
                 id === 5
                     ? Promise.reject(new Error('Postgres is unreachable'))
                     : Promise.resolve({
-                          organization_id: id in organizations ? organizations[id as 3 | 4] : organizations[1],
+                          organization_id: id in organizations ? organizations[id as 3 | 4 | 6] : organizations[1],
                       }),
         } as unknown as TeamManager
         const sender = new SandboxEmailSender(
@@ -458,8 +458,12 @@ describe('RateLimiterService', () => {
             expect(await sender.claimDailyCaps(3, ['member@example.com'])).toMatchObject({ type: 'granted' })
             expect(await sender.claimDailyCaps(2, ['third@example.com'])).toEqual({ type: 'project_cap_reached' })
             // One recipient written twice is one email for the project allowance too.
-            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' TWICE@example.com'])).toMatchObject({
+            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' twice@example.com'])).toMatchObject({
                 type: 'granted',
+            })
+            // Two members can store one address in two cases, and each case can be its own mailbox.
+            expect(await sender.claimDailyCaps(6, ['Member@example.com', 'member@example.com'])).toEqual({
+                type: 'project_cap_reached',
             })
             expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'check_failed' })
         } finally {
@@ -471,11 +475,15 @@ describe('RateLimiterService', () => {
 
     describe('claimAllOrNothing', () => {
         it('refills a bucket that a claim emptied', async () => {
-            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 5 }
+            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 1 / 3_600 }
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
-            await new Promise((resolve) => setTimeout(resolve, 300))
+            // The bucket reads the Valkey server clock, so the test moves the last claim an hour back instead.
+            await redis.useClient({ name: 'age-bucket' }, async (client) => {
+                const lastClaimAt = Number(await client.hget(bucket.key, 'ts'))
+                await client.hset(bucket.key, 'ts', lastClaimAt - 3_600_000)
+            })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
         })
 
