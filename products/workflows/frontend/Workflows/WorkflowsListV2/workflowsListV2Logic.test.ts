@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { WorkflowStatsRowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { customerioImportLogic } from '../import/customerioImportLogic'
 import type { WorkflowListRow } from './workflowListRows'
 import {
     FIXTURE_METRICS,
@@ -658,7 +659,16 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.workflows?.map((workflow) => workflow.id)).not.toContain('wf-old-promo')
     })
 
-    it('shows a copy that only the server search matches', async () => {
+    it.each([
+        ['a duplicate', (row: WorkflowListRow) => logic.actions.duplicateWorkflow(row)],
+        [
+            'a Customer.io import',
+            () => {
+                customerioImportLogic.mount()
+                customerioImportLogic.actions.runImportSuccess({ content_fetched: true, dryRun: false, results: [] })
+            },
+        ],
+    ])('shows a new workflow from %s that only the server search matches', async (_, create) => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
@@ -684,7 +694,7 @@ describe('workflowsListV2Logic', () => {
             post: { '/api/projects/:team_id/hog_flows/': () => [200, { id: copy.id }] },
         })
 
-        logic.actions.duplicateWorkflow(logic.values.rows.find((row) => row.id === 'wf-sync')!)
+        create(logic.values.rows.find((row) => row.id === 'wf-sync')!)
         await expectLogic(logic).toFinishAllListeners()
         expect(shownIds(logic)).toEqual(['wf-sync', 'wf-sync-copy'])
     })

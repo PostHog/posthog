@@ -285,6 +285,9 @@ export interface workflowsListV2LogicActions {
         id: string
         patch: Partial<HogFlowListSummaryApi>
     }
+    refreshWorkflows: () => {
+        value: true
+    }
     removeWorkflow: (id: string) => {
         id: string
     }
@@ -364,6 +367,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeamId'], userLogic, ['user']] })),
     actions({
         loadWorkflows: true,
+        /** Reloads the rows and the server search, for workflows created outside this list. */
+        refreshWorkflows: true,
         loadMetrics: true,
         setValue: (value: FacetSearchValue) => ({ value }),
         clearFilters: true,
@@ -634,14 +639,15 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 router.values.hashParams
             )
         }
-        // The copy has a new id, so a server search from before it existed can't match it.
-        const refreshServerSearch = (): void => {
-            const text = values.value.text.trim()
-            if (text.length >= MIN_SERVER_SEARCH_LENGTH) {
-                actions.searchWorkflows(text)
-            }
-        }
         return {
+            refreshWorkflows: () => {
+                actions.loadWorkflows()
+                // A new workflow has a new id, so a server search from before it existed can't match it.
+                const text = values.value.text.trim()
+                if (text.length >= MIN_SERVER_SEARCH_LENGTH) {
+                    actions.searchWorkflows(text)
+                }
+            },
             clearFilters: () => {
                 cache.searchAbort?.abort()
                 writeUrl()
@@ -691,8 +697,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                         const full = await hogFlowsRetrieve(teamId, row.id)
                         await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
                         lemonToast.success(`Workflow "${row.name}" duplicated`)
-                        actions.loadWorkflows()
-                        refreshServerSearch()
+                        actions.refreshWorkflows()
                     } catch (error) {
                         lemonToast.error(`Failed to duplicate workflow: ${workflowActionErrorDetail(error)}`)
                     }
