@@ -258,6 +258,7 @@ class TestStripSecrets(SimpleTestCase):
             ("numbered_key", {"api_key_2": "fake", "tde_private_key_backup": "fake", "keystore": "fake"}, {}),
             ("named_token", {"pat": "fake", "query_param_value": "fake"}, {}),
             ("token_in_url", {"blob_sas_url": "https://acct.blob.core.example.com/c?sv=2024&sig=fake"}, {}),
+            ("encoded_token_name_in_url", {"blob_sas_url": "https://acct.blob.core.example.com/c?%73ig=fake"}, {}),
             ("camel_case", {"apiKey": "fake", "privateKey": "fake"}, {}),
             ("auth_object", {"auth": {"client_id": "fake"}, "authorization": "fake"}, {}),
             ("password_in_url", {"uri": "postgres://reader:fake@db.example.com/app"}, {}),
@@ -272,7 +273,13 @@ class TestStripSecrets(SimpleTestCase):
             ),
             (
                 "service_specific_credentials",
-                {"service_authentication": "fake", "primary_key": "fake", "app_id": "fake"},
+                {
+                    "service_authentication": "fake",
+                    "dsv_service_auth": "fake",
+                    "shard_authorization_id": "fake",
+                    "primary_key": "fake",
+                    "app_id": "fake",
+                },
                 {},
             ),
             (
