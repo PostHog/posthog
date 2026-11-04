@@ -86,7 +86,7 @@ class TestSuggestReplies(SimpleTestCase):
         ]
     )
     def test_suggestions_from_model_reply(self, _name: str, content: str, expected: list[SuggestedReply]) -> None:
-        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(content)
             assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == expected
 
@@ -94,14 +94,13 @@ class TestSuggestReplies(SimpleTestCase):
         attribution = ReplySuggestionAttribution(
             trace_id="trace-1", session_id="T1:C1:1.0", distinct_id="user-1", task_id="task-1", run_id="run-1"
         )
-        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(
                 json.dumps({"suggestions": []})
             )
             suggest_replies("Should I open a PR?", attribution)
 
         assert build.call_args.kwargs == {
-            "product": "slack_app_routing",
             "ai_product": "slack_app_routing",
             "trace_id": "trace-1",
             "session_id": "T1:C1:1.0",
@@ -112,12 +111,12 @@ class TestSuggestReplies(SimpleTestCase):
         assert create.call_args.kwargs["user"] == "user-1"
 
     def test_model_failure_offers_nothing(self) -> None:
-        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
             assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == []
 
     def test_the_person_message_reaches_the_model_apart_from_the_answer(self) -> None:
-        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
             create = build.return_value.with_options.return_value.chat.completions.create
             create.return_value = _completion(json.dumps({"suggestions": []}))
             suggest_replies("Should I open a PR?", ReplySuggestionAttribution(), "Why does the retry never stop?")
