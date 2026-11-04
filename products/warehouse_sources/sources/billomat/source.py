@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.billomat.billomat import (
     billomat_source,
     validate_credentials as validate_billomat_credentials,
 )
-from products.warehouse_sources.sources.billomat.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.billomat.settings import ENDPOINTS, INCREMENTAL_FIELDS, PRIMARY_KEYS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -137,7 +137,7 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
             column_hints=resource.column_hints,
         )
 
@@ -147,7 +147,7 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
             name=ExternalDataSourceType.BILLOMAT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Billomat",
-            caption="Sync clients, contacts, suppliers, invoices, payments, estimates, confirmations, recurring invoices, credit notes and incoming supplier bills from Billomat.",
+            caption="Sync clients, contacts, suppliers, articles, invoices, payments, reminders, estimates, confirmations, delivery notes, recurring invoices, credit notes, incoming supplier bills and the activity feed from Billomat.",
             docsUrl="https://posthog.com/docs/cdp/sources/billomat",
             iconPath="/static/services/billomat.png",
             releaseStatus=ReleaseStatus.BETA,
