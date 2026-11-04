@@ -487,6 +487,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     from_address = serializers.CharField(
         required=False,
+        # parseaddr() is quadratic on group addresses, so the raw value is bounded before validate_from parses it.
+        max_length=1024,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
         "the project's default sender, or from its only verified sender when it has no default.",

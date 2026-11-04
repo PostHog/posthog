@@ -656,6 +656,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_that_is_not_an_address", {"from": "Example"}, "from"),
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
+            ("sender_over_1024_characters", {"from": "E" * 1024 + " <security@example.com>"}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
