@@ -47,8 +47,13 @@ impl ParseError {
     /// SQL editor places markers by character, so the public entry points convert before returning.
     pub(crate) fn into_char_offsets(mut self, src: &str) -> Self {
         if !src.is_ascii() {
+            let nonempty = self.end > self.start;
             self.start = char_index(src, self.start);
-            self.end = char_index(src, self.end);
+            self.end = if nonempty {
+                char_end_index(src, self.end)
+            } else {
+                char_index(src, self.end)
+            };
         }
         self
     }
@@ -122,6 +127,15 @@ impl ParseError {
             r#"{"error":true,"type":"InternalError","message":"failed to serialize error envelope","start":{"offset":0},"end":{"offset":0}}"#.to_string()
         })
     }
+}
+
+// Exclusive ends inside a UTF-8 scalar must include that scalar in the span.
+fn char_end_index(src: &str, byte_offset: usize) -> usize {
+    let mut boundary = byte_offset.min(src.len());
+    while !src.is_char_boundary(boundary) {
+        boundary += 1;
+    }
+    src[..boundary].chars().count()
 }
 
 fn char_index(src: &str, byte_offset: usize) -> usize {
