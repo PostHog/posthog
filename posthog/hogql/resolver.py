@@ -36,6 +36,8 @@ from posthog.hogql.errors import (
     ImpossibleASTError,
     NotImplementedError,
     QueryError,
+    ResolutionCycleError,
+    ResolutionDepthExceededError,
     ResolutionError,
 )
 from posthog.hogql.escape_sql import safe_identifier
@@ -474,6 +476,8 @@ class Resolver(CloningVisitor):
         context: HogQLContext,
         dialect: HogQLDialect = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
+        *,
+        initial_view_name: str | None = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
@@ -481,7 +485,13 @@ class Resolver(CloningVisitor):
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
-        self._resolving_saved_views: set[str] = set()
+        # The saved query being resolved, if the caller has one. It may not be in the database yet, so seeding it
+        # here makes a body that reads its own name a cycle.
+        self.initial_view_name = initial_view_name
+        self._resolving_saved_views: set[str] = {initial_view_name} if initial_view_name else set()
+        # id(resolved union body) -> the view it was inlined from. SelectSetQuery has no `view_name`, so a
+        # union-bodied view would otherwise lose its identity once resolved.
+        self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
@@ -1451,6 +1461,15 @@ class Resolver(CloningVisitor):
             self.join_sources.record_copied_tree(copy, node)
         return copy
 
+    def _check_saved_view_expansion(self, view_name: str) -> None:
+        """Refuses to expand a view that is already being resolved, or one nested past the hard depth limit."""
+        if view_name in self._resolving_saved_views:
+            raise ResolutionCycleError(view_name, initial_view=self.initial_view_name)
+        if self.current_view_depth >= MAX_VIEW_DEPTH:
+            raise ResolutionDepthExceededError(
+                self.current_view_depth + 1, MAX_VIEW_DEPTH, initial_view=self.initial_view_name
+            )
+
     def _swap_flag_calls_in_view_body(
         self, body: ast.SelectQuery | ast.SelectSetQuery, view_name: str
     ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -1602,12 +1621,7 @@ class Resolver(CloningVisitor):
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
-                if database_table.name in self._resolving_saved_views:
-                    raise QueryError(f"Circular dependency detected in view '{database_table.name}'")
-                if self.current_view_depth >= MAX_VIEW_DEPTH:
-                    raise QueryError(
-                        f"Query exceeds the limit of {MAX_VIEW_DEPTH} nested saved views. Reduce the view nesting depth."
-                    )
+                self._check_saved_view_expansion(database_table.name)
                 view_query = str(database_table.query)
                 self._compilation_budget.expand_view(view_query)
                 view_body = parse_select(view_query)
@@ -1760,6 +1774,8 @@ class Resolver(CloningVisitor):
                 if view_name is not None:
                     self.current_view_depth -= 1
                     self._resolving_saved_views.remove(view_name)
+            if view_name is not None and isinstance(node.table, ast.SelectSetQuery):
+                self.union_view_name_by_id[id(node.table)] = view_name
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:

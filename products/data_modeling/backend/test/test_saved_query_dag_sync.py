@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
@@ -22,7 +23,6 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import (
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
