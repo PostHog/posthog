@@ -23,7 +23,7 @@ Establish these facts before you discuss any percentage:
   - `filters.feature_enrollment` is true: the early access feature decides who is served, not the release conditions.
   - `filters.version` is 2: the rollout tools refuse the flag with `unsupported_config_version`. Raise the percentage on the existing rule with `posthog:feature-flag-rules-update`, and keep its `id` and `seed` unchanged.
 - **The deploy.** Find the commit that reads the flag and confirm that it runs in production. An open pull request or a merged commit that has not deployed is not live. If you cannot see the repository, ask for the release, and say that the rollout waits for the answer.
-- **The signal.** Find flagged traffic in the metric the rollout will be judged on, from the last 24 hours. No flagged traffic means stop here, whatever the flag says.
+- **The signal.** Ask the person which insights or dashboards show whether this feature is healthy, unless they already said. Then find flagged traffic in those metrics, from the last 24 hours. No flagged traffic means stop here, whatever the flag says.
 
 Three kinds of evidence look alike and prove different things:
 
@@ -92,10 +92,14 @@ A query that returns zero errors because the filter matches nothing looks the sa
 
 ## 3. Point monitoring at a dashboard
 
-Prefer the dashboard the team already watches.
-Search with `posthog:execute-sql` against `system.dashboards`, or with `posthog:dashboards-get-all`, then read the candidates with `posthog:dashboard-get`.
-Reuse one if it covers the gate metrics, and ask before you add tiles to a dashboard someone else owns.
-When none fits, create one with the `building-a-dashboard` skill.
+Start from what the person named in step 1, because they know which charts they trust.
+Read each one with `posthog:insight-get` or `posthog:dashboard-get`, and check that it covers the gate metrics and can split by flag state.
+
+If they do not know of one, search with `posthog:execute-sql` against `system.dashboards`, `posthog:dashboards-get-all` or `posthog:insights-list`, and show them the candidates.
+Let the person choose, and ask before you add tiles to a dashboard someone else owns.
+
+When nothing fits, propose a new dashboard and list the tiles it would have.
+Create it with the `building-a-dashboard` skill only after the person agrees.
 
 The dashboard needs two comparisons, because each one covers a weakness of the other:
 
