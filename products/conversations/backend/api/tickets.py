@@ -30,6 +30,7 @@ from rest_framework import (
 )
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -101,6 +102,12 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    resolve_attachment_content_type,
+    sanitize_attachment_filename,
+    save_file_to_uploaded_media,
+)
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
@@ -255,6 +262,14 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class TicketAttachmentSerializer(serializers.Serializer):
+    url = serializers.CharField(help_text="Public download URL of the stored file.")
+    name = serializers.CharField(help_text="Sanitized file name.")
+    content_type = serializers.CharField(
+        help_text="Stored content type. Inline-safe images come back as their decoded image type."
+    )
 
 
 class AiFeedbackRequestSerializer(serializers.Serializer):
@@ -768,6 +783,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "patch",
         "compose",
         "reply",
+        "attachments",
         "ai_feedback",
         "ai_human_outcome",
         "note",
@@ -789,9 +805,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def check_permissions(self, request: Request) -> None:
         super().check_permissions(request)
         if is_scout_sandbox_request(request):
-            if self.action in {"compose", "note", "delete_note"}:
+            if self.action in {"compose", "note", "delete_note", "attachments"}:
                 raise PermissionDenied(
-                    "Scouts can add private notes but cannot compose emails or change existing notes."
+                    "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
@@ -1770,6 +1786,77 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "File to attach. Must be under 20 MiB.",
+                    },
+                },
+                "required": ["file"],
+            }
+        },
+        responses={
+            201: OpenApiResponse(response=TicketAttachmentSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        pagination_class=None,
+        parser_classes=[MultiPartParser],
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def attachments(self, request, *args, **kwargs):
+        """Upload a file to put in a reply to this ticket.
+
+        Images are validated and shown inline. Other files are stored as they are and
+        served as a download. Widget tickets do not accept file attachments yet.
+        """
+        ticket = self.get_object()
+
+        if ticket.channel_source == Channel.WIDGET:
+            return Response(
+                {"detail": "Widget tickets do not accept file attachments.", "error_type": "channel_not_supported"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        file = request.FILES.get("file")
+        if file is None:
+            return Response({"detail": "A file is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if file.size is None or file.size > CONVERSATIONS_MAX_IMAGE_BYTES:
+            return Response(
+                {"detail": "Attachments must be under 20 MiB.", "error_type": "file_too_large"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        content = file.read()
+        name = sanitize_attachment_filename(file.name)
+        content_type = resolve_attachment_content_type(content, file.content_type or "application/octet-stream")
+        if content_type is None:
+            return Response(
+                {"detail": "The file is not a valid image.", "error_type": "invalid_image"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        url = save_file_to_uploaded_media(self.team, name, content_type, content, validate_images=False)
+        if url is None:
+            return Response(
+                {"detail": "Could not store the file.", "error_type": "storage_failed"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            TicketAttachmentSerializer({"url": url, "name": name, "content_type": content_type}).data,
+            status=drf_status.HTTP_201_CREATED,
         )
 
     @extend_schema(

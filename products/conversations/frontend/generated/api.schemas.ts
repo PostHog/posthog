@@ -634,6 +634,15 @@ export interface TicketErrorApi {
     error_type?: string
 }
 
+export interface TicketAttachmentApi {
+    /** Public download URL of the stored file. */
+    url: string
+    /** Sanitized file name. */
+    name: string
+    /** Stored content type. Inline-safe images come back as their decoded image type. */
+    content_type: string
+}
+
 /**
  * * `customer_message` - Customer message
  * * `sent_reply` - Sent reply
@@ -1296,6 +1305,11 @@ export const ConversationsTicketsListSla = {
     Breached: 'breached',
     OnTrack: 'on-track',
 } as const
+
+export type ConversationsTicketsAttachmentsCreateBody = {
+    /** File to attach. Must be under 20 MiB. */
+    file: Blob
+}
 
 export type ConversationsTicketsMessagesListParams = {
     /**

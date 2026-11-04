@@ -21,7 +21,7 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconDocument, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -159,6 +159,8 @@ export type SupportEditorProps = {
     onPressCmdEnter?: () => void
     /** Called when upload state changes (true = uploading, false = idle) */
     onUploadingChange?: (uploading: boolean) => void
+    /** Stores a file of any type. When set, the toolbar can attach files, which go into the message as download links. */
+    onAttachFile?: (file: File) => Promise<SupportEditorAttachment>
     disabled?: boolean
     minRows?: number
     /** Past this, the text scrolls so the toolbar and send bar stay on screen. */
@@ -170,6 +172,11 @@ export type SupportEditorProps = {
     /** Slash commands that insert team macros. Off for customer-facing composers. */
     enableMacros?: boolean
     onInsertMacro?: (macro: TicketMacroApi) => void
+}
+
+export type SupportEditorAttachment = {
+    url: string
+    name: string
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -486,6 +493,7 @@ export function SupportEditor({
     onUpdate,
     onPressCmdEnter,
     onUploadingChange,
+    onAttachFile,
     disabled = false,
     minRows,
     maxRows = 12,
@@ -575,10 +583,45 @@ export function SupportEditor({
         linkShortcutCallbackRef.current = openLinkPopover
     }, [openLinkPopover])
 
+    const [attaching, setAttaching] = useState<boolean>(false)
+
+    const attachFile = async (files: File[]): Promise<void> => {
+        const file = files[0]
+        if (!file || !onAttachFile || !ttEditor) {
+            return
+        }
+        setAttaching(true)
+        try {
+            const attachment = await onAttachFile(file)
+            // Same shape as files that arrive from Slack, Teams and email, so every channel renders it as a link.
+            ttEditor
+                .chain()
+                .focus()
+                .insertContent({
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: attachment.name,
+                            marks: [{ type: 'link', attrs: { href: attachment.url } }],
+                        },
+                    ],
+                })
+                .run()
+            posthog.capture('support reply file attached', { content_type: file.type, size_bytes: file.size })
+        } catch (e: any) {
+            const detail = e?.detail || e?.message || 'Unknown error'
+            posthog.capture('support reply file attach failed', { error: detail })
+            lemonToast.error(`Error attaching file: ${detail}`)
+        } finally {
+            setAttaching(false)
+        }
+    }
+
     // Notify parent of upload state changes
     useEffect(() => {
-        onUploadingChange?.(uploading)
-    }, [uploading, onUploadingChange])
+        onUploadingChange?.(uploading || attaching)
+    }, [uploading, attaching, onUploadingChange])
 
     const handleDragEnter = (e: React.DragEvent): void => {
         e.preventDefault()
@@ -800,6 +843,34 @@ export function SupportEditor({
                             />
                         }
                     />
+                    {onAttachFile && (
+                        <LemonFileInput
+                            key="file-attach"
+                            accept=""
+                            multiple={false}
+                            onChange={(files) => void attachFile(files)}
+                            loading={attaching}
+                            value={[]}
+                            showUploadedFiles={false}
+                            callToAction={
+                                <LemonButton
+                                    size="small"
+                                    icon={
+                                        attaching ? (
+                                            <Spinner className="text-lg" textColored={true} />
+                                        ) : (
+                                            <IconDocument className="text-lg" />
+                                        )
+                                    }
+                                    disabledReason={
+                                        objectStorageAvailable ? undefined : 'Enable object storage to attach files'
+                                    }
+                                    tooltip={objectStorageAvailable ? 'Attach a file (max 20 MiB)' : null}
+                                    data-attr="support-editor-attach-file"
+                                />
+                            }
+                        />
+                    )}
                     <EmojiPickerPopover
                         key="emoj-picker"
                         data-attr="lemon-rich-text-editor-emoji-popover"

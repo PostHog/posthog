@@ -111569,6 +111569,15 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    export interface TicketAttachment {
+      /** Public download URL of the stored file. */
+      url: string;
+      /** Sanitized file name. */
+      name: string;
+      /** Stored content type. Inline-safe images come back as their decoded image type. */
+      content_type: string;
+    }
+
     export interface TicketError {
       /** Human-readable error message. */
       detail: string;
@@ -122193,6 +122202,11 @@ export namespace Schemas {
       Breached: 'breached',
       OnTrack: 'on-track',
     } as const;
+
+    export type ConversationsTicketsAttachmentsCreateBody = {
+      /** File to attach. Must be under 20 MiB. */
+      file: Blob;
+    };
 
     export type ConversationsTicketsMessagesListParams = {
     /**
