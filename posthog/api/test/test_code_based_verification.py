@@ -13,7 +13,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
-from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 from posthog.models.instance_setting import override_instance_config
@@ -183,11 +182,12 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_resend_reports_an_undeliverable_address_instead_of_sent(self):
-        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
-            self._trigger(mock_send)
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen:
+            with enable_code_sending() as mock_send:
+                self._trigger(mock_send)
             frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
-            mock_send.side_effect = EmailRecipientUndeliverableError()
-            response = self.client.post(RESEND_URL)
+            with workflows_refuses_the_recipient():
+                response = self.client.post(RESEND_URL)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "login_code_email_undeliverable")

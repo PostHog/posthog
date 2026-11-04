@@ -568,10 +568,7 @@ def _send_via_http(
     properties: dict,
     will_retry: bool = True,
 ) -> list[str]:
-    """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches.
-
-    Returns the addresses Workflows refused as undeliverable.
-    """
+    """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
 
@@ -924,7 +921,6 @@ def _send_email_now(
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
 ) -> list[str]:
-    """Returns the addresses the provider refused as undeliverable."""
     if use_http and is_http_email_service_available():
         try:
             return _send_via_http(
