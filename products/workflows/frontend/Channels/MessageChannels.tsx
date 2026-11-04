@@ -27,8 +27,8 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, userManagedIntegrations, setupModalType, selectedIntegration, sandboxEmailSender } =
         useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { sandboxSetupError, sandboxSetupLoading } = useValues(channelCatalogLogic)
-    const { retrySandboxSenderSetup } = useActions(channelCatalogLogic)
+    const { sandboxSetupError, sandboxProvisionErrorLoading } = useValues(channelCatalogLogic)
+    const { setUpSandboxSender } = useActions(channelCatalogLogic)
     const { openImport } = useActions(pushTokenImportLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
     const restrictedReason = useRestrictedArea({
@@ -62,8 +62,8 @@ export function MessageChannels(): JSX.Element {
                         type="error"
                         action={{
                             children: 'Try again',
-                            onClick: retrySandboxSenderSetup,
-                            loading: sandboxSetupLoading,
+                            onClick: () => setUpSandboxSender(),
+                            loading: sandboxProvisionErrorLoading,
                         }}
                     >
                         {sandboxSetupError}
