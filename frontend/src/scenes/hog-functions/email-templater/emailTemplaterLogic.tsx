@@ -169,6 +169,30 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
+/**
+ * The design the canvas should load for a stored email. An untouched html wrap is derived from
+ * html alone, so when a programmatic edit rewrote the html but resent the old wrap, the wrap is
+ * rebuilt from the current html instead of opening the previous version. A design edited in the
+ * canvas comes back normalized by Unlayer, never equals a fresh wrap, and loads as stored.
+ * Mirrors html_wrap_design_needs_refresh in products/cdp/backend/validation.py.
+ */
+export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {
+    const { html, design } = value
+    if (!design) {
+        return html ? buildHtmlWrapDesign(html) : null
+    }
+    const wrappedHtml = design.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
+    if (
+        html &&
+        typeof wrappedHtml === 'string' &&
+        wrappedHtml !== html &&
+        objectsEqual(design, buildHtmlWrapDesign(wrappedHtml))
+    ) {
+        return buildHtmlWrapDesign(html)
+    }
+    return design
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
@@ -701,13 +725,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The editor read its merge tags when it started, so any added since then are pushed in.
             cache.lastMergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
             values.emailEditorRef?.editor?.setMergeTags?.(cache.lastMergeTags)
-            if (props.value?.design) {
-                cache.lastEditorDesign = props.value.design
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            } else if (props.value?.html) {
-                const wrapped = buildHtmlWrapDesign(props.value.html)
-                cache.lastEditorDesign = wrapped
-                values.emailEditorRef?.editor?.loadDesign(wrapped)
+            const design = props.value ? editorDesignForEmail(props.value) : null
+            if (design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -984,7 +1005,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.isEmailEditorReady &&
                 !cache.pendingDesignEdit
             ) {
-                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
+                const design = editorDesignForEmail(props.value)
                 if (
                     design &&
                     !objectsEqual(design, cache.lastEditorDesign) &&

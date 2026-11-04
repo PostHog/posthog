@@ -19,6 +19,7 @@ from products.cdp.backend.validation import (
     InputsSchemaItemSerializer,
     InputsSchemaSerializer,
     RecordAliasRewriter,
+    build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
     reserved_functions_used,
@@ -502,6 +503,40 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, {"email": {"value": value}})
 
         assert validated["email"]["value"].get("design") == expected_design
+
+    def test_stale_html_wrap_design_is_rebuilt_from_new_html(self):
+        # A caller that rewrites html but resends the old wrap would leave the visual editor
+        # opening the previous version of the email.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": "<p>New copy</p>",
+            "design": build_html_wrap_design("<p>Old copy</p>"),
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>New copy</p>")
+
+    def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
+        # After a canvas edit the stored html is Unlayer's render, which never equals the html
+        # block inside the design, so a mismatch alone must not discard the edit.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        edited_design = build_html_wrap_design("<p>Inner block</p>")
+        edited_design["body"]["values"] = {"backgroundColor": "#ffffff"}
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": "<html><body><p>Inner block</p></body></html>",
+            "design": edited_design,
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == edited_design
 
     def test_html_only_email_wrap_is_deterministic(self):
         # Callers resend the same html-only value on every save; a fresh design each time would

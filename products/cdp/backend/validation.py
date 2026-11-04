@@ -242,6 +242,25 @@ def build_html_wrap_design(html: str) -> dict:
     }
 
 
+def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
+    """Whether the stored design should be (re)built from html.
+
+    True when there is no design, or when the design is an untouched html wrap of some other
+    html. A wrap is derived from html alone, so a caller that rewrites html and resends the old
+    design leaves the visual editor opening the previous version. A design anyone has edited in
+    the visual editor comes back normalized by Unlayer and never equals a fresh wrap, so it is
+    left alone even though its html block differs from the rendered html.
+    """
+
+    if not design:
+        return True
+    try:
+        wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return isinstance(wrapped_html, str) and wrapped_html != html and design == build_html_wrap_design(wrapped_html)
+
+
 def register_supported_function(name: str) -> None:
     PRODUCT_ASYNC_FUNCTIONS.add(name)
 
@@ -929,7 +948,11 @@ class InputsItemSerializer(serializers.Serializer):
 
                 _validate_email_sender_override(from_value, self.context)
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if (
+                isinstance(value.get("html"), str)
+                and value["html"]
+                and html_wrap_design_needs_refresh(value["html"], value.get("design"))
+            ):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
                 value = {**value, "design": build_html_wrap_design(value["html"])}

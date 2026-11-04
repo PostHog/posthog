@@ -14,6 +14,7 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildHtmlWrapDesign,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
@@ -319,6 +320,26 @@ describe('emailTemplaterLogic', () => {
                 type: 'html',
                 values: { html: '<p>raw</p>' },
             })
+        })
+
+        it('loads the current html when the stored design wraps an older version of it', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        design: buildHtmlWrapDesign('<p>old</p>'),
+                        html: '<p>new</p>',
+                    },
+                })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
         })
 
         it('does not load anything when there is neither design nor html', () => {
