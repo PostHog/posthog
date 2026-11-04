@@ -22,7 +22,7 @@ export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accou
         <div className="flex flex-col gap-3 min-w-0" data-attr="account-dot-matrix-query-editor">
             <p className="text-secondary mb-0">
                 {
-                    'Use {filters} for this account and the selected weeks. {account_id} and {account_external_id} are also available. Your SQL controls which data appears.'
+                    'For events, put {filters} in WHERE to apply this account and the selected weeks. For warehouse and other tables, write your own account and date conditions. Compare your account column with {account_external_id}, the linked account key, or {account_id}, the Customer analytics account ID.'
                 }
             </p>
             {queryScopeWarning && <LemonBanner type="warning">{queryScopeWarning}</LemonBanner>}
