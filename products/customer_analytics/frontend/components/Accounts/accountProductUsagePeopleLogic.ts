@@ -26,6 +26,8 @@ export interface AccountProductUsagePeopleLogicProps {
 }
 
 interface ProductUsageDetails {
+    matrix: BookActivityMatrixResult
+    accountId: string
     people: BookActivityPeopleResult
     firsts: BookActivityFirstsResult | null
 }
@@ -91,8 +93,16 @@ export const accountProductUsagePeopleLogic: LogicWrapper<accountProductUsagePeo
                         if (!columns.length || !props.result.data.some(({ row }) => row === props.accountId)) {
                             return null
                         }
+                        const matrix = props.result
+                        const accountId = props.accountId
+                        const previousPeople =
+                            values.details?.matrix === matrix && values.details.accountId === accountId
+                                ? values.details.people
+                                : null
                         const controller = new AbortController()
-                        const queryIds = [uuid(), ...(props.includeFirstUse ? [uuid()] : [])]
+                        const peopleQueryId = previousPeople ? null : uuid()
+                        const firstsQueryId = props.includeFirstUse ? uuid() : null
+                        const queryIds = [peopleQueryId, firstsQueryId].filter((id): id is string => id !== null)
                         const finished = new Set<string>()
                         const teamId = values.currentTeamId
                         cache.disposables.add(
@@ -109,28 +119,30 @@ export const accountProductUsagePeopleLogic: LogicWrapper<accountProductUsagePeo
                         )
                         try {
                             const [people, firsts] = await Promise.all([
-                                performQuery<BookActivityPeopleQuery>(
-                                    {
-                                        kind: NodeKind.BookActivityPeopleQuery,
-                                        accountIds: [props.accountId],
-                                        dateRange: {
-                                            date_from: columns[0],
-                                            date_to: props.result.columns.find(
-                                                ({ key }) => key === columns[columns.length - 1]
-                                            )?.partial
-                                                ? null
-                                                : dayjs(columns[columns.length - 1])
-                                                      .add(1, 'week')
-                                                      .format('YYYY-MM-DD'),
-                                        },
-                                        interval: 'week',
-                                        peopleLimit: 3,
-                                        tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                    },
-                                    { signal: controller.signal },
-                                    'blocking',
-                                    queryIds[0]
-                                ).finally(() => finished.add(queryIds[0])),
+                                previousPeople
+                                    ? Promise.resolve({ results: previousPeople })
+                                    : performQuery<BookActivityPeopleQuery>(
+                                          {
+                                              kind: NodeKind.BookActivityPeopleQuery,
+                                              accountIds: [props.accountId],
+                                              dateRange: {
+                                                  date_from: columns[0],
+                                                  date_to: props.result.columns.find(
+                                                      ({ key }) => key === columns[columns.length - 1]
+                                                  )?.partial
+                                                      ? null
+                                                      : dayjs(columns[columns.length - 1])
+                                                            .add(1, 'week')
+                                                            .format('YYYY-MM-DD'),
+                                              },
+                                              interval: 'week',
+                                              peopleLimit: 3,
+                                              tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                          },
+                                          { signal: controller.signal },
+                                          'blocking',
+                                          peopleQueryId!
+                                      ).finally(() => finished.add(peopleQueryId!)),
                                 props.includeFirstUse
                                     ? performQuery<BookActivityFirstsQuery>(
                                           {
@@ -140,12 +152,12 @@ export const accountProductUsagePeopleLogic: LogicWrapper<accountProductUsagePeo
                                           },
                                           { signal: controller.signal },
                                           'blocking',
-                                          queryIds[1]
-                                      ).finally(() => finished.add(queryIds[1]))
+                                          firstsQueryId!
+                                      ).finally(() => finished.add(firstsQueryId!))
                                     : Promise.resolve(null),
                             ])
                             breakpoint()
-                            return { people: people.results, firsts: firsts?.results ?? null }
+                            return { matrix, accountId, people: people.results, firsts: firsts?.results ?? null }
                         } catch (error) {
                             breakpoint()
                             cache.disposables.dispose('productUsagePeople')

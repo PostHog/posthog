@@ -17,15 +17,15 @@ const meta: Meta<typeof AccountProductUsageTable> = {
         result: {
             ...BOOK_ACTIVITY_MATRIX_MOCK,
             columns: BOOK_ACTIVITY_MATRIX_MOCK.columns.slice(-8),
-            firstUse: [
-                {
-                    row: BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key,
-                    series: 'pa',
-                    date: BOOK_ACTIVITY_MATRIX_MOCK.columns.at(-1)!.key,
-                },
-            ],
         },
         renderTopUsers: () => <span className="text-xs text-secondary">Alex, Sam, Jo</span>,
+        firstUse: [
+            {
+                row: BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key,
+                series: 'pa',
+                date: BOOK_ACTIVITY_MATRIX_MOCK.columns.at(-1)!.key,
+            },
+        ],
         includeFirstUse: true,
         onIncludeFirstUseChange: () => {},
     },

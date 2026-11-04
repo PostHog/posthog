@@ -81,7 +81,7 @@ describe('accountDotMatrixTileLogic', () => {
         logic.unmount()
     })
 
-    it('requests first use only after an explicit action and keeps the choice out of the saved view', async () => {
+    it('toggles first use without rerunning the matrix or saving the choice', async () => {
         mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
         const save = jest.fn()
         const logic = accountDotMatrixTileLogic({
@@ -93,8 +93,12 @@ describe('accountDotMatrixTileLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadMatrixSuccess'])
         expect(mockPerformQuery.mock.calls[0][0].includeFirstUse).toBe(false)
-        await expectLogic(logic, () => logic.actions.setIncludeFirstUse(true)).toDispatchActions(['loadMatrixSuccess'])
-        expect(mockPerformQuery.mock.calls[1][0].includeFirstUse).toBe(true)
+        const previous = logic.values.displayResult
+        await expectLogic(logic, () => logic.actions.setIncludeFirstUse(true)).toFinishAllListeners()
+        expect(mockPerformQuery).toHaveBeenCalledTimes(1)
+        expect(logic.values.includeFirstUse).toBe(true)
+        expect(logic.values.displayResult).toBe(previous)
+        expect(logic.values.matrixResultLoading).toBe(false)
         expect(save).not.toHaveBeenCalled()
         logic.unmount()
     })

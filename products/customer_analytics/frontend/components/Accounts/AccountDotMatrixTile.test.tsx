@@ -74,10 +74,13 @@ describe('AccountDotMatrixTile', () => {
             )
         )
         expect(
+            mockPerformQuery.mock.calls.filter(([query]) => query.kind === NodeKind.BookActivityMatrixQuery)
+        ).toHaveLength(1)
+        expect(
             mockPerformQuery.mock.calls.some(
                 ([query]) => query.kind === NodeKind.BookActivityMatrixQuery && query.includeFirstUse
             )
-        ).toBe(true)
+        ).toBe(false)
     })
 
     it('keeps the single SQL series legend static', async () => {

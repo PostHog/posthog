@@ -26,7 +26,7 @@ export function ProductUsageCountCell({
                     role="img"
                     aria-label="First use ever"
                 >
-                    <DotMatrixSymbol value={1} thresholds={[1]} firstUse color="var(--color-text-warning)" />
+                    <DotMatrixSymbol value={1} thresholds={[1]} firstUse color="var(--color-orange-500)" />
                 </svg>
             )}
         </div>

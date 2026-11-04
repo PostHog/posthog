@@ -288,7 +288,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                                     groupTypeIndex: values.customerAnalyticsConfig.account_group_type_index,
                                     weeks: values.config.weeks,
                                     weekStartDay: values.weekStartDay,
-                                    includeFirstUse: values.includeFirstUse,
+                                    includeFirstUse: false,
                                 },
                                 controller.signal,
                                 queryId
@@ -555,7 +555,6 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                     setting: 'first_use',
                     value: includeFirstUse,
                 })
-                actions.refreshMatrix()
             },
             refreshMatrix: () => {
                 if (!values.queryEditorOpen) {

@@ -7,7 +7,7 @@ import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
 
-import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
+import type { BookActivityMatrixFirstUse, BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { ProductUsageCountCell } from '../ProductUsageGrid/ProductUsageCountCell'
 import { getProductUsageFirstSeries } from '../ProductUsageGrid/productUsagePresentation'
@@ -18,6 +18,7 @@ export function AccountProductUsageTable({
     accountId,
     instanceId,
     includeFirstUse,
+    firstUse = [],
     onIncludeFirstUseChange,
     loading,
     renderTopUsers,
@@ -27,6 +28,7 @@ export function AccountProductUsageTable({
     accountId: string
     instanceId: string
     includeFirstUse: boolean
+    firstUse?: BookActivityMatrixFirstUse[]
     onIncludeFirstUseChange: (value: boolean) => void
     loading?: boolean
     renderTopUsers?: (productKey: string) => ReactNode
@@ -84,12 +86,9 @@ export function AccountProductUsageTable({
                             firstUse={
                                 includeFirstUse &&
                                 !!row.productKey &&
-                                getProductUsageFirstSeries(
-                                    result.firstUse ?? [],
-                                    accountId,
-                                    cell.columnKey,
-                                    'week'
-                                ).includes(row.productKey)
+                                getProductUsageFirstSeries(firstUse, accountId, cell.columnKey, 'week').includes(
+                                    row.productKey
+                                )
                             }
                             label={row.kind === 'summary' ? 'Products used' : `${row.label} users`}
                         />

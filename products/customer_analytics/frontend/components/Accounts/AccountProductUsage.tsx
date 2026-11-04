@@ -29,10 +29,10 @@ export function AccountProductUsage({
     const { loadDetails } = useActions(logic)
     const latestColumn = getLatestProductUsageColumn(result)
     const renderPeople = (productKey: string, columnKey: string): JSX.Element | null => {
-        if (detailsLoading) {
+        if (detailsLoading && details?.matrix !== result) {
             return <Spinner className="text-xl" />
         }
-        if (!details) {
+        if (error || !details || details.matrix !== result) {
             return null
         }
         const { people, total } = getAccountProductUsagePeopleCell(
@@ -75,6 +75,9 @@ export function AccountProductUsage({
                 accountId={accountId}
                 instanceId={instanceId}
                 includeFirstUse={includeFirstUse}
+                firstUse={
+                    includeFirstUse && !error && details?.matrix === result ? (details.firsts?.accounts ?? []) : []
+                }
                 onIncludeFirstUseChange={onIncludeFirstUseChange}
                 loading={loading}
                 renderTopUsers={(productKey) => renderPeople(productKey, latestColumn)}
