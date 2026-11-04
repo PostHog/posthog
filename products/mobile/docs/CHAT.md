@@ -1,7 +1,28 @@
 # Chat
 
-The chat screen talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
-Every chat is a task with interactive runs in a sandbox.
+## Choosing the chat version
+
+General chats use the same PostHog AI rollout decision as the web. The mobile app reads
+`GET ai_chat_configuration/` for the selected project when opening a new chat. An allowed
+AI 2.0 user gets the Tasks chat; everyone else gets classic AI through `conversations/`.
+The server also checks Desktop eligibility so a Startup/YC organization keeps a usable
+classic chat instead of reaching the Desktop refusal. An unavailable configuration lookup
+falls back to classic. No flag changes happen in the app.
+
+The decision is held for the open chat. **New chat** checks again, so a rollout change takes
+effect without switching an in-flight conversation. A saved classic conversation retains
+its runtime; a conversation converted on the server opens its linked task. Report discussions
+and existing task links keep the Tasks path and its report-specific access exemptions.
+
+Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
+and approving or rejecting a requested change. Generated charts and insights link to the web.
+Its composer omits the model and permission controls that only the Tasks runtime supports.
+The Chats list combines conversations and tasks, removing mirrored task duplicates. Classic
+conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
+Only task rows offer Archive, because classic conversations have no reversible archive API.
+
+The Tasks chat screen talks to PostHog AI on the task runtime.
+Each Tasks chat has interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
 New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
 configured default page for a direct link. The title-free header uses the shared blur and fading edge.
@@ -473,7 +494,7 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - `mobile_chat_row_menu_opened`, `mobile_chat_archived` and `mobile_chat_archive_undone` carry the row's `origin` and `status`;
   `mobile_chat_archive_failed` carries `action` (`archive` or `restore`) and `code` (the `ChatError` kind).
 - Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.
-- Legacy LangGraph conversations are not listed. The web's new side panel does not list them either.
+- Classic conversations are listed once; their mirrored tasks are omitted.
 
 ## Demo mode
 

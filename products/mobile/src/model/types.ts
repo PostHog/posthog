@@ -393,7 +393,7 @@ export type ChatOrigin = 'chat' | 'report' | 'session'
 export interface ChatListItem {
     /** Stable list key: `session:<task id>`. */
     id: string
-    kind: 'session'
+    kind: 'session' | 'conversation'
     /** The task id. */
     sourceId: string
     origin: ChatOrigin

@@ -26,7 +26,7 @@ import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
 import { ChatRowMenu, type ChatRowMenuTarget } from './ChatRowMenu'
 import { filterChats, groupChats } from './chatGroups'
-import { sessionListKeys, useArchiveChat, useChatList } from './hooks'
+import { conversationListKeys, sessionListKeys, useArchiveChat, useChatList } from './hooks'
 
 interface ChatSection {
     label: string
@@ -79,6 +79,7 @@ export function ChatsScreen(): ReactElement {
             }
             if (scope) {
                 void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
+                void queryClient.invalidateQueries({ queryKey: conversationListKeys.all(scope) })
             }
         }, [queryClient, scope])
     )
@@ -91,7 +92,14 @@ export function ChatsScreen(): ReactElement {
     const openChat = useCallback(
         (item: ChatListItem) => {
             const entry: ChatSheetEntry = searching ? 'chats_search' : 'chats_list'
-            router.push({ pathname: '/chat', params: { taskId: item.sourceId, entry, origin: item.origin } })
+            router.push({
+                pathname: '/chat',
+                params: {
+                    [item.kind === 'conversation' ? 'conversationId' : 'taskId']: item.sourceId,
+                    entry,
+                    origin: item.origin,
+                },
+            })
         },
         [router, searching]
     )

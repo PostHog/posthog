@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { NotSignedInError } from '@/api/client'
+import { listConversations } from '@/api/conversations'
 import { isMissingFeature, type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { listMySessions, setTaskArchived, type TaskSummaryApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
@@ -10,9 +11,13 @@ import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoChatsQuery } from '@/demo/hooks'
 import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
-import { chatListFromSessions } from '@/model/adapters/chats'
+import { mergeChatLists } from '@/model/adapters/chats'
 import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { ChatListItem, QueryState } from '@/model/types'
+
+import { conversationListKeys } from './conversationKeys'
+
+export { conversationListKeys } from './conversationKeys'
 
 const CHAT_LIST_STALE_MS = 30_000
 
@@ -59,24 +64,33 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
         staleTime: CHAT_LIST_STALE_MS,
     })
 
+    const conversations = useQuery({
+        queryKey: conversationListKeys.all(scope),
+        queryFn: ({ signal }) => listConversations(signal),
+        enabled: active,
+        retry: retryUnlessMissing,
+        staleTime: CHAT_LIST_STALE_MS,
+    })
+
     const failed = sessions.isError && sessions.data === undefined
     // A 403 or 404 from tasks means this user has no sandbox sessions to show, not a load that a retry can fix.
     const unavailable = failed && isMissingFeature(sessions.error)
 
     const items = useMemo(
-        () => (unavailable ? [] : chatListFromSessions(sessions.data, scope)),
-        [unavailable, sessions.data, scope]
+        () => mergeChatLists(unavailable ? [] : sessions.data, conversations.data, scope),
+        [unavailable, sessions.data, conversations.data, scope]
     )
 
     const { refetch: refetchSessions } = sessions
+    const { refetch: refetchConversations } = conversations
     const refetch = useCallback(async (): Promise<void> => {
         setPulling(true)
         try {
-            await refetchSessions()
+            await Promise.all([refetchSessions(), refetchConversations()])
         } finally {
             setPulling(false)
         }
-    }, [refetchSessions])
+    }, [refetchSessions, refetchConversations])
 
     if (!scope) {
         return errorQuery(new NotSignedInError())
@@ -93,7 +107,10 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
     if (failed && !unavailable) {
         return errorQuery(toError(sessions.error), refetch)
     }
-    if (sessions.data === undefined && !unavailable) {
+    if (conversations.isError && conversations.data === undefined && !isMissingFeature(conversations.error)) {
+        return errorQuery(toError(conversations.error), refetch)
+    }
+    if ((sessions.data === undefined && !unavailable) || conversations.isPending) {
         return connectionLoadingQuery<ChatListItem[]>(offline, refetch)
     }
     return {

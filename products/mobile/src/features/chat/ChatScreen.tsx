@@ -79,6 +79,7 @@ interface ChatScreenProps {
     source: ChatSheetSource
     autoFocus?: boolean
     onBack: () => void
+    onNewChat?: () => void
 }
 
 function sessionTarget(taskId: string | undefined, runId: string | undefined): SessionOptions {
@@ -96,6 +97,7 @@ export function ChatScreen({
     source,
     autoFocus = false,
     onBack,
+    onNewChat,
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -577,6 +579,7 @@ export function ChatScreen({
         pickedOptions.current = false
         dispatchRunOptions({ type: 'reset' })
         input.current?.focus()
+        onNewChat?.()
     }
 
     const archiveChat = async (): Promise<void> => {

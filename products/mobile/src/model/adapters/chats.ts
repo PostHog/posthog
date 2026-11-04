@@ -1,5 +1,6 @@
 import type { ProjectScope } from '@/api/reports'
 import type { TaskRunStatusApi, TaskSummaryApi } from '@/api/tasks'
+import type { ConversationMinimalApi } from '../../../../posthog_ai/frontend/generated/api.schemas'
 
 import type { ChatListItem, ChatOrigin, ChatSessionStatus } from '../types'
 
@@ -25,6 +26,42 @@ export function taskWebUrl(scope: ProjectScope | null, taskId: string | null): s
     return scope && taskId
         ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}`
         : undefined
+}
+
+export function conversationWebUrl(scope: ProjectScope | null, conversationId: string | null): string | undefined {
+    return scope && conversationId
+        ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}/ai?chat=${encodeURIComponent(conversationId)}`
+        : undefined
+}
+
+export function mergeChatLists(
+    sessions: TaskSummaryApi[] | undefined,
+    conversations: ConversationMinimalApi[] | undefined,
+    scope: ProjectScope | null
+): ChatListItem[] {
+    const classic = (conversations ?? []).filter((conversation) => conversation.agent_runtime !== 'sandbox')
+    const mirroredTasks = new Set(classic.flatMap((conversation) => (conversation.task ? [conversation.task.id] : [])))
+    return [
+        ...chatListFromSessions(sessions, scope).filter((item) => !mirroredTasks.has(item.sourceId)),
+        ...classic.map(
+            (conversation): ChatListItem => ({
+                id: `conversation:${conversation.id}`,
+                kind: 'conversation',
+                sourceId: conversation.id,
+                origin: 'chat',
+                title: titleOr(conversation.title, 'Untitled chat'),
+                updatedAt: conversation.updated_at ?? conversation.created_at ?? '',
+                status:
+                    conversation.status === 'in_progress'
+                        ? 'working'
+                        : conversation.status === 'canceling'
+                          ? 'stopped'
+                          : 'idle',
+                pullRequestUrl: null,
+                webUrl: conversationWebUrl(scope, conversation.id),
+            })
+        ),
+    ].sort((a, b) => sortTime(b) - sortTime(a))
 }
 
 function sessionStatus(session: TaskSummaryApi): ChatSessionStatus {

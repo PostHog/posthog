@@ -7,6 +7,8 @@ import { useAuthStore } from '@/auth/authStore'
 
 import { useArchiveChat, useChatList } from './hooks'
 
+jest.mock('@/api/conversations', () => ({ listConversations: jest.fn().mockResolvedValue([]) }))
+
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )

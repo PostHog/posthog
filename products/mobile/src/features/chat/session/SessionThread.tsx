@@ -17,8 +17,22 @@ import { ProgressRow } from './ProgressRow'
 import { errorItemText, groupSessionItems, shouldShowRunError } from './sessionDisplay'
 import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorItem } from './types'
 
+export type SessionThreadState = Pick<
+    Session,
+    | 'history'
+    | 'items'
+    | 'invocations'
+    | 'phase'
+    | 'stage'
+    | 'decision'
+    | 'pullRequests'
+    | 'pullRequest'
+    | 'runStatus'
+    | 'runError'
+>
+
 interface SessionThreadProps {
-    session: Session
+    session: SessionThreadState
     onRetryHistory: () => void
     topInset?: number
 }
@@ -41,7 +55,7 @@ const TurnEndRow = memo(function TurnEndRow(): ReactElement {
     return <View style={styles.turnEnd} />
 })
 
-function statusLine(session: Session): string | null {
+function statusLine(session: SessionThreadState): string | null {
     switch (session.phase) {
         case 'working':
             return session.stage ?? 'Thinking…'
