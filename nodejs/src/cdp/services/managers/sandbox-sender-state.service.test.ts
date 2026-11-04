@@ -106,13 +106,19 @@ describe('SandboxSenderStateService', () => {
     })
 
     it.each([false, true])(
-        'stops retrying and fails the pause gate when the database stays unavailable (fresh: %s)',
+        'starts no lookup after the five second budget and fails the pause gate when the database stays unavailable (fresh: %s)',
         async (fresh) => {
             jest.useFakeTimers()
+            jest.spyOn(Math, 'random').mockReturnValue(0)
             try {
-                const query = jest.fn((_tx: unknown, sql: string) =>
-                    sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : Promise.reject(transient())
-                )
+                const lookupStarts: number[] = []
+                const query = jest.fn((_tx: unknown, sql: string) => {
+                    if (sql.startsWith('SET LOCAL')) {
+                        return Promise.resolve({ rows: [] })
+                    }
+                    lookupStarts.push(performance.now())
+                    return new Promise((_resolve, reject) => setTimeout(() => reject(transient()), 2_300))
+                })
                 const postgres = {
                     connect: () => Promise.resolve(idleClient()),
                     query,
@@ -133,16 +139,66 @@ describe('SandboxSenderStateService', () => {
                 )
 
                 const gate = sender.pauseGate({ fresh })
-                await jest.advanceTimersByTimeAsync(6_000)
+                await jest.advanceTimersByTimeAsync(10_000)
                 await expect(gate).resolves.toBe('check_failed')
                 const attempts = query.mock.calls.length
                 await jest.advanceTimersByTimeAsync(30_000)
                 expect(query.mock.calls).toHaveLength(attempts)
+                expect(lookupStarts.map((at) => at - lookupStarts[0])).toEqual([0, 2_550])
             } finally {
+                jest.restoreAllMocks()
                 jest.useRealTimers()
             }
         }
     )
+
+    it('reads the row again after a reload message, also when the message arrives during a lookup', async () => {
+        let reload: (message: { tenantName: string }) => void = () => undefined
+        const reloadingPubSub = {
+            on: (_channel: string, handler: typeof reload) => {
+                reload = handler
+            },
+        } as unknown as PubSub
+        const storedStatuses = ['ENABLED', 'DISABLED', 'ENABLED', 'DISABLED']
+        let holdNextLookup = false
+        let releaseHeldLookup: (() => void) | undefined
+        const query = jest.fn(async (_tx: unknown, sql: string) => {
+            if (sql.startsWith('SET LOCAL')) {
+                return { rows: [] }
+            }
+            const status = storedStatuses.shift()
+            if (holdNextLookup) {
+                holdNextLookup = false
+                await new Promise<void>((resolve) => (releaseHeldLookup = resolve))
+            }
+            return { rows: [{ tenant_name: 'sandbox-tenant', sending_status: status }] }
+        })
+        const lookups = (): number => query.mock.calls.filter(([, sql]) => !sql.startsWith('SET LOCAL')).length
+        const service = new SandboxSenderStateService(
+            { connect: () => Promise.resolve(idleClient()), query } as unknown as PostgresRouter,
+            reloadingPubSub
+        )
+
+        await expect(service.isPaused('sandbox-tenant')).resolves.toBe(false)
+        await expect(service.isPaused('sandbox-tenant')).resolves.toBe(false)
+        expect(lookups()).toBe(1)
+
+        reload({ tenantName: 'sandbox-tenant' })
+        await expect(service.isPaused('sandbox-tenant')).resolves.toBe(true)
+        expect(lookups()).toBe(2)
+
+        holdNextLookup = true
+        reload({ tenantName: 'sandbox-tenant' })
+        const checkDuringReload = service.isPaused('sandbox-tenant')
+        while (!releaseHeldLookup) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        reload({ tenantName: 'sandbox-tenant' })
+        releaseHeldLookup()
+
+        await expect(checkDuringReload).resolves.toBe(true)
+        expect(lookups()).toBe(4)
+    })
 
     it('fails fresh checks at their deadline while the pool has no connection, keeps at most five lookups open, and runs no query for them later', async () => {
         jest.useFakeTimers()
