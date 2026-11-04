@@ -46,6 +46,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -343,6 +344,7 @@ from products.signals.backend.throttles import (
     ReportMetricRefreshThrottle,
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
+    UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.tasks.backend.facade import api as tasks_facade
@@ -2853,6 +2855,11 @@ class SignalReportViewSet(
         report = self.get_object()
         return Response(ReportSpendSerializer(SpendReporting(self.team).report(report)).data)
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "create":
+            return [UserReportCreateBurstThrottle()]
+        return super().get_throttles()
+
     def _user_report_create_enabled(self, user: User) -> bool:
         # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
         try:
@@ -2885,7 +2892,9 @@ class SignalReportViewSet(
                 ),
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
-            403: OpenApiResponse(description="The caller is not a person, or report filing is not enabled."),
+            403: OpenApiResponse(
+                description="The caller is not a person, is a task sandbox, or report filing is not enabled."
+            ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
         },
         summary="File an inbox report",
@@ -2901,6 +2910,9 @@ class SignalReportViewSet(
         user = request.user
         if not isinstance(user, User) or user.id is None:
             raise exceptions.PermissionDenied("Only a person can file an inbox report.")
+        # A task-bound token authenticates as its acting member, so the user check above does not refuse it.
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("A task sandbox cannot file an inbox report.")
         if not self._user_report_create_enabled(user):
             raise exceptions.PermissionDenied("Filing inbox reports is not enabled for this project.")
         author = UserReportAuthor(

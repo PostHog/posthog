@@ -3247,6 +3247,16 @@ class TestUserReportCreateAPI(APIBaseTest):
             response = self.client.post(self._url(), self._payload(), format="json")
         assert response.status_code == expected, response.content
 
+    def test_create_refuses_a_task_sandbox_token(self) -> None:
+        _authenticate_as_scout(
+            self, scopes="signals_scout_reports", sandbox_task_id=_make_run(self.team).task_run.task_id
+        )
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        judge.assert_not_awaited()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
     def test_create_is_refused_while_the_flag_is_off(self) -> None:
         self.flag_mock.return_value = False
         with _safe_judge() as judge, patch(EMBED_PATH):

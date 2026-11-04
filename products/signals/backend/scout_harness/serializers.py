@@ -1558,7 +1558,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
     actionability = serializers.ChoiceField(
         choices=[(c.value, c.value) for c in ActionabilityChoice],
         help_text=(
-            "The author's actionability call: `immediately_actionable` -> the report surfaces READY; "
+            "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; "
             "`requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge "
             "failure suppresses the report regardless. A root cause you have not found is not human "
             "input: a report that names the evidence, the code surface, or a reproducible failure "
@@ -1590,9 +1590,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=[(p.value, p.value) for p in Priority],
-        help_text=(
-            "Optional priority (`P0`-`P4`). Required for autostart of a scout report; pair with `priority_explanation`."
-        ),
+        help_text="Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.",
     )
     priority_explanation = serializers.CharField(
         required=False,
