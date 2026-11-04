@@ -1,13 +1,18 @@
 import type { IntegrationType } from '~/types'
 
-import { DELETED_SENDER_ERROR, SENDERS_LOAD_FAILED_ERROR, getSenderLaunchError } from './broadcastWizardLogic'
+import {
+    DELETED_SENDER_ERROR,
+    SANDBOX_SENDER_BROADCAST_ERROR,
+    SENDERS_LOAD_FAILED_ERROR,
+    getSenderLaunchError,
+} from './broadcastWizardLogic'
 
-const sender = (id: number, verified: boolean): IntegrationType => ({
+const sender = (id: number, verified: boolean, provider = 'ses'): IntegrationType => ({
     id,
     kind: 'email',
     display_name: `sender-${id}`,
     icon_url: '',
-    config: { verified },
+    config: { verified, provider },
     created_at: '2026-01-01T00:00:00Z',
 })
 
@@ -28,6 +33,14 @@ describe('getSenderLaunchError', () => {
             "Verify the sender's domain before sending",
         ],
         ['a verified rotation', [1, 2], [sender(1, true), sender(2, true)], false, null],
+        ['the sandbox sender', 3, [sender(3, true, 'sandbox')], false, SANDBOX_SENDER_BROADCAST_ERROR],
+        [
+            'the sandbox sender in the rotation',
+            [1, 3],
+            [sender(1, true), sender(3, true, 'sandbox')],
+            false,
+            SANDBOX_SENDER_BROADCAST_ERROR,
+        ],
     ])('blocks launch for %s', (_, ids, integrations, integrationsLoading, expected) => {
         const from = Array.isArray(ids) ? { integrationId: ids[0], integrationIds: ids } : { integrationId: ids }
         expect(getSenderLaunchError(from, integrations, integrationsLoading)).toBe(expected)

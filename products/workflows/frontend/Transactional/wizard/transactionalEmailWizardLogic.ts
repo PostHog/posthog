@@ -210,7 +210,6 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
         senders: [
             (s) => [s.ownEmailIntegrations],
             (ownEmailIntegrations: IntegrationType[]): IntegrationType[] =>
-                // make_transactional only accepts a verified sender, and never the sandbox sender.
                 ownEmailIntegrations.filter((integration) => integration.config?.verified === true),
         ],
         stepErrors: [
