@@ -33,6 +33,8 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     codeVerificationFailure: () => loginLogic.actionTypes.submitCodeVerificationFailure,
     twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
+    precheckSuccess: () => loginLogic.actionTypes.precheckSuccess,
+    setPasswordLinkSent: () => loginLogic.actionTypes.sendSetPasswordLinkSuccess,
 }
 
 describe('loginTelemetryLogic', () => {
@@ -122,6 +124,24 @@ describe('loginTelemetryLogic', () => {
         reset.unmount()
 
         expect(captureCount('password reset requested')).toBe(1)
+    })
+
+    it('reports the no-method banner once per email and the set-password email it leads to', async () => {
+        precheckHandler.mockImplementation(() => [
+            200,
+            { saml_available: false, password_login_available: false, social_providers: [] },
+        ])
+        login.actions.setLoginValues({ email: 'user@example.com' })
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+
+        login.actions.sendSetPasswordLink('user@example.com')
+        await expectLogic(login).toDispatchActions(['sendSetPasswordLinkSuccess']).toFinishAllListeners()
+
+        expect(captureCount('login no method shown')).toBe(1)
+        expect(capturedProperties('password reset requested')).toMatchObject({ source: 'login_no_method' })
     })
 
     // The server redirects a failed SSO sign-in back to /login?error_code=..., and kea-router replays

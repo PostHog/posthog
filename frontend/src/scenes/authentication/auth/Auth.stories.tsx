@@ -185,6 +185,7 @@ const Template: StoryFn<StoryArgs> = ({
                               password_login_available: !noSignInMethod,
                           },
                       ],
+            '/api/reset/': () => [200, { success: true }],
             '/api/signup/precheck': () =>
                 emailTaken
                     ? [
@@ -319,7 +320,7 @@ SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
 
 export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
 NoSignInMethod.storyName = 'Account with no sign-in method'
-NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
+NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: true, github: true, gitlab: false }
 
 export const PrecheckFailed: StoryFn<StoryArgs> = Template.bind({})
 PrecheckFailed.storyName = 'Login step when the precheck fails'
