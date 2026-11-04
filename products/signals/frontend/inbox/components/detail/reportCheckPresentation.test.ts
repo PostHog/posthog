@@ -271,7 +271,7 @@ describe('reportCheckPresentation', () => {
             ['a scheduled check', 'active', true],
             ['a check waiting for the resolve', 'pending', true],
             ['a check that already decided', 'passed', false],
-        ])('offers Stop on %s', (_name, status, cancellable) => {
+        ])('allows cancellation of %s', (_name, status, cancellable) => {
             const [row] = buildReportCheckRows([makeCheck({ status })], new Map(), 'monitoring')
             expect(row.cancellable).toEqual(cancellable)
         })

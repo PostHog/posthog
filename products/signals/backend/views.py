@@ -182,7 +182,7 @@ from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
     cancel_check,
-    replace_metric_check,
+    replace_check_with_metric,
 )
 from products.signals.backend.report_claims import (
     ReportClaim,
@@ -6372,8 +6372,8 @@ class SignalReportCheckViewSet(
     @validated_request(
         request_serializer=SignalReportCheckReplacementSerializer,
         responses={200: SignalReportCheckSerializer},
-        summary="Replace a metric follow-up check",
-        description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
+        summary="Replace a follow-up check with a metric",
+        description="Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
@@ -6381,7 +6381,7 @@ class SignalReportCheckViewSet(
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
-            replacement = replace_metric_check(
+            replacement = replace_check_with_metric(
                 check=check,
                 title=data["title"],
                 rationale=data.get("rationale", ""),

@@ -1515,8 +1515,8 @@ export const getSignalsReportChecksReplaceCreateUrl = (projectId: string, report
 }
 
 /**
- * Atomically replace an open metric check. The old check stays live if the new one is invalid.
- * @summary Replace a metric follow-up check
+ * Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.
+ * @summary Replace a follow-up check with a metric
  */
 export const signalsReportChecksReplaceCreate = async (
     projectId: string,

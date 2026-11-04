@@ -1,18 +1,24 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { SidePanelMax } from '~/layout/navigation-3000/sidepanel/panels/max/SidePanelMax'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { mswDecorator } from '~/mocks/browser'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
+import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ReportCheckRow } from './ReportCheckRow'
 import { ReportDiscussionComposer } from './ReportDiscussionComposer'
 
 const report = makeReport({
@@ -32,7 +38,13 @@ const meta: Meta<typeof ReportDiscussionComposer> = {
         function ReportContext(Story, context): JSX.Element {
             useAttachedContext([{ type: 'inbox_report', key: report.id, label: `Report: ${report.title}` }])
             return (
-                <div className={context.name === 'Sidebar' ? 'w-[960px] max-w-[calc(100vw-2rem)]' : 'w-96 max-w-full'}>
+                <div
+                    className={
+                        context.name === 'Sidebar' || context.name === 'Metric suggestion'
+                            ? 'w-[960px] max-w-[calc(100vw-2rem)]'
+                            : 'w-96 max-w-full'
+                    }
+                >
                     <Story />
                 </div>
             )
@@ -68,6 +80,73 @@ export const Sidebar: Story = {
                     </div>
                 )}
             </div>
+        )
+    },
+}
+
+export const MetricSuggestion: Story = {
+    name: 'Metric suggestion',
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/': { results: [], count: 0 },
+                '/api/projects/:team_id/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: {} },
+            },
+            post: { '/api/projects/:team_id/tasks/warm/': {} },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: function MetricSuggestion(): JSX.Element {
+        const { sidePanelOpen } = useValues(sidePanelStateLogic)
+        const { openReportCheckMetricSuggestion } = useActions(inboxTaskKickoffLogic)
+        const check = {
+            id: 'checkout-check',
+            title: 'Checkout errors stay low after the retry fix',
+            kind: 'agent',
+            status: 'pending',
+        } as SignalReportCheckApi
+        return (
+            <div className="flex h-[650px] border border-primary rounded overflow-hidden">
+                <div className="flex-1 min-w-0 p-4">
+                    <h2>{report.title}</h2>
+                    <ReportCheckRow
+                        row={{
+                            check,
+                            reportStatus: 'ready',
+                            tag: { label: 'Paused', type: 'muted' },
+                            detail: 'Checks run only while this report is in Monitoring.',
+                            cancelled: false,
+                            cancellable: true,
+                        }}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => openReportCheckMetricSuggestion(report, check)}
+                    />
+                </div>
+                {sidePanelOpen && (
+                    <div className="flex flex-col w-96 min-w-0 border-l border-primary">
+                        <Suspense fallback={<Spinner />}>
+                            <SidePanelMax />
+                        </Suspense>
+                    </div>
+                )}
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(canvas.getByText('Suggest a better metric'))
+        await waitFor(
+            () => {
+                const input = canvas.getByRole('textbox') as HTMLTextAreaElement
+                if (!input.value.includes('check ID: checkout-check')) {
+                    throw new Error('The selected check is missing from the prompt')
+                }
+            },
+            { timeout: 10000 }
         )
     },
 }

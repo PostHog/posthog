@@ -6,19 +6,18 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ReportCheckRowData } from './reportCheckPresentation'
 import { ReportCheckTiming } from './ReportCheckTiming'
 
-/**
- * One follow-up check on the report rail: what it claims, where it stands, and the one thing a
- * reader can still do about it. The Stop button appears on hover and confirms first, because a
- * cancelled check is terminal and its author has to write a new one to get the answer back.
- */
 export function ReportCheckRow({
     row,
     cancelling,
     onCancel,
+    onSuggestMetric,
+    suggestionDisabledReason,
 }: {
     row: ReportCheckRowData
     cancelling: boolean
     onCancel: (checkId: string) => void
+    onSuggestMetric: () => void
+    suggestionDisabledReason?: string | null
 }): JSX.Element {
     const { check, reportStatus, tag, detail, cancelled, cancellable } = row
 
@@ -45,25 +44,36 @@ export function ReportCheckRow({
                     {tag.label}
                 </LemonTag>
             </div>
-            <div className="flex items-end gap-2 min-w-0 pl-[1.375rem]">
+            <div className="min-w-0 pl-[1.375rem]">
                 <span className="min-w-0 flex-1 text-xs leading-snug text-tertiary">
                     <ReportCheckTiming check={check} reportStatus={reportStatus} detail={detail} />
                 </span>
-                {cancellable && (
+            </div>
+            {cancellable && (
+                <div className="flex flex-wrap justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        disabledReason={cancelling ? 'Canceling this check' : suggestionDisabledReason}
+                        data-attr="signals-report-check-suggest-metric"
+                        onClick={onSuggestMetric}
+                    >
+                        Suggest a better metric
+                    </LemonButton>
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
                         status="danger"
                         loading={cancelling}
-                        disabledReason={cancelling ? 'Stopping this check' : undefined}
+                        disabledReason={cancelling ? 'Canceling this check' : undefined}
                         data-attr="signals-report-check-stop"
-                        className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                        // Pinned for existing autocapture dashboards.
                         onClick={() =>
                             LemonDialog.open({
-                                title: 'Stop this check?',
-                                description: `"${check.title}" will not run, and nothing will report back on it. Results it already recorded stay on this report.`,
+                                title: 'Cancel this check?',
+                                description: `This cancels future runs of "${check.title}". Results it already recorded stay on this report.`,
                                 primaryButton: {
-                                    children: 'Stop check',
+                                    children: 'Cancel this check',
                                     status: 'danger',
                                     onClick: () => onCancel(check.id),
                                 },
@@ -71,10 +81,10 @@ export function ReportCheckRow({
                             })
                         }
                     >
-                        Stop
+                        Cancel this check
                     </LemonButton>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     )
 }

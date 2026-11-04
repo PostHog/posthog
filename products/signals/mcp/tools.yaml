@@ -325,13 +325,13 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        title: Replace a metric follow-up check
+        title: Replace a follow-up check with a metric
         description: >
-            Replace one open metric check after investigating a better measure or threshold. Read the current check and
+            Replace one open agent or metric check with a metric check after investigating a better measure or threshold. Read the current check and
             report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
             measured baseline. The old check stays live if the replacement fails validation. A successful replacement
-            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
-            check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires
+            starts unapproved and is scheduled independently of human approval.
+            The replacement preserves the existing soak and remaining recurrence. The measurement also requires
             event_definition:read for event series, action:read for action series, and cohort:read for cohort filters
             when present.
         feature_flag: signals-report-checks-replace

@@ -99,7 +99,13 @@ function ChecksSection({
         >
             <div className="flex flex-col gap-1.5">
                 {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
-                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
+                    <ReportCheckRow
+                        key={row.check.id}
+                        row={row}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => undefined}
+                    />
                 ))}
             </div>
         </DetailSection>
