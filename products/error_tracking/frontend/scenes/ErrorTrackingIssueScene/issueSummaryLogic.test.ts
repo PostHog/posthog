@@ -76,19 +76,33 @@ describe('issueSummaryLogic', () => {
         }
     )
 
-    it('shows a failed read and recovers on retry', async () => {
+    it('shows nothing when the first read fails, and recovers on retry', async () => {
         retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
         jest.spyOn(console, 'error').mockImplementation(() => {})
         logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
         logic.mount()
 
         await advance(0)
-        expect(logic.values.view).toBe('failed')
+        expect(logic.values.view).toBe('hidden')
         expect(retrieve).toHaveBeenCalledTimes(1)
 
         logic.actions.loadSummary()
         await advance(0)
         expect(logic.values.view).toBe('ready')
+    })
+
+    it('shows a failed check once an earlier read said summaries are on', async () => {
+        retrieve.mockResolvedValueOnce(NOT_GENERATED).mockRejectedValueOnce(new Error('500'))
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+
+        await advance(0)
+        expect(logic.values.view).toBe('not_generated')
+
+        logic.actions.loadSummary()
+        await advance(0)
+        expect(logic.values.view).toBe('failed')
     })
 
     it('reports whether the summary was open when viewed, and sends the rating', async () => {

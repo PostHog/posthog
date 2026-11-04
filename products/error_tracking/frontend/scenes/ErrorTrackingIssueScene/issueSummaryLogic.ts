@@ -149,7 +149,9 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     return 'ready'
                 }
                 if (loadFailed) {
-                    return 'failed'
+                    // Only the backend knows whether summaries are on for the project. Until an answer says they are,
+                    // a failure shows nothing, so a project without them never sees a summary row.
+                    return summaryResponse !== null && summaryResponse.reason !== 'disabled' ? 'failed' : 'hidden'
                 }
                 if (summaryResponse?.status === 'not_generated') {
                     const isNew =
