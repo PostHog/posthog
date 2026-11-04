@@ -40,7 +40,12 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     const leading = useMemo(
         () =>
             dismiss ? (
-                <Stack.Toolbar.Button icon={nativeIcons.close} accessibilityLabel="Close" onPress={close} />
+                <Stack.Toolbar.Button
+                    iconRenderingMode="template"
+                    icon={nativeIcons.close}
+                    accessibilityLabel="Close"
+                    onPress={close}
+                />
             ) : null,
         [dismiss, close]
     )
