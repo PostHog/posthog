@@ -32,7 +32,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
+import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -2145,8 +2145,11 @@ describe('CDP API', () => {
             {
                 secret = 'local-dev-workflows-transactional-email-jwt',
                 audience = 'posthog:workflows:send_transactional_email',
-            } = {}
-        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+                claims = {},
+            }: { secret?: string; audience?: string; claims?: Record<string, string> } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId, ...claims }, secret, { audience, expiresIn: '2m' })
+        const tokenFor = (route: string, teamId: number, hogFlowId: string) =>
+            mintToken(teamId, hogFlowId, route.endsWith('/send') ? { claims: { kind: 'code_send' } } : {})
 
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
@@ -2200,7 +2203,7 @@ describe('CDP API', () => {
         const sendAccepted = (flowId: string, payload: Record<string, unknown>) =>
             supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email/send`)
-                .set({ Authorization: `Bearer ${mintToken(team.id, flowId)}` })
+                .set({ Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, flowId)}` })
                 .send(payload)
 
         const sendOn = (
@@ -2307,7 +2310,7 @@ describe('CDP API', () => {
             const sendKeyedOn = (route: 'transactional_email' | 'transactional_email/send', payload: object) =>
                 supertest(app)
                     .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                    .set({ Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
             const otherSenderId = codeSend.from.integrationId + 3
@@ -2470,6 +2473,19 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a field this version does not know', { ...codeSend, priority: 'high' }],
+            [
+                'a content field this version does not know',
+                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+            ],
+            [
+                'a sender field this version does not know',
+                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+            ],
+            [
+                'a tracking field this version does not know',
+                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+            ],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
@@ -2527,7 +2543,7 @@ describe('CDP API', () => {
                     'sending_paused',
                     () =>
                         jest
-                            .spyOn(api['hogFlowManager'], 'getHogFlow')
+                            .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
                             .mockResolvedValueOnce({ ...hogFlow, email_sending_paused_at: Date.now() }),
                 ],
                 [
@@ -2548,7 +2564,7 @@ describe('CDP API', () => {
                 const refusedBefore = await outcomeCount(code)
                 const stagesBefore = await stageCounts()
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
 
                 const refused = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -2576,7 +2592,7 @@ describe('CDP API', () => {
 
             it('replays a keyed send whose workflow stopped being active since it went out', async () => {
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
                 const first = await sendOn(route, hogFlow.id, headers, keyed)
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -2596,6 +2612,23 @@ describe('CDP API', () => {
 
         it.each([
             ['a valid address', { to: 'user@example.com' }, 202, 'queued'],
+            ...[
+                'jane=tag@example.com',
+                'jane~tag@example.com',
+                'jane#tag@example.com',
+                "o'brien@example.com",
+                'a!b$c%d&e*f/g?h^i`j|k~l@example.com',
+                'jane@sub.example.co.uk',
+            ].map((to) => [to, { to }, 202, 'queued'] as const),
+            ...[
+                'jane@bücher.example',
+                'jane@[192.0.2.1]',
+                '"jane doe"@example.com',
+                'jane@localhost',
+                '.jane@example.com',
+                'jane.@example.com',
+                'jane..doe@example.com',
+            ].map((to) => [to, { to }, 422, 'recipient_unreachable'] as const),
             ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
             ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
             ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
@@ -2663,22 +2696,28 @@ describe('CDP API', () => {
         it.each([
             ['transactional_email', body],
             ['transactional_email/send', { ...body, send: codeSend }],
-        ])('sends on %s under a workflow created after the cached read missed it', async (route, payload) => {
-            const unseen = transactionalFlow('api', 'active')
-            const post = () =>
-                supertest(app)
-                    .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, unseen.id)}` })
-                    .send(payload)
+        ])(
+            'sends on %s under a workflow the replica does not have yet, reading the primary once',
+            async (route, payload) => {
+                const unseen = await _insertHogFlow(hub.postgres, transactionalFlow('api', 'active'))
+                const query = hideHogFlowsFromReplica(hub.postgres, [unseen.id])
+                const post = () =>
+                    supertest(app)
+                        .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
+                        .set({ Authorization: `Bearer ${tokenFor(route, team.id, unseen.id)}` })
+                        .send(payload)
 
-            expect((await post()).status).toEqual(404)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect((await post()).status).toEqual(202)
+                expect((await post()).status).toEqual(202)
 
-            await _insertHogFlow(hub.postgres, unseen)
-
-            expect((await post()).status).toEqual(202)
-            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-        })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
+                expect(
+                    query.mock.calls.filter(
+                        ([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows'
+                    )
+                ).toHaveLength(1)
+            }
+        )
 
         it.each(['transactional_email', 'transactional_email/send'])(
             'authenticates every send on %s',
@@ -2690,12 +2729,28 @@ describe('CDP API', () => {
                         .send({ ...body, send: codeSend })
 
                 expect((await post({})).status).toEqual(401)
-                expect((await post({ Authorization: `Bearer ${mintToken(team.id + 1, hogFlow.id)}` })).status).toEqual(
-                    401
-                )
+                expect(
+                    (await post({ Authorization: `Bearer ${tokenFor(route, team.id + 1, hogFlow.id)}` })).status
+                ).toEqual(401)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
             }
         )
+
+        it.each([
+            ['a template send token on the code send route', 'transactional_email/send', 'transactional_email'],
+            ['a code send token on the template send route', 'transactional_email', 'transactional_email/send'],
+        ])('refuses %s', async (_desc, route, tokenRoute) => {
+            const unauthorizedBefore = await outcomeCount('unauthorized')
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
+                .set({ Authorization: `Bearer ${tokenFor(tokenRoute, team.id, hogFlow.id)}` })
+                .send({ ...body, send: codeSend })
+
+            expect(res.status).toEqual(401)
+            expect(await outcomeCount('unauthorized')).toEqual(unauthorizedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
 
         it.each([
             ['no token', () => ({})],

@@ -135,7 +135,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -270,6 +269,17 @@ LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
 TRANSIENT_CONNECT_DROPPED_MESSAGE = (
     "Your database closed the connection while PostHog was connecting. Check that it's running and "
     "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
+# A tunneled source connects to the local end of the SSH tunnel, which `SSHTunnel.get_tunnel` binds
+# to loopback, so libpq names that address instead of the customer's host. The local end accepts the
+# connection and closes it when the SSH server cannot reach the database behind it, so an IP
+# allowlist is not the cause. Wording mirrors `_SSH_FORWARD_FAILED_GUIDANCE` in the Postgres source.
+LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER = f'{LIBPQ_CONNECT_FAILURE_MARKER} "127.0.0.1"'
+
+TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
+    "Your SSH server couldn't reach your database through the tunnel. Check the database host and "
+    "port set for the tunnel; the next sync runs on schedule."
 )
 
 TRANSIENT_POOLER_MESSAGE = (
@@ -478,6 +488,8 @@ def _transient_error_message(internal_error: str) -> str | None:
     if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
         internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
     ):
+        if error_message_matches(internal_error, [LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER]):
+            return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
 
@@ -609,7 +621,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_cls = SourceRegistry.get_source(source.source_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
         if len(non_retryable_errors) == 0:
@@ -1150,7 +1162,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             is_resumable_source = False
             if source_type is not None:
-                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                source = SourceRegistry.get_source(source_type)
                 # The class can resume, and its mechanism covers a run of this shape. Both halves
                 # matter: a class whose resume is narrower than itself would otherwise hand the
                 # resumable allowance to every one of its runs, including the ones that restart from
