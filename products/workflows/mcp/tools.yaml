@@ -565,8 +565,8 @@ tools:
         enabled: true
         title: Get email reputation and sending allowance
         description: >
-            The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily
-            email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell
+            The project's workflow email health over the last 30 days and its sending allowance: tier, daily
+            email cap, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell
             the user when the audience or volume would go over a cap. The caps apply only while
             sending_allowance.enforced is true; while it is false they are measured but not applied. Pass
             fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record.
