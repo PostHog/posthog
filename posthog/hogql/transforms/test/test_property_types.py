@@ -637,6 +637,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("empty_middle", ["parent", "", "child"]),
             ("empty_last", ["parent", ""]),
             ("nested_percent", ["parent", "value%"]),
+            ("empty_then_backtick", ["", "tick`key"]),
+            ("percent_then_backtick", ["percent%", "tick`key"]),
+            ("empty_then_backslash_backtick", ["", "slash\\`key"]),
+            ("empty_then_control", ["", "line\nbreak\tkey"]),
         ]
     )
     def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
