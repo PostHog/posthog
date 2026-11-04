@@ -93,6 +93,10 @@ HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", 
 # from the private-address check only when every resolved address is in this set, so an empty value
 # refuses every managed warehouse host. posthog-cloud-infra owns the values.
 MANAGED_WAREHOUSE_INGRESS_IPS: str = get_from_env("MANAGED_WAREHOUSE_INGRESS_IPS", "", type_cast=str)
+# MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN is the domain whose hosts reach the canary Trino lane, for example
+# `canary.dw.us.postwh.com`. A canary connection replaces the host of a minted credential with
+# `<database label>.<this domain>`. An empty value turns the canary route off.
+MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN: str = get_from_env("MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN", "", type_cast=str)
 MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
     "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
 )

@@ -1,1 +1,1 @@
-1420_sharing_configuration_publisher_index
+1424_workload_trust_policy
