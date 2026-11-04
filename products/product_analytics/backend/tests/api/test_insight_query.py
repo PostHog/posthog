@@ -137,6 +137,11 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert normalized_query["kind"] == query["kind"]
         assert normalized_query.get("promql") == query.get("promql")
 
+    @parameterized.expand([("list_kind", ["MetricsQuery"]), ("object_kind", {"kind": "MetricsQuery"})])
+    def test_rejects_a_kind_that_is_not_a_string(self, _name: str, kind: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query({"kind": kind})
+
     def test_explains_an_invalid_metrics_query_in_its_own_terms(self) -> None:
         with self.assertRaisesRegex(serializers.ValidationError, r"clauses: Field required"):
             MCPInsightSerializer().validate_query({"kind": "MetricsQuery", "dateRange": {"date_from": "-1h"}})

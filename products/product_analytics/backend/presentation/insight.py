@@ -1618,7 +1618,8 @@ class MCPInsightSerializer(InsightSerializer):
             "MetricsQuery": schema.MetricsQuery,
             "MetricsHistogramQuery": schema.MetricsHistogramQuery,
         }
-        metrics_cls = metrics_classes.get(value.get("kind", "")) if value is not None else None
+        kind = value.get("kind") if value is not None else None
+        metrics_cls = metrics_classes.get(kind) if isinstance(kind, str) else None
         if value is not None and metrics_cls is not None:
             if value.get("language") in ("promql", "sql"):
                 # A PromQL or SQL metrics query has no builder clauses, but the schema still requires the field.
