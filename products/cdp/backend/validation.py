@@ -1408,10 +1408,15 @@ class InputsSerializer(serializers.DictField):
                     and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
                 )
                 if not is_masked and schema.get("type") == "dictionary":
-                    value, missing = restore_masked_dictionary_entries(value, (existing_secret_inputs or {}).get(key))
+                    restored, missing = restore_masked_dictionary_entries(
+                        value, (existing_secret_inputs or {}).get(key)
+                    )
                     if missing:
                         errors[key] = f"No value is saved for {', '.join(missing)}. Enter the value again."
                         continue
+                    if restored != value:
+                        self.context.setdefault("kept_secret_keys", set()).add(key)
+                    value = restored
 
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)

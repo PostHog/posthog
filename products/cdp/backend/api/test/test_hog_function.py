@@ -31,7 +31,7 @@ from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.cdp.backend.validation import SECRET_BINDING_FEATURE_FLAG
+from products.cdp.backend.validation import MASKED_SECRET_VALUE, SECRET_BINDING_FEATURE_FLAG
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
@@ -1491,6 +1491,41 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             res = self.client.patch(url, data={"hog": new_hog})
             assert res.status_code == 200, res.json()
             assert HogFunction.objects.get(id=create.json()["id"]).encrypted_inputs["secret1"]["value"] == "I AM SECRET"
+
+    @SECRET_BINDING_ENFORCED
+    def test_moving_a_secret_dictionary_kept_entry_by_entry_needs_recent_authentication(self) -> None:
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url, {'headers': inputs.secret_headers});",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "secret_headers", "type": "dictionary", "label": "Headers", "secret": True},
+            ],
+            "inputs": {
+                "url": {"value": "https://example.com"},
+                "secret_headers": {"value": {"Authorization": "I AM SECRET"}},
+            },
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert create.status_code == 201, create.json()
+        self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
+
+        # The editor resends each stored entry as the per-entry mask rather than the whole input.
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}",
+            data={
+                "inputs": {
+                    "url": {"value": "https://new.example.com"},
+                    "secret_headers": {"secret": True, "value": {"Authorization": MASKED_SECRET_VALUE}},
+                }
+            },
+        )
+
+        assert res.status_code == 403, res.json()
+        assert res.json()["code"] == "sensitive_action_required_reauth"
+        stored = HogFunction.objects.get(id=create.json()["id"])
+        assert (stored.inputs or {})["url"]["value"] == "https://example.com"
 
     def _age_session(self, seconds: float) -> None:
         aged = time.time() - seconds
