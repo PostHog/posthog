@@ -15,6 +15,7 @@ TODAY_REPORT_JEV_FLAG = "today-report-jev"
 TODAY_PROGRESSIVE_PULSE_FLAG = "today-progressive-pulse"
 TODAY_FLAGS = (TODAY_RAIL_NAV_FLAG, TODAY_REPORT_JEV_FLAG, TODAY_PROGRESSIVE_PULSE_FLAG)
 API_FLAGS_CACHE_SECONDS = 60
+API_FLAGS_FAILURE_CACHE_SECONDS = 15
 
 
 def progressive_pulse_enabled(user: User, team: Team) -> bool:
@@ -35,7 +36,7 @@ def _group_properties(team: Team) -> dict[str, dict[str, str]]:
 
 
 def _flag_on(flag: str, user: User, team: Team) -> bool:
-    if _local_flag_on(TODAY_RAIL_NAV_FLAG, user, team):
+    if _local_flag_on(TODAY_RAIL_NAV_FLAG, user, team, only_evaluate_locally=True):
         return flag == TODAY_RAIL_NAV_FLAG or _local_flag_on(flag, user, team)
     return _api_flags(user, team).get(flag, False)
 
@@ -55,16 +56,17 @@ def _api_flags(user: User, team: Team) -> dict[str, bool]:
         )
     except Exception:
         logger.warning("today_flag_check_failed", exc_info=True)
-        return {}
+        decision = {"errorsWhileComputingFlags": True}
     found = decision.get("flags") or {}
     if decision.get("errorsWhileComputingFlags") or TODAY_RAIL_NAV_FLAG not in found:
+        cache.set(key, {}, API_FLAGS_FAILURE_CACHE_SECONDS)
         return {}
     flags = {name: found[name].enabled is True for name in TODAY_FLAGS if name in found}
     cache.set(key, flags, API_FLAGS_CACHE_SECONDS)
     return flags
 
 
-def _local_flag_on(flag: str, user: User, team: Team) -> bool:
+def _local_flag_on(flag: str, user: User, team: Team, *, only_evaluate_locally: bool = False) -> bool:
     try:
         return feature_enabled_or_false(
             flag,
@@ -72,7 +74,7 @@ def _local_flag_on(flag: str, user: User, team: Team) -> bool:
             groups=_groups(team),
             group_properties=_group_properties(team),
             person_properties={"email": user.email},
-            only_evaluate_locally=False,
+            only_evaluate_locally=only_evaluate_locally,
             # The home checks the flag on every call, so no $feature_flag_called event per call.
             send_feature_flag_events=False,
         )

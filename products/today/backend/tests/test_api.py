@@ -438,18 +438,31 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("flag on", True, False, status.HTTP_200_OK),
             ("flag off", False, False, status.HTTP_404_NOT_FOUND),
             ("joined through feature previews", False, True, status.HTTP_200_OK),
+            ("the flags API is down", False, TimeoutError("flags API"), status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_highlights_need_the_flag_but_not_ai(self, _name: str, flag: bool, api_flag: bool, expected: int) -> None:
+    def test_highlights_need_the_flag_but_not_ai(
+        self, _name: str, flag: bool, api_flag: bool | Exception, expected: int
+    ) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         cache.clear()
-        decision = {"flags": {"today-rail-nav": FeatureFlag.from_value_and_payload("today-rail-nav", api_flag, None)}}
+        decision = (
+            {"flags": {"today-rail-nav": FeatureFlag.from_value_and_payload("today-rail-nav", api_flag, None)}}
+            if isinstance(api_flag, bool)
+            else None
+        )
 
-        with patch("posthoganalytics.Client.get_flags_decision", return_value=decision):
+        with patch(
+            "posthoganalytics.Client.get_flags_decision",
+            return_value=decision,
+            side_effect=None if decision else api_flag,
+        ) as ask_api:
             response = self._get(_temporal(), flag)
+            repeat = self._get(_temporal(), flag)
 
-        self.assertEqual(response.status_code, expected)
+        self.assertEqual((response.status_code, repeat.status_code), (expected, expected))
+        self.assertEqual(ask_api.call_count, 0 if flag else 1)
 
     @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
     def test_the_first_call_starts_the_computation_and_a_later_call_serves_its_result(self) -> None:
