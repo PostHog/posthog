@@ -49,7 +49,6 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -72,7 +71,6 @@ EVENT_VALUES_COUNTER = Counter(
 
 QUERY_DEFAULT_EXPORT_LIMIT = 1_000
 EVENT_LIST_MAX_LIMIT = 1_000
-EVENTS_LIST_DEFAULT_AFTER_FLAG = "events-list-default-after"
 DEFAULT_AFTER_HEADER = "X-PostHog-Events-Default-After"
 
 
@@ -109,21 +107,6 @@ def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None")
             stack.extend(v for v in values if isinstance(v, dict))
         else:
             yield node
-
-
-def _default_after_enabled(team: Team) -> bool:
-    if settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-        return True
-    try:
-        return posthog_feature_flag_enabled(
-            EVENTS_LIST_DEFAULT_AFTER_FLAG,
-            str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
-            only_evaluate_locally=True,
-        )
-    except Exception:
-        return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -338,7 +321,7 @@ class EventViewSet(
             before = request.GET.get("before")
             after = request.GET.get("after")
             default_after: Optional[str] = None
-            if not after and _default_after_enabled(team):
+            if not after:
                 before_dt = resolve_before(before, team.timezone_info)
                 before = before_dt.isoformat()
                 default_after = after = (before_dt - EVENT_LIST_DEFAULT_AFTER_WINDOW).astimezone(UTC).isoformat()
