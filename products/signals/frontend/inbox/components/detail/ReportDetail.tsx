@@ -55,6 +55,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
@@ -417,8 +418,9 @@ export function InboxDetailFrame({
                     )}
                 </div>
             </ReportChartsContext.Provider>
-            {/* The rating closes out the report body, pinned to the bottom of the column. */}
+            {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
+                <ReportNotesSection report={report} />
                 <ReportFeedbackFooter report={report} align="end" />
             </div>
         </div>

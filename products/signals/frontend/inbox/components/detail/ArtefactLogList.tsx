@@ -46,6 +46,7 @@ import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabil
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
 import { SignalCardDisclosureProvider } from '../signalCards/SignalCardShell'
+import { ActivityNoteQuote } from './ActivityNoteQuote'
 import { ArtefactCommit } from './ArtefactCommit'
 import { ArtefactPullRequest } from './ArtefactPullRequest'
 import { ArtefactTaskRun } from './ArtefactTaskRun'
@@ -88,7 +89,6 @@ import {
 import { CheckObservationBody } from './CheckObservationBody'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
-import { ScoutNoteLeftBody } from './ScoutNoteLeftBody'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -774,10 +774,15 @@ function renderArtefactBody({
         }
         case 'note': {
             const c = content as NoteContent
+            if (artefact.actor_kind === 'user') {
+                return <ActivityNoteQuote reportId={reportId} text={c.note} />
+            }
             return <NoteBody note={c.note} author={c.author} />
         }
-        case 'scout_note_left':
-            return <ScoutNoteLeftBody reportId={reportId} content={content as ScoutNoteLeftContent} />
+        case 'scout_note_left': {
+            const c = content as ScoutNoteLeftContent
+            return <ActivityNoteQuote reportId={reportId} text={c.note} scoutSkillName={c.skill_name} />
+        }
         case 'priority_judgment': {
             const c = content as { explanation?: string }
             return c.explanation ? <ReasoningBody text={c.explanation} /> : null

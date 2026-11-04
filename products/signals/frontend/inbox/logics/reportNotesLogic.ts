@@ -228,7 +228,7 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
                 addNoteFinished: () => false,
             },
         ],
-        // The dialog awaits `addNote` and reads this to decide whether to close, since a listener
+        // The composer awaits `addNote` and reads this to decide whether to close, since a listener
         // cannot return a result.
         lastSaveFailed: [
             false,
