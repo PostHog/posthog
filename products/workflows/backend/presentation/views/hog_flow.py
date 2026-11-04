@@ -281,6 +281,7 @@ from products.workflows.backend.facade.secrets import (
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
     rehydrate_flow_secrets,
+    secret_binding_enforced,
     secret_bindings_for_actions,
     secret_keys_for_action,
     strip_content_secrets,
@@ -2245,6 +2246,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
 
+                if "secret_binding_enforced" not in self.context:
+                    self.context["secret_binding_enforced"] = secret_binding_enforced(self.context["get_team"]())
+                enforced = self.context["secret_binding_enforced"]
+
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
@@ -2260,6 +2265,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "secret_bindings": (self.context.get("existing_secret_bindings") or {}).get(data.get("id"))
                         or {},
                         "secret_binding_code": template.code,
+                        "secret_binding_enforced": enforced,
                         # Team plus this action's stored sender override, so a literal custom
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
@@ -2283,7 +2289,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             inputs,
                             {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
                             (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
-                            bindings=(self.context.get("existing_secret_bindings") or {}).get(data.get("id")),
+                            bindings=(self.context.get("existing_secret_bindings") or {}).get(data.get("id"))
+                            if enforced
+                            else None,
                             code=template.code,
                         )
                 else:
@@ -2292,7 +2300,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
                 # A stolen session cookie alone must not be enough to send a connected
                 # integration's credentials somewhere new.
-                if action_integration_link_needs_reauth(
+                if enforced and action_integration_link_needs_reauth(
                     (self.context.get("stored_action_bindings") or {}).get(data.get("id")),
                     template.code,
                     data["config"].get("inputs"),

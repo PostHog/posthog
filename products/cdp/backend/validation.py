@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from django.db import models
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -1271,6 +1272,25 @@ def secret_binding_changed(stored: SecretBinding, current: SecretBinding, secret
     return any(_binding_input_values(stored, key) != _binding_input_values(current, key) for key in keys - secret_keys)
 
 
+SECRET_BINDING_FEATURE_FLAG = "cdp-secret-binding"
+
+
+def secret_binding_enforced(team: Team) -> bool:
+    """Whether this team gets the secret-binding and integration re-auth checks.
+
+    Off by default while the checks roll out, so a team that hits a false refusal can be dropped
+    from the flag without a deploy.
+    """
+    return bool(
+        posthoganalytics.feature_enabled(
+            SECRET_BINDING_FEATURE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            send_feature_flag_events=False,
+        )
+    )
+
+
 INTEGRATION_INPUT_TYPES = frozenset({"integration", "integration_multi"})
 
 
@@ -1342,6 +1362,8 @@ class InputsSerializer(serializers.DictField):
     child = InputsItemSerializer()
 
     def _rebound_secret_keys(self, data: dict, inputs_schema: list) -> set[str]:
+        if not self.context.get("secret_binding_enforced"):
+            return set()
         return rebound_secret_keys(
             data,
             inputs_schema,

@@ -90,6 +90,7 @@ from products.cdp.backend.validation import (
     masked_secret_input_keys,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
+    secret_binding_enforced,
 )
 
 # Maximum size of HOG code as a string in bytes (100KB)
@@ -655,6 +656,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             **(stored_secret_bindings(instance) if instance else {}),
             **(self.context.get("staged_secret_bindings") or {}),
         }
+        self.context["secret_binding_enforced"] = secret_binding_enforced(team)
 
         template = None
         if data["template_id"]:
@@ -903,7 +905,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else None
         )
         inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-        if integration_link_needs_reauth(stored, current, inputs_schema):
+        if self.context.get("secret_binding_enforced") and integration_link_needs_reauth(
+            stored, current, inputs_schema
+        ):
             require_recent_authentication(self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
 
     def to_representation(self, data):

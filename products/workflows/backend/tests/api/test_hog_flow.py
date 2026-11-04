@@ -41,6 +41,7 @@ from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.validation import SECRET_BINDING_FEATURE_FLAG
 from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
@@ -85,6 +86,15 @@ _EVENT_TRIGGER_CONFIG = {
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
 BACKFILLED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def _secret_binding_flag_on(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key == SECRET_BINDING_FEATURE_FLAG
+
+
+SECRET_BINDING_ENFORCED = patch(
+    "products.cdp.backend.validation.posthoganalytics.feature_enabled", new=_secret_binding_flag_on
+)
 
 
 class _StubAccountAudienceProvider:
@@ -7176,6 +7186,7 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
 
 
+@patch("products.cdp.backend.validation.posthoganalytics.feature_enabled", new=_secret_binding_flag_on)
 class TestHogFlowSecretInputs(APIBaseTest):
     def setUp(self):
         super().setUp()

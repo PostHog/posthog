@@ -10,6 +10,7 @@ from products.cdp.backend.validation import (
     masked_dictionary_secret,
     rebound_secret_keys,
     restore_masked_dictionary_entries,
+    secret_binding_enforced,  # noqa: F401 - re-exported through the facade
 )
 
 # Function/email/sms steps (and function-shaped triggers) can carry secret inputs - API keys, auth
