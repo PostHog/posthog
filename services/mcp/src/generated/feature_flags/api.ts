@@ -73,7 +73,7 @@ export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = () => zod.o
  * both. PostHog refuses a call before the time between steps has passed, and it schedules the next check.
  */
 export const FeatureFlagRolloutPlansAdvanceCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this feature flag rollout plan.'),
+    id: zod.string().describe('The rollout plan ID.'),
     project_id: zod
         .string()
         .describe(
@@ -96,7 +96,7 @@ export const FeatureFlagRolloutPlansAdvanceCreateBody = () => zod.object({
  * Only the run of this plan can call this. The flag stays at its current percentage.
  */
 export const FeatureFlagRolloutPlansFailCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this feature flag rollout plan.'),
+    id: zod.string().describe('The rollout plan ID.'),
     project_id: zod
         .string()
         .describe(

@@ -4189,7 +4189,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
     # the request class, mirroring how `is_system` declares intent to the same serializer.
     skip_opportunistic_filter_cleanup = True
 
-    def __init__(self, request: request.Request) -> None:
+    def __init__(self, request: request.Request | ServiceRequest) -> None:
         self._request = request
         # ServiceRequest.__init__ is skipped on purpose. It assigns a narrow default to every
         # attribute it knows about, and an instance attribute shadows __getattr__, so anything
@@ -4222,7 +4222,7 @@ class FlagVersionCheckedWriteRequest(FlagLifecycleWriteRequest):
 
     strict_version_precondition = True
 
-    def __init__(self, request: request.Request, *, version: int) -> None:
+    def __init__(self, request: request.Request | ServiceRequest, *, version: int) -> None:
         super().__init__(request)
         self.data = {"version": version}
 

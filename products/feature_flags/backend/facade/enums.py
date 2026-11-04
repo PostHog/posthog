@@ -1,6 +1,6 @@
 """Exported enums for feature_flags."""
 
-from posthog.enums import LabeledIntEnum
+from posthog.enums import LabeledIntEnum, LabeledStrEnum
 
 
 class FlagEvaluationsMode(LabeledIntEnum):
@@ -22,6 +22,12 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # the ingestion allowlist still writes to events. INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED makes
     # ingestion treat this mode as READ_FLAG_EVALUATIONS for every organization.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
+
+
+class FeatureFlagRolloutPlanStatus(LabeledStrEnum):
+    ACTIVE = "active", "Active"
+    COMPLETED = "completed", "Completed"
+    STOPPED = "stopped", "Stopped"
 
 
 # The activity log trigger `job_type` of a flag save that a scheduled change applies.

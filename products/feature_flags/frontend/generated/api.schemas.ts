@@ -517,17 +517,23 @@ export const FeatureFlagRolloutPlanStatusEnumApi = {
 } as const
 
 export interface FeatureFlagRolloutPlanApi {
+    /**
+     * The earliest time the next step can run. Null before the first step.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * The ID of the task that runs the health checks.
+     * @nullable
+     */
+    readonly task_id: string | null
     /** The rollout plan ID. */
     readonly id: string
     /** The ID of the feature flag this plan rolls out. */
     readonly feature_flag: number
     /** The index of the release condition this plan changes. */
     readonly condition_index: number
-    /**
-     * The approved rollout percentages, in the order they apply.
-     * @items.minimum 0
-     * @items.maximum 32767
-     */
+    /** The approved rollout percentages, in the order they apply. */
     readonly percentages: readonly number[]
     /** The minimum number of hours between two steps. */
     readonly soak_hours: number
@@ -541,16 +547,6 @@ export interface FeatureFlagRolloutPlanApi {
     readonly status: FeatureFlagRolloutPlanStatusEnumApi
     /** How many of the approved percentages are already applied. */
     readonly steps_applied: number
-    /**
-     * The earliest time the next step can run. Null before the first step.
-     * @nullable
-     */
-    readonly next_check_at: string | null
-    /**
-     * The ID of the task that runs the health checks.
-     * @nullable
-     */
-    readonly task_id: string | null
     /** What the agent reported after its last passing check. */
     readonly last_summary: string
     /** Why the plan stopped. Empty unless the status is stopped. */

@@ -5,17 +5,16 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
-from rest_framework import (
-    exceptions,
-    request as drf_request,
-)
+from rest_framework import exceptions
 
+from posthog.api.utils import ServiceRequest
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import MCP_READ_SCOPES
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.feature_flags.backend.api.feature_flag import FlagVersionCheckedWriteRequest
 from products.feature_flags.backend.facade.api import update_flag, user_can_edit_flag
@@ -39,6 +38,28 @@ logger = structlog.get_logger(__name__)
 
 ROLLOUT_PLAN_MCP_SCOPES = [*MCP_READ_SCOPES, "feature_flag_rollout_plan:write"]
 TITLE_MAX_LENGTH = 255
+MAX_LISTED_PLANS = 20
+
+
+def get_rollout_plan(plan_id: UUID, *, team: Team) -> FeatureFlagRolloutPlan:
+    plan = (
+        FeatureFlagRolloutPlan.objects.select_related("feature_flag")
+        .filter(pk=plan_id, team__project_id=team.project_id)
+        .first()
+    )
+    if plan is None:
+        raise exceptions.NotFound("This rollout plan does not exist in this project.")
+    return plan
+
+
+def list_rollout_plans(feature_flag_id: int, *, team: Team, user: User) -> list[FeatureFlagRolloutPlan]:
+    flag = FeatureFlag.objects.filter(team__project_id=team.project_id, pk=feature_flag_id).first()
+    if flag is None:
+        raise exceptions.NotFound("This feature flag does not exist in this project.")
+    if not UserAccessControl(user=user, team=team).check_access_level_for_object(flag, "viewer"):
+        raise exceptions.PermissionDenied("You do not have access to this feature flag.")
+    plans = FeatureFlagRolloutPlan.objects.filter(team__project_id=team.project_id, feature_flag_id=flag.pk)
+    return list(plans.order_by("-created_at")[:MAX_LISTED_PLANS])
 
 
 def start_rollout_plan(
@@ -92,9 +113,7 @@ def start_rollout_plan(
     return plan
 
 
-def advance_rollout_plan(
-    plan_id: UUID, *, team: Team, request: drf_request.Request, summary: str
-) -> FeatureFlagRolloutPlan:
+def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str) -> FeatureFlagRolloutPlan:
     now = timezone.now()
     with transaction.atomic():
         plan = FeatureFlagRolloutPlan.objects.select_for_update(of=("self",)).get(
@@ -119,20 +138,20 @@ def advance_rollout_plan(
             title=f"The rollout of {plan.feature_flag.key} finished",
             body=f"It reached {plan.percentages[-1]}%, and the last health check passed. {summary}",
         )
-        _report(plan, request.user, "feature flag rollout plan completed")
+        _report(plan, user, "feature flag rollout plan completed")
         return plan
 
     percentage = plan.percentages[step]
-    failure = _apply_step(plan, team=team, request=request, percentage=percentage)
+    failure = _apply_step(plan, team=team, percentage=percentage)
     if failure is not None:
         FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(steps_applied=step)
-        return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=request.user)
+        return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=user)
 
     FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(expected_flag_version=plan.expected_flag_version)
-    _report(plan, request.user, "feature flag rollout plan step applied", percentage=percentage)
+    _report(plan, user, "feature flag rollout plan step applied", percentage=percentage)
     failure = _schedule_next_check(plan, at=plan.next_check_at)
     if failure is not None:
-        return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=request.user)
+        return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=user)
     return plan
 
 
@@ -158,6 +177,17 @@ def stop_rollout_plan(
     return plan
 
 
+def fail_rollout_plan(plan_id: UUID, *, team: Team, user: User, reason: str) -> FeatureFlagRolloutPlan:
+    return stop_rollout_plan(get_rollout_plan(plan_id, team=team), reason=reason, stopped_by=None, acting_user=user)
+
+
+def stop_rollout_plan_for_person(plan_id: UUID, *, team: Team, user: User, reason: str) -> FeatureFlagRolloutPlan:
+    plan = get_rollout_plan(plan_id, team=team)
+    if not user_can_edit_flag(plan.feature_flag, team=team, user=user):
+        raise exceptions.PermissionDenied("You need editor access to this feature flag to stop its rollout.")
+    return stop_rollout_plan(plan, reason=reason, stopped_by=user, acting_user=user)
+
+
 def _check_flag_can_roll_out(flag: FeatureFlag, condition_index: int, percentages: list[int]) -> None:
     if not flag.active:
         raise exceptions.ValidationError("Turn this feature flag on before you start a rollout.")
@@ -174,9 +204,7 @@ def _check_flag_can_roll_out(flag: FeatureFlag, condition_index: int, percentage
         )
 
 
-def _apply_step(
-    plan: FeatureFlagRolloutPlan, *, team: Team, request: drf_request.Request, percentage: int
-) -> str | None:
+def _apply_step(plan: FeatureFlagRolloutPlan, *, team: Team, percentage: int) -> str | None:
     flag = plan.feature_flag
     if flag.deleted:
         return "The feature flag was deleted."
@@ -192,7 +220,7 @@ def _apply_step(
             {"filters": filters},
             team=team,
             user=plan.created_by,
-            request=FlagVersionCheckedWriteRequest(request, version=version),
+            request=FlagVersionCheckedWriteRequest(ServiceRequest(plan.created_by, method="PATCH"), version=version),
         )
     except ApprovalRequired:
         return f"Changing this feature flag needs approval, so the agent did not set it to {percentage}%."
