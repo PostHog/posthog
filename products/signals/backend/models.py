@@ -146,11 +146,12 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
-        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
-        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
-        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
-        # already authored is the opt-in.
-        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
+        # Verification emits these internal signals without a source config. The team's authored
+        # checks supply the opt-in; Monitoring requests also enforce their rollout gate.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type in {
+            SignalSourceType.CHECK_FAILED,
+            SignalSourceType.MONITORING_UNRESOLVED,
+        }:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
@@ -530,9 +531,18 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
-            # UPPER(col) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
-            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
+            # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="signals_report_title_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("summary"), name="gin_trgm_ops"),
+                name="signals_report_summary_trgm",
+                fastupdate=False,
+            ),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -1407,7 +1417,7 @@ class SignalEmissionRecord(UUIDModel):
             models.Index(
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
-            )
+            ),
         ]
 
 
@@ -2684,6 +2694,8 @@ class SignalReportMonitoringAttempt(UUIDModel):
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)
     research_requested_at = models.DateTimeField(null=True, blank=True)
+    research_processed_at = models.DateTimeField(null=True, blank=True)
+    research_next_attempt_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
@@ -2703,6 +2715,13 @@ class SignalReportMonitoringAttempt(UUIDModel):
                     tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True
                 ),
                 name="signals_pending_tracker_close",
+            ),
+            models.Index(
+                models.F("research_next_attempt_at").asc(nulls_first=True),
+                models.F("research_requested_at"),
+                models.F("id"),
+                condition=models.Q(research_requested_at__isnull=False, research_processed_at__isnull=True),
+                name="signals_pending_research",
             ),
         ]
 
@@ -4256,6 +4275,8 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
     pending_view_score = models.FloatField(default=0.0)
     # Distinct days with an opened object or scene in the window, for the first summary of a view-only pair.
     view_active_days = models.IntegerField(default=0)
+    # The MCP part of `pending_score`. The MCP feed computes it again from the buffer, so a record counts once.
+    pending_mcp_score = models.FloatField(default=0.0)
     last_activity_at = models.DateTimeField(null=True, blank=True)
     # The pair is due when this is empty or past. A copy of `UserActivitySummary.next_eligible_at`.
     due_at = models.DateTimeField(null=True, blank=True)
@@ -4296,8 +4317,9 @@ class UserActivitySummaryQueueCursor(models.Model):
 class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
 
-    Append-only: every build writes one row, so later readers can reuse the latest row while its
-    `input_hash` still matches the current inputs.
+    Every build writes one row, so later readers can reuse the latest row while its `input_hash`
+    still matches the current inputs. A build then deletes the person's rows past the newest
+    `max_rows_per_person`.
     """
 
     class Status(models.TextChoices):
@@ -4335,6 +4357,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed strings of `personal_ranking/logic.py`, never model output.
     fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+    # The last time the scheduled tick found the inputs unchanged, so the list is current as of then.
+    checked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         default_manager_name = "all_teams"
@@ -4383,4 +4407,39 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["team", "insight_id", "profile"], name="signals_anomaly_scoring_state_unique"
             ),
+        ]
+
+
+class AnomalyScoringDueInsight(TeamScopedRootMixin, UUIDModel):
+    """One active insight on the stored due list of the anomaly scoring tick.
+
+    A slow refresh job adds the active insights, removes the ones that left, and sets the usage. The tick
+    reads the due rows, and each pick moves its row's `next_due_at`. See `anomaly_scores/due_list.py`.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Not a foreign key: insights belong to another product.
+    insight_id = models.BigIntegerField()
+    interval = models.CharField(max_length=16)
+    # The tick picks the row at or after this time. A never-scored insight is due at once.
+    next_due_at = models.DateTimeField()
+    refreshed_at = models.DateTimeField()
+    # Series key to the newest scored bucket start of the series, as an ISO time in UTC.
+    series_scored_through = models.JSONField(default=dict, db_default={})
+    viewers = models.PositiveIntegerField(default=0)
+    has_enabled_alert = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "insight_id"], name="signals_anomaly_due_insight_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["next_due_at"], name="signals_anomaly_due_next_idx"),
         ]

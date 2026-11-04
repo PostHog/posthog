@@ -34,6 +34,7 @@ from products.data_catalog.backend.facade.api import approved_metric_names_for_t
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
@@ -358,6 +359,16 @@ async def _arun_signals_scout(
             logger.exception(
                 "signals_scout: canonical skill sync failed; continuing with existing team skills",
                 extra={"team_id": team_id},
+            )
+        # A product that created this scout for one of its objects may bring its text up to date first.
+        try:
+            await database_sync_to_async(refresh_source_scout, thread_sensitive=False)(
+                team.parent_team_id or team.id, skill_name
+            )
+        except Exception:
+            logger.exception(
+                "signals_scout: source scout refresh failed; continuing with the stored skill",
+                extra={"team_id": team_id, "skill_name": skill_name},
             )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version, include_authors=True

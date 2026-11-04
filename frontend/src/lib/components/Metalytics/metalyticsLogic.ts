@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,7 +12,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { membersLogic } from '~/models/membersLogic'
-import { hogql } from '~/queries/utils'
 import { ActivityScope, SidePanelTab } from '~/types'
 
 import type { OrganizationMemberType } from '../../../types'

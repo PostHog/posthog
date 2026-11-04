@@ -3,12 +3,9 @@ import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { cn } from 'lib/utils/css-classes'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
-
+import { replayRecordingsLogic } from '../../logics/replayRecordingsLogic'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { resolveHighlightFeedEmptyReason } from '../highlightFeedEmptyState'
@@ -23,26 +20,20 @@ import { HighlightPicksStarter } from './HighlightPicksStarter'
 export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX.Element {
     const { scanners, scannersLoading } = useValues(visionScannersListLogic)
     const { quota, quotaLoading } = useValues(visionQuotaLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { recordingsBlock, hasRecentRecordingsLoading } = useValues(replayRecordingsLogic)
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { emptyStateShown } = useActions(picksLogic)
-    const { status: replayStatus } = useValues(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }))
     const large = size === 'large'
-    const loading = scannersLoading || quotaLoading
+    // Waits for the probe, so the empty state is not reported once as quiet and again as no recordings.
+    const loading = scannersLoading || quotaLoading || hasRecentRecordingsLoading
 
     const reason = loading
         ? null
         : resolveHighlightFeedEmptyReason({
               scanners,
               quota,
-              sessionRecordingOptIn: currentTeam?.session_recording_opt_in ?? null,
+              recordingsBlock,
               hasFeedFilters: false,
-              hasRecordings:
-                  replayStatus === 'has-data'
-                      ? true
-                      : replayStatus === 'needs-setup' || replayStatus === 'waiting-for-data'
-                        ? false
-                        : null,
           })
 
     useEffect(() => {

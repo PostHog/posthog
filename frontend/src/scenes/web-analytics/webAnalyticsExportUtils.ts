@@ -15,6 +15,7 @@ import {
 } from '~/queries/nodes/InsightViz/exportAdapters'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { GRADE_PER_BAND } from '~/queries/nodes/WebVitals/definitions'
+import { isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import {
     DataTableNode,
     NodeKind,
@@ -33,7 +34,6 @@ import {
 import {
     isWebExternalClicksQuery,
     isWebGoalsQuery,
-    isWebStatsTableQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '~/queries/utils'

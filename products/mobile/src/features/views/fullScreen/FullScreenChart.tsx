@@ -37,7 +37,6 @@ import {
 import { useViewsContext } from '../useViewsContext'
 import { freshnessKey, useSnapshot, viewsKeys } from '../viewsCache'
 
-const MIN_CHART_HEIGHT = 220
 /** The legend takes the rows it needs, up to this share of the space; past that it scrolls. */
 const MAX_LEGEND_SHARE = 0.38
 const LEGEND_ROW_HEIGHT = 44
@@ -232,7 +231,7 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
     const legendHeight = many
         ? Math.min(model.series.length * LEGEND_ROW_HEIGHT + 2, area * MAX_LEGEND_SHARE) + LEGEND_GAP
         : 0
-    const chartHeight = Math.max(MIN_CHART_HEIGHT, Math.round(area - legendHeight))
+    const chartHeight = Math.max(1, Math.round(area - legendHeight))
     return (
         <View style={styles.fill} onLayout={(event) => setArea(event.nativeEvent.layout.height)}>
             {area > 0 && kind ? (

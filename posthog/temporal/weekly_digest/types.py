@@ -34,6 +34,10 @@ class WeeklyDigestInput(BaseModel):
     digest_key_override: str | None = None
     allow_already_sent: bool = False
     common: CommonInput = CommonInput()
+    # A resend sets these. None sends to every organization.
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
+    period_end_override: datetime | None = None
 
 
 class GenerateDigestDataInput(BaseModel):
@@ -65,6 +69,8 @@ class SendWeeklyDigestInput(BaseModel):
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class SendWeeklyDigestBatchInput(BaseModel):
@@ -73,6 +79,8 @@ class SendWeeklyDigestBatchInput(BaseModel):
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class DigestDashboard(BaseModel):

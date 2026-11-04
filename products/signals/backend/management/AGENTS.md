@@ -271,6 +271,7 @@ Idempotent. A reactivated check no longer matches.
 It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
 It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
 The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
+At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 10) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
 
 ```bash
 # Call the model, but store no PersonalInboxRanking row and capture no event
@@ -298,13 +299,54 @@ Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned
 `scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
 The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
 
-A person with no ready activity summary still gets a list, marked `personalized: False`.
+A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
+The `personal inbox ranking built` event records `model_called`, so builds with and without a model call can be counted apart.
+The command spends no build limit, so use it only for single runs.
 
 `GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
-It reuses the latest row for `freshness_minutes` while the input hash matches.
+It reuses the latest row for `freshness_minutes` after the row was built or last checked by the tick, while the input hash matches.
 Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
 It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
+`max_builds_per_day` (default 500, at most 10000) limits the builds that call the model across every person, in one Redis token bucket per region (`../personal_ranking/build_budget.py`).
+A build with no ready activity summary, or for an organization that has not approved AI data processing, does not call the model and does not spend that limit.
+When a limit refuses a build, the read serves the latest row as stale, or the candidates in inbox order with `fallback_reason: rate_limited`.
+The scheduled tick spends from the same bucket.
+
+### Scheduled personal ranking tick
+
+`personal-inbox-ranking-tick` (`../personal_ranking/tick.py`) is a Temporal schedule on `SELF_DRIVING_TASK_QUEUE` with overlap `SKIP`.
+It runs every `PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES` (default 15) in every environment, and builds lists ahead of the first `for_me` read.
+The `tick` object of the `personal-inbox-ranking` payload holds its levers. Without `"enabled": true` in that object the tick does nothing, and `"enabled": false` at the top level stops it too.
+
+```json
+{
+  "tick": {
+    "enabled": true,
+    "self_driving_organization_percentage": 5,
+    "organization_ids": ["<organization uuid>"],
+    "deny_organization_ids": [],
+    "skip_team_ids": [],
+    "target_interval_minutes": 60,
+    "active_days": 7,
+    "max_pairs_per_tick": 20,
+    "max_concurrency": 4,
+    "max_tick_builds_per_day": 100,
+    "max_org_share": 0.25,
+    "max_error_rate": 0.5
+  }
+}
+```
+
+- **Enrollment:** every project of the listed organizations, plus the salted `self_driving_organization_percentage` of the organizations with a project that has an enabled signal source. The percentage enrolls only those projects, and a higher percentage keeps the organizations of a lower one. The organization must approve AI data processing, and the activity summary must be readable for the project. A summary is readable for every project that activity summary generation enrolls, including its own percentage rollout. The deny list and `skip_team_ids` win. Enrollment decides who gets scheduled builds. It does not change who can read `for_me`.
+- **Due pairs:** a member with a ready activity summary, activity in the last `active_days`, and a latest list that was built or checked longer ago than `target_interval_minutes`, or no list.
+- **Order:** paying organizations first, then the most recent activity, then the oldest list. One organization takes at most `max_org_share` of `max_pairs_per_tick`.
+- **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.
+- **Limits:** a build that calls the model spends `max_tick_builds_per_day` (one Redis token bucket per region, closed when Redis is unreachable) and then the shared `max_builds_per_day`. `max_tick_builds_per_day` is limited to 80% of `max_builds_per_day`, so `refresh` and `focus` requests keep a reserve. To run the tick above that, raise the shared limit too. The tick stops at the first refusal, at `max_error_rate` after 10 model calls, and when 60% of its interval has passed.
+- **Locks:** the pair takes the same per-person lock as `for_me`, so a tick skips a person whose build is running.
+
+Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
+`personal inbox ranking built` and the model call's trace carry `trigger` (`tick` or `on_demand`), so cost can be split by what started a build.
 
 ## Tips
 

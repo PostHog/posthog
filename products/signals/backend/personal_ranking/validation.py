@@ -6,6 +6,7 @@ and every other unfolded candidate follows in model order.
 """
 
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
@@ -58,6 +59,8 @@ class ValidationCounts:
     # Ranked entries past `rank_top`. They follow in model order too.
     beyond_rank_top: int = 0
     tier_corrections: int = 0
+    # Entries past the cap of their tier. Each moves down to the next tier with room and keeps its rank.
+    tier_demotions: int = 0
     # Folds of an unknown ref, into an unknown or folded ref, or into the ref itself.
     invalid_folds: int = 0
 
@@ -188,6 +191,8 @@ def validate_ranking(
     model_reasons: Mapping[str, str],
     limit: int,
     rank_top: int,
+    top_max: int,
+    worth_a_look_max: int,
     reason_limits: ReasonLimits,
     next_step_max_chars: int,
 ) -> ValidatedRanking:
@@ -212,15 +217,24 @@ def validate_ranking(
     top = kept[:rank_top]
     ranked_refs = {entry.ref for entry in top}
 
+    caps: dict[Tier, int] = {"top": top_max, "worth_a_look": worth_a_look_max}
+    tier_sizes: Counter[Tier] = Counter()
     entries: list[RankedEntry] = []
-    renumbered = tier_corrections = 0
-    worst_tier = 0
+    renumbered = tier_corrections = tier_demotions = 0
+    # Corrections follow the model's own tiers, so a demotion is not counted again as a correction.
+    worst_corrected = worst_tier = 0
     for rank, entry in enumerate(top, start=1):
         renumbered += entry.rank != rank
-        tier_index = max(TIERS.index(entry.tier), worst_tier)
-        tier_corrections += tier_index != TIERS.index(entry.tier)
+        corrected_index = max(TIERS.index(entry.tier), worst_corrected)
+        tier_corrections += corrected_index != TIERS.index(entry.tier)
+        worst_corrected = corrected_index
+        tier_index = max(corrected_index, worst_tier)
+        while TIERS[tier_index] in caps and tier_sizes[TIERS[tier_index]] >= caps[TIERS[tier_index]]:
+            tier_index += 1
+        tier_demotions += tier_index != corrected_index
         worst_tier = tier_index
         tier = TIERS[tier_index]
+        tier_sizes[tier] += 1
         reason = entry.reason.strip() or model_reasons[entry.ref]
         entries.append(
             RankedEntry(
@@ -257,6 +271,7 @@ def validate_ranking(
             missing_refs=len(missing) - (len(kept) - len(top)),
             beyond_rank_top=len(kept) - len(top),
             tier_corrections=tier_corrections,
+            tier_demotions=tier_demotions,
             invalid_folds=invalid_folds,
         ),
     )

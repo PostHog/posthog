@@ -23,14 +23,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
@@ -73,7 +73,6 @@ from products.signals.backend.scout_harness.precheck import (
     parse_precheck_query,
     resolve_effective_precheck,
 )
-from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_DM_TARGETS,
@@ -433,99 +432,6 @@ class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
             "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
             "team are silently ignored (they contribute no rows) rather than failing the whole request. "
             f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
-        ),
-    )
-
-
-class ScoutRunTokenCostSerializer(serializers.Serializer):
-    """What one scout run spent on model calls."""
-
-    run_id = serializers.CharField(help_text="UUID of the `SignalScoutRun` this cost belongs to.")
-    token_cost_usd = serializers.FloatField(
-        allow_null=True,
-        help_text=(
-            "Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. "
-            "Null when no generation is attributed to the run — it failed before its first model call, "
-            "or its events haven't landed yet. A run still in progress reports what it has spent so far."
-        ),
-    )
-
-
-class ScoutRunTokenCostsSerializer(serializers.Serializer):
-    """Model spend for a batch of scout runs."""
-
-    costs = ScoutRunTokenCostSerializer(
-        many=True,
-        help_text=(
-            "One entry per requested run that exists on this project. Runs from another project, and "
-            "ids that match no run, are absent."
-        ),
-    )
-    available = serializers.BooleanField(
-        help_text=(
-            "False when this deployment has no internal AI observability project to read the "
-            "generations from, so `costs` is empty and every cost is unknown rather than zero."
-        ),
-    )
-
-
-class ScoutCostsQuerySerializer(serializers.Serializer):
-    """Query parameters for the `runs/costs` action."""
-
-    window_days = serializers.IntegerField(
-        required=False,
-        # Bounded to the one supported window rather than left open, so a client that asks for 30
-        # gets a 400 instead of a number silently computed over 7 days.
-        min_value=SCOUT_COST_WINDOW_DAYS,
-        max_value=SCOUT_COST_WINDOW_DAYS,
-        help_text=(
-            f"Window in days over runs' `created_at` (default {SCOUT_COST_WINDOW_DAYS}). Only "
-            f"{SCOUT_COST_WINDOW_DAYS} is accepted today — it matches the window the roster's fleet "
-            "headline spans, so every number on the page describes one span."
-        ),
-    )
-
-
-class ScoutCostSerializer(serializers.Serializer):
-    """What one scout spent in the window, and what it produced for that spend."""
-
-    skill_name = serializers.CharField(help_text="Full skill name of the scout, e.g. `signals-scout-error-tracking`.")
-    spend_usd = serializers.FloatField(
-        help_text=(
-            "Model spend attributed to the scout's runs in the window, in US dollars. Zero when none "
-            "of its runs had spend attributed, which `priced_run_count` tells apart from a scout that "
-            "really spent nothing."
-        ),
-    )
-    run_count = serializers.IntegerField(help_text="Runs the scout started in the window.")
-    priced_run_count = serializers.IntegerField(
-        help_text=(
-            "Runs of the scout that had spend attributed. Lower than `run_count` where a run failed "
-            "before its first model call, or its generations haven't landed yet. Divide `spend_usd` by "
-            "this, not by `run_count`, for cost per run."
-        ),
-    )
-    reports_touched = serializers.IntegerField(
-        help_text=(
-            "Distinct inbox reports the scout filed or added to in the window. A report it authored in "
-            "one run and edited in three counts once. Zero means the scout produced no reports, so "
-            "cost per report has no value rather than a value of zero."
-        ),
-    )
-
-
-class ScoutCostsSerializer(serializers.Serializer):
-    """Model spend and output per scout over a window."""
-
-    window_days = serializers.IntegerField(help_text="Window the rows describe, in days.")
-    scouts = ScoutCostSerializer(
-        many=True,
-        help_text="One row per scout that started at least one run on this project in the window.",
-    )
-    available = serializers.BooleanField(
-        help_text=(
-            "False when this deployment has no internal AI observability project to read the "
-            "generations from, so `scouts` is empty and every spend is unknown rather than zero."
         ),
     )
 
@@ -1117,13 +1023,20 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
 
 
+# pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
+_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+
+
 class SearchMemoryQuerySerializer(serializers.Serializer):
     """Query parameters for `search-memory`."""
 
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+        help_text=(
+            "ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, "
+            "or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries."
+        ),
     )
     key = serializers.CharField(
         required=False,
@@ -1183,6 +1096,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+    def validate_text(self, value: str) -> str:
+        # The trigram indexes extract nothing from a term without an indexable word, so Postgres
+        # reads and upper-cases every body the team holds to answer it.
+        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+            raise serializers.ValidationError(
+                "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
+                "To read one known entry, pass `key` instead."
+            )
+        return value
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -3124,12 +3047,12 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if key_scopes is not None and "*" not in key_scopes:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
-            raise PermissionDenied("API key missing required scope 'integration:read'")
+            raise InsufficientScope(["integration:read"])
         # Delivery pushes report titles/summaries to the channel — content the report API gates
-        # behind `task` scope — so a scoped key without it must not be able to route that content
+        # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
-        if not any(scope in key_scopes for scope in ("task:read", "task:write")):
-            raise PermissionDenied("API key missing required scope 'task:read'")
+        if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
+            raise InsufficientScope(["inbox:read"])
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 
@@ -3462,6 +3385,7 @@ _WRITE_SCOPES_HELP = (
     "`ticket:write` lets the scout update tickets, manage saved views, and add private notes. "
     "Scouts cannot send public replies, compose emails, change existing notes, or change customer "
     "identity fields. Ticket changes can start workflows that message customers. "
+    "`event_definition:write` lets the scout change the tags on event definitions and nothing else. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project "

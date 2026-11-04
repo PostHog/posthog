@@ -1791,6 +1791,98 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value(["single"]) == "single"
 
 
+def _funnel_step(order: int, name: str | None, count: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "custom_name": None,
+        "order": order,
+        "count": count,
+        "average_conversion_time": None,
+        "median_conversion_time": None,
+    }
+
+
+class TestFunnelStepRows:
+    @pytest.mark.parametrize(
+        "series,funnels_filter,steps,expected",
+        [
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": None},
+                    {"kind": "EventsNode", "event": "checkout started", "name": "checkout started"},
+                ],
+                {"funnelVizType": "steps"},
+                [_funnel_step(0, None, 10), _funnel_step(1, "checkout started", 4)],
+                [("All events", "", 10), ("checkout started", "checkout started", 4)],
+                id="all events first",
+            ),
+            pytest.param(
+                [
+                    {
+                        "kind": "FunnelsDataWarehouseNode",
+                        "id": "invoices",
+                        "table_name": "invoices",
+                        "id_field": "id",
+                        "timestamp_field": "created_at",
+                        "aggregation_target_field": "customer_id",
+                    },
+                    {"kind": "ActionsNode", "id": 7, "name": "Paid"},
+                    {
+                        "kind": "GroupNode",
+                        "operator": "OR",
+                        "nodes": [
+                            {"kind": "EventsNode", "event": "refund requested"},
+                            {"kind": "EventsNode", "event": "chargeback"},
+                        ],
+                    },
+                ],
+                {"funnelVizType": "steps"},
+                [
+                    _funnel_step(0, "invoices", 25),
+                    _funnel_step(1, "Paid", 9),
+                    _funnel_step(2, "refund requested, chargeback", 2),
+                ],
+                [("invoices", "invoices", 25), ("Paid", 7, 9), ("refund requested, chargeback", "", 2)],
+                id="warehouse, action and group steps",
+            ),
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": "signed up", "name": "signed up"},
+                    {"kind": "EventsNode", "event": "invited teammate", "name": "invited teammate"},
+                ],
+                {"funnelVizType": "steps", "funnelOrderType": "unordered"},
+                [_funnel_step(0, "Completed 1 step", 12), _funnel_step(1, "Completed 2 steps", 5)],
+                [("Completed 1 step", "", 12), ("Completed 2 steps", "", 5)],
+                id="unordered",
+            ),
+            pytest.param(
+                [{"kind": "EventsNode", "event": None}, {"kind": "ActionsNode", "id": 7, "name": "Paid"}],
+                {"funnelVizType": "steps"},
+                [
+                    {**_funnel_step(0, None, 10), "compare_label": "current"},
+                    {**_funnel_step(1, "Paid", 4), "compare_label": "current"},
+                    {**_funnel_step(0, None, 8), "compare_label": "previous"},
+                    {**_funnel_step(1, "Paid", 3), "compare_label": "previous"},
+                ],
+                [("All events", "", 10), ("Paid", 7, 4), ("All events", "", 8), ("Paid", 7, 3)],
+                id="compared periods",
+            ),
+        ],
+    )
+    def test_exports_funnel_step_rows_from_query_series(
+        self,
+        series: list[dict[str, Any]],
+        funnels_filter: dict[str, Any],
+        steps: list[dict[str, Any]],
+        expected: list[tuple[str, str | int, int]],
+    ) -> None:
+        query = {"kind": "FunnelsQuery", "series": series, "funnelsFilter": funnels_filter}
+
+        rows = list(_convert_response_to_csv_data({"results": steps}, series_query=query))
+
+        assert [(row["name"], row["action_id"], row["count"]) for row in rows] == expected
+
+
 class TestExcelWriter:
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()

@@ -21,6 +21,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
@@ -228,6 +229,22 @@ class TestOpenAIAttachmentParts:
         assert next(message for message in sent if message["role"] == "user")["content"] == [
             expected_block,
             {"type": "text", "text": "hi"},
+        ]
+
+    def test_openrouter_sends_video_as_a_video_url_block(self):
+        request = CompletionRequest(
+            model="google/gemini-2.5-flash",
+            messages=[{"role": "user", "content": [AttachmentPart(mime_type="video/mp4", data=b"hi")]}],
+            provider="openrouter",
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenRouterAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,aGk="}}
         ]
 
 

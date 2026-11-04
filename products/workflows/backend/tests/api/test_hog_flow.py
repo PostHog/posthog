@@ -75,6 +75,10 @@ from products.workflows.backend.tests.api.test_workflow_data_suggestions import 
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
+_EVENT_TRIGGER_CONFIG = {
+    "type": "event",
+    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+}
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -994,7 +998,14 @@ class TestHogFlowAPI(APIBaseTest):
         for fragment in fragments:
             assert fragment in detail, (fragment, detail)
 
-    def test_literal_off_domain_sender_override_is_rejected_at_save(self):
+    @parameterized.expand(
+        [
+            ("off_domain", "sales@evil.com", 'is not on the verified domain "posthog.com"'),
+            ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
+            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
+        ]
+    )
+    def test_invalid_literal_sender_override_is_rejected_at_save(self, _name: str, address: str, expected: str) -> None:
         # The domain rule lived only in the send path, so a bad literal address saved fine and
         # every send then fell back to the integration's sender with a run-log warning the
         # author never saw. The save is where the author can still act on it.
@@ -1005,14 +1016,14 @@ class TestHogFlowAPI(APIBaseTest):
             config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
         )
         inputs = _valid_email_inputs()
-        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "sales@evil.com"}
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": address}
         hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
         action["type"] = "function_email"
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
 
         assert response.status_code == 400, response.json()
-        assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
+        assert expected in response.json()["detail"]
 
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
@@ -5730,12 +5741,16 @@ class TestHogFlowAPI(APIBaseTest):
                 {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
                 HogFlowSchedule.Status.ACTIVE,
             ),
+            ("schedule_trigger_unchanged", {"type": "schedule"}, {"type": "schedule"}, HogFlowSchedule.Status.ACTIVE),
+            ("trigger_switched_off_schedule", {"type": "schedule"}, _EVENT_TRIGGER_CONFIG, None),
         ]
     )
-    def test_live_audience_change_pauses_schedules(self, _name, before_config, after_config, expected_status):
+    def test_live_trigger_change_updates_schedules(self, _name, before_config, after_config, expected_status):
         # Each firing broadcasts to whatever the trigger says at fire time, not to what was confirmed
         # when the schedule was created, so an edit that moves the audience stops the cadence. A save
         # that leaves the audience alone must not, or every resave would silently kill the schedule.
+        # A trigger that is no longer a scheduled type deletes the schedule, so a switch back cannot
+        # arm it next to a new one.
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -5757,10 +5772,51 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert edited.status_code == 200, edited.json()
 
-        schedule = HogFlowSchedule.objects.get(id=scheduled.json()["id"])
+        schedule = HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).first()
+        if expected_status is None:
+            assert schedule is None
+            return
+        assert schedule is not None
         assert schedule.status == expected_status
         if expected_status == HogFlowSchedule.Status.PAUSED:
             assert schedule.next_run_at is None
+
+    def test_staged_trigger_change_keeps_schedule_until_publish(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "schedule"}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        hog_flow["actions"][0]["config"] = _EVENT_TRIGGER_CONFIG
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": hog_flow["actions"], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+        assert HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).exists()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": token},
+        )
+        assert published.status_code == 200, published.json()
+        assert not HogFlowSchedule.objects.filter(id=scheduled.json()["id"]).exists()
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
@@ -6756,12 +6812,15 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
         base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_one = self.client.get(f"{base}/metrics/version?version=1&breakdown_by=name&name=succeeded,skipped")
         version_two = self.client.get(f"{base}/metrics/version?version=2")
         whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert self._succeeded(version_one) == 3
+        assert {series["name"]: sum(series["values"]) for series in version_one.json()["series"]} == {
+            "succeeded": 3,
+            "skipped": 0,
+        }
         assert self._succeeded(version_two) == 5
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7
@@ -7793,12 +7852,27 @@ def _create_task_template() -> dict:
     return template
 
 
+def _classify_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-posthog-classify"
+    template["name"] = "Classify with AI"
+    template["inputs_schema"] = [
+        {"key": "question", "type": "string", "label": "Question", "secret": False, "required": True},
+        {"key": "categories", "type": "dictionary", "label": "Categories", "secret": False, "required": True},
+        {"key": "model", "type": "choice", "label": "Model", "secret": False, "required": False},
+    ]
+    return template
+
+
+_CLASSIFY_INPUTS = {"question": {"value": "Which team?"}, "categories": {"value": {"spam": "x", "support": "help"}}}
+
+
 class TestFlagGatedTemplates(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_template_to_db(_create_task_template())
+        sync_template_to_db(_classify_template())
 
-    def _post_flow_with_create_task_action(self):
+    def _post_flow_with_gated_action(self):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -7812,7 +7886,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+            "config": {"template_id": "template-posthog-classify", "inputs": _CLASSIFY_INPUTS},
         }
         # The MCP client header selects strict validation - the path agents and API callers
         # actually use. Web-client draft saves stay lenient; the gate holds at publish there.
@@ -7822,7 +7896,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
-    def _post_flow_with_create_task_action_as_web(self):
+    def _post_flow_with_gated_action_as_web(self):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -7836,7 +7910,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+            "config": {"template_id": "template-posthog-classify", "inputs": _CLASSIFY_INPUTS},
         }
         return self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
@@ -7850,22 +7924,22 @@ class TestFlagGatedTemplates(APIBaseTest):
         ]
     )
     def test_gated_template_requires_feature_flag(self, _name, flag_enabled, expected_status):
-        # The builder hides the AI task step behind a flag, but agents and API callers write
+        # The builder hides the classify step behind a flag, but agents and API callers write
         # workflows through this endpoint directly - without the server-side gate they could
         # attach the step on any team.
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=flag_enabled
         ) as mock_gate:
-            response = self._post_flow_with_create_task_action()
+            response = self._post_flow_with_gated_action()
 
         assert response.status_code == expected_status, response.json()
-        assert mock_gate.call_args.args[0] == "workflow-ai-task-action"
+        assert mock_gate.call_args.args[0] == "workflow-classify-action"
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert "Template not found" in response.json()["detail"]
 
     def test_invocation_rejects_an_inline_gated_step_when_the_flag_is_off(self):
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            created = self._post_flow_with_create_task_action_as_web()
+            created = self._post_flow_with_gated_action_as_web()
         assert created.status_code == status.HTTP_201_CREATED
         flow = created.json()
 
@@ -7886,11 +7960,11 @@ class TestFlagGatedTemplates(APIBaseTest):
             "products.cdp.backend.flag_gated_templates.posthoganalytics.feature_enabled",
             side_effect=Exception("flag service down"),
         ):
-            assert gated_template_enabled("workflow-ai-task-action", self.team) is False
+            assert gated_template_enabled("workflow-classify-action", self.team) is False
 
     def _create_active_flow_with_gated_step(self) -> str:
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            response = self._post_flow_with_create_task_action()
+            response = self._post_flow_with_gated_action()
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             flow_id = response.json()["id"]
             activate = self.client.patch(
@@ -7932,7 +8006,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # draft. Grandfathering must not treat that as authorization: activation re-checks the
         # flag, or the draft path becomes a gate bypass.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
-            create = self._post_flow_with_create_task_action_as_web()
+            create = self._post_flow_with_gated_action_as_web()
             assert create.status_code == status.HTTP_201_CREATED, create.json()
             flow_id = create.json()["id"]
 
@@ -7951,7 +8025,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_2",
             "name": "action_2",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
+            "config": {"template_id": "template-posthog-classify", "inputs": _CLASSIFY_INPUTS},
         }
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             response = self.client.patch(
@@ -7993,12 +8067,11 @@ class TestCreateTaskActionValidation(APIBaseTest):
         }
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
-        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            return self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows",
-                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
-                HTTP_X_POSTHOG_CLIENT="mcp",
-            )
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
 
     def test_rejects_a_connector_the_workflow_owner_cannot_mount(self):
         response = self._post_flow({"connectors": {"value": ["nonexistent-installation"]}})
@@ -8776,15 +8849,7 @@ class TestRunScoutActionValidation(APIBaseTest):
 class TestClassifyActionValidation(APIBaseTest):
     def setUp(self):
         super().setUp()
-        template = deepcopy(webhook_template)
-        template["id"] = "template-posthog-classify"
-        template["name"] = "Classify with AI"
-        template["inputs_schema"] = [
-            {"key": "question", "type": "string", "label": "Question", "secret": False, "required": True},
-            {"key": "categories", "type": "dictionary", "label": "Categories", "secret": False, "required": True},
-            {"key": "model", "type": "choice", "label": "Model", "secret": False, "required": False},
-        ]
-        sync_template_to_db(template)
+        sync_template_to_db(_classify_template())
 
     def _post_flow(self, categories: dict, question: str = "Which team?", model: str | None = None):
         trigger_action = {

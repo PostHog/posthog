@@ -11,11 +11,8 @@ import {
     MetricValue,
 } from '@posthog/quill-components/metric'
 
+import { defaultAggregationAxisFormatForDisplay, formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { hexToRGBA } from 'lib/utils/colors'
-import {
-    defaultAggregationAxisFormatForDisplay,
-    formatAggregationAxisValue,
-} from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'

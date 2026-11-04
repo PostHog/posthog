@@ -25,6 +25,12 @@ export interface DrawContext {
      *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
      *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
+    /** Draw across missing values instead of breaking the line and area at them. */
+    connectNulls?: boolean
+}
+
+function isDrawablePoint({ xScale, yScale, labels }: DrawContext, data: number[], i: number): boolean {
+    return xScale(labels[i]) != null && isFinite(yScale(data[i]))
 }
 
 /** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
@@ -51,7 +57,8 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
         return
     }
 
-    for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
+    const isDrawable = drawCtx.connectNulls ? (i: number) => isDrawablePoint(drawCtx, data, i) : undefined
+    for (const { start, end, pattern } of planLineStrokes(series, data.length, isDrawable)) {
         ctx.beginPath()
         ctx.setLineDash(pattern)
         tracePath(drawCtx, data, start, end)
@@ -201,11 +208,18 @@ interface Stroke {
  * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
  * share their boundary index so the visual seam between them is invisible.
  */
-function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
+function planLineStrokes(series: ResolvedSeries, length: number, isDrawable?: (i: number) => boolean): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
     const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
-    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
-    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    let from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    let to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    // A boundary on a bridged missing value moves to the nearest drawn point, so the bridge is dashed like the area.
+    while (isDrawable && from !== null && from > 1 && !isDrawable(from - 1)) {
+        from--
+    }
+    while (isDrawable && to !== null && to < length - 1 && !isDrawable(to)) {
+        to++
+    }
 
     // No partial dashing — one stroke covering the whole line.
     if (from === null && to === null) {
@@ -239,7 +253,7 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
  *  points since the tangents need the whole run). NaN/out-of-domain points break the line into
  *  separate subpaths. Caller owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
-    const { ctx, xScale, yScale, labels, smooth, yFloor } = drawCtx
+    const { ctx, xScale, yScale, labels, smooth, yFloor, connectNulls } = drawCtx
     if (smooth) {
         traceSmoothPath(drawCtx, data, start, end)
         return
@@ -249,9 +263,11 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         const x = xScale(labels[i])
         const rawY = yScale(data[i])
         if (x == null || !isFinite(rawY)) {
-            // Reset so the next valid point starts a fresh subpath rather than
-            // connecting straight across the NaN gap.
-            started = false
+            if (!connectNulls) {
+                // Reset so the next valid point starts a fresh subpath rather than
+                // connecting straight across the NaN gap.
+                started = false
+            }
             continue
         }
         const y = yFloor != null ? Math.min(rawY, yFloor) : rawY
@@ -272,14 +288,14 @@ interface Point {
 /** Collects the drawable points of [start, end] into gap-delimited runs — a new run starts after
  *  every NaN/out-of-domain point, so each run is a contiguous subpath. `yFloor` clamps each point. */
 function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, end: number): Point[][] {
-    const { xScale, yScale, labels, yFloor } = drawCtx
+    const { xScale, yScale, labels, yFloor, connectNulls } = drawCtx
     const runs: Point[][] = []
     let run: Point[] = []
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            if (run.length > 0) {
+            if (run.length > 0 && !connectNulls) {
                 runs.push(run)
                 run = []
             }
@@ -458,7 +474,7 @@ export function drawArea(
     yValues?: number[],
     bottomValues?: number[]
 ): void {
-    const { ctx, xScale, yScale, labels, dimensions, smooth, yFloor } = drawCtx
+    const { ctx, xScale, yScale, labels, dimensions, smooth, yFloor, connectNulls } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
@@ -479,7 +495,9 @@ export function drawArea(
         const x = xScale(labels[i])
         const rawTop = yScale(data[i])
         if (x == null || !isFinite(rawTop)) {
-            breakSegment()
+            if (!connectNulls) {
+                breakSegment()
+            }
             continue
         }
         // Clamped like the line stroke so the area's top edge stays under it; the bottom edge
@@ -489,7 +507,9 @@ export function drawArea(
             const rawBottom = bottomValues[i]
             const yBot = rawBottom == null ? NaN : yScale(rawBottom)
             if (!isFinite(yBot)) {
-                breakSegment()
+                if (!connectNulls) {
+                    breakSegment()
+                }
                 continue
             }
             currentTop.push({ x, y: yTop, dataIndex: i })
@@ -589,11 +609,13 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 }
 
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
-    const { ctx, xScale, yScale, labels } = drawCtx
+    const { ctx, xScale, yScale, labels, connectNulls } = drawCtx
     const data = yValues ?? series.data
     const radius = series.points?.radius
-    const isDrawable = (i: number): boolean =>
-        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
+    const isDrawable = (i: number): boolean => i >= 0 && i < data.length && isDrawablePoint(drawCtx, data, i)
+    const drawableCount = connectNulls ? data.filter((_, i) => isDrawable(i)).length : 0
+    const isIsolated = (i: number): boolean =>
+        connectNulls ? drawableCount === 1 : !isDrawable(i - 1) && !isDrawable(i + 1)
 
     ctx.fillStyle = series.color
 
@@ -604,7 +626,7 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
             continue
         }
         // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
-        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        const r = radius ?? (isIsolated(i) ? ISOLATED_POINT_RADIUS : 0)
         if (r <= 0) {
             continue
         }
@@ -1035,13 +1057,15 @@ export interface LineSeriesLayerOptions {
      *  past it. Pass the chart's `showAxisLines` — without an axis line the overhang is invisible
      *  and edge line caps are left whole. */
     clipLeftEdge?: boolean
+    connectNulls?: boolean
 }
 
 /** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
  *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
  *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
 export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
-    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge } = options
+    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge, connectNulls } =
+        options
     const yValuesFor = options.yValuesFor ?? (() => undefined)
     const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
@@ -1053,7 +1077,7 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor, connectNulls },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1063,7 +1087,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor }
+        const drawCtx: DrawContext = {
+            ctx,
+            dimensions,
+            labels,
+            xScale,
+            yScale: resolveYScale(s),
+            smooth,
+            yFloor,
+            connectNulls,
+        }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }
