@@ -1,4 +1,4 @@
-import { IconCode } from '@posthog/icons'
+import { IconArrowRight, IconCode } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -39,6 +39,7 @@ export interface TopicBadgesProps {
 /** Row of PostHog AI topic badges (+ the Desktop beta badge). Selection is owned by the parent. */
 export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicBadgesProps): JSX.Element | null {
     const codeBadge = useCodeBadge()
+    const selectedTopic = topics.find((topic) => topic.key === selectedKey) ?? null
 
     if (!topics.length) {
         return null
@@ -86,6 +87,20 @@ export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicB
 
                     <SelfDrivingIntroModal isOpen={codeBadge.introOpen} onClose={codeBadge.closeIntro} />
                 </>
+            )}
+
+            {/* The badges are named after products, so people click "Surveys" expecting to land on
+                Surveys. Keep the toggle, but always offer the real destination for the selection. */}
+            {selectedTopic?.productHref && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    to={selectedTopic.productHref()}
+                    sideIcon={<IconArrowRight />}
+                    data-attr={`capability-topic-go-to-${selectedTopic.key}`}
+                >
+                    Go to {selectedTopic.label}
+                </LemonButton>
             )}
         </div>
     )

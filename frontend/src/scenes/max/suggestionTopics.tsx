@@ -1,5 +1,7 @@
 import { IconBook } from '@posthog/icons'
 
+import { urls } from 'scenes/urls'
+
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 /** One suggestion inside a topic. `content` is the prompt sent to PostHog AI. */
@@ -37,6 +39,12 @@ export interface SuggestionTopic {
      */
     variant?: 'cards' | 'docs'
     suggestions: TopicSuggestion[]
+    /**
+     * Where the topic's product lives, rendered as a "Go to <label>" link under the suggestions.
+     * The product-named badges read as product navigation (users click "Surveys" expecting to land
+     * on Surveys), so a selected topic always offers the real destination too.
+     */
+    productHref?: () => string
 }
 
 /** The Code badge rendered next to the topics; opens the self-driving intro modal. */
@@ -95,6 +103,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'analytics',
         label: 'Analytics',
+        productHref: () => urls.savedInsights(),
         iconType: 'product_analytics',
         suggestions: [
             {
@@ -122,6 +131,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'sql',
         label: 'SQL',
+        productHref: () => urls.sqlEditor(),
         iconType: 'sql_editor',
         suggestions: [
             {
@@ -151,6 +161,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'session_replay',
         label: 'Session replay',
+        productHref: () => urls.replay(),
         iconType: 'session_replay',
         suggestions: [
             {
@@ -181,6 +192,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'error_tracking',
         label: 'Error tracking',
+        productHref: () => urls.errorTracking(),
         iconType: 'error_tracking',
         suggestions: [
             {
@@ -209,6 +221,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'feature_flags',
         label: 'Feature flags',
+        productHref: () => urls.featureFlags(),
         iconType: 'feature_flag',
         suggestions: [
             {
@@ -240,6 +253,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'experiments',
         label: 'Experiments',
+        productHref: () => urls.experiments(),
         iconType: 'experiment',
         suggestions: [
             {
@@ -269,6 +283,7 @@ export const HOMEPAGE_SUGGESTION_TOPICS: SuggestionTopic[] = [
     {
         key: 'surveys',
         label: 'Surveys',
+        productHref: () => urls.surveys(),
         iconType: 'survey',
         suggestions: [
             {

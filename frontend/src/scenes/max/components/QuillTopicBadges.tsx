@@ -1,5 +1,7 @@
-import { IconCode } from '@posthog/icons'
+import { IconArrowRight, IconCode } from '@posthog/icons'
 import { Badge, Button, Card, CardGroup, Text, cn } from '@posthog/quill'
+
+import { Link } from 'lib/lemon-ui/Link'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -20,6 +22,7 @@ function badgeIcon(topic: SuggestionTopic): JSX.Element {
 /** The topic badge row in the quill skin: outline buttons that press in when selected. */
 export function QuillTopicBadges({ topics, selectedKey, onSelect, className }: TopicBadgesProps): JSX.Element | null {
     const codeBadge = useCodeBadge()
+    const selectedTopic = topics.find((topic) => topic.key === selectedKey) ?? null
 
     if (!topics.length) {
         return null
@@ -59,6 +62,18 @@ export function QuillTopicBadges({ topics, selectedKey, onSelect, className }: T
 
                     <SelfDrivingIntroModal isOpen={codeBadge.introOpen} onClose={codeBadge.closeIntro} />
                 </>
+            )}
+
+            {/* Same escape hatch as TopicBadges: product-named badges read as product navigation. */}
+            {selectedTopic?.productHref && (
+                <Link
+                    to={selectedTopic.productHref()}
+                    className="inline-flex items-center gap-1 px-2 text-sm"
+                    data-attr={`capability-topic-go-to-${selectedTopic.key}`}
+                >
+                    Go to {selectedTopic.label}
+                    <IconArrowRight className="shrink-0" />
+                </Link>
             )}
         </div>
     )
