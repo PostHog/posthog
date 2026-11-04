@@ -107,6 +107,7 @@ describe('sandbox email content', () => {
             'height:400px!important;overflow:hidden!important;background:url(a"b);c:d")',
             'height:400px!important;overflow:hidden!important',
         ],
+        ['an unclosed url of only spaces', 'height:30px!important;background:url(     ', 'height:30px!important'],
         [
             'an unquoted url',
             'background:url( x.png );height:30px!important',
