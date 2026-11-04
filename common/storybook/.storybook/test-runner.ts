@@ -88,6 +88,43 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
+            // A pending timer or request can still change the page, so waitForQuiet waits for them.
+            const pendingTimers = new Map<number, number>()
+            let pendingFetches = 0
+            const untrackedSetTimeout = window.setTimeout.bind(window)
+            const untrackedClearTimeout = window.clearTimeout.bind(window)
+            const untrackedFetch = window.fetch.bind(window)
+            window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+                if (typeof handler !== 'function') {
+                    return untrackedSetTimeout(handler, timeout, ...args)
+                }
+                const id = untrackedSetTimeout(
+                    (...callbackArgs: unknown[]) => {
+                        pendingTimers.delete(id)
+                        handler(...callbackArgs)
+                    },
+                    timeout,
+                    ...args
+                )
+                pendingTimers.set(id, performance.now() + (Number(timeout) || 0))
+                return id
+            }) as typeof window.setTimeout
+            window.clearTimeout = ((id?: number) => {
+                if (id !== undefined) {
+                    pendingTimers.delete(id)
+                }
+                untrackedClearTimeout(id)
+            }) as typeof window.clearTimeout
+            window.fetch = (...fetchArgs: Parameters<typeof fetch>) => {
+                pendingFetches++
+                return untrackedFetch(...fetchArgs).finally(() => pendingFetches--)
+            }
+            ;(window as unknown as { __testRunnerWork: unknown }).__testRunnerWork = {
+                pendingBefore: (time: number): boolean =>
+                    pendingFetches > 0 || Array.from(pendingTimers.values()).some((due) => due <= time),
+                setTimeout: untrackedSetTimeout,
+            }
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -445,23 +482,35 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
-/** Resolves after QUIET_WINDOW_MS without DOM mutations or body size changes, or at `timeout`. */
+/** Resolves when the DOM is quiet for QUIET_WINDOW_MS and no timer or request is due before `timeout`, or at `timeout`. */
 async function waitForQuiet(page: Page, timeout: number): Promise<void> {
     await page
         .evaluate(
             ([quietWindowMs, timeoutMs]) =>
                 new Promise<void>((resolve) => {
+                    const work = (
+                        window as unknown as {
+                            __testRunnerWork?: {
+                                pendingBefore: (time: number) => boolean
+                                setTimeout: typeof setTimeout
+                            }
+                        }
+                    ).__testRunnerWork
+                    const deadlineAt = performance.now() + timeoutMs
                     let lastChange = performance.now()
                     let lastSize = ''
                     const observer = new MutationObserver(() => {
                         lastChange = performance.now()
                     })
+                    let resolved = false
                     const finish = (): void => {
-                        observer.disconnect()
-                        clearTimeout(deadline)
-                        resolve()
+                        if (!resolved) {
+                            resolved = true
+                            observer.disconnect()
+                            resolve()
+                        }
                     }
-                    const deadline = setTimeout(finish, timeoutMs)
+                    ;(work?.setTimeout ?? setTimeout)(finish, timeoutMs)
                     observer.observe(document.documentElement, {
                         subtree: true,
                         childList: true,
@@ -474,11 +523,13 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                             lastSize = size
                             lastChange = performance.now()
                         }
-                        if (performance.now() - lastChange >= quietWindowMs) {
+                        if (performance.now() - lastChange >= quietWindowMs && !work?.pendingBefore(deadlineAt)) {
                             finish()
                             return
                         }
-                        requestAnimationFrame(check)
+                        if (!resolved) {
+                            requestAnimationFrame(check)
+                        }
                     }
                     requestAnimationFrame(check)
                 }),
