@@ -175,9 +175,13 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 None if task_queue else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
             )
             args: list[object] = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
-            # An AUTO calc keeps the five arguments, so a worker that predates the mode argument still runs it.
-            if routed and metric.precomputation_mode is not None:
-                args.append(metric.precomputation_mode)
+            # An argument goes on the wire only when its default does not cover it, so a worker that predates the
+            # mode or the key version argument still runs an AUTO, version 1 calc. The version follows the mode.
+            precomputation_mode = metric.precomputation_mode if routed else None
+            if precomputation_mode is not None or inputs.calculation_key_version != 1:
+                args.append(precomputation_mode)
+            if inputs.calculation_key_version != 1:
+                args.append(inputs.calculation_key_version)
             calcs.append(
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
@@ -200,7 +204,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if isinstance(result, ActivityError) and _ended_by_temporal(result)
         ]
         if out_of_time and temporalio.workflow.patched("recalc-persist-out-of-time-metrics-2026-10"):
-            await self._record_out_of_time_failures(recalculation_id, out_of_time)
+            await self._record_out_of_time_failures(recalculation_id, out_of_time, inputs.calculation_key_version)
 
         succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
         failed = len(results) - succeeded
@@ -239,7 +243,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
 
     async def _record_out_of_time_failures(
-        self, recalculation_id: str, metrics: list[ExperimentMetricToRecalculate]
+        self, recalculation_id: str, metrics: list[ExperimentMetricToRecalculate], calculation_key_version: int
     ) -> None:
         # Best effort: a backstop failure must not stop the finish step, which still counts these metrics failed.
         await asyncio.gather(
@@ -251,6 +255,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         experiment_id=metric.experiment_id,
                         metric_uuid=metric.metric_uuid,
                         role=metric.role,
+                        calculation_key_version=calculation_key_version,
                     ),
                     start_to_close_timeout=timedelta(seconds=METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(
