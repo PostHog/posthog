@@ -35,3 +35,17 @@ class LogsConfig(AppConfig):
         register_legacy_webhook_body(SourceKind.LOGS, legacy_logs_webhook_body)
         register_legacy_event_emitter(SourceKind.LOGS, emit_logs_legacy_events)
         register_source_config(SourceKind.LOGS, load_logs_source_config)
+
+        from products.alerts_platform.backend.facade.appearance import register_occurrence_feed  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.delivery import register_appearance_describer  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.enums import PlatformAlertKind  # noqa: PLC0415
+        from products.logs.backend.pattern_appearance import (  # noqa: PLC0415
+            LOGS_PATTERN_FEED,
+            describe_logs_pattern,
+            load_logs_pattern_source_config,
+        )
+
+        # A new log pattern is an appearance alert on logs, which the platform evaluates and creates natively.
+        register_occurrence_feed(SourceKind.LOGS, LOGS_PATTERN_FEED)
+        register_appearance_describer(SourceKind.LOGS, describe_logs_pattern)
+        register_source_config(SourceKind.LOGS, load_logs_pattern_source_config, PlatformAlertKind.APPEARANCE)
