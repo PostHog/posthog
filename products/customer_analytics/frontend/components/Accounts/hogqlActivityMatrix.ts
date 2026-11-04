@@ -177,6 +177,7 @@ export function getHogQLActivityMatrix(
     const index = (name: string): number => response.columns!.indexOf(name)
     const cells = new Map<string, AccountActivityMatrixDatum>()
     const people: PeopleByCell = new Map()
+    let skipped = 0
     const rowKeys = new Set<string>()
     const columnKeys = new Set<string>()
     const seriesItems = new Map<string, { key: string; label?: string }>()
@@ -195,11 +196,8 @@ export function getHogQLActivityMatrix(
             !Number.isFinite(value) ||
             value < 0
         ) {
-            return {
-                props: null,
-                error: 'Rows, columns and series need non-empty text or numbers. Values need finite, non-negative numbers.',
-                notices: [],
-            }
+            skipped += 1
+            continue
         }
         rowKeys.add(row)
         columnKeys.add(column)
@@ -222,6 +220,13 @@ export function getHogQLActivityMatrix(
         const total = users && !mapping.value ? users.size : (previous?.value ?? 0) + value
         cells.set(key, { row, column, series, value: total })
     }
+    if (skipped > 0 && skipped === response.results.length) {
+        return {
+            props: null,
+            error: 'Rows, columns and series need non-empty text or numbers. Values need finite, non-negative numbers.',
+            notices: [],
+        }
+    }
     const rows = [...rowKeys].slice(0, DOT_MATRIX_MAX_ROWS)
     const sortedColumns = getSortedColumns([...columnKeys])
     const columns = sortedColumns
@@ -241,7 +246,12 @@ export function getHogQLActivityMatrix(
     ])
     return {
         error: null,
-        notices: boundNotice ? [boundNotice] : [],
+        notices: [
+            ...(skipped
+                ? [`Skipped ${skipped} result ${skipped === 1 ? 'row' : 'rows'} with a missing or invalid value.`]
+                : []),
+            ...(boundNotice ? [boundNotice] : []),
+        ],
         props: {
             data,
             rows: rows.map((key) => ({ key })),

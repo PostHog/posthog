@@ -359,4 +359,68 @@ describe('HogQL activity matrix', () => {
             ).toBe('A mapped column is missing from the result. Update the mapping.')
         })
     })
+
+    describe('rows with missing values', () => {
+        const mapping = { row: 'r', column: 'c', series: 's', value: 'v' }
+
+        it('skips only the rows with a missing or invalid value, and says how many', () => {
+            const result = getHogQLActivityMatrix(
+                {
+                    columns: ['r', 'c', 's', 'v'],
+                    results: [
+                        ['person', 'week', 'a', 1],
+                        [null, 'week', 'a', 1],
+                        ['person', null, 'a', 1],
+                        ['person', 'week', null, 1],
+                        ['person', 'week', 'b', null],
+                        ['', 'week', 'a', 1],
+                        ['person', 'week', 'c', -1],
+                    ],
+                },
+                mapping
+            )
+            expect(result.error).toBeNull()
+            expect(result.props!.rows).toEqual([{ key: 'person' }])
+            expect(result.props!.series).toEqual([{ key: 'a' }])
+            expect(result.notices).toEqual(['Skipped 6 result rows with a missing or invalid value.'])
+        })
+
+        it('uses the singular for one skipped row, and keeps the query saveable', () => {
+            const result = getHogQLActivityMatrix(
+                {
+                    columns: ['r', 'c', 's', 'v'],
+                    results: [
+                        ['person', 'week', 'a', 1],
+                        [null, 'week', 'a', 1],
+                    ],
+                },
+                mapping
+            )
+            expect(result.error).toBeNull()
+            expect(result.notices).toEqual(['Skipped 1 result row with a missing or invalid value.'])
+        })
+
+        it('skips a row with no user when a user column is mapped', () => {
+            const result = getHogQLActivityMatrix(
+                {
+                    columns: ['r', 'c', 'u'],
+                    results: [
+                        ['person', 'week', 'p1'],
+                        ['person', 'week', null],
+                    ],
+                },
+                { row: 'r', column: 'c', user: 'u' }
+            )
+            expect(result.notices).toEqual(['Skipped 1 result row with a missing or invalid value.'])
+        })
+
+        it('reports an error when no row is usable, since the mapping is likely wrong', () => {
+            const result = getHogQLActivityMatrix(
+                { columns: ['r', 'c', 's', 'v'], results: [[null, 'week', 'a', 1]] },
+                mapping
+            )
+            expect(result.props).toBeNull()
+            expect(result.error).toEqual(expect.any(String))
+        })
+    })
 })
