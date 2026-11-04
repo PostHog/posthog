@@ -53,6 +53,28 @@ describe('TimeSeriesLineChart', () => {
         expect(bottomMargin).toBe(76)
     })
 
+    it('sizes the y-axis margin for the longer labels of a floated axis', () => {
+        const plotLeftFor = (startAtZero: boolean): number | undefined => {
+            let plotLeft: number | undefined
+            function Measure(): null {
+                plotLeft = useChartLayout().dimensions.plotLeft
+                return null
+            }
+            renderChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'rate', label: 'Rate', data: [99.95, 99.99, 99.97] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { startAtZero, format: 'percentage', decimalPlaces: 3 } }}
+                >
+                    <Measure />
+                </TimeSeriesLineChart>
+            )
+            return plotLeft
+        }
+        expect(plotLeftFor(false)).toBeGreaterThan(plotLeftFor(true) ?? Infinity)
+    })
+
     describe('config.xScale', () => {
         const TIME_LABELS = ['2026-03-01T00:00:00Z', '2026-03-01T01:00:00Z', '2026-03-01T04:00:00Z']
 

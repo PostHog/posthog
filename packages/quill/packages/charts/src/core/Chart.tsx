@@ -116,6 +116,9 @@ export interface ChartProps<Meta = unknown> {
      *  whisker min/max samples so the y-tick column fits the real value range, not just the
      *  medians it draws on `series.data`. */
     valueRangeSeries?: Series[]
+    /** Size the value-axis labels from the data range, not from zero. Set this when the scale floats
+     *  its baseline, or the margin clips the longer tick labels of a narrow axis. */
+    floatBaseline?: boolean
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
@@ -148,6 +151,7 @@ export function Chart<Meta = unknown>({
     resolveBottomValue,
     labelToCoord,
     valueRangeSeries,
+    floatBaseline,
     wrapClickData,
     resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
@@ -211,6 +215,7 @@ export function Chart<Meta = unknown>({
         isPercent,
         override: marginsOverride,
         valueRangeSeries,
+        floatBaseline,
         maxCategoryLabelWidth,
         yAxisFormatters,
         yAxisPositions,

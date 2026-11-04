@@ -303,6 +303,7 @@ function LineChartInner<Meta = unknown>({
                 config={chartConfig}
                 theme={theme}
                 createScales={createScales}
+                floatBaseline={floatBaseline}
                 drawStatic={drawStatic}
                 drawHover={drawHover}
                 tooltip={tooltip}

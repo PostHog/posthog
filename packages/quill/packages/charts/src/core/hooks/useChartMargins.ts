@@ -8,7 +8,7 @@ import {
     rotatedTickLabelSize,
 } from '../../utils/axis-labels'
 import { measureLabelWidth } from '../../utils/text-measure'
-import { autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
+import { MAX_Y_TICKS, autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
 
@@ -49,6 +49,7 @@ interface UseChartMarginsOptions {
      *  passes the whisker min/max samples so the y-tick column fits the actual range, not just
      *  the medians it draws on `series.data`. yAxis-id discovery still reads from `series`. */
     valueRangeSeries?: Series[]
+    floatBaseline?: boolean
     /** When set, clamp the reserved category-label width to this ceiling so a single long label
      *  can't grow the axis margin without bound. Mirrors AxisLabels' display truncation. */
     maxCategoryLabelWidth?: number
@@ -129,13 +130,25 @@ function categoryLabelWidths(
     return { first, last, widest }
 }
 
-function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
+function widestValueLabelWidth(
+    series: Series[],
+    yTickFormatter: ((value: number) => string) | undefined,
+    floatBaseline: boolean = false
+): number {
     const range = seriesValueRange(series)
     // No data: the scale falls back to a [0, 1] domain (see `buildValueScale`), whose automatic ticks
     // render as "0".."1". Measure those so the empty-state margin still fits its labels — returning 0
     // here collapses the margin to its floor and clips the labels against the wrapper's overflow.
-    const [min, max] = range.count === 0 ? [0, 1] : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
-    const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
+    const [min, max] =
+        range.count === 0
+            ? [0, 1]
+            : floatBaseline
+              ? [range.min, range.max]
+              : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
+    // A floated axis can span a narrow range, where denser ticks need more decimals. The real tick count
+    // follows the plot height, so measure the densest ticks to fit the labels at every height.
+    const tickCount = floatBaseline ? MAX_Y_TICKS : 6
+    const ticks = scaleLinear().domain([min, max]).nice(tickCount).ticks(tickCount)
     if (ticks.length === 0) {
         return 0
     }
@@ -160,6 +173,7 @@ export function useChartMargins({
     isPercent = false,
     override: rawOverride,
     valueRangeSeries,
+    floatBaseline = false,
     maxCategoryLabelWidth = 0,
     yAxisFormatters,
     yAxisPositions,
@@ -224,8 +238,8 @@ export function useChartMargins({
         if (isHorizontal) {
             return categoryWidths.widest
         }
-        return widestValueLabelWidth(valueSeries, yTickFormatter)
-    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, categoryWidths.widest])
+        return widestValueLabelWidth(valueSeries, yTickFormatter, floatBaseline)
+    }, [valueSeries, yTickFormatter, floatBaseline, hideYAxis, isHorizontal, categoryWidths.widest])
 
     const xLabelEdgeReserves = useMemo<{ left: number; right: number }>(() => {
         if (hideXAxis) {
