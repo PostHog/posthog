@@ -1448,14 +1448,20 @@ def _git_worktree_paths(repo_root: Path) -> list[Path]:
     ]
 
 
-def _inode_key(path: Path) -> tuple[int, int] | None:
-    """Identify a directory independent of symlinks and of path case on a case-insensitive file system."""
+@dataclass(frozen=True, kw_only=True)
+class InodeKey:
+    """Identifies a directory independent of symlinks and of path case on a case-insensitive file system."""
 
+    device: int
+    inode: int
+
+
+def _inode_key(path: Path) -> InodeKey | None:
     try:
         stat = path.stat()
     except OSError:
         return None
-    return stat.st_dev, stat.st_ino
+    return InodeKey(device=stat.st_dev, inode=stat.st_ino)
 
 
 def _worktrees_running_cargo(worktrees: Sequence[Path]) -> set[Path]:
