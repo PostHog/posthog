@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { AppState, type NativeEventSubscription } from 'react-native'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
@@ -66,6 +67,8 @@ export interface AuthState {
 
 /** Refresh at launch when the access token has less than this left, so the first requests do not all 401. */
 const RESTORE_REFRESH_MARGIN_MS = 60_000
+/** Refresh on foreground when the access token has less than this left, so the home screen widget's copy stays valid. */
+const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 
 type SignOutTask = () => Promise<undefined | (() => void)>
 type SessionEndTask = () => void | Promise<void>
@@ -571,7 +574,29 @@ export function refreshAccessToken(): Promise<string | null> {
     return promise
 }
 
+function refreshBeforeForegroundMargin(): void {
+    const tokens = getSessionTokens()
+    if (
+        useAuthStore.getState().status !== 'signed_in' ||
+        tokens?.kind !== 'oauth' ||
+        tokens.expiresAt === null ||
+        tokens.expiresAt - Date.now() >= FOREGROUND_REFRESH_MARGIN_MS
+    ) {
+        return
+    }
+    // Offline or a server error keeps the session; the next foreground or 401 tries again.
+    refreshAccessToken().catch(() => undefined)
+}
+
+let foregroundSubscription: NativeEventSubscription | null = null
+
 export function installAuthProvider(): void {
+    foregroundSubscription?.remove()
+    foregroundSubscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+            refreshBeforeForegroundMargin()
+        }
+    })
     setAuthProvider({
         getAuth: () => {
             const state = useAuthStore.getState()

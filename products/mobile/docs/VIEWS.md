@@ -41,6 +41,14 @@ A complete pin list read forgets the prefs of that project's pins that are gone.
 Recent merges the last 20 views opened on this phone (`views-recent:v1`, per project) with the dashboards this user viewed on the web.
 Insights viewed on the web do not appear: no per-user source is open to OAuth without a new scope.
 
+**Home screen widget.** The Chart widget on iOS and Android shows a pin from this list, and the OS picker offers the first 30 pins in Views order.
+After each complete pin list read and each change of a pin's mode or tile, `src/features/widgets/chartWidgetSync.ts` writes a pin catalog for the widget.
+When the signed-in project has no catalog and no cached pin list, after a sign in, a project switch or a launch, the sync reads the pin list itself with the same query key and lane as `usePins`, once per project per session. A failure leaves the catalog for the next Views read.
+A trends insight that is a single number or a line or bar chart over time can show there. A dashboard pin needs a tile chosen on this phone first, and SQL insights are not supported yet.
+The catalog uses the metadata and snapshots the list already read. It reads metadata for at most 30 other pins with `basic=true&refresh=force_cache`, through the list-read lane.
+The widget reads its pin by itself on a timer with `refresh=force_cache`, so it never computes; see [the widget's README](../modules/chart-widget/README.md).
+The widget holds a copy of the access token and never refreshes it. When the app returns to the foreground with an OAuth token that expires within 24 hours, it refreshes the token once (`FOREGROUND_REFRESH_MARGIN_MS` in `src/auth/authStore.ts`), so the copy stays valid between app opens.
+
 ## Automatic pin previews
 
 The Pinned section shows each real pin once. For up to three pins without a display choice on this phone,
@@ -156,7 +164,8 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Full-screen chart | `/views/chart/{short_id}[?key={cache key}]`                    |
 | Browse lists      | `/views/browse/dashboards`, `/views/browse/insights`           |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search` or `dashboard`) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard` or `widget`) for `mobile_view_opened`; `mode` is the pin's display mode.
+A home screen widget opens a dashboard or insight with `from=widget&family=<small|medium|large>`, which also sends `mobile_widget_opened` (`kind`, `family`).
 Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `chartHref`), never by hand.
 An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
 Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
