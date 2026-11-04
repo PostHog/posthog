@@ -197,6 +197,8 @@ class AnthropicAdapter:
 
     name = "anthropic"
 
+    max_retries: int = anthropic.DEFAULT_MAX_RETRIES
+
     def __init__(self, foundry_endpoint: str = ""):
         # Set when the key belongs to a Microsoft Foundry resource that serves Claude.
         self.foundry_endpoint = foundry_endpoint
@@ -208,6 +210,7 @@ class AnthropicAdapter:
         kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": AnthropicConfig.TIMEOUT,
+            "max_retries": self.max_retries,
             "http_client": tagged_http_client(timeout=AnthropicConfig.TIMEOUT),
         }
         if self.foundry_endpoint:

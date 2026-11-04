@@ -10,6 +10,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    QuotaExceededError,
     RetryableRateLimitError,
 )
 from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter, GeminiConfig
@@ -40,6 +41,13 @@ class TestGeminiAdapterErrorMapping:
             ("403_permission", 403, "PERMISSION_DENIED", "permission denied", ModelPermissionError),
             ("401_auth", 401, "UNAUTHENTICATED", "invalid api key", AuthenticationError),
             ("429_rate_limit", 429, "RESOURCE_EXHAUSTED", "rate limit exceeded", RetryableRateLimitError),
+            (
+                "429_billing_without_retry_delay",
+                429,
+                "RESOURCE_EXHAUSTED",
+                "Your project is out of credits. Check your billing details.",
+                QuotaExceededError,
+            ),
             # A cancelled call is retryable, so it shares the transport lane. Without this the
             # per-occurrence message files a new error tracking issue on every cancellation.
             ("499_cancelled", 499, "CANCELLED", "The operation was cancelled.", ProviderConnectionError),
@@ -67,6 +75,33 @@ class TestGeminiAdapterErrorMapping:
         with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
             with pytest.raises(expected):
                 adapter.complete(request, api_key="test-key", analytics=AnalyticsContext(capture=False))
+
+    def test_per_minute_quota_429_is_retryable_after_the_providers_delay(self):
+        error = ClientError(
+            429,
+            {
+                "error": {
+                    "code": 429,
+                    "status": "RESOURCE_EXHAUSTED",
+                    "message": "You exceeded your current quota. Quota exceeded for metric: requests per minute.",
+                    "details": [
+                        {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": []},
+                        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "27s"},
+                    ],
+                }
+            },
+        )
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = error
+        request = CompletionRequest(
+            model="gemini-2.0-flash-lite", system="s", messages=[{"role": "user", "content": "hi"}], provider="gemini"
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.gemini.genai.Client", return_value=mock_client):
+            with pytest.raises(RetryableRateLimitError) as raised:
+                GeminiAdapter().complete(request, api_key="test-key", analytics=AnalyticsContext(capture=False))
+
+        assert raised.value.retry_after == 27
 
     def test_transport_error_is_mapped_to_provider_connection_error(self):
         # google-genai leaks raw httpx transport errors (connection reset) rather than wrapping
