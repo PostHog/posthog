@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import validated_request
@@ -255,7 +256,16 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     scope_object = "conversation"
     queryset = AgentOperation.objects.unscoped().none()
-    throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # Starting an operation and replying make PostHog AI work, so they share its limits. Local development
+        # skips them, like the conversation API. A client reads the status many times a minute while it waits,
+        # so status and cancel use the standard API limits.
+        if self.action in ("create", "reply"):
+            if settings.DEBUG and not settings.TEST:
+                return []
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def _service(self) -> AgentOperationService:
         user = cast(User, self.request.user)
