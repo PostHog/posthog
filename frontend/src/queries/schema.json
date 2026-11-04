@@ -27890,6 +27890,13 @@
                 "flag": {
                     "type": "string"
                 },
+                "hiddenWhenFlags": {
+                    "description": "Flags that hide the item when every one of them is on.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "href": {
                     "description": "Object's URL",
                     "type": "string"

@@ -1,6 +1,8 @@
 import { combineUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -218,8 +220,8 @@ export function fromPostHogProducts(): FromPostHogItem[] {
     ]
 }
 
-export function fromPostHogItems(featureFlags: Record<string, unknown>): FromPostHogItem[] {
-    return fromPostHogProducts().filter(({ item }) => !item.flag || !!featureFlags[item.flag])
+export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem[] {
+    return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
 }
 
 /**

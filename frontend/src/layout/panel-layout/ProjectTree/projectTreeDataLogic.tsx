@@ -15,7 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -1606,7 +1606,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
                 const productIsEnabled = (product: FileSystemImport): boolean =>
-                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
+                    isFileSystemImportShown(product, featureFlags)
                 const products = getDefaultTreeProducts()
                 const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
                 const hiddenProductHrefs = new Set(
@@ -1705,7 +1705,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
+                            .filter((f) => isFileSystemImportShown(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,

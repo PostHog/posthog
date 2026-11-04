@@ -56,6 +56,7 @@ export const manifest: ProductManifest = {
             ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
+            hiddenWhenFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
         },
     ],
 }

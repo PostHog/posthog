@@ -5752,6 +5752,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
     /** Other flags that also show the item. The item is shown when `flag` or any of these is on. */
     alternativeFlags?: string[]
+    /** Flags that hide the item when every one of them is on. */
+    hiddenWhenFlags?: string[]
     /** Order of object in tree */
     visualOrder?: number
     /** Tag for the product 'beta' / 'alpha' */
