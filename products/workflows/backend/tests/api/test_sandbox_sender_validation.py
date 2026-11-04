@@ -95,15 +95,27 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{shape}_flag_{'on' if flag_on else 'off'}", shape, flag_on)
+            (f"broadcast_{shape}_flag_{'on' if flag_on else 'off'}", "broadcasts", shape, flag_on, "broadcast")
             for shape in ("integer", "float", "malformed_rotation")
             for flag_on in (True, False)
         ]
+        + [
+            (
+                f"transactional_flag_{'on' if flag_on else 'off'}",
+                "transactional_emails",
+                "integer",
+                flag_on,
+                "transactional",
+            )
+            for flag_on in (True, False)
+        ]
     )
-    def test_broadcast_cannot_select_the_sandbox_sender(self, _name: str, sender_shape: str, flag_on: bool) -> None:
+    def test_broadcasts_and_transactional_email_cannot_select_the_sandbox_sender(
+        self, _name: str, origin_product: str, sender_shape: str, flag_on: bool, product_word: str
+    ) -> None:
         self.flag_enabled.return_value = flag_on
         workflow = self._workflow()
-        workflow["origin_product"] = "broadcasts"
+        workflow["origin_product"] = origin_product
         sender = workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]
         if sender_shape == "float":
             sender["integrationId"] = float(self.sender.id)
@@ -114,7 +126,7 @@ class TestSandboxSenderValidation(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "sandbox sender" in response.json()["detail"].lower()
-        assert "broadcast" in response.json()["detail"].lower()
+        assert product_word in response.json()["detail"].lower()
 
     @parameterized.expand([("flag_on", True), ("flag_off", False)])
     def test_destination_cannot_select_the_sandbox_sender(self, _name: str, flag_on: bool) -> None:
