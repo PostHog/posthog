@@ -93718,6 +93718,109 @@ export namespace Schemas {
     }
 
     /**
+     * * `running` - Import running
+     * * `completed` - Import completed
+     * * `cancelled` - Import cancelled
+     * * `failed` - Import failed
+     */
+    export type PushTokenImportStatusEnum = typeof PushTokenImportStatusEnum[keyof typeof PushTokenImportStatusEnum];
+
+
+    export const PushTokenImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `invalid_row` - The line is missing a value or a value is too long
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportRowFailureReasonEnum = typeof PushTokenImportRowFailureReasonEnum[keyof typeof PushTokenImportRowFailureReasonEnum];
+
+
+    export const PushTokenImportRowFailureReasonEnum = {
+      InvalidRow: 'invalid_row',
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportRowFailure {
+      /** Line of the file, counting the column names as line 1. */
+      line: number;
+      /** The distinct ID on the line. */
+      distinct_id: string;
+      /** The last characters of the line's device token. */
+      device_token_suffix: string;
+      /** Why the device on this line was not imported.
+       *
+       * * `invalid_row` - The line is missing a value or a value is too long
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportRowFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImport {
+      /** The import's ID. */
+      id: string;
+      /** The push channel the devices are added to. */
+      integration_id: number;
+      /** `running` while devices are sent. `completed`, `cancelled` and `failed` are final.
+       *
+       * * `running` - Import running
+       * * `completed` - Import completed
+       * * `cancelled` - Import cancelled
+       * * `failed` - Import failed */
+      status: PushTokenImportStatusEnum;
+      /** Whether the import creates missing persons. */
+      create_missing_persons: boolean;
+      /** Devices in the file that the import sends. */
+      total_devices: number;
+      /** Devices sent so far. */
+      processed_devices: number;
+      /** Devices stored on their person. */
+      imported_devices: number;
+      /** Lines that were not imported, for any reason. */
+      failed_devices: number;
+      /** Devices whose distinct ID had no person. */
+      unknown_person_devices: number;
+      /** Repeated lines that were left out. */
+      duplicate_lines: number;
+      /** The first 1,000 lines that were not imported, with the reason for each. */
+      failures: PushTokenImportRowFailure[];
+      /** True when the devices of unknown people can still be imported with new persons. */
+      can_import_unknown_persons: boolean;
+      /** Why a failed import stopped. Empty otherwise. */
+      error: string;
+      /** When the file was uploaded. */
+      created_at: string;
+      /**
+         * When the import ended. Empty while it runs, and while a stopped import finishes its last batch.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface PushTokenImportCreate {
+      /** The APNs or Firebase push channel to add the devices to. */
+      integration_id: number;
+      /** A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored. */
+      device_token_file: Blob;
+      /** Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons. */
+      create_missing_persons?: boolean;
+    }
+
+    /**
      * * `unknown_person` - No person has this distinct ID
      * * `token_mismatch` - The token does not fit this channel
      * * `not_stored` - The device was not stored
@@ -93749,6 +93852,11 @@ export namespace Schemas {
       reason: PushTokenImportFailureReasonEnum;
       /** A sentence a person can act on. */
       detail: string;
+    }
+
+    export interface PushTokenImportLatest {
+      /** The newest import into the channel, if any. */
+      latest: PushTokenImport | null;
     }
 
     export interface PushTokenSubscription {
@@ -131248,6 +131356,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PushTokenImportsLatestRetrieveParams = {
+    /**
+     * The push channel whose newest import to return.
+     */
+    integration_id: number;
     };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
