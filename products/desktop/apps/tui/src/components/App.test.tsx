@@ -777,7 +777,11 @@ describe("App", () => {
         }),
     );
     const mouse: MouseEvents = new EventEmitter();
-    const { instance, output } = renderInTerminal(
+    const {
+      instance,
+      output,
+      type: stdin,
+    } = renderInTerminal(
       <App
         session={{
           work: {
@@ -835,13 +839,12 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", true),
       );
-      // Out of the list (the server's page and the session files alike) and its pane before the server answers,
-      // as a close; the empty pane remembers it.
+      // Out of the list (the server's page and the session files alike) before the server answers, and its pane
+      // shows the next chat in the list.
       await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
-      expect(allPanes(loadLayout())[0]).toMatchObject({
-        taskId: null,
-        previous: { taskId: "t1" },
-      });
+      await vi.waitFor(() =>
+        expect(allPanes(loadLayout())[0].taskId).toBe("t2"),
+      );
       // Refused, it is back in the list and in its pane.
       answer();
       await vi.waitFor(() => expect(output()).toContain("Couldn't archive"));
@@ -851,15 +854,15 @@ describe("App", () => {
       await vi.waitFor(() => expect(listed()).toEqual(["Old name"]));
       type("/archive");
       await vi.waitFor(() => expect(setArchived).toHaveBeenCalledTimes(2));
-      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
+      await vi.waitFor(() =>
+        expect(allPanes(loadLayout())[0].taskId).toBe("t2"),
+      );
       answer();
       await vi.waitFor(() => expect(output()).toContain("Archived"));
-      // Brought back into the pane, /unarchive lists it again.
-      mouse.emit("keys", "\u001b");
-      await vi.waitFor(() =>
-        expect(output()).toContain("Press Esc again to go back"),
-      );
-      mouse.emit("keys", "\u001b");
+      // Ctrl+[ goes back to the archived chat, and /unarchive lists it again.
+      // The terminal's bytes reach both the raw key stream and Ink.
+      mouse.emit("keys", "\u001b[91;5u");
+      stdin("\u001b[91;5u");
       await vi.waitFor(() =>
         expect(allPanes(loadLayout())[0].taskId).toBe("t1"),
       );

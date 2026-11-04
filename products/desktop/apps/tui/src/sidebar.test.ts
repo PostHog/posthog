@@ -16,6 +16,7 @@ import {
   cursorIndex,
   indicatorFor,
   moveSelection,
+  nextChatAfter,
   selectionKey,
   sidebarRows,
   type WorkPage,
@@ -159,6 +160,40 @@ describe("sidebarRows", () => {
       "New chat",
       "Task b",
     ]);
+  });
+
+  it.each<[string, string[], string, string | null]>([
+    ["the chat after it in the list", ["a", "b", "c"], "b", "c"],
+    ["the chat before it when it is last", ["a", "b", "c"], "c", "b"],
+    ["nothing when it is the only chat", ["a"], "a", null],
+  ])(
+    "picks the chat to open in place of an archived one: %s",
+    (_name, ids, archived, expected) => {
+      const rows = sidebarRows({
+        layout: initialLayout(),
+        work: page({ tasks: ids.map((id) => task(id)) }),
+        collapsed: new Set(),
+        working: new Set(),
+        showToday: false,
+      });
+      expect(nextChatAfter(rows, archived)?.id ?? null).toBe(expected);
+    },
+  );
+
+  it("skips chats a pane already shows when picking the next one", () => {
+    // b and c sit in a split workspace, so the next chat after a is d.
+    const layout = openTask(
+      splitFocused(openTask(initialLayout(), "b"), "row"),
+      "c",
+    );
+    const rows = sidebarRows({
+      layout,
+      work: page({ tasks: ["a", "b", "c", "d"].map((id) => task(id)) }),
+      collapsed: new Set(),
+      working: new Set(),
+      showToday: false,
+    });
+    expect(nextChatAfter(rows, "a")).toEqual({ id: "d", title: "Task d" });
   });
 
   it("keeps one Work list, with split tasks in their workspace and in Chats", () => {

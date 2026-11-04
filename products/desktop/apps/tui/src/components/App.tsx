@@ -59,6 +59,7 @@ import {
 } from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import type { CloudRuns } from "../runs";
+import { nextChatAfter, type SidebarRow } from "../sidebar";
 import { startingOptions } from "../starting";
 import { repoLabel, statusChips } from "../status";
 import { applyBackground, backgroundFromReply } from "../theme";
@@ -283,6 +284,8 @@ export function App({
   // The search opens from a callback only, so the send hook reaches it through a ref: the search needs the turns,
   // and the turns need the send hook's pending messages.
   const latestSearch = useRef<SearchState | null>(null);
+  // The sidebar is built after the send hook, which needs its list to pick the chat that replaces an archived one.
+  const latestRows = useRef<SidebarRow[]>([]);
 
   // Today's briefing can be hidden from settings; the sidebar and the main view follow the switch at once.
   const [showToday, setShowToday] = useState(() => loadPrefs().showToday);
@@ -410,6 +413,7 @@ export function App({
     setTitles,
     pin: setPinnedTo,
     listed,
+    nextChat: (taskId) => nextChatAfter(latestRows.current, taskId),
     runShell,
     notice,
     account,
@@ -528,6 +532,7 @@ export function App({
     inbox,
     lines: Math.max(0, area.height - CHROME_ROWS),
   });
+  latestRows.current = sidebar.rows;
   const caughtUp = [...titles].filter(
     ([taskId, title]) => taskOf(taskId)?.title === title,
   );

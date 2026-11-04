@@ -340,6 +340,37 @@ export function sidebarRows({
   return rows;
 }
 
+// The chat to open in place of an archived one: the next chat under the tabs, else the one before it. A chat that
+// already has a place on screen (a pane, a workspace or the pinned list) is skipped, so archiving never doubles one up.
+export function nextChatAfter(
+  rows: SidebarRow[],
+  taskId: string,
+): { id: string; title: string } | null {
+  const placed = new Set(
+    rows.flatMap((row) =>
+      row.kind === "task" && row.taskId && (row.paneId !== null || row.pinned)
+        ? [row.taskId]
+        : [],
+    ),
+  );
+  const list = rows.slice(rows.findIndex((row) => row.kind === "tabs") + 1);
+  const at = list.findIndex(
+    (row) => row.kind === "task" && row.taskId === taskId,
+  );
+  const open = list.flatMap((row, index) =>
+    row.kind === "task" &&
+    row.taskId &&
+    row.taskId !== taskId &&
+    !placed.has(row.taskId)
+      ? [{ id: row.taskId, title: row.title, index }]
+      : [],
+  );
+  const pick =
+    open.find((row) => row.index > at) ??
+    open.findLast((row) => row.index < at);
+  return pick ? { id: pick.id, title: pick.title } : null;
+}
+
 // An open workspace's row only labels its chats, which the keyboard moves between; folded, the row stands for them.
 // The chat list under the tabs, where ← and → switch tabs instead of folding a workspace.
 export const underTabs = (rows: SidebarRow[], index: number): boolean =>

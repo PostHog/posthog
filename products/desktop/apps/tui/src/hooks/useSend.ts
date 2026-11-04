@@ -57,6 +57,7 @@ export function useSend({
   setTitles,
   pin,
   listed,
+  nextChat,
   chats,
   taskOf,
   local,
@@ -88,6 +89,8 @@ export function useSend({
   // Pins or unpins a chat; false when it already was.
   pin: (chat: PinnedChat, pinned: boolean) => boolean;
   listed: WorkListState["listed"];
+  // The chat to show in an archived chat's place, from the sidebar's list; null leaves the pane a new chat.
+  nextChat: (taskId: string) => { id: string; title: string } | null;
   chats: PiChats | undefined;
   taskOf: (taskId: string | null) => Task | undefined;
   local: {
@@ -300,17 +303,24 @@ export function useSend({
       else if (!chats)
         flashNotice("Sign in to archive a chat: type /login", here);
       else {
-        // Shown at once; a failed call puts the chat back where it was. An archived chat leaves its pane as a close
-        // does, so the pane is a new chat and a double Esc on it brings the chat back.
+        // Shown at once; a failed call puts the chat back where it was. An archived chat leaves its pane for the next
+        // chat in the list, or a new chat when there is none, whose double Esc brings it back.
         // A local chat is listed from its session file too, so it is hidden there as well.
         local.setHidden(taskId, archived);
+        const next = archived ? nextChat(taskId) : null;
         if (archived) {
           listed.drop(taskId);
-          setLayout((state) => newChatIn(state, paneId));
+          setLayout((state) =>
+            next
+              ? assignTask(state, paneId, next.id, next.title)
+              : newChatIn(state, paneId),
+          );
         } else listed.restore(taskId, current);
         flashNotice(
           archived
-            ? "Archived. Double Esc brings it back; /unarchive lists it again"
+            ? next
+              ? "Archived. Ctrl+[ goes back to it; /unarchive lists it again"
+              : "Archived. Double Esc brings it back; /unarchive lists it again"
             : "Back in the list",
           archived ? { paneId } : { taskId },
         );
@@ -324,7 +334,18 @@ export function useSend({
             local.setHidden(taskId, !archived);
             if (archived) {
               listed.restore(taskId, current);
-              setLayout((state) => backToPrevious(state, paneId));
+              setLayout((state) =>
+                next
+                  ? findPane(state, paneId)?.taskId === next.id
+                    ? assignTask(
+                        state,
+                        paneId,
+                        taskId,
+                        current?.title || pane?.title,
+                      )
+                    : state
+                  : backToPrevious(state, paneId),
+              );
             } else listed.drop(taskId);
             flashNotice(
               `Couldn't ${slash.command} this chat: ${messageOf(error)}`,
