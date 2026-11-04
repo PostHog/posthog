@@ -62,6 +62,8 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    isRecipientFormatIssue,
+    transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
@@ -1228,7 +1230,7 @@ export class CdpApi {
                 if (!parsed.success) {
                     const issues = parsed.error.issues
                     // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    if (issues.every(isRecipientFormatIssue)) {
                         return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
                     }
                     // Paths and codes only: the values include the recipient's address.
@@ -1327,7 +1329,11 @@ export class CdpApi {
                 }
                 try {
                     stages.start('checks')
-                    const refusal = await this.refuseTransactionalEmail(team.id, hogFlow, to)
+                    const refusal = await this.refuseTransactionalEmail(
+                        team.id,
+                        hogFlow,
+                        transactionalEmailRecipients(parsed.data)
+                    )
                     if (refusal) {
                         if (idempotencyKey) {
                             stages.start('idempotency')
@@ -1386,7 +1392,7 @@ export class CdpApi {
     private async refuseTransactionalEmail(
         teamId: number,
         hogFlow: HogFlow,
-        to: string
+        recipients: string[]
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
@@ -1395,12 +1401,16 @@ export class CdpApi {
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
-        const suppressed = this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })
+        const suppressed = Promise.all(
+            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+        )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
-        const recipientSkipReason = this.emailValidationService.getRecipientSkipReason(teamId, to)
+        const recipientSkipReasons = Promise.all(
+            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
+        )
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReason]
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
         for (const lookup of lookups) {
             lookup.catch(() => undefined)
         }
@@ -1411,13 +1421,13 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await suppressed) {
+        if ((await suppressed).some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
         if ((await quota).isLimited) {
             return { outcome: 'quota_limited', status: 429 }
         }
-        if (await recipientSkipReason) {
+        if ((await recipientSkipReasons).some(Boolean)) {
             return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null
