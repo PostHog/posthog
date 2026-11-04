@@ -50,3 +50,19 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             results_request.get_cache_key(),
             results_request.single_flight_variant(),
         )
+
+    @parameterized.expand(
+        [
+            ("the_experiment_ends", None, datetime(2026, 1, 10, tzinfo=UTC)),
+            ("the_end_date_moves", datetime(2026, 1, 10, tzinfo=UTC), datetime(2026, 1, 20, tzinfo=UTC)),
+        ]
+    )
+    def test_an_end_date_change_changes_the_cache_key(
+        self, _name: str, end_date: datetime | None, new_end_date: datetime
+    ) -> None:
+        Experiment.objects.filter(id=self.query.experiment_id).update(end_date=end_date)
+        before = ExperimentQueryRunner(query=self.query, team=self.team).get_cache_key()
+
+        Experiment.objects.filter(id=self.query.experiment_id).update(end_date=new_end_date)
+
+        assert ExperimentQueryRunner(query=self.query, team=self.team).get_cache_key() != before
