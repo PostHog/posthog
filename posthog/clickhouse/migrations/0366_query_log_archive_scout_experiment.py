@@ -10,18 +10,28 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.run_mode import run_mode
 
-WRITE_PATH_ROLES = [NodeRole.DATA, NodeRole.AUX, NodeRole.AI_EVENTS, NodeRole.SESSIONS, NodeRole.LOGS, NodeRole.OPS]
-INGESTION_ROLES = [NodeRole.INGESTION_EVENTS, NodeRole.INGESTION_SMALL, NodeRole.INGESTION_MEDIUM]
-# The cloud clusters run the writable table, the MV and the read table on every node, ingestion and APM included.
-CLOUD_ROLES = [*WRITE_PATH_ROLES, *INGESTION_ROLES, NodeRole.APM, NodeRole.BATCH_EXPORTS]
+# ALTER TABLE has no IF EXISTS guard, so a role whose nodes lack the table aborts the migration.
+# Migration 0273 creates the writable table and the MV on these roles, and the read table on every node.
+LOCAL_WRITE_PATH_ROLES = [
+    NodeRole.DATA,
+    NodeRole.ENDPOINTS,
+    NodeRole.AUX,
+    NodeRole.AI_EVENTS,
+    NodeRole.SESSIONS,
+    NodeRole.OPS,
+]
+# The cloud archive was built by hand, and the cloud HCL goldens record it: logs, apm and batch_exports
+# also run the writable table and the MV, and apm, a stateless ingestion layer, has no read table.
+CLOUD_READ_TABLE_ROLES = [*LOCAL_WRITE_PATH_ROLES, NodeRole.LOGS, NodeRole.BATCH_EXPORTS]
+CLOUD_WRITE_PATH_ROLES = [*CLOUD_READ_TABLE_ROLES, NodeRole.APM]
 
 
 def write_path_roles() -> list[NodeRole]:
-    return CLOUD_ROLES if run_mode().is_deployed_cloud else WRITE_PATH_ROLES
+    return CLOUD_WRITE_PATH_ROLES if run_mode().is_deployed_cloud else LOCAL_WRITE_PATH_ROLES
 
 
 def read_table_roles() -> list[NodeRole]:
-    return CLOUD_ROLES if run_mode().is_deployed_cloud else [*WRITE_PATH_ROLES, *INGESTION_ROLES]
+    return CLOUD_READ_TABLE_ROLES if run_mode().is_deployed_cloud else [NodeRole.ALL]
 
 
 def ADD_COLUMN_SQL(table: str) -> str:
