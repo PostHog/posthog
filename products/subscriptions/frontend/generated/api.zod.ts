@@ -212,6 +212,13 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
                     ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
+                    ),
                 include_images: zod
                     .boolean()
                     .optional()
@@ -447,6 +454,13 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
                     ),
                 include_images: zod
                     .boolean()
@@ -688,6 +702,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
                     ),
                 include_images: zod
                     .boolean()

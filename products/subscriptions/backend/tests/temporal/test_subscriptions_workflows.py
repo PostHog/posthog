@@ -1492,6 +1492,192 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
 
+def _snapshot_with_result(insight: Insight, query_results: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "id": insight.id,
+        "short_id": str(insight.short_id),
+        "name": insight.name,
+        "dashboard_tile_id": None,
+        "query_hash": None,
+        "cache_key": None,
+        "query_results": query_results,
+    }
+
+
+async def _dashboard_subscription_with_results(
+    team, user, results_by_name: dict[str, dict[str, Any] | None], insight_criteria: str | None
+) -> tuple[Subscription, dict[str, Insight]]:
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Criteria", created_by=user)
+    insights: dict[str, Insight] = {}
+    for i, name in enumerate(results_by_name):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"crit{i:02d}", name=name)
+        await sync_to_async(DashboardTile.objects.create)(
+            dashboard=dashboard, insight=insight, layouts={"sm": {"x": 0, "y": i}}
+        )
+        insights[name] = insight
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        dashboard=dashboard,
+        created_by=user,
+        delivery_config={"insight_criteria": insight_criteria} if insight_criteria else {},
+    )
+    return subscription, insights
+
+
+@pytest.mark.parametrize(
+    "insight_criteria,expected_names",
+    [
+        (None, ["with data", "all zero", "query failed"]),
+        ("has_data", ["with data", "query failed"]),
+    ],
+)
+@patch("products.subscriptions.backend.temporal.activities.build_insight_delivery_snapshot")
+@patch("posthog.slo.events.posthoganalytics")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_create_export_assets_applies_insight_criteria(
+    mock_analytics: MagicMock,
+    mock_build_snapshot: MagicMock,
+    insight_criteria: str | None,
+    expected_names: list[str],
+    temporal_client: Client,
+    team,
+    user,
+):
+    results_by_name: dict[str, dict[str, Any] | None] = {
+        "with data": {"result": [{"data": [0, 3, 1], "aggregated_value": 4}]},
+        "all zero": {"result": [{"data": [0, 0, 0], "aggregated_value": 0}]},
+        "query failed": None,
+    }
+    subscription, insights = await _dashboard_subscription_with_results(team, user, results_by_name, insight_criteria)
+    mock_build_snapshot.side_effect = lambda *, insight, **_: _snapshot_with_result(
+        insight, results_by_name[insight.name]
+    )
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            temporal_workflow_id="wf-criteria-1",
+            idempotency_key="idem-criteria-1",
+        ),
+    )
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id),
+    )
+
+    exported_insight_ids = await sync_to_async(
+        lambda: list(
+            ExportedAsset.objects.filter(pk__in=result.exported_asset_ids)
+            .order_by("id")
+            .values_list("insight_id", flat=True)
+        )
+    )()
+    assert exported_insight_ids == [insights[name].id for name in expected_names]
+    assert result.total_insight_count == len(expected_names)
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert [i["name"] for i in delivery.content_snapshot["insights"]] == expected_names
+    criteria_summary = delivery.content_snapshot.get("insight_criteria")
+    if insight_criteria is None:
+        assert criteria_summary is None
+    else:
+        assert criteria_summary["checked_count"] == len(results_by_name)
+        assert criteria_summary["sent_count"] == len(expected_names)
+        assert [i["name"] for i in criteria_summary["excluded"]] == [
+            name for name in results_by_name if name not in expected_names
+        ]
+
+
+@patch("products.subscriptions.backend.temporal.activities.build_insight_delivery_snapshot")
+@patch("posthog.slo.events.posthoganalytics")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_create_export_assets_skips_when_no_insight_has_data(
+    mock_analytics: MagicMock,
+    mock_build_snapshot: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    results_by_name: dict[str, dict[str, Any] | None] = {
+        "empty": {"result": []},
+        "all zero": {"result": [{"data": [0, 0], "aggregated_value": 0}]},
+    }
+    subscription, _ = await _dashboard_subscription_with_results(team, user, results_by_name, "has_data")
+    mock_build_snapshot.side_effect = lambda *, insight, **_: _snapshot_with_result(
+        insight, results_by_name[insight.name]
+    )
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            temporal_workflow_id="wf-criteria-skip",
+            idempotency_key="idem-criteria-skip",
+        ),
+    )
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id),
+    )
+
+    assert result.exported_asset_ids == []
+    assert result.status == ExportAssetPreparationStatus.NO_INSIGHTS_MATCH_CRITERIA
+    assert await sync_to_async(ExportedAsset.objects.filter(team=team).count)() == 0
+    # Delivery history reads this to explain the skip.
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert delivery.content_snapshot["insight_criteria"]["checked_count"] == 2
+    assert delivery.content_snapshot["insight_criteria"]["sent_count"] == 0
+
+
+@patch("products.subscriptions.backend.temporal.activities.build_insight_delivery_snapshot")
+@patch("posthog.slo.events.posthoganalytics")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+@pytest.mark.asyncio
+async def test_create_export_assets_criteria_fills_export_limit_past_empty_insights(
+    mock_analytics: MagicMock,
+    mock_build_snapshot: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    with_data = {"result": [{"data": [1]}]}
+    results_by_name: dict[str, dict[str, Any] | None] = {
+        "empty": {"result": []},
+        "first": with_data,
+        "second": with_data,
+        "third": with_data,
+    }
+    subscription, insights = await _dashboard_subscription_with_results(team, user, results_by_name, "has_data")
+    mock_build_snapshot.side_effect = lambda *, insight, **_: _snapshot_with_result(
+        insight, results_by_name[insight.name]
+    )
+
+    result = await ActivityEnvironment().run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, max_asset_count=2),
+    )
+
+    exported_insight_ids = await sync_to_async(
+        lambda: list(
+            ExportedAsset.objects.filter(pk__in=result.exported_asset_ids)
+            .order_by("id")
+            .values_list("insight_id", flat=True)
+        )
+    )()
+    assert exported_insight_ids == [insights["first"].id, insights["second"].id]
+    # Stops querying once the limit is filled.
+    assert mock_build_snapshot.call_count == 3
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.subscriptions.backend.temporal.activities.send_email_subscription_report")
 @patch("products.subscriptions.backend.temporal.activities._capture_delivery_failed_event")

@@ -812,6 +812,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         subscription = Subscription.objects.get(id=response.json()["id"])
         assert subscription.delivery_config == {"post_all_insights_in_main_message": True}
 
+    @parameterized.expand([("has_data", status.HTTP_201_CREATED), ("bogus", status.HTTP_400_BAD_REQUEST)])
+    def test_insight_criteria_in_delivery_config(self, criteria: str, expected_status: int):
+        response = self._create_subscription(delivery_config={"insight_criteria": criteria})
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            subscription = Subscription.objects.get(id=response.json()["id"])
+            assert subscription.delivery_config["insight_criteria"] == criteria
+
     def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
         response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
         assert response.status_code == status.HTTP_400_BAD_REQUEST

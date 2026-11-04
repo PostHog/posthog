@@ -59,6 +59,7 @@ from products.subscriptions.backend.facade.api import (
     AI_WINDOW_MODE_SINCE_LAST_SENT,
     DELIVERY_STATUS_CHOICES,
     FREQUENCY_CHOICES,
+    INSIGHT_CRITERIA_CHOICES,
     MAX_AI_SUBSCRIPTION_CONTEXTS,
     MAX_INSIGHTS,
     RESOURCE_TYPE_CHOICES,
@@ -215,6 +216,16 @@ class DeliveryConfigSerializer(serializers.Serializer):
             "when target_type is not 'slack', when the subscription sets prompt instead of insight "
             "or dashboard, or when the Slack integration does not hold the files:write permission. "
             "Omit it unless the user asks for one combined message."
+        ),
+    )
+    insight_criteria = serializers.ChoiceField(
+        choices=INSIGHT_CRITERIA_CHOICES,
+        required=False,
+        help_text=(
+            "Insight and dashboard subscriptions only: a check each insight must pass at delivery time "
+            "to be sent. 'has_data' sends only insights whose query returned at least one non-zero, "
+            "non-empty value; an insight whose query errors is still sent. When no insight passes, the "
+            "delivery is skipped. Omit to send every selected insight."
         ),
     )
     include_images = serializers.BooleanField(

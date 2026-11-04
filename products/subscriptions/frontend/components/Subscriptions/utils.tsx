@@ -327,7 +327,12 @@ export function coerceDeliveryConfigForScope(
     subscription: SubscriptionType,
     integrations: IntegrationType[] | null | undefined
 ): SubscriptionType['delivery_config'] {
-    const deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    let deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    // A prompt report has no insights to filter, and the form hides the toggle that could clear it.
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt && deliveryConfig?.insight_criteria) {
+        const { insight_criteria: _, ...rest } = deliveryConfig
+        deliveryConfig = rest
+    }
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
     }
