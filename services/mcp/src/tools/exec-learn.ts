@@ -200,10 +200,15 @@ export class ExecLearnCatalog {
         // Fetch all before reporting any: a mid-batch failure rejects the whole
         // command, so no already-read sibling should fire an invocation.
         const reads = await Promise.all(skills.map((skill) => this.readSkillContent(skill)))
-        for (const read of reads) {
+        const { text, included } = joinWithinLearnBudget(
+            reads.map((read, index) => ({ ...read, name: identifiers[index]! })),
+            (read) => read.content,
+            (names) => `learn ${names.join(' ')}`
+        )
+        for (const read of included) {
             this.reportInvocation(read.invocation)
         }
-        return fitLearnOutput(reads.map((read) => read.content).join('\n\n'))
+        return fitLearnOutput(text)
     }
 
     private async batchReadFiles(skill: QualifiedSkill, paths: string[]): Promise<string> {
@@ -212,10 +217,15 @@ export class ExecLearnCatalog {
         }
         // See batchReadSkills: report only after every read resolves.
         const reads = await Promise.all(paths.map((path) => this.readSkillContent(skill, path)))
-        for (const read of reads) {
+        const { text, included } = joinWithinLearnBudget(
+            reads.map((read, index) => ({ ...read, name: paths[index]! })),
+            (read) => read.content,
+            (names) => `learn ${skill.source}:${skill.name} ${names.join(' ')}`
+        )
+        for (const read of included) {
             this.reportInvocation(read.invocation)
         }
-        return fitLearnOutput(reads.map((read) => read.content).join('\n\n'))
+        return fitLearnOutput(text)
     }
 
     private async describeSkills(identifiers: string[]): Promise<string> {
@@ -467,28 +477,11 @@ export class ExecLearnCatalog {
             return resolvedGuides[0]!.content
         }
 
-        // Whole guides that fit load now and the rest are named for a later call, so a
-        // client limit never cuts a guide in the middle.
-        const maxBytes = maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET)
-        const sections: string[] = []
-        const deferredIds: string[] = []
-        let bytes = 0
-        for (const guide of resolvedGuides) {
-            const section = `## ${guide.title}\n\n${guide.content}`
-            const cost = byteLength(section) + (sections.length > 0 ? 2 : 0)
-            if (sections.length > 0 && bytes + cost > maxBytes) {
-                deferredIds.push(guide.id)
-                continue
-            }
-            sections.push(section)
-            bytes += cost
-        }
-        if (deferredIds.length > 0) {
-            sections.push(
-                `[Not loaded, so that this result fits in one tool response: ${deferredIds.join(', ')}. Run \`learn ${deferredIds.join(' ')}\` in a separate command.]`
-            )
-        }
-        return sections.join('\n\n')
+        return joinWithinLearnBudget(
+            resolvedGuides.map((guide) => ({ ...guide, name: guide.id })),
+            (guide) => `## ${guide.title}\n\n${guide.content}`,
+            (names) => `learn ${names.join(' ')}`
+        ).text
     }
 
     private requirePostHogSkills(): SkillCatalog {
@@ -510,6 +503,39 @@ export class ExecLearnCatalog {
     private requireProjectUnavailableReason(): string {
         return this.skillSources?.projectUnavailableReason ?? 'Project skills are temporarily unavailable.'
     }
+}
+
+/**
+ * Whole items that fit load now and the rest are named for a later call, so a client limit never
+ * cuts one in the middle. The first item always loads, even when it alone exceeds the budget.
+ */
+function joinWithinLearnBudget<T extends { name: string }>(
+    items: T[],
+    render: (item: T) => string,
+    retryCommand: (names: string[]) => string
+): { text: string; included: T[] } {
+    const maxBytes = maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET)
+    const sections: string[] = []
+    const included: T[] = []
+    const deferred: string[] = []
+    let bytes = 0
+    for (const item of items) {
+        const section = render(item)
+        const cost = byteLength(section) + (sections.length > 0 ? 2 : 0)
+        if (sections.length > 0 && bytes + cost > maxBytes) {
+            deferred.push(item.name)
+            continue
+        }
+        sections.push(section)
+        included.push(item)
+        bytes += cost
+    }
+    if (deferred.length > 0) {
+        sections.push(
+            `[Not loaded, so that this result fits in one tool response: ${deferred.join(', ')}. Run \`${retryCommand(deferred)}\` in a separate command.]`
+        )
+    }
+    return { text: sections.join('\n\n'), included }
 }
 
 function parseQualifiedSkill(identifier: string): QualifiedSkill {
