@@ -87,7 +87,9 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div
+                    className={clsx('text-secondary mx-auto', !fullWidth && 'max-w-screen-md', hideHeader && 'hidden')}
+                >
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
                         {!hideTitle && (
                             <h1 className={clsx('font-bold m-0 px-0 sm:px-2 sm:shrink-0', fullWidth && 'text-center')}>
