@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 import structlog
+from confluent_kafka import KafkaError, KafkaException
 
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
@@ -24,6 +25,7 @@ from products.cdp.backend.internal_events import (
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee, assignee_property
 from products.error_tracking.backend.logic.change_subscriptions import ChangeContext, Delivery, Kind, Need, Subscription
 from products.error_tracking.backend.logic.issue_changes import (
+    MAX_ISSUE_NAME_LENGTH,
     AssigneeChanged,
     AssigneeRef,
     Merged,
@@ -114,12 +116,26 @@ def _assignee_at_change(change: ErrorTrackingIssueChange, context: ChangeContext
     return ResolvedAssignee(property_value=property_value, name=None, email=None)
 
 
+def _name_at_change(change: ErrorTrackingIssueChange, context: ChangeContext) -> str | None:
+    # The snapshot caps the name. Use the whole current name when the capped one is its prefix.
+    snapshot_name: str | None = change.snapshot["name"]
+    current = context.names.get(change.issue_id)
+    if snapshot_name and len(snapshot_name) == MAX_ISSUE_NAME_LENGTH and current and current.startswith(snapshot_name):
+        return current
+    return snapshot_name
+
+
+def _is_permanent_rejection(error: Exception) -> bool:
+    kafka_error = error.args[0] if isinstance(error, KafkaException) and error.args else None
+    return isinstance(kafka_error, KafkaError) and kafka_error.name() in {"MSG_SIZE_TOO_LARGE", "_MSG_SIZE_TOO_LARGE"}
+
+
 def build_change_event(delivery: Delivery) -> ChangeEvent:
     change, context = delivery.change, delivery.context
     spec = _event_spec(change)
     snapshot = change.snapshot
     properties = issue_event_properties(
-        name=snapshot["name"],
+        name=_name_at_change(change, context),
         description=context.descriptions.get(change.issue_id),
         first_seen=snapshot["first_seen"],
         severity=snapshot["severity"],
@@ -164,19 +180,26 @@ class InternalEventsSink:
                 pending.append(
                     (event, produce_internal_event(team_id=event.team_id, event=event.event, person=event.person))
                 )
-            except Exception:
+            except Exception as error:
                 # Already logged by produce_internal_event.
-                undelivered.add(event.change_id)
+                if not _is_permanent_rejection(error):
+                    undelivered.add(event.change_id)
         if pending:
-            flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
+            try:
+                flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
+            except Exception:
+                logger.exception("error_tracking_change_event_flush_failed")
+                return undelivered | {event.change_id for event, _ in pending}
         for event, result in pending:
             try:
                 result.get(timeout=0)
-            except Exception:
+            except Exception as error:
                 logger.exception(
                     "error_tracking_change_event_not_delivered", team_id=event.team_id, change_id=str(event.change_id)
                 )
-                undelivered.add(event.change_id)
+                # Kafka rejects the same oversized event on every retry, so retrying it would block the outbox.
+                if not _is_permanent_rejection(error):
+                    undelivered.add(event.change_id)
         return undelivered
 
 
@@ -184,7 +207,7 @@ CDP_INTERNAL_EVENTS = Subscription(
     key="cdp-internal-events",
     kinds=frozenset({Kind.STATUS_CHANGED, Kind.ASSIGNEE_CHANGED, Kind.MERGED, Kind.SPLIT}),
     needs=frozenset(
-        {Need.DESCRIPTION, Need.FINGERPRINT, Need.CURRENT_ASSIGNEE, Need.SNAPSHOT_ASSIGNEE_USER, Need.ACTOR}
+        {Need.NAME, Need.DESCRIPTION, Need.FINGERPRINT, Need.CURRENT_ASSIGNEE, Need.SNAPSHOT_ASSIGNEE_USER, Need.ACTOR}
     ),
     matches=_has_event,
     sink=InternalEventsSink(),

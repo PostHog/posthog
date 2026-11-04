@@ -51,6 +51,8 @@ WORKFLOW_START_CONCURRENCY = 8
 
 
 class Need(StrEnum):
+    # The issue's name now. Snapshots cap the name, so a consumer that needs it whole loads it.
+    NAME = "name"
     DESCRIPTION = "description"
     FINGERPRINT = "fingerprint"
     # The issue's assignee now, with display values.
@@ -65,6 +67,7 @@ class ChangeContext:
     """Data loaded for one team's matched changes. A mapping stays empty unless its need was requested."""
 
     team_id: int
+    names: Mapping[UUID, str | None]
     descriptions: Mapping[UUID, str | None]
     fingerprints: Mapping[UUID, str]
     current_assignees: Mapping[UUID, ResolvedAssignee]
@@ -123,16 +126,19 @@ def load_change_context(
     team_id: int, changes: Collection[ErrorTrackingIssueChange], needs: Collection[Need]
 ) -> ChangeContext:
     issue_ids = {change.issue_id for change in changes}
+    names: Mapping[UUID, str | None] = {}
     descriptions: Mapping[UUID, str | None] = {}
     fingerprints: Mapping[UUID, str] = {}
     current_assignees: Mapping[UUID, ResolvedAssignee] = {}
     snapshot_assignee_users: Mapping[int, ResolvedAssignee] = {}
     actors: Mapping[int, User] = {}
 
-    if Need.DESCRIPTION in needs:
-        descriptions = dict(
-            ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).values_list("id", "description")
+    if Need.NAME in needs or Need.DESCRIPTION in needs:
+        issue_texts = ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).values_list(
+            "id", "name", "description"
         )
+        names = {issue_id: name for issue_id, name, _ in issue_texts}
+        descriptions = {issue_id: description for issue_id, _, description in issue_texts}
     if Need.FINGERPRINT in needs:
         # Same pick as the lifecycle event producer: the earliest fingerprint, with the id as tiebreaker.
         fingerprints = dict(
@@ -144,26 +150,43 @@ def load_change_context(
     if Need.CURRENT_ASSIGNEE in needs:
         current_assignees = resolve_current_assignees(list(issue_ids))
     if Need.SNAPSHOT_ASSIGNEE_USER in needs:
-        user_ids = {
-            int(ref.id)
-            for change in changes
-            if (ref := AssigneeRef.from_json(change.snapshot.get("assignee"))) is not None and ref.type == "user"
-        }
+        user_ids = {user_id for change in changes if (user_id := _snapshot_assignee_user_id(change)) is not None}
         if user_ids:
-            organization_id = Team.objects.only("organization_id").get(id=team_id).organization_id
-            snapshot_assignee_users = resolve_user_assignees(organization_id, user_ids)
+            snapshot_assignee_users = resolve_user_assignees(_organization_id(team_id), user_ids)
     if Need.ACTOR in needs:
         actor_ids = {change.actor_user_id for change in changes if change.actor_user_id is not None}
-        actors = {user.id: user for user in User.objects.filter(id__in=actor_ids)}
+        if actor_ids:
+            # A user who left the organization since the change must not have their profile sent to it.
+            actors = {
+                user.id: user
+                for user in User.objects.filter(
+                    id__in=actor_ids, organization_membership__organization_id=_organization_id(team_id)
+                )
+            }
 
     return ChangeContext(
         team_id=team_id,
+        names=names,
         descriptions=descriptions,
         fingerprints=fingerprints,
         current_assignees=current_assignees,
         snapshot_assignee_users=snapshot_assignee_users,
         actors=actors,
     )
+
+
+def _organization_id(team_id: int) -> UUID:
+    return Team.objects.only("organization_id").get(id=team_id).organization_id
+
+
+def _snapshot_assignee_user_id(change: ErrorTrackingIssueChange) -> int | None:
+    # A malformed snapshot must not fail the load for the team's other changes.
+    try:
+        ref = AssigneeRef.from_json(change.snapshot.get("assignee"))
+        return int(ref.id) if ref is not None and ref.type == "user" else None
+    except (KeyError, TypeError, ValueError):
+        logger.warning("error_tracking_change_malformed_snapshot_assignee", change_id=str(change.id))
+        return None
 
 
 def workflow_id_for(subscription_key: str, change_id: UUID) -> str:

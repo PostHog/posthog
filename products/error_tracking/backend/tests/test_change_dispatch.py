@@ -44,9 +44,9 @@ def _delivered() -> ProduceResult:
     return result
 
 
-def _failed() -> ProduceResult:
+def _failed(code: int = KafkaError._MSG_TIMED_OUT) -> ProduceResult:  # type: ignore[attr-defined]
     result = ProduceResult(topic="cdp_internal_events")
-    result.set_result(KafkaError(KafkaError._MSG_TIMED_OUT), None)  # type: ignore[attr-defined]
+    result.set_result(KafkaError(code), None)
     return result
 
 
@@ -63,14 +63,20 @@ def _captured(producer: MagicMock) -> list[tuple[str, dict[str, Any], dict[str, 
 
 
 class TestChangeDispatch(BaseTest):
-    def _issue(self, team: Team, fingerprints: list[str], **fields: Any) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=team, name="TypeError: boom", description="at line 1", **fields)
+    def _issue(
+        self, team: Team, fingerprints: list[str], name: str = "TypeError: boom", **fields: Any
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=team, name=name, description="at line 1", **fields)
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=fingerprint)
         return issue
 
     def _resolve(self, team: Team) -> None:
         issue = self._issue(team, ["fp"])
+        update_issue(team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
+
+    def _resolve_with_long_name(self, team: Team) -> None:
+        issue = self._issue(team, ["fp"], name="TypeError: " + "x" * 600)
         update_issue(team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
 
     def _assign_then_unassign(self, team: Team) -> None:
@@ -101,6 +107,7 @@ class TestChangeDispatch(BaseTest):
     @parameterized.expand(
         [
             ("resolve", "_resolve"),
+            ("resolve_with_long_name", "_resolve_with_long_name"),
             ("assign_then_unassign", "_assign_then_unassign"),
             ("merge", "_merge"),
             ("split", "_split"),
@@ -143,37 +150,58 @@ class TestChangeDispatch(BaseTest):
         producer.assert_not_called()
         assert (outcome.dispatched, outcome.delivered) == (1, 0)
 
+    @parameterized.expand(
+        [
+            ("timed_out_is_retried", KafkaError._MSG_TIMED_OUT, False),  # type: ignore[attr-defined]
+            ("too_large_is_dropped", KafkaError.MSG_SIZE_TOO_LARGE, True),  # type: ignore[attr-defined]
+        ]
+    )
     @patch(FLAG, return_value=True)
-    def test_undelivered_event_stays_in_the_outbox(self, _flag: MagicMock) -> None:
+    def test_rejected_event_stays_in_the_outbox_unless_retrying_cannot_help(
+        self, _name: str, code: int, expect_dispatched: bool, _flag: MagicMock
+    ) -> None:
         issue = self._issue(self.team, ["fp"])
         update_issue(self.team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
 
-        with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _failed()), patch(FLUSH):
+        with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _failed(code)), patch(FLUSH):
             outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
-        assert (outcome.dispatched, outcome.undelivered) == (0, 1)
+        assert (outcome.dispatched, outcome.undelivered) == (int(expect_dispatched), int(not expect_dispatched))
         [change] = ErrorTrackingIssueChange.objects.for_team(self.team.id)
-        assert change.dispatched_at is None
+        assert (change.dispatched_at is not None) == expect_dispatched
 
     @patch(FLAG, return_value=True)
-    def test_malformed_row_is_dropped_without_blocking_other_teams(self, _flag: MagicMock) -> None:
+    def test_actor_who_left_the_organization_is_not_sent(self, _flag: MagicMock) -> None:
+        issue = self._issue(self.team, ["fp"])
+        update_issue(self.team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
+        self.organization.memberships.filter(user=self.user).delete()
+
+        with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _delivered()) as producer, patch(FLUSH):
+            dispatch_pending_changes(time_budget=timedelta(seconds=30))
+
+        [call] = producer.call_args_list
+        assert call.kwargs["person"] is None
+
+    @patch(FLAG, return_value=True)
+    def test_malformed_rows_are_dropped_without_blocking_other_changes(self, _flag: MagicMock) -> None:
         broken_team = Team.objects.create(organization=self.organization)
-        ErrorTrackingIssueChange.objects.for_team(broken_team.id).create(
-            team_id=broken_team.id,
-            issue_id=uuid7(),
-            kind=ErrorTrackingIssueChange.Kind.ASSIGNEE_CHANGED,
-            data={},
-            snapshot={},
-            operation_id=uuid7(),
-            actor_type=ErrorTrackingIssueChange.ActorType.INGESTION,
-        )
+        for team_id, snapshot in ((broken_team.id, {}), (self.team.id, {"assignee": {"type": "user", "id": "x"}})):
+            ErrorTrackingIssueChange.objects.for_team(team_id).create(
+                team_id=team_id,
+                issue_id=uuid7(),
+                kind=ErrorTrackingIssueChange.Kind.ASSIGNEE_CHANGED,
+                data={},
+                snapshot=snapshot,
+                operation_id=uuid7(),
+                actor_type=ErrorTrackingIssueChange.ActorType.INGESTION,
+            )
         issue = self._issue(self.team, ["fp"])
         update_issue(self.team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
 
         with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _delivered()) as producer, patch(FLUSH):
             outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
-        assert outcome.dispatched == 2
+        assert outcome.dispatched == 3
         assert [call.kwargs["event"].event for call in producer.call_args_list] == ["$error_tracking_issue_resolved"]
         assert not ErrorTrackingIssueChange.objects.unscoped().filter(dispatched_at__isnull=True).exists()
 

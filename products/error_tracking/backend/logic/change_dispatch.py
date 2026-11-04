@@ -74,7 +74,7 @@ def dispatch_pending_changes(
     deadline = time.monotonic() + time_budget.total_seconds()
     total = NOTHING_DISPATCHED
     while time.monotonic() < deadline:
-        batch = _dispatch_batch(subscriptions)
+        batch = _dispatch_batch(subscriptions, deadline)
         total += batch
         # An undelivered row stops the run, so a persistent outage retries once per run instead of in a loop.
         if batch.undelivered or batch.dispatched < DISPATCH_BATCH_SIZE:
@@ -82,7 +82,7 @@ def dispatch_pending_changes(
     return total
 
 
-def _dispatch_batch(subscriptions: Sequence[Subscription]) -> DispatchOutcome:
+def _dispatch_batch(subscriptions: Sequence[Subscription], deadline: float) -> DispatchOutcome:
     with transaction.atomic():
         changes = list(
             ErrorTrackingIssueChange.objects.unscoped()
@@ -101,6 +101,10 @@ def _dispatch_batch(subscriptions: Sequence[Subscription]) -> DispatchOutcome:
         undelivered: set[UUID] = set()
         dropped: set[UUID] = set()
         for team_id, team_changes in changes_by_team.items():
+            # During an outage a sink waits for each team, so the budget is checked per team, not per batch.
+            if time.monotonic() >= deadline:
+                undelivered |= {change.id for change in team_changes}
+                continue
             team_outcome = _dispatch_team(team_id, team_changes, subscriptions)
             delivered += team_outcome.delivered
             undelivered |= team_outcome.undelivered
@@ -108,6 +112,7 @@ def _dispatch_batch(subscriptions: Sequence[Subscription]) -> DispatchOutcome:
 
         # A row that one subscription dropped and another could not deliver still waits for the retry.
         dispatched_ids = [change.id for change in changes if change.id not in undelivered]
+        # nosemgrep: idor-lookup-without-team (cross-team outbox dispatcher; ids are rows this transaction claimed)
         ErrorTrackingIssueChange.objects.unscoped().filter(id__in=dispatched_ids).update(dispatched_at=timezone.now())
 
     return DispatchOutcome(
