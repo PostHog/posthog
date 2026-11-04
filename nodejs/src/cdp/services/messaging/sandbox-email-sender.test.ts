@@ -247,6 +247,11 @@ describe('sandbox email content', () => {
             '<style>/* <![if !mso]> */ p {color:blue}</style>',
             null,
         ],
+        [
+            '<body><!--[if mso]><table><tr><td><![endif]--><p>Hello</p><!--[if mso]></td></tr></table><![endif]--></body>',
+            '<p>Hello</p>',
+            null,
+        ],
     ])('retains the footer outside template content: %s', async (html, expectedContent, preheader) => {
         const result = await sender.withIdentificationFooter(
             params(html, undefined, preheader ?? undefined),
@@ -278,6 +283,7 @@ describe('sandbox email content', () => {
         ['<body><p>Hello</p><!--[if !mso]><!-->', null, null],
         ['<body><!--[if mso]><p>Outlook</p><![endif]--><p>Hello</p><!--[if gte mso 9]><p>Old Outlook</p>', null, null],
         ['<body><![if !mso]><p>Hello</p>', null, null],
+        ['<body><p>Hello</p><!--[if mso]><div style="display:none"><![endif]-->', null, null],
         ['<body><!--[if !mso]><!--><p title="<![endif]">Hello</p>', null, null],
         ['<body><!--[if !mso]><!--><p>Hello</p><!-- <![endif] note -->', null, null],
         ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
