@@ -1575,10 +1575,21 @@ describe('Hogflow Executor', () => {
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
                 })
+                // A send held at the frequency cap gives up its place in line, so the sends behind it do not wait for it.
+                const heldLine = { key: 'held-line-key', member: 'held-line-member' }
+                invocation2.state.currentAction = {
+                    id: 'function_id_1',
+                    startedAtTimestamp: DateTime.now().toMillis(),
+                    frequencyCapHoldLine: heldLine,
+                }
+                const releaseFrequencyCapHold = jest
+                    .spyOn(RecipientPreferencesService.prototype, 'releaseFrequencyCapHold')
+                    .mockResolvedValue(undefined)
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(releaseFrequencyCapHold).toHaveBeenCalledWith(hogFlow.team_id, heldLine)
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] no longer matches trigger filters)",

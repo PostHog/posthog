@@ -141,6 +141,7 @@ export class HogFlowExecutorService {
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
     private readonly hogFlowFunctionsService: HogFlowFunctionsService
     private readonly cohortMembershipRepository: CohortMembershipRepository
+    private readonly recipientPreferencesService: RecipientPreferencesService
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -157,6 +158,7 @@ export class HogFlowExecutorService {
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.cohortMembershipRepository = cohortMembershipRepository
+        this.recipientPreferencesService = recipientPreferencesService
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -329,6 +331,10 @@ export class HogFlowExecutorService {
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
+            const heldLine = invocation.state.currentAction?.frequencyCapHoldLine
+            if (heldLine) {
+                await this.recipientPreferencesService.releaseFrequencyCapHold(invocation.teamId, heldLine)
+            }
             this.recordEnrollment(
                 enrollmentConversion,
                 watcher,

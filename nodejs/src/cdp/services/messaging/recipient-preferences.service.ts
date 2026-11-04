@@ -20,31 +20,75 @@ type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 // reason instead of collapsing suppression and opt-out into a single "opted out" message.
 export type RecipientSkipReason = 'suppressed' | 'opted_out'
 
-// One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
-// is keyed on the step visit. The email queue and send retries run the same step visit again, so a
-// visit that already holds a slot passes. That run also moves the slot score to now, because the email
-// queue can delay the actual send by hours and the window must start when the email goes out.
-// A capped call returns the time in ms when the next slot frees up: the oldest slot that must leave
-// the window before the count drops below the cap. An allowed call returns 0.
+// One Lua script, so two concurrent sends to one person cannot both pass with one slot left. KEYS[1] holds
+// one entry per sent message, keyed on the step visit and scored by send time. The email queue and send
+// retries run the same step visit again, so a visit that already holds a slot passes. That run also moves
+// the slot score to now, because the email queue can delay the actual send by hours and the window must
+// start when the email goes out.
+//
+// KEYS[2] is the line of held sends, scored by hold deadline, which is first-capped order while the
+// team's hold length stays the same. A send gets a free slot only when every send ahead of it in line
+// already has one, so a new send cannot take a slot that a held send is waiting for. Each held send
+// leaves the line when it sends, when its deadline passes, or when it is released.
+//
+// A capped call returns the time in ms when this send's slot frees up, and an allowed call returns 0.
+// The time assumes that each held send ahead takes the next slot that frees. A capped call with a hold
+// deadline (ARGV[5], 0 for none) joins the line when that time is before the deadline and leaves it otherwise.
 const FREQUENCY_CAP_SCRIPT = `
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
-if not redis.call('ZSCORE', KEYS[1], ARGV[4]) then
-    local count = redis.call('ZCARD', KEYS[1])
-    if count >= tonumber(ARGV[3]) then
-        local freeing = redis.call('ZRANGE', KEYS[1], count - tonumber(ARGV[3]), count - tonumber(ARGV[3]), 'WITHSCORES')
-        return tonumber(freeing[2]) + tonumber(ARGV[2])
-    end
+local now, window, max, member, deadline =
+    tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), ARGV[4], tonumber(ARGV[5])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+local function take_slot()
+    redis.call('ZREM', KEYS[2], member)
+    redis.call('ZADD', KEYS[1], now, member)
+    redis.call('PEXPIRE', KEYS[1], window)
+    return 0
 end
-redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
-redis.call('PEXPIRE', KEYS[1], ARGV[2])
-return 0
+if redis.call('ZSCORE', KEYS[1], member) then
+    return take_slot()
+end
+local ahead = redis.call('ZRANK', KEYS[2], member) or redis.call('ZCARD', KEYS[2])
+local sent = redis.call('ZRANGE', KEYS[1], 0, -1, 'WITHSCORES')
+if #sent / 2 + ahead < max then
+    return take_slot()
+end
+local times = {}
+for i = 2, #sent, 2 do
+    times[#times + 1] = tonumber(sent[i])
+end
+local slot = now
+for _ = 0, ahead do
+    slot = now
+    if #times >= max then
+        slot = math.max(now, times[#times - max + 1] + window)
+    end
+    times[#times + 1] = slot
+end
+if deadline > 0 and slot < deadline then
+    redis.call('ZADD', KEYS[2], 'NX', deadline, member)
+    local last = redis.call('ZRANGE', KEYS[2], -1, -1, 'WITHSCORES')
+    redis.call('PEXPIRE', KEYS[2], tonumber(last[2]) - now)
+else
+    redis.call('ZREM', KEYS[2], member)
+end
+return slot
 `
+
+export type FrequencyCapLine = { key: string; member: string }
 
 export type FrequencyCapCheck =
     | { capped: false }
-    // nextSlotAt is when the person can get a marketing message again, in ms. holdHours is how long the
-    // team lets a capped message wait for that slot; null means skip it.
-    | { capped: true; nextSlotAt: number; holdHours: number | null }
+    // nextSlotAt is when this send can go out, in ms. hold is set when the send is in the line of held
+    // sends and must wait until nextSlotAt, but not past deadlineAt. It is null when the send must skip.
+    | { capped: true; nextSlotAt: number; hold: { deadlineAt: number; line: FrequencyCapLine } | null }
+
+export type FrequencyCapHoldOptions = {
+    // False for a send that cannot wait, which then skips when capped and leaves the line.
+    canHold: boolean
+    // The deadline of a send that is already held, in ISO format.
+    deadlineAt?: string
+}
 
 export class RecipientPreferencesService {
     constructor(
@@ -60,7 +104,8 @@ export class RecipientPreferencesService {
     /** Reports whether the person is at the cap. When they are not, records this send against the cap. */
     public async checkFrequencyCap(
         invocation: CyclotronJobInvocationHogFunction,
-        action: HogFlowAction
+        action: HogFlowAction,
+        holdOptions: FrequencyCapHoldOptions = { canHold: false }
     ): Promise<FrequencyCapCheck> {
         const messageAction = this.asMessageAction(action)
         if (
@@ -81,25 +126,63 @@ export class RecipientPreferencesService {
             if (!personId) {
                 return { capped: false }
             }
+            const now = Date.now()
+            const deadlineAt =
+                holdOptions.canHold && hold_hours
+                    ? holdOptions.deadlineAt
+                        ? Date.parse(holdOptions.deadlineAt)
+                        : now + hold_hours * 60 * 60 * 1000
+                    : 0
+            const capKey = `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`
+            const line: FrequencyCapLine = {
+                // The braces make Valkey cluster hash this key on capKey, so both keys of the script share
+                // a slot. The capKey prefix keeps the key with the other keys of the team and person.
+                key: `${capKey}/held{${capKey}}`,
+                member: workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`,
+            }
             const nextSlotAt = await this.frequencyCap.valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
                         FREQUENCY_CAP_SCRIPT,
-                        1,
-                        `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
-                        Date.now(),
+                        2,
+                        capKey,
+                        line.key,
+                        now,
                         window_days * 24 * 60 * 60 * 1000,
                         max_messages,
-                        workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
+                        line.member,
+                        deadlineAt
                     ) as Promise<number>
             )
-            return nextSlotAt ? { capped: true, nextSlotAt, holdHours: hold_hours } : { capped: false }
+            if (!nextSlotAt) {
+                return { capped: false }
+            }
+            return {
+                capped: true,
+                nextSlotAt,
+                hold: deadlineAt && nextSlotAt < deadlineAt ? { deadlineAt, line } : null,
+            }
         } catch (error) {
             // Fail open: a config or Valkey pool error must never block a send. failOpen above only
             // covers errors inside the Valkey callback.
             logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
             return { capped: false }
+        }
+    }
+
+    /** Removes a held send from the line, so the sends behind it do not wait for a send that will not happen. */
+    public async releaseFrequencyCapHold(teamId: number, line: FrequencyCapLine): Promise<void> {
+        if (!this.frequencyCap) {
+            return
+        }
+        try {
+            await this.frequencyCap.valkey.useClient({ name: 'workflows-frequency-cap', failOpen: true }, (client) =>
+                client.zrem(line.key, line.member)
+            )
+        } catch (error) {
+            // The held send leaves the line at its deadline anyway, so a failed release only delays the sends behind it.
+            logger.error(`Failed to release a frequency cap hold for team ${teamId}:`, error)
         }
     }
 

@@ -20,7 +20,11 @@ import {
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
-import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import {
+    FrequencyCapCheck,
+    FrequencyCapLine,
+    RecipientPreferencesService,
+} from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -220,6 +224,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (functionResult.frequencyCapHold) {
             result.invocation.state.currentAction!.frequencyCapHoldDeadlineAt =
                 functionResult.frequencyCapHold.deadlineAt
+            result.invocation.state.currentAction!.frequencyCapHoldLine = functionResult.frequencyCapHold.line
             return { scheduledAt: functionResult.frequencyCapHold.until }
         }
 
@@ -424,6 +429,13 @@ export class HogFunctionHandler implements ActionHandler {
         return { scheduledAt: deadline }
     }
 
+    private async releaseFrequencyCapHold(invocation: CyclotronJobInvocationHogFlow): Promise<void> {
+        const line = invocation.state.currentAction?.frequencyCapHoldLine
+        if (line) {
+            await this.recipientPreferencesService.releaseFrequencyCapHold(invocation.teamId, line)
+        }
+    }
+
     // These checks skip the send before the email service runs, so the email's status is recorded here.
     private recordSkippedEmail(
         invocation: CyclotronJobInvocationHogFunction,
@@ -476,6 +488,7 @@ export class HogFunctionHandler implements ActionHandler {
                 )
         )
         if (skipReason) {
+            await this.releaseFrequencyCapHold(invocation)
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
             // log needs to know which one — the operator response is different (fix the recipient
             // list vs. respect the unsubscribe). `email_suppressed` mirrors the metric name the
@@ -525,6 +538,7 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
+            await this.releaseFrequencyCapHold(invocation)
             this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
                 finished: true,
@@ -556,7 +570,11 @@ export class HogFunctionHandler implements ActionHandler {
         const frequencyCap =
             hogExecutorOptions?.isTest || holdExpired
                 ? ({ capped: false } as const)
-                : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action)
+                : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action, {
+                      // A continuation on the email queue carries a pending send that a hold would drop, so it skips as before.
+                      canHold: !invocation.state.currentAction?.hogFunctionState,
+                      deadlineAt: invocation.state.currentAction?.frequencyCapHoldDeadlineAt,
+                  })
         if (holdExpired || frequencyCap.capped) {
             const hold = frequencyCap.capped ? frequencyCapHold(invocation, frequencyCap) : null
             if (hold) {
@@ -628,36 +646,34 @@ export class HogFunctionHandler implements ActionHandler {
     }
 }
 
-type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolean }
+type FrequencyCapHold = { until: DateTime; deadlineAt: string; line: FrequencyCapLine; firstHold: boolean }
 
-// Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
+// Up to a minute past the slot, so a worker whose clock runs behind the clock that recorded the oldest
+// send still finds the slot free when it wakes. The line, not the wake order, decides which send goes first.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
 function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
     const deadlineAt = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
     return !!deadlineAt && DateTime.now() >= DateTime.fromISO(deadlineAt)
 }
 
-/** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */
+/** When the send is in the line of held sends, returns when to check the cap again. */
 function frequencyCapHold(
     invocation: CyclotronJobInvocationHogFlow,
     cap: Extract<FrequencyCapCheck, { capped: true }>
 ): FrequencyCapHold | null {
-    // A continuation on the email queue carries a pending send that a hold would drop, so it skips as before.
-    if (!cap.holdHours || invocation.state.currentAction?.hogFunctionState) {
-        return null
-    }
-    const now = DateTime.now()
-    const startedDeadline = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
-    const deadline = startedDeadline ? DateTime.fromISO(startedDeadline) : now.plus({ hours: cap.holdHours })
-    // No slot frees before the hold ends, so waiting cannot help.
-    if (cap.nextSlotAt >= deadline.toMillis()) {
+    if (!cap.hold) {
         return null
     }
     // Wake after the slot frees but before the deadline, which the next wake enforces strictly.
     const jitterMs = Math.min(
         Math.floor(Math.random() * FREQUENCY_CAP_HOLD_JITTER_MS),
-        Math.floor((deadline.toMillis() - cap.nextSlotAt) / 2)
+        Math.floor((cap.hold.deadlineAt - cap.nextSlotAt) / 2)
     )
-    const until = DateTime.max(now, DateTime.fromMillis(cap.nextSlotAt + jitterMs))
-    return { until, deadlineAt: deadline.toISO()!, firstHold: !startedDeadline }
+    const until = DateTime.max(DateTime.now(), DateTime.fromMillis(cap.nextSlotAt + jitterMs))
+    return {
+        until,
+        deadlineAt: DateTime.fromMillis(cap.hold.deadlineAt).toISO()!,
+        line: cap.hold.line,
+        firstHold: !invocation.state.currentAction?.frequencyCapHoldDeadlineAt,
+    }
 }

@@ -566,6 +566,9 @@ export type HogFlowInvocationContext = {
         // Set when a message step first finds the person at the frequency cap and the team holds capped
         // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
         frequencyCapHoldDeadlineAt?: string
+        // The place of the held send in the person's line of held sends. A held send that leaves the run
+        // before it sends gives up its place, so the sends behind it do not wait for it.
+        frequencyCapHoldLine?: { key: string; member: string }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
