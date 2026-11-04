@@ -414,7 +414,9 @@ def get_fanout_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     base_url = _base_url(region)
     headers = _headers(api_token)
-    session = make_tracked_session(redact_values=(api_token,))
+    # Parent listings return destination `settings`, whose free-form credential keys the sample
+    # scrubber cannot recognise, so these requests stay out of HTTP sample capture.
+    session = make_tracked_session(redact_values=(api_token,), capture=False)
 
     def list_parents(path: str) -> list[dict[str, Any]]:
         return _list_parents(session, base_url, path, headers, logger, resumable_source_manager)
