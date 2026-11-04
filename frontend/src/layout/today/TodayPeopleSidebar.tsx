@@ -1,3 +1,5 @@
+import './TodayShell.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconBuilding, IconDashboard, IconMap, IconPeople, IconPerson } from '@posthog/icons'
