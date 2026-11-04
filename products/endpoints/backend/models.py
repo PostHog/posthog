@@ -331,7 +331,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         declared = self.data_freshness_seconds
         if self.saved_query_id is None:
             return declared
-        team = self.team if self.team_id else self.endpoint.team
+        team = self.team or self.endpoint.team
         floor = schedule_floor_for_organization(team.organization)
         return declared if floor is None else max(declared, int(floor.total_seconds()))
 
