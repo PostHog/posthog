@@ -2900,12 +2900,11 @@ describe('CDP API', () => {
 
             const mintManageToken = (
                 teamId: number,
-                { audience = 'posthog:workflows:manage_transactional_email' }: { audience?: string } = {}
-            ) =>
-                jwt.sign({ team_id: teamId }, 'local-dev-workflows-transactional-email-jwt', {
-                    audience,
-                    expiresIn: '2m',
-                })
+                {
+                    secret = 'local-dev-workflows-transactional-email-jwt',
+                    audience = 'posthog:workflows:manage_transactional_email',
+                }: { secret?: string; audience?: string } = {}
+            ) => jwt.sign({ team_id: teamId }, secret, { audience, expiresIn: '2m' })
             const manage = (
                 action: 'cancel' | 'reschedule',
                 messageId: string,
