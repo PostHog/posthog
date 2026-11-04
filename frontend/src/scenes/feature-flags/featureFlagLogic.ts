@@ -168,6 +168,7 @@ import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { MAX_VARIANTS } from './featureFlagRulesV2Draft'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
@@ -669,7 +670,9 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 
 function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
     const raw = Array.isArray(value) ? value : value == null ? [] : String(value).split(',')
-    const keys = [...new Set(raw.map((key) => String(key).trim()))].filter((key) => !validateFeatureFlagVariantKey(key))
+    const keys = [...new Set(raw.map((key) => String(key).trim()))]
+        .filter((key) => !validateFeatureFlagVariantKey(key))
+        .slice(0, MAX_VARIANTS)
     const percentages = percentageDistribution(keys.length)
     return keys.map((key, index) => ({ key, name: '', rollout_percentage: percentages[index] }))
 }

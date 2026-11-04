@@ -5850,6 +5850,16 @@ describe('a flag in config version 2', () => {
             ],
         ],
         [
+            'keeps only as many variants as a flag allows',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: Array.from({ length: 25 }, (_, i) => `v${i}`),
+            }),
+            'checkout-layout',
+            Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
+        ],
+        [
             'keeps the default variants without a variants param',
             urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
             'checkout-layout',
