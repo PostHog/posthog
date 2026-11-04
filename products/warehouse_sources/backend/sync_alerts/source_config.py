@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.sync_alerts.wording import (
 
 # A sync status changes at most once per sync, so a few minutes of delay costs nothing a user notices.
 CHECK_INTERVAL_MINUTES: Final = 5
+MAX_ALERTS_PER_TEAM: Final = 20
 MAX_SCOPED_IDS: Final = 100
 
 _EMAIL_PROJECT_MEMBERS_HELP = (
@@ -130,7 +131,7 @@ def _spec(
         validate=validate,
         check_in_team=check_in_team,
         # No `remove_destinations`, so the platform owns the destinations from the start.
-        native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
+        native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
         incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION[source_kind],
         alert_url=alert_url,
     )

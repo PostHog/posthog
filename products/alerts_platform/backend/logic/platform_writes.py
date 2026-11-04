@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
     PlatformAlertSnapshot,
     PlatformAlertUpsert,
@@ -136,10 +137,18 @@ def _admit(
 ) -> None:
     """Runs the source's admission for a write, in the caller's transaction."""
     spec = source_configs.spec(source_kind)
-    if spec is None or spec.admit is None:
+    if spec is None:
+        return
+    cap = spec.native.max_per_team if spec.native is not None and current is None else None
+    if spec.admit is None and cap is None:
         return
     hold_admission_lock(team_id, source_kind)
-    spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
+    if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
+        raise PlatformAlertCreateRefused(
+            f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."
+        )
+    if spec.admit is not None:
+        spec.admit(team_id=team_id, current=current, edit=edit, check_interval_minutes=check_interval_minutes)
 
 
 def update_configuration(

@@ -343,7 +343,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        existing_count = cls.objects.filter(team_id=team_id).count()
+        existing_count = cls._counted(team_id)
 
         if alerts_feature:
             allowed = alerts_feature.get("limit")
@@ -356,6 +356,31 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
 
         return None
+
+    @classmethod
+    def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
+        """The team's insight alerts: each platform configuration, copies included, and each insight row
+        with no copy. The count stays right for an alert that only the platform holds."""
+        # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
+        from products.alerts_platform.backend.facade.api import copied_legacy_ids, count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
+
+        rows = cls.objects.filter(team_id=team_id).exclude(
+            id__in=copied_legacy_ids(team_id=team_id, source_kind=SourceKind.INSIGHT)
+        )
+        if active_real_time:
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+        if exclude_id:
+            rows = rows.exclude(pk=exclude_id)
+        # An excluded alert is never an enabled real-time one, so its copy is not in this count either.
+        on_platform = count_configurations(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            enabled_only=active_real_time,
+            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+        )
+        return on_platform + rows.count()
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
@@ -421,10 +446,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         if allowed is None:
             return None
 
-        qs = cls.objects.filter(team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
-        if exclude_id:
-            qs = qs.exclude(pk=exclude_id)
-        existing_count = qs.count()
+        existing_count = cls._counted(team_id, active_real_time=True, exclude_id=exclude_id)
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
         return None

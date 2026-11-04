@@ -136,10 +136,10 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
             check_interval_minutes: int | None,
         ) -> None:
             admitted.append((current is None, edit.enabled, check_interval_minutes))
-            if current is None and count_configurations(team_id=team_id, source_kind=SourceKind.LOGS) >= 1:
-                raise PlatformAlertCreateRefused("At the cap.")
 
-        with patch(_SOURCE_CONFIGS, return_value=replace(self.spec, admit=admit)):
+        assert self.spec.native is not None
+        capped = replace(self.spec, admit=admit, native=replace(self.spec.native, max_per_team=1))
+        with patch(_SOURCE_CONFIGS, return_value=capped):
             configuration_id = self._create()
             with pytest.raises(PlatformAlertCreateRefused):
                 self._create()
@@ -151,7 +151,7 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                     change=lambda current: replace(current, enabled=False),
                 )
 
-        assert admitted == [(True, True, 5), (True, True, 5), (False, False, 5)]
+        assert admitted == [(True, True, 5), (False, False, 5)]
         assert count_configurations(team_id=self.team.id, source_kind=SourceKind.LOGS) == 1
 
     def test_deleting_a_firing_native_alert_resolves_by_its_own_id_before_its_destinations_go(self) -> None:

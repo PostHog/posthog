@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.contracts import (
     VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.notebooks.backend.facade.api import create_notebook
 
 
@@ -384,6 +385,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
+        if stored.get("calculation_interval") == AlertCalculationInterval.REAL_TIME:
+            with team_scope(self.team.id):
+                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
 
         with (
             patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),
