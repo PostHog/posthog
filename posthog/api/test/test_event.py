@@ -114,10 +114,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build. +1 each for the flag-cache TTL and projection kill-switch instance
-        # settings, cold-cache here but TTL-cached per worker in production. +1 for the
+        # HogQL database build. +1 each for the flag-cache TTL, projection kill-switch and
+        # properties-narrowing instance settings, cold-cache here but TTL-cached per worker in production. +1 for the
         # organization's flag_evaluations mode lookup in the HogQL database build.
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(18):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -153,9 +153,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
         # +1 for the saved-expressions fetch in the HogQL database build. +1 each for the flag-cache
-        # TTL and projection kill-switch instance settings, cold-cache here but TTL-cached per worker
-        # in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
-        expected_queries = 24 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 25
+        # TTL, projection kill-switch and properties-narrowing instance settings, cold-cache here but
+        # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
+        expected_queries = 25 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 26
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -963,7 +963,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["1"],
             is_identified=True,
         )
-        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
+        sent_properties = {
+            "plan": None,
+            "billing": {"coupon": None, "seats": 3},
+            "items": [{"sku": "a", "note": None}],
+            "$set": {"email": None, "name": "n"},
+        }
+        event_id = _create_event(
+            team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), properties=sent_properties
+        )
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
@@ -971,6 +979,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
+        assert response_json["properties"] == sent_properties
 
         with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         assert with_person_response.status_code == status.HTTP_200_OK

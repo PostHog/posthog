@@ -23,11 +23,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
@@ -1023,13 +1023,20 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
 
 
+# pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
+_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+
+
 class SearchMemoryQuerySerializer(serializers.Serializer):
     """Query parameters for `search-memory`."""
 
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+        help_text=(
+            "ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, "
+            "or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries."
+        ),
     )
     key = serializers.CharField(
         required=False,
@@ -1089,6 +1096,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+    def validate_text(self, value: str) -> str:
+        # The trigram indexes extract nothing from a term without an indexable word, so Postgres
+        # reads and upper-cases every body the team holds to answer it.
+        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+            raise serializers.ValidationError(
+                "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
+                "To read one known entry, pass `key` instead."
+            )
+        return value
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1527,7 +1544,8 @@ class ReportLinkWriteSerializer(serializers.Serializer):
 
 
 class EmitReportRequestSerializer(serializers.Serializer):
-    """Request body for `emit-report`. Run attribution is taken from the URL path."""
+    """Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+    taken from the URL path; a person is the authenticated caller."""
 
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
@@ -1571,14 +1589,14 @@ class EmitReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
             "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
-            "task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately."
+            "task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately."
         ),
     )
     repository = serializers.CharField(
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass "
             "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
             "which triggers free-form selection across the team's repos (the slow path on a many-repo "
             "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
@@ -1604,7 +1622,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
             "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
             "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
-            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+            "On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their "
+            "autonomy threshold. A report a person files never autostarts."
         ),
     )
     charts = serializers.ListField(
@@ -1672,7 +1691,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
         help_text=(
-            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "Optional name for this emission, unique within a scout's run or within a person's own reports. "
+            "Reuse it verbatim to retry a call "
             "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
             "report the first call authored, with `idempotent_replay` true, instead of a second report. "
             "Omit it and the report's own content is the key, which covers a retry of the identical "
@@ -3030,12 +3050,12 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if key_scopes is not None and "*" not in key_scopes:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
-            raise PermissionDenied("API key missing required scope 'integration:read'")
+            raise InsufficientScope(["integration:read"])
         # Delivery pushes report titles/summaries to the channel — content the report API gates
         # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
         if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
-            raise PermissionDenied("API key missing required scope 'inbox:read'")
+            raise InsufficientScope(["inbox:read"])
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 

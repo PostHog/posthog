@@ -1234,11 +1234,15 @@ export class CdpApi {
                 const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
 
                 stages.start('load')
-                const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+                const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+                const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
+                hogFlowLookup.catch(() => undefined)
+                const team = await teamLookup
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
                 }
-                const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+                const hogFlow = await hogFlowLookup
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
@@ -1389,27 +1393,37 @@ export class CdpApi {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
         }
-        if (await this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)) {
+        // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
+        // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
+        // refusals are rare and the verdict is cached per domain.
+        const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
+        const suppressed = Promise.all(
+            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+        )
+        const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        // A DNS failure lets the send through.
+        const recipientSkipReasons = Promise.all(
+            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
+        )
+        // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
+        for (const lookup of lookups) {
+            lookup.catch(() => undefined)
+        }
+
+        if (await suspension) {
             return { outcome: 'sending_suspended', status: 422 }
         }
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        const suppressed = await Promise.all(
-            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
-        )
-        if (suppressed.some(Boolean)) {
+        if ((await suppressed).some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
-        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
-        if (isLimited) {
+        if ((await quota).isLimited) {
             return { outcome: 'quota_limited', status: 429 }
         }
-        // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
-        const skipReasons = await Promise.all(
-            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
-        )
-        if (skipReasons.some(Boolean)) {
+        if ((await recipientSkipReasons).some(Boolean)) {
             return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null

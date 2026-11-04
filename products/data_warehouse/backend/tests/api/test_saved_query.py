@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
+    is_raw_managed_trino_query,
 )
 from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_tools.backend.facade.models import DataWarehouseJoin
@@ -198,12 +199,21 @@ class TestSavedQuery(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, 201, response.content)
+        # The sidebar adds the created view from this response, before any list reload.
+        self.assertTrue(response.json()["is_raw_managed_trino"])
         view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert view.query is not None and view.columns is not None
         self.assertEqual(view.query["query"], trino_sql)
         self.assertEqual(view.query["executionTarget"], "managed_trino")
         self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
         self.assertFalse(Node.objects.filter(saved_query=view).exists())
+
+        # The sidebar lists raw Trino views only under hosted Trino, so the list must mark them.
+        for flag_enabled in (True, False):
+            with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+                listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+            flags = {row["name"]: row["is_raw_managed_trino"] for row in listed["results"]}
+            self.assertEqual(flags["hub_occupancy"], flag_enabled)
 
         # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
         response = self.client.post(
@@ -1441,12 +1451,16 @@ class TestSavedQuery(APIBaseTest):
             ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
             # an ephemeral view never runs, so nothing about it speeds up
             ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
+            # a pinned view keeps its own cadence whatever its consumers ask for
+            ("pinned", NodeType.MAT_VIEW, timedelta(days=1), [], True),
         ]
     )
-    def test_an_option_names_the_upstream_views_it_speeds_up(self, _name, upstream_type, upstream_target, expected):
+    def test_an_option_names_the_upstream_views_it_speeds_up(
+        self, _name, upstream_type, upstream_target, expected, upstream_pinned=False
+    ):
         # A finer cadence downstream drags slower upstream views along with it. The picker has to
         # say so before the write, or the upstream cadences change behind the user's back.
-        from products.data_modeling.backend.facade.api import set_declared_target
+        from products.data_modeling.backend.facade.api import apply_saved_query_frequency_target, set_declared_target
 
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(days=1))
         upstream_node = Node.objects.get(saved_query_id=upstream["id"])
@@ -1454,6 +1468,10 @@ class TestSavedQuery(APIBaseTest):
         upstream_node.save(update_fields=["type"])
         if upstream_target is not None:
             set_declared_target(upstream_node, upstream_target)
+        if upstream_pinned:
+            apply_saved_query_frequency_target(
+                DataWarehouseSavedQuery.objects.get(id=upstream["id"]), None, pinned=True, keep_target=True
+            )
         consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
 
         options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
@@ -2956,6 +2974,20 @@ class TestSavedQuery(APIBaseTest):
         view.refresh_from_db()
         assert (response.status_code, response.json()["detail"]) == (400, INCREMENTAL_CONFIG_CHANGED_REFUSAL)
         assert view.query != new_query
+
+
+class TestIsRawManagedTrinoQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("raw", True, True),
+            ("hogql", None, False),
+            ("string_false", "false", False),
+            ("string_true", "true", False),
+        ]
+    )
+    def test_only_a_json_true_marks_a_raw_trino_view(self, _name: str, send_raw: object, expected: bool) -> None:
+        query = {"query": "SELECT 1", "executionTarget": "managed_trino", "sendRawQuery": send_raw}
+        self.assertEqual(is_raw_managed_trino_query(query), expected)
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):

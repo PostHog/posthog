@@ -181,6 +181,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
@@ -225,8 +226,9 @@ export interface CdpCoreServicesDeps {
     internalCaptureService: InternalCaptureService
     /**
      * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
-     * capabilities actually execute email actions (hogflow/email cyclotron workers).
-     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
+     * capabilities actually execute email actions (hogflow/email cyclotron workers)
+     * and on cdp-api, which checks a transactional email's recipient against the
+     * MX-verdict cache. `null` on every other CDP consumer so idle pods don't hold
      * open connections against the SES Valkey instance.
      */
     emailValidationValkey: RedisV2 | null
@@ -458,12 +460,14 @@ export function createCdpCoreServices(
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+        globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
     const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
+    // cdp-api also gets the pool, but its sends are all test sends, which skip both limits.
     const workflowEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
         : null
@@ -568,8 +572,8 @@ export function createCdpCoreServices(
     )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
-    // whose capabilities execute email actions; everywhere else this is null
-    // and EmailValidationService degrades to the local cache + DNS.
+    // whose capabilities execute email actions and on cdp-api; everywhere else
+    // this is null and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
     // Observer writes to both stores; the read source decides which verdict drives the metric.

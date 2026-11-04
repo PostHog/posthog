@@ -17,6 +17,7 @@ from posthog.scopes import (
     OAUTH_SCOPES_HIDDEN,
     PRIVILEGED_SCOPES,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    RISKY_SCOPE_WARNINGS,
     UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
@@ -550,3 +551,10 @@ class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
         frontend_scopes = set(re.findall(r"'([a-z_]+:[a-z]+)'", match.group(1)))
         backend_scopes = {f"{obj}:{action}" for obj, action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION}
         assert frontend_scopes == backend_scopes
+
+
+class TestRiskyScopeWarnings(SimpleTestCase):
+    def test_every_risky_scope_warning_names_a_grantable_scope(self) -> None:
+        stale = sorted(set(RISKY_SCOPE_WARNINGS) - UNPRIVILEGED_SCOPES)
+
+        assert not stale, f"{stale} have a risky-scope warning but are no longer grantable. Remove them."
