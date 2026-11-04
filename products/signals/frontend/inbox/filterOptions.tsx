@@ -58,7 +58,7 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
-/** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
+/** CSS accent per priority, shared by the priority badge and the filter dots so the two always match. */
 export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
     P0: 'var(--red-9, #e5484d)',
     P1: 'var(--orange-9, #f76b15)',
