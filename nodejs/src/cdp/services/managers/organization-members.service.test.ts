@@ -105,8 +105,8 @@ describe('OrganizationMembersService', () => {
 
         expect(check).toEqual(
             expected === 'allowed'
-                ? { blocked: [], deliverTo: [memberEmail] }
-                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: [] }
+                ? { blocked: [], deliverTo: new Map([[address, memberEmail]]) }
+                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: new Map() }
         )
     })
 
@@ -118,8 +118,20 @@ describe('OrganizationMembersService', () => {
 
         expect(await service.checkRecipients(team.id, [memberEmail, outsider])).toEqual({
             blocked: [{ address: outsider, unverifiedMember: false }],
-            deliverTo: [memberEmail],
+            deliverTo: new Map([[memberEmail, memberEmail]]),
         })
+    })
+
+    it.each([
+        ['the address as written when it matches one exactly', 'Member', 'Member'],
+        ['the address as written when it matches neither', 'MEMBER', 'MEMBER'],
+    ])('delivers to %s of two members whose addresses differ only in case', async (_case, written, delivered) => {
+        await createMember(`Member-${team.id}@example.com`, organizationId, true)
+        await createMember(`member-${team.id}@example.com`, organizationId, true)
+
+        const check = await service.checkRecipients(team.id, [`${written}-${team.id}@example.com`])
+
+        expect(check.deliverTo.get(`${written}-${team.id}@example.com`)).toBe(`${delivered}-${team.id}@example.com`)
     })
 
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
@@ -178,7 +190,7 @@ describe('OrganizationMembersService', () => {
                 await jest.advanceTimersByTimeAsync(0)
                 await expect(next).resolves.toEqual({
                     blocked: [{ address: memberEmail, unverifiedMember: false }],
-                    deliverTo: [],
+                    deliverTo: new Map(),
                 })
             } finally {
                 jest.useRealTimers()

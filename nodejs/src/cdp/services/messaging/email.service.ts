@@ -940,13 +940,15 @@ export class EmailService {
                         return result
                     }
                     // The member check ignores case, so deliver to the stored member addresses, not the supplied ones.
-                    const [toAddress, ...copyAddresses] = deliverTo
-                    const ccCount = route.ccAddresses?.length ?? 0
-                    deliveryParams = { ...deliveryParams, to: { ...deliveryParams.to, email: toAddress } }
+                    const stored = (address: string): string => deliverTo.get(address)!
+                    deliveryParams = {
+                        ...deliveryParams,
+                        to: { ...deliveryParams.to, email: stored(deliveryRecipients[0]) },
+                    }
                     const memberRoute: SesRoute = {
                         ...route,
-                        ccAddresses: copyAddresses.slice(0, ccCount),
-                        bccAddresses: copyAddresses.slice(ccCount),
+                        ccAddresses: route.ccAddresses?.map(stored),
+                        bccAddresses: route.bccAddresses?.map(stored),
                     }
                     await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, memberRoute)
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
@@ -965,7 +967,10 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams ?? sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
+            addLog(
+                'info',
+                `Email sent to ${(deliveryParams ?? sendParams).to.email} from ${from.name} <${from.email}>${viewEmailToken}`
+            )
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
@@ -1218,17 +1223,17 @@ export class EmailService {
     // Runs once before the send is prepared and again right before delivery, because a member can
     // leave the organization while the send waits on suppression checks and rate limits. The check
     // right before delivery passes `fresh`, so it reads membership again instead of the cached snapshot.
-    // Returns the stored address of each recipient, in order, or null when the send is skipped.
+    // Returns each recipient's stored address, keyed by the recipient as it came in, or null when the send is skipped.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
         isTest: boolean,
         { fresh = false }: { fresh?: boolean } = {}
-    ): Promise<string[] | null> {
+    ): Promise<ReadonlyMap<string, string> | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
-        let deliverTo: string[] = []
+        let deliverTo: ReadonlyMap<string, string> = new Map()
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
