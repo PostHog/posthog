@@ -13,7 +13,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import {
+    getDefaultTreePersons,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
+} from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
@@ -251,9 +255,10 @@ const ACTION_ITEMS = [
     }),
 ]
 
-export const starredSearchItems = (entries: FileSystemEntry[]): SearchItem[] =>
-    entries
-        .filter((entry) => entry.type !== 'folder')
+export const starredSearchItems = (entries: FileSystemEntry[], featureFlags: FeatureFlagsSet): SearchItem[] => {
+    const hiddenHrefs = hiddenProductHrefs(featureFlags)
+    return entries
+        .filter((entry) => entry.type !== 'folder' && !isHiddenProductShortcut(entry, hiddenHrefs))
         .slice(0, STARRED_LIMIT)
         .map((entry) =>
             fileSystemEntryToSearchItem(entry, {
@@ -262,6 +267,7 @@ export const starredSearchItems = (entries: FileSystemEntry[]): SearchItem[] =>
                 searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
             })
         )
+}
 
 export const productSearchItems = (
     featureFlags: FeatureFlagsSet,
