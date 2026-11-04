@@ -14,12 +14,16 @@ from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRE
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
-GMAIL_BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
+BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
     {
-        "ade", "adp", "apk", "appx", "appxbundle", "bat", "cab", "chm", "cmd", "com", "cpl", "diagcab", "diagcfg",
-        "diagpkg", "dll", "dmg", "ex", "ex_", "exe", "hta", "img", "ins", "iso", "isp", "jar", "jnlp", "js", "jse",
-        "lib", "lnk", "mde", "mjs", "msc", "msi", "msix", "msixbundle", "msp", "mst", "nsh", "pif", "ps1", "scr",
-        "sct", "shb", "sys", "vb", "vbe", "vbs", "vhd", "vxd", "wsc", "wsf", "wsh", "xll",
+        "ade", "adp", "apk", "app", "appx", "appxbundle", "asp", "bas", "bat", "cab", "cer", "chm", "cmd", "com", "cpl",
+        "crt", "csh", "der", "diagcab", "diagcfg", "diagpkg", "dll", "dmg", "ex", "ex_", "exe", "fxp", "gadget", "hlp",
+        "hta", "img", "inf", "ins", "iso", "isp", "its", "jar", "jnlp", "js", "jse", "ksh", "lib", "lnk", "mad", "maf",
+        "mag", "mam", "maq", "mar", "mas", "mat", "mau", "mav", "maw", "mda", "mdb", "mde", "mdt", "mdw", "mdz", "mjs",
+        "msc", "msh", "msh1", "msh1xml", "msh2", "msh2xml", "mshxml", "msi", "msix", "msixbundle", "msp", "mst", "nsh",
+        "ops", "pcd", "pif", "plg", "prf", "prg", "ps1", "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "reg", "scf", "scr",
+        "sct", "shb", "shs", "sys", "tmp", "url", "vb", "vbe", "vbs", "vhd", "vps", "vsmacros", "vss", "vst", "vsw",
+        "vxd", "ws", "wsc", "wsf", "wsh", "xll", "xnk",
     }
 )  # fmt: skip
 MIME_TYPE_WITHOUT_PARAMETERS = re.compile(
@@ -107,7 +111,7 @@ class EmailAttachmentSerializer(serializers.Serializer):
                 "Use a file name with no path separator and no line break.", code="unsafe_filename"
             )
         extension = _extension_as_windows_saves_it(filename)
-        if extension in GMAIL_BLOCKED_ATTACHMENT_EXTENSIONS:
+        if extension in BLOCKED_ATTACHMENT_EXTENSIONS:
             raise serializers.ValidationError(
                 f"Mailbox providers block `.{extension}` files.", code="blocked_file_type"
             )

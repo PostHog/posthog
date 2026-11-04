@@ -58,6 +58,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ),
             ("empty_content", {"attachments": [_attachment(content="")]}, "attachments__0__content"),
             ("executable", {"attachments": [_attachment(filename="setup.EXE")]}, "attachments__0__filename"),
+            ("registry_file", {"attachments": [_attachment(filename="settings.reg")]}, "attachments__0__filename"),
             (
                 "executable_with_a_trailing_dot",
                 {"attachments": [_attachment(filename="setup.exe.")]},
