@@ -232,19 +232,20 @@ export class GuidanceEngine {
                 mode,
                 canFire ? '1' : '0'
             )
-        // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
-        // spends no `maxPerSession`. The budget covers it because the tool result waits for this gate.
         const { condition } = rule
-        if (!suppressing && condition) {
-            const admitted = await productState.withinBudget('rule_gate', async () => {
-                const shown = Number(await runScript('touch'))
-                return canFire && shown < rule.maxPerSession && (await condition({ call, productState }))
-            })
-            if (admitted !== true) {
+        if (suppressing || !condition) {
+            return Number(await runScript(suppressing ? 'suppress' : 'match')) as RuleResult
+        }
+        // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
+        // spends no `maxPerSession`. The budget covers every step because the tool result waits here.
+        const result = await productState.withinBudget('rule_gate', async () => {
+            const shown = Number(await runScript('touch'))
+            if (shown >= rule.maxPerSession || !(await condition({ call, productState }))) {
                 return RuleResult.None
             }
-        }
-        return Number(await runScript(suppressing ? 'suppress' : 'match')) as RuleResult
+            return Number(await runScript('match')) as RuleResult
+        })
+        return result ?? RuleResult.None
     }
 }
 

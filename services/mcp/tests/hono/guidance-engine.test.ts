@@ -259,13 +259,32 @@ describe('GuidanceEngine', () => {
             expect(redis.evalCalls.at(-1)?.[6]).toBe('touch')
         })
 
-        it('holds the tool result no longer than the budget when Redis stalls', async () => {
+        it('counts an admitted match when an earlier rule wins the call', async () => {
+            const first: GuidanceRule = { ...conditionalRule(vi.fn().mockResolvedValue(true)), id: 'first-rule' }
+            const second: GuidanceRule = {
+                ...conditionalRule(vi.fn().mockResolvedValue(true)),
+                id: 'second-rule',
+                threshold: 2,
+            }
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [first, second])
+            await expect(run(engine, makeState(), [replayQuery, replayQuery])).resolves.toEqual([
+                'first-rule:shown',
+                'second-rule:shown',
+            ])
+        })
+
+        it.each(['touch', 'match'])('holds the tool result to the budget when Redis stalls on %s', async (stalled) => {
             vi.useFakeTimers()
             try {
                 const redis = makeGuidanceRedis()
-                vi.spyOn(redis, 'eval').mockImplementation(() => new Promise(() => {}))
-                const stalled = (id: string): GuidanceRule => ({ ...conditionalRule(vi.fn()), id })
-                const engine = new GuidanceEngine(redis, [stalled('a'), stalled('b'), stalled('c')])
+                vi.spyOn(redis, 'eval').mockImplementation((_script, _keys, ...args) =>
+                    args[6] === 'touch' && stalled === 'match' ? Promise.resolve(0) : new Promise(() => {})
+                )
+                const admitted = (id: string): GuidanceRule => ({
+                    ...conditionalRule(vi.fn().mockResolvedValue(true)),
+                    id,
+                })
+                const engine = new GuidanceEngine(redis, [admitted('a'), admitted('b'), admitted('c')])
                 const pending = engine.evaluate(makeState(), replayQuery)
                 await vi.advanceTimersByTimeAsync(310)
                 await expect(pending).resolves.toBeUndefined()

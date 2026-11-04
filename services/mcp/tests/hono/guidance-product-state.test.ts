@@ -43,6 +43,17 @@ describe('GuidanceProductState', () => {
     })
 
     it.each([
+        ['user', { distinctId: 'another-user' }],
+        ['scope set', { apiKeyScopes: ['project:read'] }],
+    ])('does not reuse a cached answer for another %s', async (_label, caller) => {
+        const redis = makeGuidanceRedis()
+        const { state, request } = makeState()
+        await new GuidanceProductState(redis, state).hasErrorTrackingIssues()
+        await new GuidanceProductState(redis, { ...state, ...caller }).hasErrorTrackingIssues()
+        expect(request).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
         ['a rejected request', async () => Promise.reject(new Error('boom'))],
         ['an unexpected response', async () => ({ unexpected: true })],
     ])('treats %s as unknown and does not cache it', async (_label, requestImpl) => {

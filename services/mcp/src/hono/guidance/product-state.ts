@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import type { RedisLike } from '../cache/RedisCache'
@@ -30,7 +31,6 @@ export class GuidanceProductState {
         return this.ingestedData
     }
 
-    // The cached answer is per project, so a rule must trigger only on a tool that needs `error_tracking:read`.
     hasErrorTrackingIssues(): Promise<boolean | undefined> {
         this.errorTrackingIssues ??= this.withinBudget('error_tracking_issues', () => this.readErrorTrackingIssues())
         return this.errorTrackingIssues
@@ -43,7 +43,12 @@ export class GuidanceProductState {
 
     private async readErrorTrackingIssues(): Promise<boolean> {
         const projectId = await this.state.context.stateManager.getProjectId()
-        const key = `mcp:guidance:state:error-tracking-issues:${projectId}`
+        // A hit skips the API's permission check, so only a caller with the same user and scopes reuses it.
+        const caller = createHash('sha256')
+            .update(`${this.state.distinctId}|${[...this.state.apiKeyScopes].sort().join(',')}`)
+            .digest('base64url')
+            .slice(0, 22)
+        const key = `mcp:guidance:state:error-tracking-issues:${projectId}:${caller}`
         const cached = await this.redis.get(key)
         if (cached !== null) {
             return cached === '1'
