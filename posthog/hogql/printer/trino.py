@@ -34,7 +34,12 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
-from posthog.hogql.printer.trino_json import empty_keys_and_values, keys_and_values, parse_keys_and_values_type
+from posthog.hogql.printer.trino_json import (
+    empty_keys_and_values,
+    json_document,
+    keys_and_values,
+    parse_keys_and_values_type,
+)
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
@@ -2311,8 +2316,7 @@ class TrinoPrinter(PostgresPrinter):
                 f"JSONExtractKeysAndValues target type '{type_arg.value}' is not supported in Trino mode.",
                 node,
             )
-        # json_parse rejects trailing text after the document, as ClickHouse does; json_extract would accept it.
-        document = f"json_parse(CAST({self.visit(node.args[0])} AS VARCHAR))"
+        document = json_document(self.visit(node.args[0]))
         for key in node.args[1:-1]:
             if (
                 not isinstance(key, ast.Constant)

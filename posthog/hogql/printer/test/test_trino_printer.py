@@ -2093,7 +2093,8 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(CAST(json_parse(CAST("users"."properties" AS VARCHAR)) AS MAP(VARCHAR, JSON)))',
+            'map_entries(CAST(IF(typeof("users"."properties") = \'json\', json_extract("users"."properties", \'$\'), '
+            'json_parse(CAST("users"."properties" AS VARCHAR))) AS MAP(VARCHAR, JSON)))',
         ),
         # ClickHouse reads 'Float' as Float32 and 'Int' as Int32.
         (

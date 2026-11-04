@@ -42,6 +42,13 @@ def parse_keys_and_values_type(type_name: str) -> KeysAndValuesType | None:
     return KeysAndValuesType(target=target, integer_range=integer_range, nullable=nullable)
 
 
+def json_document(source: str) -> str:
+    # The HogQL type cannot tell a native JSON column from a JSON string, and a JSON object cannot be
+    # cast to VARCHAR, so pick the parse by the runtime type. json_parse rejects trailing text after the
+    # document, as ClickHouse does, where json_extract on a string would accept it.
+    return f"IF(typeof({source}) = 'json', json_extract({source}, '$'), json_parse(CAST({source} AS VARCHAR)))"
+
+
 def bind(value: str, name: str, body: str) -> str:
     # Trino has no let-binding, so this names a value for use in body and evaluates it only once.
     return f"element_at(transform(ARRAY[{value}], {name} -> {body}), 1)"
@@ -93,7 +100,7 @@ def keys_and_values_value(value: str, value_type: KeysAndValuesType) -> str:
 
 def clickhouse_float(text: str) -> str:
     return (
-        f"CASE WHEN regexp_like({text}, '^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$') "
+        f"CASE WHEN regexp_like({text}, '^[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?$') "
         f"THEN CAST({text} AS DOUBLE) "
         f"WHEN regexp_like(lower({text}), '^[+-]?inf(inity)?$') "
         f"THEN IF(starts_with({text}, '-'), -infinity(), infinity()) "
