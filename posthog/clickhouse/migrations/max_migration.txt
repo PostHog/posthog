@@ -1,1 +1,1 @@
-0366_metrics4_stop_writing_observed_timestamp
+0367_metrics4_view_drop_metrics2

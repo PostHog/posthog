@@ -21,7 +21,7 @@ import {
     mockTeamConfig,
     reportTabReports,
 } from './__mocks__/inboxMocks'
-import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
+import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns, mockScoutSuggestionSet } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
@@ -189,6 +189,112 @@ export const Scouts: Story = {
             },
         }),
     ],
+}
+
+const findingsRuns = [
+    {
+        run_id: 'findings-run-errors',
+        skill_name: 'signals-scout-error-tracking',
+        emitted_count: 2,
+        emitted_finding_ids: ['checkout-500s', 'invite-null-email'],
+        emitted_report_ids: [],
+        created_at: '2026-06-10T18:00:00Z',
+    },
+    {
+        run_id: 'findings-run-replay',
+        skill_name: 'signals-scout-session-replay',
+        emitted_count: 1,
+        emitted_finding_ids: ['rage-clicks-billing'],
+        emitted_report_ids: [reportTabReports[0].id],
+        created_at: '2026-06-10T12:00:00Z',
+    },
+].map((run) => ({
+    ...run,
+    total_spend: null,
+    skill_version: 1,
+    status: 'completed' as const,
+    started_at: run.created_at,
+    completed_at: run.created_at,
+    task_url: null,
+    summary: 'Filed what changed since the last run.',
+    edited_report_ids: [],
+    metadata: {},
+}))
+
+const findingsEmissions = [
+    {
+        id: 'emission-checkout-500s',
+        run_id: 'findings-run-errors',
+        finding_id: 'checkout-500s',
+        description: 'A new TypeError on the checkout page started at 14:00 and now affects about one in ten sessions.',
+        severity: 'P1' as const,
+        tags: ['new-error', 'checkout'],
+        source_id: 'run:findings-run-errors:finding:checkout-500s',
+        emitted_at: '2026-06-10T18:10:00Z',
+    },
+    {
+        id: 'emission-invite-null-email',
+        run_id: 'findings-run-errors',
+        finding_id: 'invite-null-email',
+        description: 'Team invites with an empty recipient row raise a 500 instead of a validation error.',
+        severity: 'P2' as const,
+        tags: ['regression'],
+        source_id: 'run:findings-run-errors:finding:invite-null-email',
+        emitted_at: '2026-06-10T18:08:00Z',
+    },
+    {
+        id: 'emission-rage-clicks-billing',
+        run_id: 'findings-run-replay',
+        finding_id: 'rage-clicks-billing',
+        description: 'People rage-click the disabled upgrade button on the billing page before they leave.',
+        severity: 'P3' as const,
+        tags: ['usability'],
+        source_id: 'run:findings-run-replay:finding:rage-clicks-billing',
+        emitted_at: '2026-06-10T12:12:00Z',
+    },
+]
+
+function findingsMocks(emissionsFail = false): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+            '/api/projects/:id/signals/scout/runs': () => [200, findingsRuns],
+            '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
+            '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
+            '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
+            '/api/projects/:id/signals/scout/suggestions/': () => [200, mockScoutSuggestionSet()],
+            '/api/projects/:id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+        },
+        post: {
+            '/api/projects/:id/signals/scout/configs/sync/': () => [200, mockScoutConfigs],
+            '/api/projects/:id/signals/scout/runs/emissions/batch/': () =>
+                emissionsFail ? [500, { detail: 'Server error' }] : [200, findingsEmissions],
+            '/api/projects/:id/signals/scout/runs/emissions/reports/batch/': () => [
+                200,
+                [
+                    {
+                        finding_id: 'invite-null-email',
+                        source_id: 'run:findings-run-errors:finding:invite-null-email',
+                        report: { id: reportTabReports[0].id, title: reportTabReports[0].title, status: 'ready' },
+                    },
+                ],
+            ],
+        },
+    })
+}
+
+export const ScoutFindings: Story = {
+    decorators: [routeTo(urls.inboxFindings()), findingsMocks()],
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText(/rage-click the disabled upgrade button/)).resolves.toBeVisible()
+    },
+}
+
+export const ScoutFindingsLoadFailed: Story = {
+    decorators: [routeTo(urls.inboxFindings()), findingsMocks(true)],
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText(/Couldn't load signals/)).resolves.toBeVisible()
+    },
 }
 
 export const Settings: Story = {
