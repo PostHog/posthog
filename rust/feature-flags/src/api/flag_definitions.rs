@@ -554,13 +554,15 @@ async fn is_billable_for_etag(
         .definitions_billable_cache
         .get_or_load(team_id, etag, async {
             // Reads the hypercache directly: this lookup serves a 304, so it must not count as
-            // a definitions cache hit or queue a rebuild the way a full response does.
-            let (response, source) = state
+            // a definitions cache hit or queue a rebuild the way a full response does. It reads
+            // Redis only, because an S3 copy cannot decide (see `billable_for_etag_from`), so a
+            // fallback read would only add latency and S3 load. A Redis miss is not an answer.
+            let response = state
                 .flags_with_cohorts_hypercache_reader
-                .get_with_source(team_key)
+                .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
                 .await
                 .ok()?;
-            billable_for_etag_from(&response, source)
+            Some(response.is_some_and(|response| has_billable_flags(&response)))
         })
         .await;
     let outcome = match billable {
