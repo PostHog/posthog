@@ -287,7 +287,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                         1. Set up a \`posthog-node\` client in your server-side code. See our doc on [setting up Next.js server-side analytics](https://posthog.com/docs/libraries/next-js#server-side-analytics) for more.
                         2. Check the request is running in the \`nodejs\` runtime to ensure PostHog works. You can call \`posthog.debug()\` to get verbose logging.
-                        3. Get the \`distinct_id\` from the cookie to connect the error to a specific user.
+                        3. Get the \`distinct_id\` from the PostHog cookie for your project token to connect the error to a specific user.
 
                         This looks like this:
                     `}
@@ -312,10 +312,15 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                       const cookieString = Array.isArray(request.headers.cookie)
                                         ? request.headers.cookie.join('; ')
                                         : request.headers.cookie
-                                      const postHogCookieMatch = cookieString.match(/ph_phc_.*?_posthog=([^;]+)/)
-                                      if (postHogCookieMatch && postHogCookieMatch[1]) {
+                                      // posthog-js names its cookie after your project token
+                                      const cookieName = 'ph_' + process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN + '_posthog'
+                                      const postHogCookie = cookieString
+                                        .split(';')
+                                        .map((cookie) => cookie.trim())
+                                        .find((cookie) => cookie.startsWith(cookieName + '='))
+                                      if (postHogCookie) {
                                         try {
-                                          const decodedCookie = decodeURIComponent(postHogCookieMatch[1])
+                                          const decodedCookie = decodeURIComponent(postHogCookie.slice(cookieName.length + 1))
                                           const postHogData = JSON.parse(decodedCookie)
                                           distinctId = postHogData.distinct_id
                                         } catch (e) {
@@ -326,6 +331,28 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     await posthog.captureException(err, distinctId || undefined)
                                   }
                                 }
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        If you use the pre-release [\`@posthog/next\`](https://posthog.com/docs/libraries/next-js/posthog-next) package, it includes this hook. It also adds the session ID, device ID, and request route to the exception. The hook reads \`NEXT_PUBLIC_POSTHOG_KEY\` by default. This guide uses \`NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN\`, so pass your project token to the hook:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'JavaScript',
+                            code: dedent`
+                                // instrumentation.js
+                                import { createOnRequestError } from '@posthog/next'
+
+                                export const onRequestError = createOnRequestError({
+                                  apiKey: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+                                  host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+                                })
                             `,
                         },
                     ]}
