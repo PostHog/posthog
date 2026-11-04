@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
 import { DotMatrixColumnMapping } from './DotMatrixColumnMapping'
 
-const CodeEditor = lazy(async () => ({ default: (await import('lib/monaco/CodeEditor')).CodeEditor }))
+const CodeEditor = lazyWithRetry(async () => ({ default: (await import('lib/monaco/CodeEditor')).CodeEditor }))
 
 export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accountDotMatrixTileLogic> }): JSX.Element {
     const { queryDraft, mappingDraft, matrixResult, matrixResultLoading, querySaveError } = useValues(logic)
