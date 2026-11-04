@@ -698,6 +698,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-go-mcp",
             "posthog-ruby-mcp",
             "posthog-php",
+            "posthog-laravel",
             "posthog-ruby",
             "posthog-rails",
             "posthog-go",
