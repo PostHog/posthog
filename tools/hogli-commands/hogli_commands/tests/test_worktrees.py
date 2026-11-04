@@ -644,19 +644,25 @@ class TestExecute:
     def no_busy_processes(self, monkeypatch) -> None:
         monkeypatch.setattr(worktrees, "_process_cwds", lambda: set())
 
-    def test_worktree_entered_after_the_first_snapshot_is_kept(self, tmp_path, monkeypatch) -> None:
-        worktree = tmp_path / "wt"
-        (worktree / "src").mkdir(parents=True)
-        monkeypatch.setattr(worktrees, "_process_cwds", lambda: {(worktree / "src").resolve()})
+    def test_worktree_entered_during_the_reap_is_kept(self, tmp_path, monkeypatch) -> None:
+        first, second = tmp_path / "first", tmp_path / "second"
+        (first / "src").mkdir(parents=True)
+        (second / "src").mkdir(parents=True)
+        snapshots = iter([set(), {(second / "src").resolve()}])
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: next(snapshots))
 
         _, removed, failed = _execute(
-            [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],
+            [
+                Worktree(source="claude", path=path, registered=False, locked=False, branch="", last_activity=0.0)
+                for path in (first, second)
+            ],
             "full",
             tmp_path,
         )
 
-        assert (removed, failed) == (0, 0)
-        assert worktree.exists()
+        assert (removed, failed) == (1, 0)
+        assert not first.exists()
+        assert second.exists()
 
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:

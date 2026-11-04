@@ -1291,12 +1291,11 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
     failed = 0
     need_prune = False
 
-    busy = _process_cwds()
-    if busy is None:
-        click.echo("Could not list running processes; nothing removed.")
-        return -1.0, 0, 0
-
     for wt in worktrees:
+        busy = _process_cwds()
+        if busy is None:
+            click.echo("Could not list running processes; leaving the remaining worktree(s) in place.")
+            break
         if _in_use(_resolve(wt.path), busy):
             click.echo(f"  skipped {_display_path(wt.path)}: a running process now has it as its working directory")
             continue
