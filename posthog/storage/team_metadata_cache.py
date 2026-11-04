@@ -161,7 +161,6 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     return value
 
 
-REQUEST_BLOCKLIST_FIELDS = ("flags_blocked_hosts", "flags_blocked_ips")
 MISSING_KEY_DEFAULTS: dict[str, Any] = {
     "flags_blocked_hosts": [],
     "flags_blocked_ips": [],
@@ -405,8 +404,7 @@ def verify_team_metadata(
         "project_name",
         "minimal_flag_called_events",
         "property_matching_version",
-        "realtime_cohort_level",
-        *REQUEST_BLOCKLIST_FIELDS,
+        *MISSING_KEY_DEFAULTS,
     }
     diffs = []
     for key in fields_to_check:

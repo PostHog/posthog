@@ -475,43 +475,33 @@ class TestVerifyTeamMetadata(BaseTest):
         self.assertEqual(result["issue"], "DATA_MISMATCH")
         self.assertIn(field, result["diff_fields"])
 
-    @parameterized.expand([("without_entries", [], "match"), ("with_entries", ["example.com"], "mismatch")])
-    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
-    def test_verify_reads_missing_blocklist_keys_as_empty(
-        self, _name, blocked_hosts, expected_status, mock_get_metadata
-    ):
-        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
-
-        TeamFeatureFlagPolicyConfig.objects.create(team=self.team, blocked_hosts=blocked_hosts)
-        cached_data = _serialize_team_to_metadata(self.team)
-        del cached_data["flags_blocked_hosts"]
-        del cached_data["flags_blocked_ips"]
-        mock_get_metadata.return_value = cached_data
-
-        result = verify_team_metadata(self.team)
-
-        self.assertEqual(result["status"], expected_status)
-
     @parameterized.expand(
-        [("without_access_row", None, "match"), ("at_serving", RealtimeCohortLevel.SERVING, "mismatch")]
+        [
+            ("team_without_values", False, []),
+            ("team_with_values", True, ["flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"]),
+        ]
     )
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
-    def test_verify_reads_a_missing_realtime_cohort_level_as_off(
-        self, _name: str, level: RealtimeCohortLevel | None, expected_status: str, mock_get_metadata: MagicMock
+    def test_verify_reads_missing_keys_as_their_defaults(
+        self, _name: str, team_has_values: bool, expected_diff_fields: list[str], mock_get_metadata: MagicMock
     ) -> None:
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
-        if level is not None:
+        if team_has_values:
+            TeamFeatureFlagPolicyConfig.objects.create(
+                team=self.team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.7"]
+            )
             RealtimeCohortTeamAccess.objects.create(
-                team=self.team, level=level, purpose=RealtimeCohortAccessPurpose.PILOT
+                team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
             )
         cached_data = _serialize_team_to_metadata(self.team)
-        del cached_data["realtime_cohort_level"]
+        for key in ("flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"):
+            del cached_data[key]
         mock_get_metadata.return_value = cached_data
 
         result = verify_team_metadata(self.team)
 
-        self.assertEqual(result["status"], expected_status)
+        self.assertEqual(result.get("diff_fields", []), expected_diff_fields)
 
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
     def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
