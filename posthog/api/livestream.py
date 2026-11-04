@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.auth import refuse_blocked_account
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
@@ -72,6 +73,10 @@ class LivestreamVerifiedDomainPermission(VerifiedDomainEnforcementPermission):
 
 
 class LivestreamAuthorizationSerializer(serializers.Serializer):
+    ip_restrictions = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Organization IP policies the streaming service must each enforce against the viewer IP.",
+    )
     restricted_event_properties = serializers.ListField(
         child=serializers.CharField(),
         help_text="Event property names the livestream service must remove before streaming to this user.",
@@ -97,12 +102,16 @@ class LivestreamAuthorizationView(APIView):
         level = UserPermissions(user).team(team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("Live stream access is no longer available.")
+        ip_restrictions = [rules for _, rules in get_ip_restrictions_for_principal(user)]
+        if ip_restrictions and request.headers.get("X-PostHog-Livestream-IP-Policy") != "1":
+            raise PermissionDenied("The streaming service must support organization IP restrictions.")
         if "application/json" not in request.headers.get("Accept", ""):
             # A livestream service that predates the restriction payload treats anything but 204 as an outage.
             return Response(status=204, headers={"Cache-Control": "no-store"})
         restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team=team)
         payload = LivestreamAuthorizationSerializer(
             {
+                "ip_restrictions": ip_restrictions,
                 "restricted_event_properties": sorted(
                     p.name for p in restricted if p.property_type == PropertyDefinition.Type.EVENT
                 ),

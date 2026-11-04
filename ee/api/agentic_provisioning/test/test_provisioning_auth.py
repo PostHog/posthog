@@ -13,6 +13,7 @@ from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
@@ -325,6 +326,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         _, challenge = self._pkce_pair()
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
         assert res.status_code == 401
+
+    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:
+        token = self._get_bearer_token()
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        response = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token, REMOTE_ADDR=ip)
+
+        assert response.status_code == expected_status, response.content
 
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()

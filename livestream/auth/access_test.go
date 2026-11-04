@@ -18,6 +18,8 @@ func TestCheckAccess(t *testing.T) {
 		status           int
 		body             string
 		want             int
+		remoteAddr       string
+		forwardedFor     string
 		wantRestrictions *PropertyRestrictions
 	}{
 		{name: "no content allows", status: http.StatusNoContent},
@@ -32,6 +34,15 @@ func TestCheckAccess(t *testing.T) {
 				GroupProperties:  map[string]map[string]struct{}{"organization": {"email": {}}},
 			},
 		},
+		{name: "allowed IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000"},
+		{name: "denied IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "198.51.100.7:8000", want: http.StatusUnauthorized},
+		{name: "every organization must allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"],["198.51.100.7"]]}`, remoteAddr: "203.0.113.7:8000", want: http.StatusUnauthorized},
+		{name: "IPv6 address", status: http.StatusOK, body: `{"ip_restrictions":[["2001:db8::7"]]}`, remoteAddr: "[2001:db8::7]:8000"},
+		{name: "missing IP denies", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, want: http.StatusUnauthorized},
+		{name: "untrusted forwarded IP cannot allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "198.51.100.7:8000", forwardedFor: "203.0.113.7", want: http.StatusUnauthorized},
+		{name: "trusted proxy forwards allowed IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7"},
+		{name: "forwarded spoof before actual client cannot allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 198.51.100.7", want: http.StatusUnauthorized},
+		{name: "invalid policy fails closed", status: http.StatusOK, body: `{"ip_restrictions":[["invalid"]]}`, remoteAddr: "203.0.113.7:8000", want: http.StatusServiceUnavailable},
 		{name: "malformed restrictions fail closed", status: http.StatusOK, body: `not json`, want: http.StatusServiceUnavailable},
 		{name: "redirect fails closed", status: http.StatusFound, want: http.StatusServiceUnavailable},
 		{name: "unauthorized denies", status: http.StatusUnauthorized, want: http.StatusUnauthorized},
@@ -42,6 +53,7 @@ func TestCheckAccess(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "Bearer test-live-stream-token", r.Header.Get("Authorization"))
 				assert.Equal(t, "application/json", r.Header.Get("Accept"))
+				assert.Equal(t, "1", r.Header.Get("X-PostHog-Livestream-IP-Policy"))
 				if r.URL.Path == "/redirected" {
 					w.WriteHeader(http.StatusNoContent)
 					return
@@ -53,7 +65,11 @@ func TestCheckAccess(t *testing.T) {
 			defer server.Close()
 			viper.Set("jwt.authorization_url", server.URL)
 			t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
-			restrictions, err := CheckAccess(context.Background(), http.Header{"Authorization": {"Bearer test-live-stream-token"}})
+			viewer := httptest.NewRequest(http.MethodGet, "/events", nil)
+			viewer.RemoteAddr = test.remoteAddr
+			viewer.Header.Set("Authorization", "Bearer test-live-stream-token")
+			viewer.Header.Set("X-Forwarded-For", test.forwardedFor)
+			restrictions, err := CheckAccess(context.Background(), viewer)
 			if test.want == 0 {
 				require.NoError(t, err)
 				assert.Equal(t, test.wantRestrictions, restrictions)
@@ -73,14 +89,14 @@ func TestCheckAccessFailsClosedOnConnectionFailure(t *testing.T) {
 	viper.Set("jwt.authorization_url", server.URL)
 	t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
 	var httpError *echo.HTTPError
-	_, err := CheckAccess(context.Background(), http.Header{})
+	_, err := CheckAccess(context.Background(), &http.Request{Header: http.Header{}})
 	require.ErrorAs(t, err, &httpError)
 	assert.Equal(t, http.StatusServiceUnavailable, httpError.Code)
 }
 
 func TestCheckAccessBeforeRollout(t *testing.T) {
 	viper.Set("jwt.authorization_url", "")
-	restrictions, err := CheckAccess(context.Background(), http.Header{})
+	restrictions, err := CheckAccess(context.Background(), &http.Request{Header: http.Header{}})
 	require.NoError(t, err)
 	assert.Nil(t, restrictions)
 }

@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -56,6 +57,15 @@ class TestResources(StripeProvisioningTestBase):
         assert first.json()["id"] == second.json()["id"]
         # A project_id provisions a dedicated team, distinct from the consent team.
         assert first.json()["id"] != str(self.team.id)
+
+    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:
+        token = self._get_bearer_token()
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        response = self._post_signed_with_bearer(RESOURCES_URL, {}, token=token, REMOTE_ADDR=ip)
+
+        assert response.status_code == expected_status, response.content
 
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()

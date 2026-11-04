@@ -11,6 +11,7 @@ from posthog.api.livestream import LivestreamAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_group_type_mapping
 
@@ -31,6 +32,32 @@ class TestLivestreamAuthorization(APIBaseTest):
             timedelta(days=7),
             audience,
         )
+
+    @parameterized.expand([("1", 200), ("", 403)])
+    def test_returns_current_ip_policies_only_to_capable_streaming_clients(
+        self, capability: str, expected_status: int
+    ) -> None:
+        self.client.logout()
+        token = self._token()
+        policy = OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+        )
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "X-PostHog-Livestream-IP-Policy": capability,
+        }
+
+        response = self.client.get("/api/livestream/authorize/", headers=headers)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 200:
+            assert response.json()["ip_restrictions"] == [["203.0.113.0/24"]]
+            policy.ip_restrictions = ["198.51.100.0/24"]
+            policy.save()
+            updated = self.client.get("/api/livestream/authorize/", headers=headers)
+            assert updated.status_code == 200
+            assert updated.json()["ip_restrictions"] == [["198.51.100.0/24"]]
 
     @parameterized.expand(
         [
@@ -57,7 +84,12 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.assertEqual(initial["Cache-Control"], "no-store")
         self.assertEqual(
             initial.json(),
-            {"restricted_event_properties": [], "restricted_person_properties": [], "restricted_group_properties": {}},
+            {
+                "ip_restrictions": [],
+                "restricted_event_properties": [],
+                "restricted_person_properties": [],
+                "restricted_group_properties": {},
+            },
         )
         legacy = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
         self.assertEqual(legacy.status_code, 204)
@@ -134,6 +166,7 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.assertEqual(
             response.json(),
             {
+                "ip_restrictions": [],
                 "restricted_event_properties": ["$ip"],
                 "restricted_person_properties": ["email"],
                 "restricted_group_properties": {"organization": ["email"]},

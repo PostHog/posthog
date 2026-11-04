@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -94,6 +95,7 @@ func (r *PropertyRestrictions) RestrictsGeo() bool {
 }
 
 type authorizationResponse struct {
+	IPRestrictions             [][]string          `json:"ip_restrictions"`
 	RestrictedEventProperties  []string            `json:"restricted_event_properties"`
 	RestrictedPersonProperties []string            `json:"restricted_person_properties"`
 	RestrictedGroupProperties  map[string][]string `json:"restricted_group_properties"`
@@ -111,7 +113,7 @@ func toSet(keys []string) map[string]struct{} {
 }
 
 // Fails closed: anything other than an explicit allow or refusal is reported as unavailable.
-func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions, error) {
+func CheckAccess(ctx context.Context, viewerRequest *http.Request) (*PropertyRestrictions, error) {
 	url := viper.GetString("jwt.authorization_url")
 	if url == "" {
 		return nil, nil
@@ -120,9 +122,10 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
-	request.Header.Set("Authorization", header.Get("Authorization"))
+	request.Header.Set("Authorization", viewerRequest.Header.Get("Authorization"))
 	// Django answers 204 to a client that does not ask for JSON, so an older service keeps working.
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-PostHog-Livestream-IP-Policy", "1")
 	response, err := authorizationClient.Do(request)
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
@@ -136,6 +139,9 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 		var payload authorizationResponse
 		if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
 			return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+		}
+		if err := enforceIPRestrictions(viewerRequest, payload.IPRestrictions); err != nil {
+			return nil, err
 		}
 		var groups map[string]map[string]struct{}
 		for groupType, keys := range payload.RestrictedGroupProperties {
@@ -159,4 +165,34 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 	default:
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
+}
+
+var viewerIPExtractor = echo.ExtractIPFromXFFHeader()
+
+func enforceIPRestrictions(request *http.Request, policies [][]string) error {
+	if len(policies) == 0 {
+		return nil
+	}
+	viewerIP, err := netip.ParseAddr(viewerIPExtractor(request))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
+	}
+	for _, rules := range policies {
+		allowed := len(rules) == 0
+		for _, rule := range rules {
+			prefix, err := netip.ParsePrefix(rule)
+			if err != nil {
+				address, addressErr := netip.ParseAddr(rule)
+				if addressErr != nil {
+					return echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+				}
+				prefix = netip.PrefixFrom(address, address.BitLen())
+			}
+			allowed = allowed || prefix.Contains(viewerIP)
+		}
+		if !allowed {
+			return echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
+		}
+	}
+	return nil
 }

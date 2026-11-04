@@ -307,15 +307,15 @@ urlpatterns = [
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
     path(
         "shared_dashboard/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "shared/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve", "post": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),

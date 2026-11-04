@@ -255,6 +255,22 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
+    @parameterized.expand(["shared_dashboard", "shared", "embedded"])
+    def test_shared_password_submission_outside_management_ip_policy(self, route: str) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        _, password = SharePassword.create_password(sharing_configuration=config, created_by=self.user)
+        url = f"/{route}/{config.access_token}"
+
+        incorrect = self.client.post(url, {"password": "incorrect-password"})
+        correct = self.client.post(url, {"password": password})
+
+        assert incorrect.status_code == status.HTTP_401_UNAUTHORIZED, incorrect.content
+        assert correct.status_code == status.HTTP_200_OK, correct.content
+        assert correct.json()["shareToken"]
+
     @patch("posthog.api.sharing.render_template")
     @covers_authentication(SharingPasswordProtectedAuthentication)
     def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:

@@ -255,7 +255,7 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         later_callback = Mock()
         with (
             patch("posthog.ip_restrictions.cache.delete_many", side_effect=RuntimeError("cache unavailable")),
-            patch("posthog.tasks.team_access_cache_tasks.retry_ip_restrictions_invalidation.delay") as retry,
+            patch("posthog.tasks.ip_restrictions.retry_ip_restrictions_invalidation.delay") as retry,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 config.enabled = False
