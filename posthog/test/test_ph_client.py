@@ -7,7 +7,13 @@ import posthoganalytics
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.ph_client import ScopedCapture, filter_scout_experiment_capture, get_client, ph_scoped_capture
+from posthog.ph_client import (
+    ScopedCapture,
+    filter_scout_experiment_capture,
+    get_client,
+    ph_background_capture,
+    ph_scoped_capture,
+)
 
 
 class TestAILaneOptIn(SimpleTestCase):
@@ -109,6 +115,22 @@ class TestScopedCaptureFlush(SimpleTestCase):
         get_client_mock.assert_called_once_with("EU")
         client.capture.assert_called_once_with(distinct_id="person", event="event")
         client.shutdown.assert_called_once()
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    @patch("posthog.ph_client.atexit.register")
+    @patch.dict("posthog.ph_client._background_clients", clear=True)
+    @patch("posthog.ph_client.get_client")
+    def test_background_capture_keeps_one_client_per_region(self, get_client_mock: MagicMock, _register) -> None:
+        us_client, eu_client = MagicMock(), MagicMock()
+        get_client_mock.side_effect = lambda region: {"US": us_client, "EU": eu_client}[region]
+
+        ph_background_capture()(distinct_id="person", event="us")
+        ph_background_capture(region="EU")(distinct_id="person", event="eu")
+        ph_background_capture(region="EU")(distinct_id="person", event="eu again")
+
+        assert get_client_mock.call_count == 2
+        us_client.capture.assert_called_once_with(distinct_id="person", event="us")
+        assert eu_client.capture.call_count == 2
 
     @override_settings(CLOUD_DEPLOYMENT="EU")
     def test_cross_region_capture_preserves_the_event_region(self) -> None:

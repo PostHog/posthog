@@ -21,7 +21,9 @@ from clickhouse_driver.result import QueryInfo
 from clickhouse_pool import ChPool
 from prometheus_client import Counter, Gauge
 
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
@@ -350,21 +352,29 @@ class MeteredQueryInfo(QueryInfo):
 
     cpu_us is the sum of the OSCPUVirtualTimeMicroseconds increments in the ProfileEvents packets. The
     initiator forwards the packets of the remote shards, so the sum covers the initiator and every shard.
+    An INSERT with data reads its packets outside receive_packet, so it stays at 0.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self.cpu_us: int | None = None
+        self.cpu_us: int = 0
 
     def store_profile_events(self, block: Any) -> None:
-        names = [name for name, _type in block.columns_with_types]
-        columns = dict(zip(names, block.get_columns()))
-        cpu_us = sum(
-            value
-            for event_type, name, value in zip(columns["type"], columns["name"], columns["value"])
-            if name == "OSCPUVirtualTimeMicroseconds" and event_type == "increment"
-        )
-        self.cpu_us = (self.cpu_us or 0) + cpu_us
+        # This runs inside the driver's packet loop for every native query, also when the CPU budget
+        # is off. An exception here disconnects the client and fails the query, so it must not escape.
+        try:
+            if block.num_rows == 0:
+                return
+            names = [name for name, _type in block.columns_with_types]
+            columns = dict(zip(names, block.get_columns()))
+            self.cpu_us += sum(
+                value
+                for event_type, name, value in zip(columns["type"], columns["name"], columns["value"])
+                if name == "OSCPUVirtualTimeMicroseconds" and event_type == "increment"
+            )
+        except Exception as e:
+            API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_packet").inc()
+            capture_exception(e)
 
 
 class ClickHouseClient(SyncClient):
@@ -385,8 +395,8 @@ class ClickHouseClient(SyncClient):
 
     def receive_packet(self) -> Any:
         # The base method drops ProfileEvents packets, so this copies its dispatch for every other
-        # packet type. It matches the pinned clickhouse-driver version, and
-        # TestBudgetedQueryMetering fails against a real ClickHouse if a driver upgrade changes it.
+        # packet type from clickhouse-driver 0.2.10. Compare it with the base method when you upgrade
+        # the driver, because no test covers a change to the other packet types.
         packet = self.connection.receive_packet()
         if packet.type == ServerPacketTypes.PROFILE_EVENTS:
             if isinstance(self.last_query, MeteredQueryInfo):

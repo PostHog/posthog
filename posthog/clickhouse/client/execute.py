@@ -232,7 +232,8 @@ def _cpu_budget_org_id(tags: QueryTags) -> Optional[str]:
     """The organization whose CPU budget this query counts against, or None when it is not budgeted."""
     if (
         tags.access_method != AccessMethod.PERSONAL_API_KEY
-        or tags.product == Product.ENDPOINTS
+        # Not tags.product, because a request can set that with query.tags.productKey or query.tags.scene.
+        or tags.feature == Feature.ENDPOINT_EXECUTION
         or tags.org_id is None
         or not cpu_budget_enabled()
     ):
@@ -609,12 +610,12 @@ def sync_execute(
         **core_settings,
         "log_comment": query_log_tags.to_json(),
     }
-    start_time = perf_counter()
-    budgeted_query_info: Optional[Any] = None
-    query_summary: Optional[QuerySummary] = None
     cpu_budget_org_id = _cpu_budget_org_id(tags)
     if cpu_budget_org_id is not None:
         observe_org_cpu_budget(cpu_budget_org_id, team_id=tags.team_id, product=tags.product)
+    start_time = perf_counter()
+    budgeted_query_info: Optional[Any] = None
+    query_summary: Optional[QuerySummary] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(

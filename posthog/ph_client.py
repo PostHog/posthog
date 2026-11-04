@@ -184,11 +184,11 @@ def ph_scoped_capture(
         raise errors[0]
 
 
-_background_client: Any = None
+_background_clients: dict[str, Any] = {}
 _background_client_lock = threading.Lock()
 
 
-def ph_background_capture() -> ScopedCapture:
+def ph_background_capture(region: str = "US") -> ScopedCapture:
     """Capture through a process-lifetime client whose batches the SDK's consumer
     thread delivers in the background — no per-call client setup or blocking flush.
 
@@ -196,19 +196,22 @@ def ph_background_capture() -> ScopedCapture:
     per-call dedicated client and synchronous flush would sit on the hot path.
     Delivery is best-effort: a bounded flush runs at interpreter exit, so don't use
     this where delivery must be confirmed before checkpointing durable state.
+    Pass the deployment region when events must stay in their regional project.
     """
-    global _background_client
-    if _background_client is None:
+    client = _background_clients.get(region)
+    if client is None:
         with _background_client_lock:
-            if _background_client is None:
-                _background_client = get_client()
+            client = _background_clients.get(region)
+            if client is None:
+                client = get_client(region)
+                _background_clients[region] = client
                 # The SDK's own atexit hook only joins the consumer mid-batch without
                 # draining the queue. atexit is LIFO, so this flush (registered after
                 # the client's hook) runs first and drains what a graceful shutdown
                 # enqueued last. Bounded (SDK default 10s) so a dead network can't
                 # stall process exit.
-                atexit.register(_background_client.flush)
-    return ScopedCapture(_background_client)
+                atexit.register(client.flush)
+    return ScopedCapture(client)
 
 
 def get_client(region: str = "US", **kwargs: Any):

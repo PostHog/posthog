@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from clickhouse_driver.block import ColumnOrientedBlock
 from parameterized import parameterized
 
 from posthog.api_queries_budget import (
@@ -31,8 +32,8 @@ from posthog.api_queries_budget import (
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ProxyClient
-from posthog.clickhouse.query_tagging import AccessMethod, Product, reset_query_tags, tag_queries
+from posthog.clickhouse.client.connection import MeteredQueryInfo, ProxyClient
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, reset_query_tags, tag_queries
 from posthog.redis import get_client
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
@@ -260,7 +261,11 @@ class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("endpoints_product", {"product": Product.ENDPOINTS}, CPU_BUDGET_SETTINGS),
+            (
+                "endpoint_execution",
+                {"product": Product.ENDPOINTS, "feature": Feature.ENDPOINT_EXECUTION},
+                CPU_BUDGET_SETTINGS,
+            ),
             ("session_auth", {"access_method": None}, CPU_BUDGET_SETTINGS),
             ("project_secret_api_key", {"access_method": AccessMethod.PROJECT_SECRET_API_KEY}, CPU_BUDGET_SETTINGS),
             ("cpu_budget_disabled", {}, {"API_QUERIES_CPU_BUDGET_SECONDS_PER_HOUR": 0}),
@@ -272,7 +277,22 @@ class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
             sync_execute(self.BOUNDED_QUERY)
         assert not get_client().exists(_cpu_key(self.organization.pk))
 
+    @parameterized.expand([("product_key", {"product": Product.ENDPOINTS}), ("scene", {"scene": "EndpointScene"})])
     @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_endpoints_tag_from_the_request_does_not_skip_the_cpu_budget(self, _name, tags):
+        self._tag_api_key_query(**tags)
+        sync_execute(self.BOUNDED_QUERY)
+        assert get_client().exists(_cpu_key(self.organization.pk))
+
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_native_query_that_fails_before_any_profile_events_is_not_unmetered(self):
+        before = API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER._value.get()
+        self._tag_api_key_query()
+        with pytest.raises(Exception, match="Syntax error"):
+            sync_execute("SELECT FROM WHERE")
+        assert API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER._value.get() == before
+
+    @override_settings(**CPU_BUDGET_SETTINGS, CLOUD_DEPLOYMENT="EU")
     def test_exhausted_cpu_budget_is_counted_and_reported_once_but_never_refuses(self):
         debit_org_cpu(str(self.organization.pk), 100 * CPU_CAPACITY_US)
         before = API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get()
@@ -283,6 +303,7 @@ class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
             assert sync_execute(self.BOUNDED_QUERY) == [(49995000,)]
         assert API_QUERIES_CPU_BUDGET_LIMITED_COUNTER.labels(outcome="observed")._value.get() == before + 2
         capture.assert_called_once()
+        background_capture.assert_called_with(region="EU")
         assert capture.call_args.kwargs["event"] == LIMITED_EVENT
         assert capture.call_args.kwargs["distinct_id"] == str(self.organization.pk)
         properties = capture.call_args.kwargs["properties"]
@@ -379,6 +400,27 @@ class TestFailedQueryMetering(BaseTest):
             reset_query_tags()
         assert API_QUERIES_CPU_BUDGET_UNMETERED_COUNTER._value.get() == before + 1
         assert _cpu_tokens(self.organization.pk) == CPU_CAPACITY_US
+
+
+class TestMeteredQueryInfo(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("zero_rows", [("type", "String"), ("name", "String"), ("value", "Int64")], [], 0),
+            (
+                "renamed_column",
+                [("kind", "String"), ("name", "String"), ("value", "Int64")],
+                [["increment"], ["OSCPUVirtualTimeMicroseconds"], [5]],
+                1,
+            ),
+        ]
+    )
+    def test_unreadable_profile_events_block_does_not_raise(self, _name, columns, data, expected_errors):
+        errors = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_packet")
+        before = errors._value.get()
+        query_info = MeteredQueryInfo()
+        query_info.store_profile_events(ColumnOrientedBlock(columns, data))
+        assert query_info.cpu_us == 0
+        assert errors._value.get() == before + expected_errors
 
 
 @override_settings(**CPU_BUDGET_SETTINGS)

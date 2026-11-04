@@ -38,6 +38,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_background_capture
 from posthog.redis import get_client
+from posthog.utils import get_instance_region
 
 BUDGET_KEY_PREFIX = "@posthog/api-queries-budget/"
 # A bucket nobody touches for a week is rebuilt full on the next read, so the key can expire.
@@ -306,7 +307,7 @@ def observe_org_cpu_budget(org_id: str, team_id: Optional[int], product: Optiona
             outcome=outcome,
         )
         if _claim_cpu_limited_event(org_id):
-            ph_background_capture()(
+            ph_background_capture(region=get_instance_region() or "US")(
                 distinct_id=org_id,
                 event=LIMITED_EVENT,
                 properties={
