@@ -165,6 +165,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("own_policy_scope", {"scopes": ["workload_trust_policy:read"]}, "scopes"),
             ("agent_run_scope", {"scopes": ["task:write"]}, "scopes"),
             ("training_run_scope", {"scopes": ["autoresearch:write"]}, "scopes"),
+            ("workflow_task_scope", {"scopes": ["hog_flow:write"]}, "scopes"),
             ("owner_account_scope", {"scopes": ["user:write"]}, "scopes"),
             ("app_token_scope", {"scopes": ["streamlit_app:read"]}, "scopes"),
             ("webhook_feed_scope", {"scopes": ["webhook:write"]}, "scopes"),
