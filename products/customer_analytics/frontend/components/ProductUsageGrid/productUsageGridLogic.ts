@@ -715,7 +715,22 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
             }
             const controller = new AbortController()
             const queryId = cache.queryId
-            cache.disposables.add(() => () => controller.abort(), 'details', { pauseOnPageHidden: false })
+            const teamId = values.currentTeamId
+            const peopleQueryId = values.controls.zoom === 'users' ? uuid() : undefined
+            const firstsQueryId = values.controls.firstUse ? uuid() : undefined
+            cache.disposables.add(
+                () => () => {
+                    controller.abort()
+                    if (peopleQueryId) {
+                        void cancelQueryOnServer(teamId, peopleQueryId)
+                    }
+                    if (firstsQueryId) {
+                        void cancelQueryOnServer(teamId, firstsQueryId)
+                    }
+                },
+                'details',
+                { pauseOnPageHidden: false }
+            )
             actions.startDetails()
             const common = {
                 accountIds: result.matrix.rows.map(({ key }) => key),
@@ -724,7 +739,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
             }
             try {
                 const [people, firsts] = await Promise.all([
-                    values.controls.zoom === 'users'
+                    peopleQueryId
                         ? performQuery<BookActivityPeopleQuery>(
                               {
                                   ...common,
@@ -733,13 +748,17 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                                   interval: result.interval ?? values.controls.interval,
                                   peopleLimit: 3,
                               },
-                              { signal: controller.signal }
+                              { signal: controller.signal },
+                              undefined,
+                              peopleQueryId
                           ).then((response) => response.results)
                         : Promise.resolve(null),
-                    values.controls.firstUse
+                    firstsQueryId
                         ? performQuery<BookActivityFirstsQuery>(
                               { ...common, kind: NodeKind.BookActivityFirstsQuery },
-                              { signal: controller.signal }
+                              { signal: controller.signal },
+                              undefined,
+                              firstsQueryId
                           ).then((response) => response.results)
                         : Promise.resolve(null),
                 ])
@@ -770,7 +789,16 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
             cache.peopleRequestKeys.add(key)
             const queryId = cache.queryId
             const controller = new AbortController()
-            cache.disposables.add(() => () => controller.abort(), `people-${key}`, { pauseOnPageHidden: false })
+            const teamId = values.currentTeamId
+            const peopleQueryId = uuid()
+            cache.disposables.add(
+                () => () => {
+                    controller.abort()
+                    void cancelQueryOnServer(teamId, peopleQueryId)
+                },
+                `people-${key}`,
+                { pauseOnPageHidden: false }
+            )
             try {
                 const response = await performQuery<BookActivityPeopleQuery>(
                     {
@@ -782,7 +810,9 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                         interval: values.result?.interval ?? values.controls.interval,
                         tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                    { signal: controller.signal }
+                    { signal: controller.signal },
+                    undefined,
+                    peopleQueryId
                 )
                 if (!controller.signal.aborted && cache.queryId === queryId) {
                     actions.finishPeople(key, response.results.people)

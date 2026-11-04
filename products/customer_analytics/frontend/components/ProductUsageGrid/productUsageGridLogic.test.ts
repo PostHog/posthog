@@ -165,6 +165,43 @@ describe('productUsageGridLogic', () => {
         expect(logic.values.result).toBeNull()
         logic.unmount()
     })
+    it('cancels server history queries on opt-out and all detail queries on unmount', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        const teamId = logic.values.currentTeamId
+        logic.actions.finishLoad({
+            accounts,
+            matrix: BOOK_ACTIVITY_MATRIX_MOCK,
+            hogql: null,
+            source: { kind: 'product_usage' },
+        })
+        const resolves: ((value: unknown) => void)[] = []
+        query.mockImplementation(() => new Promise((resolve) => resolves.push(resolve)))
+        logic.actions.setControls({ firstUse: true })
+        const firstsRequest = query.mock.calls[0]
+        expect(firstsRequest[0].kind).toBe(NodeKind.BookActivityFirstsQuery)
+        expect(firstsRequest[3]).toEqual(expect.any(String))
+        logic.actions.setControls({ firstUse: false })
+        expect(firstsRequest[1].signal.aborted).toBe(true)
+        expect(cancelQueryOnServer).toHaveBeenCalledWith(teamId, firstsRequest[3])
+        resolves.shift()!({ results: { accounts: [], people: [], truncated: false } })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setControls({ zoom: 'users', firstUse: true })
+        logic.actions.togglePeople(BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key, BOOK_ACTIVITY_MATRIX_MOCK.series[0].key)
+        const activeRequests = query.mock.calls.slice(1)
+        expect(activeRequests).toHaveLength(3)
+        expect(new Set(activeRequests.map((call) => call[3])).size).toBe(3)
+        logic.unmount()
+        for (const call of activeRequests) {
+            expect(call[3]).toEqual(expect.any(String))
+            expect(call[1].signal.aborted).toBe(true)
+            expect(cancelQueryOnServer).toHaveBeenCalledWith(teamId, call[3])
+        }
+        for (const resolve of resolves) {
+            resolve({ results: { accounts: [], people: [], truncated: false } })
+        }
+        await expectLogic(logic).toFinishAllListeners()
+    })
     it('records safe query outcomes and keeps errors out of event properties', async () => {
         const logic = productUsageGridLogic()
         logic.mount()
