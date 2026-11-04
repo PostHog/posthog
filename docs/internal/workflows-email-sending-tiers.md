@@ -118,6 +118,8 @@ Sandbox sends skip the team's tier budget, click and open tracking, and unsubscr
 The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
 It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
 A template whose HTML cannot keep the footer fails the send.
+The send also fails when the HTML and preview text exceed 75 KB, checked before and again after the footer is added, so every inbox shows the footer instead of clipping it.
+It fails as well when elements nest more than 256 deep, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them; test sends do not.
