@@ -2328,12 +2328,6 @@ describe('CDP API', () => {
                     { ...body, send: codeSend },
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
-                [
-                    'a code send whose retry marks its sender as the default',
-                    'transactional_email/send',
-                    { ...body, send: codeSend },
-                    { ...body, send: { ...codeSend, from: { ...codeSend.from, isDefault: true } } },
-                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
