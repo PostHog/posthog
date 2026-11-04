@@ -2519,6 +2519,8 @@ describe('CDP API', () => {
                 'a file type mailbox providers block',
                 { ...codeSend, attachments: [attachment({ filename: 'setup.EXE' })] },
             ],
+            ['a file type only SES refuses', { ...codeSend, attachments: [attachment({ filename: 'settings.reg' })] }],
+            ['a file type only Gmail blocks', { ...codeSend, attachments: [attachment({ filename: 'disk.iso' })] }],
             [
                 'a filename with a path separator',
                 { ...codeSend, attachments: [attachment({ filename: '../report.pdf' })] },
