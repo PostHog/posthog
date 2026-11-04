@@ -48,6 +48,7 @@ PASS = "pass"
 # `config`: `get_schemas` rejects every placeholder config.
 # `empty`: `get_schemas` returns no schema for a placeholder config.
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonKinesis": "network",
     "AmazonS3": "network",
     "AwsAthena": "network",
     "AwsDocumentDB": "driver",
@@ -100,6 +101,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 # `request`: the extraction sends a request before it checks the schema, or the vendor supplies the list.
 # `webhook`: the schemas are webhook-only, so the extraction accepts any name and yields no rows.
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonKinesis": "request",
     "AmazonS3": "request",
     "Attentive": "webhook",
     "AwsAthena": "request",
