@@ -3075,6 +3075,17 @@ describe('Cyclotron V2', () => {
             expect(Number(metric.trim().split('\n').pop()!.split(' ').pop())).toBe(2)
         })
 
+        it('runs one scheduled email count at a time', async () => {
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const query = jest.spyOn(janitor['pool'], 'query')
+
+            await Promise.all([janitor.measureScheduledEmailsWaiting(), janitor.measureScheduledEmailsWaiting()])
+            await janitor.measureScheduledEmailsWaiting()
+            await janitor.stop()
+
+            expect(query).toHaveBeenCalledTimes(2)
+        })
+
         it('sweeps expired conversion watchers and keeps live ones', async () => {
             // The sweep is the only thing that removes a watcher that never converts. If a refactor
             // drops it from runOnce the table grows without bound and nothing else fails, so assert

@@ -110,6 +110,7 @@ export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
     private scheduledEmailsCountHandle: ReturnType<typeof setInterval> | null = null
+    private scheduledEmailsCountRunning = false
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -176,11 +177,18 @@ export class CyclotronV2Janitor {
     }
 
     // A failed count keeps the last value, so the gauge does not drop to 0 and hide a backlog.
+    // A tick that finds the last count still running skips, so slow counts cannot pile up on the pool.
     async measureScheduledEmailsWaiting(): Promise<void> {
+        if (this.scheduledEmailsCountRunning) {
+            return
+        }
+        this.scheduledEmailsCountRunning = true
         try {
             scheduledEmailsWaitingGauge.set(await countUnclaimedEmailsWaiting(this.pool))
         } catch (err) {
             logger.error('CyclotronV2Janitor scheduled email count failed', { error: String(err) })
+        } finally {
+            this.scheduledEmailsCountRunning = false
         }
     }
 
