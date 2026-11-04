@@ -81,6 +81,7 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
+The check ignores case, and the worker delivers to the address as the member stored it, not as the step wrote it.
 Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
 A failed or stale membership check skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).

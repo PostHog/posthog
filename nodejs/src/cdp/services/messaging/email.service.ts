@@ -921,10 +921,22 @@ export class EmailService {
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true }))) {
+                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
+                        fresh: true,
+                    })
+                    if (!deliverTo) {
                         return result
                     }
-                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, route)
+                    // The member check ignores case, so deliver to the stored member addresses, not the supplied ones.
+                    const [toAddress, ...copyAddresses] = deliverTo
+                    const ccCount = route.ccAddresses?.length ?? 0
+                    deliveryParams = { ...deliveryParams, to: { ...deliveryParams.to, email: toAddress } }
+                    const memberRoute: SesRoute = {
+                        ...route,
+                        ccAddresses: copyAddresses.slice(0, ccCount),
+                        bccAddresses: copyAddresses.slice(ccCount),
+                    }
+                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, memberRoute)
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
@@ -1178,20 +1190,24 @@ export class EmailService {
     // Runs once before the send is prepared and again right before delivery, because a member can
     // leave the organization while the send waits on suppression checks and rate limits. The check
     // right before delivery passes `fresh`, so it reads membership again instead of the cached snapshot.
+    // Returns the stored address of each recipient, in order, or null when the send is skipped.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
         isTest: boolean,
         { fresh = false }: { fresh?: boolean } = {}
-    ): Promise<boolean> {
+    ): Promise<string[] | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
+        let deliverTo: string[] = []
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients, { fresh })
+            const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
+            const blocked = check.blocked
+            deliverTo = check.deliverTo
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1205,7 +1221,7 @@ export class EmailService {
             })
         }
         if (!blockedRecipients.length) {
-            return true
+            return deliverTo
         }
         const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
         this.skipSandboxSend(
@@ -1215,7 +1231,7 @@ export class EmailService {
             'recipient_unreachable'
         )
         await this.sandboxSender?.captureBlocked(teamId, isTest, reason, blockedRecipients.length)
-        return false
+        return null
     }
 
     // Per-send tracking decision, combining two independent controls:

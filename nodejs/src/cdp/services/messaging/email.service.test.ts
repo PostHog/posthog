@@ -630,42 +630,51 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['a display name', 'Example colleague', false],
-                ['a quoted comma', '"Example, colleague"', false],
-                ['an escaped quote', '"Example \\"colleague, teammate\\""', false],
-                ['mixed-case stored addresses', 'Example colleague', true],
-            ])('delivers to members whatever the case and %s', async (_case, name, storedMixedCase) => {
-                if (storedMixedCase) {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
-                        [memberIds],
-                        'test:store-mixed-case-sandbox-members'
+                ['a display name', 'Example colleague', false, false],
+                ['a quoted comma', '"Example, colleague"', false, false],
+                ['an escaped quote', '"Example \\"colleague, teammate\\""', false, false],
+                ['mixed-case stored addresses', 'Example colleague', true, false],
+                ['mixed-case stored addresses in a test send', 'Example colleague', true, true],
+            ])(
+                'delivers to the stored member addresses whatever the case and %s',
+                async (_case, name, storedMixedCase, isTest) => {
+                    if (storedMixedCase) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
+                            [memberIds],
+                            'test:store-mixed-case-sandbox-members'
+                        )
+                    }
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({
+                        to: { email: memberEmail().toUpperCase() },
+                        cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
+                        bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
+                    })
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    // initcap() stores "Cc-<team>@Example.Com" for "cc-<team>@example.com".
+                    const storedEmail = (kind = 'test'): string =>
+                        storedMixedCase
+                            ? `${kind[0].toUpperCase()}${kind.slice(1)}-${team.id}@Example.Com`
+                            : memberEmail(kind)
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).not.toBe(true)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
+                        ToAddresses: [storedEmail()],
+                        CcAddresses: [storedEmail('cc')],
+                        BccAddresses: [storedEmail('bcc')],
+                    })
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email sent',
+                        { recipient_count: 3, source: isTest ? 'test' : 'workflow', is_test: isTest }
                     )
                 }
-                service = createSandboxService(true)
-                invocation.queueParameters = createSandboxParams({
-                    to: { email: memberEmail().toUpperCase() },
-                    cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
-                    bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
-                })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(result.skipped).not.toBe(true)
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
-                    ToAddresses: [memberEmail().toUpperCase()],
-                    CcAddresses: [memberEmail('cc').toUpperCase()],
-                    BccAddresses: [memberEmail('bcc').toUpperCase()],
-                })
-                expect(capture).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: team.id }),
-                    'workflows sandbox email sent',
-                    { recipient_count: 3, source: 'workflow', is_test: false }
-                )
-            })
+            )
 
             it.each(['cc', 'bcc'] as const)('delivers a quoted %s mailbox whole', async (field) => {
                 const email = `"example,colleague-${team.id}"@example.com`

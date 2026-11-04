@@ -92,10 +92,12 @@ describe('OrganizationMembersService', () => {
         await change(userId)
         const address = `  ${memberEmail.toUpperCase()} `
 
-        const blocked = await service.getBlockedRecipients(team.id, [address])
+        const check = await service.checkRecipients(team.id, [address])
 
-        expect(blocked).toEqual(
-            expected === 'allowed' ? [] : [{ address, unverifiedMember: expected === 'unverified' }]
+        expect(check).toEqual(
+            expected === 'allowed'
+                ? { blocked: [], deliverTo: [memberEmail] }
+                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: [] }
         )
     })
 
@@ -105,9 +107,10 @@ describe('OrganizationMembersService', () => {
         await createMember(outsider, otherOrganizationId, true)
         await createMember(memberEmail, organizationId, true)
 
-        expect(await service.getBlockedRecipients(team.id, [memberEmail, outsider])).toEqual([
-            { address: outsider, unverifiedMember: false },
-        ])
+        expect(await service.checkRecipients(team.id, [memberEmail, outsider])).toEqual({
+            blocked: [{ address: outsider, unverifiedMember: false }],
+            deliverTo: [memberEmail],
+        })
     })
 
     it('fails at its deadline when the lookup waits for a connection, and runs no query once it gets one', async () => {
@@ -124,7 +127,7 @@ describe('OrganizationMembersService', () => {
             } as unknown as PostgresRouter
             const stalledService = new OrganizationMembersService(stalledPostgres)
 
-            const check = stalledService.getBlockedRecipients(team.id, [memberEmail])
+            const check = stalledService.checkRecipients(team.id, [memberEmail])
             const outcome = expect(check).rejects.toThrow('The organization member lookup timed out')
             await jest.advanceTimersByTimeAsync(3_000)
 
@@ -152,7 +155,7 @@ describe('OrganizationMembersService', () => {
             })
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            await expect(service.getBlockedRecipients(1, ['member@example.com'])).rejects.toThrow('expired')
+            await expect(service.checkRecipients(1, ['member@example.com'])).rejects.toThrow('expired')
             expect(query).toHaveBeenCalledTimes(2)
         })
 
@@ -164,9 +167,7 @@ describe('OrganizationMembersService', () => {
             })
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).rejects.toThrow(
-                'expired'
-            )
+            await expect(service.checkRecipients(1, ['member@example.com'], { fresh: true })).rejects.toThrow('expired')
             expect(query).toHaveBeenCalledTimes(1)
         })
 
@@ -190,7 +191,7 @@ describe('OrganizationMembersService', () => {
                 const service = new OrganizationMembersService(pool)
 
                 const checks = Array.from({ length: 20 }, () =>
-                    service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+                    service.checkRecipients(1, ['member@example.com'], { fresh: true })
                 )
                 const outcomes = Promise.allSettled(checks)
                 await jest.advanceTimersByTimeAsync(3_000)
@@ -204,9 +205,9 @@ describe('OrganizationMembersService', () => {
                 await jest.advanceTimersByTimeAsync(0)
                 expect(query).not.toHaveBeenCalled()
 
-                await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual(
-                    []
-                )
+                await expect(
+                    service.checkRecipients(1, ['member@example.com'], { fresh: true })
+                ).resolves.toMatchObject({ blocked: [] })
                 expect(query).toHaveBeenCalledTimes(2)
             } finally {
                 jest.useRealTimers()
@@ -219,13 +220,13 @@ describe('OrganizationMembersService', () => {
             const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
-            expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
+            expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
+            expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
             expect(query).toHaveBeenCalledTimes(1)
 
             now = 60_001
             member = 'new-member@example.com'
-            expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([
+            expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([
                 { address: 'member@example.com', unverifiedMember: false },
             ])
             expect(query).toHaveBeenCalledTimes(2)
@@ -236,10 +237,10 @@ describe('OrganizationMembersService', () => {
             const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
             const service = new OrganizationMembersService(routerFor(query), () => 0)
 
-            expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
+            expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
             member = 'new-member@example.com'
 
-            expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).toEqual([
+            expect((await service.checkRecipients(1, ['member@example.com'], { fresh: true })).blocked).toEqual([
                 { address: 'member@example.com', unverifiedMember: false },
             ])
             expect(query).toHaveBeenCalledTimes(2)
@@ -254,15 +255,15 @@ describe('OrganizationMembersService', () => {
             const service = new OrganizationMembersService(routerFor(query), () => 0)
 
             // Another send starts loading members, then the member is removed before the final check.
-            const earlierCheck = service.getBlockedRecipients(1, ['member@example.com'])
+            const earlierCheck = service.checkRecipients(1, ['member@example.com'])
             while (query.mock.calls.length === 0) {
                 await new Promise((resolve) => setImmediate(resolve))
             }
-            const freshCheck = service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+            const freshCheck = service.checkRecipients(1, ['member@example.com'], { fresh: true })
             finishEarlierLookup({ rows: [memberRow('member@example.com')] })
 
-            expect(await earlierCheck).toEqual([])
-            expect(await freshCheck).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
+            expect((await earlierCheck).blocked).toEqual([])
+            expect((await freshCheck).blocked).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
             expect(query).toHaveBeenCalledTimes(2)
         })
     })
