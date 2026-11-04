@@ -40,7 +40,6 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     project_web_url,
     reply_footer_block,
-    run_context_block,
     slack_message_exists,
     turn_feedback_block,
 )
@@ -229,23 +228,14 @@ class _PostedAnswer:
     blocks: list[dict[str, Any]]
 
 
-def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
-    buttons: list[dict[str, Any]] = [
+def _pr_buttons(pr_url: str) -> list[dict[str, Any]]:
+    return [
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "View PR", "emoji": True},
             "url": pr_url,
         },
     ]
-    if task_url:
-        buttons.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
-                "url": task_url,
-            }
-        )
-    return buttons
 
 
 class SlackThreadHandler:
@@ -359,13 +349,18 @@ class SlackThreadHandler:
         every reader; the page enforces access itself."""
         return self.run_footer.task_url
 
-    def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
-        """This handler's footer, or `None` when there is nothing to describe."""
-        if not self.run_footer.has_content():
-            return None
+    def _footer_block(self, fallback_task_url: str | None = None) -> dict[str, Any] | None:
+        """This handler's footer, or `None` when there is nothing to describe.
+
+        Every message about a run closes with this same line, so the session link is never a
+        button on one card and a footer link on the next. ``fallback_task_url`` is the link a
+        caller was handed for a run whose footer did not load one.
+        """
         footer = self.run_footer
-        if not include_task_url:
-            footer = replace(footer, task_url=None)
+        if not footer.task_url and fallback_task_url:
+            footer = replace(footer, task_url=fallback_task_url)
+        if not footer.has_content():
+            return None
         configure_url = app_home_url(self._get_integration())
         return reply_footer_block(footer, configure_url)
 
@@ -697,36 +692,18 @@ class SlackThreadHandler:
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.
 
-        The project and model ride along as a context line rather than their own
-        message: what a task is running on and against is a property of the task, and
-        the thread already has one place that describes it while it works.
+        The run footer rides along rather than a message of its own: what a task is
+        running on and against is a property of the task, and the thread already has
+        one place that describes it while it works.
         """
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        run_context = run_context_block(self.run_footer)
-        if run_context:
-            blocks.append(run_context)
-
-        if task_url:
-            blocks.append(
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "View agent logs",
-                                "emoji": True,
-                            },
-                            "url": task_url,
-                        }
-                    ],
-                }
-            )
+        footer = self._footer_block(task_url)
+        if footer:
+            blocks.append(footer)
 
         try:
             client = self._get_client()
@@ -774,12 +751,14 @@ class SlackThreadHandler:
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
+            {"type": "actions", "elements": _pr_buttons(pr_url)},
         ]
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
-        self.capture_reply_posted(ReplyKind.PR_OPENED, delivered=self._delete_progress_and_post(header, blocks))
+        self.capture_reply_posted(
+            ReplyKind.PR_OPENED, delivered=self._delete_progress_and_post(header, blocks, task_url=task_url)
+        )
 
     def post_pr_closed(
         self,
@@ -800,10 +779,13 @@ class SlackThreadHandler:
         header = f"{mention_prefix}{outcome}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
+            {"type": "actions", "elements": _pr_buttons(pr_url)},
         ]
         if not merged:
             blocks.append(context_block("Reply in this thread to try a different approach."))
+        footer = self._footer_block(task_url)
+        if footer:
+            blocks.append(footer)
         try:
             return self._post_in_thread(text=header, blocks=blocks) is not None
         except Exception as e:
@@ -942,30 +924,15 @@ class SlackThreadHandler:
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
         ]
-        if task_url:
-            blocks.append(
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Open in PostHog",
-                                "emoji": True,
-                            },
-                            "url": task_url,
-                        }
-                    ],
-                }
-            )
 
-        self.capture_reply_posted(ReplyKind.COMPLETION, delivered=self._delete_progress_and_post(header, blocks))
+        self.capture_reply_posted(
+            ReplyKind.COMPLETION, delivered=self._delete_progress_and_post(header, blocks, task_url=task_url)
+        )
 
     def post_error(
         self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
     ) -> None:
-        """Post error message with link to PostHog for details."""
+        """Post the error message. The session link is in the footer."""
         header = "*Task Failed* :x:"
         error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
@@ -976,26 +943,10 @@ class SlackThreadHandler:
         ]
         if recovery_hint:
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": recovery_hint}})
-        if task_url:
-            blocks.append(
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "See details in PostHog",
-                                "emoji": True,
-                            },
-                            "url": task_url,
-                        },
-                    ],
-                }
-            )
 
         self.capture_reply_posted(
-            ReplyKind.ERROR, delivered=self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
+            ReplyKind.ERROR,
+            delivered=self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks, task_url=task_url),
         )
 
     def post_note(self, text: str) -> None:
@@ -1015,14 +966,19 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_delete_progress_failed", error=str(e))
 
-    def _delete_progress_and_post(self, text: str, blocks: list[dict[str, Any]], with_footer: bool = True) -> bool:
+    def _delete_progress_and_post(
+        self,
+        text: str,
+        blocks: list[dict[str, Any]],
+        with_footer: bool = True,
+        task_url: str | None = None,
+    ) -> bool:
         """Delete any progress message and post the final one in its place. Returns whether it posted.
 
-        Terminal cards close with the provenance footer, minus the web link their own
-        button already carries.
+        Terminal cards close with the same provenance footer as an answer, session link included.
         """
         if with_footer:
-            footer = self._footer_block(include_task_url=False)
+            footer = self._footer_block(task_url)
             if footer:
                 blocks = [*blocks, footer]
         try:

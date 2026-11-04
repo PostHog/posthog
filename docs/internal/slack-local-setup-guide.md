@@ -255,7 +255,7 @@ In a channel in your dev workspace:
 (The real @-handle is whatever Slack assigned — type `@p` and let autocomplete confirm.)
 
 A successful run reacts 🌱 `:seedling:` on your message and posts a threaded "Working on task… ⏳"
-with a **View agent logs** button — that's what we saw. You may also see 🔍 `:mag:` first, but only
+with a footer whose **View session** link opens the task — that's what we saw. You may also see 🔍 `:mag:` first, but only
 when the repo-discovery agent has to choose among repos (a no-repo prompt skips it, as ours did).
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
