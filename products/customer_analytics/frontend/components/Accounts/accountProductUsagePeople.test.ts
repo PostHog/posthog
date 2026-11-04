@@ -6,7 +6,10 @@ import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 it('shows only the latest period top users with exact count, excluding other periods, products and accounts', () => {
     const result = {
         ...BOOK_ACTIVITY_MATRIX_MOCK,
-        columns: [{ key: '2026-11-02' }, { key: '2026-10-26' }],
+        columns: [
+            { key: '2026-11-02', partial: true },
+            { key: '2026-10-26', partial: false },
+        ],
         data: [{ row: 'one', column: '2026-11-02', series: 'pa', users: 12 }],
     }
     const people = [

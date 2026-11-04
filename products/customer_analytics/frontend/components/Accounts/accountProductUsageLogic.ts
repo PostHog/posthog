@@ -57,8 +57,9 @@ export const accountProductUsageLogic: LogicWrapper<accountProductUsageLogicType
     actions({ setGrouping: (grouping: string) => ({ grouping }) }),
     reducers({ grouping: ['role', { setGrouping: (_, { grouping }) => grouping }] }),
     listeners({
-        setGrouping: ({ grouping }) =>
-            posthog.capture(AccountsEvents.DotMatrixSettingChanged, { setting: 'grouping', value: grouping }),
+        setGrouping: ({ grouping }) => {
+            posthog.capture(AccountsEvents.DotMatrixSettingChanged, { setting: 'grouping', value: grouping })
+        },
     }),
     selectors({
         presentation: [
