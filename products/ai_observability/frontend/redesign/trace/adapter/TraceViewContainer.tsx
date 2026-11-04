@@ -44,7 +44,7 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
-> & { traceExportLoading: boolean; backLink: LabeledLink | null }
+> & { traceExportLoading: boolean; traceCopying: boolean; backLink: LabeledLink | null }
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -54,6 +54,7 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     exportTrace: () => void
+    copyTrace: () => void
     showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
@@ -73,6 +74,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: {
             ...values.header,
             backLink: values.backLink,
+            copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
         },
         summary: {
@@ -172,8 +174,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     } = useValues(logic)
     const actions = useActions(logic)
     const exportLogic = traceExportLogic({ traceId, timestampHint })
-    const { traceExportLoading } = useValues(exportLogic)
-    const { exportTrace } = useActions(exportLogic)
+    const { traceExportLoading, traceCopying } = useValues(exportLogic)
+    const { exportTrace, copyTrace } = useActions(exportLogic)
 
     const readyProps =
         status === 'ready'
@@ -208,9 +210,10 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       feedbackMode,
                       selectedStepFeedback,
                       traceExportLoading,
+                      traceCopying,
                       backLink,
                   },
-                  { ...actions, exportTrace }
+                  { ...actions, exportTrace, copyTrace }
               )
             : null
 

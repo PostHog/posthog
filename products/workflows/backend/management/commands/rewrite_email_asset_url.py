@@ -9,7 +9,7 @@ from django.db import models, transaction
 from django.db.models.functions import Cast
 from django.utils import timezone
 
-from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.messaging.backend.facade.api import find_template_ids_containing, rewrite_template_content
@@ -22,9 +22,8 @@ WorkerReload = Callable[[int, str], None]
 RowRewrite = Callable[[Any], int]
 
 # Only executed config has a worker-side cache to invalidate; templates are copied at creation time
-# and never read by a worker, so they need no reload.
+# and never read by a worker, so they need no reload. The workflow model reloads its own rows on commit.
 WORKER_RELOADS: Final[dict[str, WorkerReload]] = {
-    "hog_flows": lambda team_id, row_id: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[row_id]),
     "hog_functions": lambda team_id, row_id: reload_hog_functions_on_workers(
         team_id=team_id, hog_function_ids=[row_id]
     ),
@@ -288,7 +287,7 @@ class Command(BaseCommand):
             # is published for the row, and bulk_update fires no signal at all.
             row.save(update_fields=[*changed_fields, *timestamp_fields])
 
-            # The post_save receiver publishes from inside this transaction, so a worker can re-read
+            # The hog function post_save receiver publishes from inside this transaction, so a worker can re-read
             # the row before the UPDATE commits and cache the old blob for another refresh window.
             # Publishing again on commit is what workers actually act on; the duplicate is harmless.
             # Draft-only rewrites publish nothing, matching the receiver that skips them.

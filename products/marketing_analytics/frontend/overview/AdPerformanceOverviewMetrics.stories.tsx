@@ -6,6 +6,7 @@ import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/Overvi
 import { expect, userEvent } from 'storybook/test'
 
 import { AdPerformanceOverviewMetrics } from './AdPerformanceOverviewMetrics'
+import { overviewMetricsLogic } from './overviewMetricsLogic'
 
 const items: OverviewMetricCardItem[] = [
     { key: 'Cost', value: 1800, previous: 1500, changeFromPreviousPct: 20, kind: 'currency', isIncreaseBad: true },
@@ -48,7 +49,20 @@ const meta: Meta<typeof AdPerformanceOverviewMetrics> = {
     title: 'Scenes-App/Marketing Analytics/Overview metrics',
     component: AdPerformanceOverviewMetrics,
     parameters: { layout: 'padded' },
-    args: { items, loading: false, numSkeletons: 13, viewKey: 'overview-metrics-story', labelFromKey: (key) => key },
+    // The grid breaks on its container's width, and the padded root takes its width from its content.
+    decorators: [
+        (Story) => (
+            <div className="w-[72rem]">
+                <Story />
+            </div>
+        ),
+    ],
+    args: {
+        items,
+        loading: false,
+        viewKey: 'overview-metrics-story',
+        labelFromKey: (key) => key,
+    },
 }
 export default meta
 
@@ -60,7 +74,18 @@ export const Narrow: Story = {
     args: { viewKey: 'overview-metrics-narrow-story' },
     decorators: [
         (Story) => (
-            <div className="max-w-lg">
+            <div className="w-lg">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const MediumWidth: Story = {
+    args: { viewKey: 'overview-metrics-medium-story' },
+    decorators: [
+        (Story) => (
+            <div className="w-[38rem]">
                 <Story />
             </div>
         ),
@@ -78,9 +103,20 @@ export const WithoutGoals: Story = {
 
 export const ConfigureMetrics: Story = {
     args: { viewKey: 'overview-metrics-configure-story' },
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Configure metrics' }))
-        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible())
+    play: async ({ canvasElement, args }) => {
+        // The modal reads the logic the component mounts, so opening it before the mount is lost.
+        const logic = await waitFor(
+            () => {
+                const mounted = overviewMetricsLogic.findMounted({ viewKey: args.viewKey! })
+                expect(mounted).toBeTruthy()
+                return mounted!
+            },
+            { timeout: 5000 }
+        )
+        logic.actions.openEditor()
+        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible(), {
+            timeout: 5000,
+        })
     },
     parameters: {
         testOptions: {
@@ -109,10 +145,12 @@ export const ConfigureMetricsWithChanges: Story = {
         await ConfigureMetrics.play!(context)
         const dialog = within(context.canvasElement.ownerDocument.body).getByRole('dialog')
         await userEvent.click(within(dialog).getByRole('button', { name: 'Move Clicks up' }))
-        await userEvent.click(within(dialog).getByText('Impressions', { exact: true }))
+        const platforms = within(within(dialog).getByRole('region', { name: 'Ad platforms' }))
+        await userEvent.click(platforms.getByText('Impressions', { exact: true }))
+        await userEvent.click(platforms.getByText('CTR', { exact: true }))
         await userEvent.click(
-            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByRole('button', {
-                name: 'Hide all',
+            within(within(dialog).getByRole('region', { name: 'PostHog' })).getByText('Trial started', {
+                exact: true,
             })
         )
         const applyButton = within(dialog).getByRole('button', { name: 'Apply' })

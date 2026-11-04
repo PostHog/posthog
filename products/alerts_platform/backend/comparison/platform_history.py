@@ -20,6 +20,7 @@ from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.alerts_platform.backend.facade.contracts import GroupingMode, PlatformCheck, SourceKind
+from products.alerts_platform.backend.logic.platform_alert_events import CHECKS_ONLY
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -41,6 +42,7 @@ WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
   AND occurred_at >= %(since)s
   AND occurred_at < %(until)s
+  AND {CHECKS_ONLY}
 ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
 LIMIT 1 BY configuration_id, alert_id, evaluation_key
 LIMIT %(limit)s
