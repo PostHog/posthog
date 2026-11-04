@@ -396,6 +396,7 @@ export class SandboxEmailSender {
         await this.captureEvent(teamId, 'workflows sandbox email delivered', {
             recipient_count: recipientCount,
             is_test: isTest,
+            source: isTest ? 'test' : 'workflow',
         })
     }
 

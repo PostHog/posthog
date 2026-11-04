@@ -962,7 +962,7 @@ export class SesWebhookHandler {
                 sandboxDeliveries.push({
                     teamId,
                     isTest: isTest ?? false,
-                    recipientCount: rec.delivery.recipients?.length ?? 0,
+                    recipientCount: (rec.delivery.recipients ?? rec.mail.destination ?? []).length,
                 })
             }
 
