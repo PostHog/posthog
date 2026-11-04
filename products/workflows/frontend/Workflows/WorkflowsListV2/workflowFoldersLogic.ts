@@ -35,7 +35,7 @@ export type WorkflowFolderFileRow = { id: string; name: string; path: string } &
 export interface workflowFoldersLogicValues {
     itemsByRef: Record<string, FileSystemEntry> // projectTreeDataLogic
     savedItems: FileSystemEntry[] // projectTreeDataLogic
-    currentProjectId: number | string // teamLogic
+    currentTeamId: number | null // teamLogic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     projectFilesEnabled: boolean // workflowsListV2Logic
@@ -327,7 +327,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             projectTreeDataLogic,
             ['itemsByRef', 'savedItems'],
             teamLogic,
-            ['currentProjectId'],
+            // Same id the shared project tree sends, so the unfiled backfill runs for the open environment.
+            ['currentTeamId'],
         ],
         actions: [workflowsListV2Logic, ['setValue']],
     }),
@@ -408,11 +409,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             false,
             {
                 loadBrowser: async (_: void, breakpoint) => {
-                    if (!values.projectFilesEnabled || !values.currentProjectId) {
+                    if (!values.projectFilesEnabled || !values.currentTeamId) {
                         return false
                     }
-                    const projectId = String(values.currentProjectId)
-                    await fileSystemUnfiledRetrieve(projectId)
+                    const teamId = String(values.currentTeamId)
+                    await fileSystemUnfiledRetrieve(teamId)
                     breakpoint()
                     const entries: FileSystemEntry[] = []
                     for (const search of [
@@ -422,7 +423,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         '-type:folder -type:hog_flow -type:message_template',
                     ]) {
                         for (let offset = 0; ; offset += 500) {
-                            const page = await fileSystemList(projectId, { search, limit: 500, offset })
+                            const page = await fileSystemList(teamId, { search, limit: 500, offset })
                             breakpoint()
                             entries.push(
                                 ...page.results.map((entry) => ({
@@ -770,7 +771,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             actions.setFolderActionPending(true)
             try {
-                await fileSystemDestroy(String(values.currentProjectId), entry.id, { recursive: false })
+                await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch {
                 lemonToast.error("Couldn't delete the folder. It may still contain project files.")
@@ -861,13 +862,13 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             })
         },
         createFolder: async ({ name, parent }) => {
-            if (values.creatingFolder || !values.currentProjectId || !values.projectFilesEnabled) {
+            if (values.creatingFolder || !values.currentTeamId || !values.projectFilesEnabled) {
                 return
             }
             actions.setCreatingFolder(true)
             try {
                 const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
-                const entry = await fileSystemCreate(String(values.currentProjectId), { path, type: 'folder' })
+                const entry = await fileSystemCreate(String(values.currentTeamId), { path, type: 'folder' })
                 projectTreeDataLogic.actions.addLoadedResults({
                     searchTerm: '',
                     results: [{ id: entry.id, path: entry.path, type: 'folder' }],
