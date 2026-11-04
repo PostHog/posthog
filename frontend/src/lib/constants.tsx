@@ -416,8 +416,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_ROKT_ADS: 'marketing-analytics-rokt-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_SEARCH_CONVERSIONS: 'marketing-analytics-search-conversions', // owner: @jabahamondes #team-web-analytics
-    MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
-    MARKETING_ANALYTICS_SOURCE_ONBOARDING: 'marketing-analytics-source-onboarding', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and the apply_setup_ops endpoint
     MARKETING_ANALYTICS_TWITTER_ADS: 'marketing-analytics-twitter-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
@@ -483,6 +482,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_IMPORT_TICKETS: 'product-support-import-tickets', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_MACROS: 'support-macros', // owner: @veryayskiy #team-conversations, saved replies in the support composer
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
