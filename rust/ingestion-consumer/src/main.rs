@@ -659,7 +659,7 @@ async fn build_debug_load(
         strategy: pool_source.strategy().as_str().to_string(),
         min_aperture: pool_source.min_aperture(),
         ring: ring.iter().map(|w| w.to_string()).collect(),
-        slice: slice.map(|s| s.iter().map(|w| w.to_string()).collect()),
+        slice: slice.map(|s| s.iter().map(|c| c.worker.to_string()).collect()),
     };
     let workers = snapshots
         .into_iter()

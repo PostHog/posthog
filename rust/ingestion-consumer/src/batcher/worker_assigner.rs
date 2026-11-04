@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::routing::{Router, WorkerLoad};
+use crate::routing::{Candidate, Router, WorkerLoad};
 use crate::worker_registry::WorkerId;
 
 pub struct WorkerAssigner {
@@ -52,18 +52,18 @@ impl WorkerAssigner {
             .collect()
     }
 
-    pub fn free_slots(&self, pool: &[WorkerId]) -> usize {
+    pub fn free_slots(&self, pool: &[Candidate]) -> usize {
         pool.iter()
-            .map(|worker| self.max_requests_per_worker - self.requests_on(worker))
+            .map(|candidate| self.max_requests_per_worker - self.requests_on(&candidate.worker))
             .sum()
     }
 
-    pub fn assign(&mut self, pool: &[WorkerId], message_count: usize) -> Option<WorkerId> {
+    pub fn assign(&mut self, pool: &[Candidate], message_count: usize) -> Option<WorkerId> {
         // A worker at the cap is skipped, so one slow worker cannot hold
         // every send slot.
-        let open: Vec<WorkerId> = pool
+        let open: Vec<Candidate> = pool
             .iter()
-            .filter(|worker| self.requests_on(worker) < self.max_requests_per_worker)
+            .filter(|candidate| self.requests_on(&candidate.worker) < self.max_requests_per_worker)
             .cloned()
             .collect();
         let worker = self.router.select(&open, &self.message_load)?;
@@ -105,6 +105,10 @@ mod tests {
         WorkerId::from(s)
     }
 
+    fn pool(workers: &[&str]) -> Vec<Candidate> {
+        workers.iter().map(|w| Candidate::uniform(wid(w))).collect()
+    }
+
     #[test]
     fn a_zero_request_cap_is_rejected() {
         assert!(WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 0).is_err());
@@ -112,7 +116,7 @@ mod tests {
 
     #[test]
     fn a_worker_at_the_request_cap_is_skipped_until_a_request_settles() {
-        let pool = vec![wid("a"), wid("b")];
+        let pool = pool(&["a", "b"]);
         let mut assigner =
             WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 1).unwrap();
 
@@ -128,7 +132,7 @@ mod tests {
 
     #[test]
     fn placement_follows_the_in_flight_message_load() {
-        let pool = vec![wid("a"), wid("b")];
+        let pool = pool(&["a", "b"]);
         let mut assigner =
             WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 10).unwrap();
 

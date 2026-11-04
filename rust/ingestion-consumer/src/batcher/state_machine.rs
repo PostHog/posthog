@@ -31,6 +31,7 @@ use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::{WorkerAssigner, WorkerInFlight};
 use super::RevokeId;
 use crate::order_sentinel::ack_mark;
+use crate::routing::Candidate;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -180,7 +181,7 @@ impl BatcherStateMachine {
     pub fn on_groups(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> (Self, Effects) {
@@ -199,7 +200,7 @@ impl BatcherStateMachine {
     pub fn on_request_succeeded(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
     ) -> (Self, Effects) {
@@ -214,7 +215,7 @@ impl BatcherStateMachine {
     pub fn on_request_partial(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
         unfinished: Vec<SerializedKafkaMessage>,
@@ -229,7 +230,7 @@ impl BatcherStateMachine {
     pub fn on_request_failed(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
@@ -239,7 +240,7 @@ impl BatcherStateMachine {
         })
     }
 
-    pub fn on_wakeup(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_wakeup(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         self.act(|active, draining| {
             let mut effects = Effects::default();
             active.advance(now, workers, draining, &mut effects)?;
@@ -263,7 +264,7 @@ impl BatcherStateMachine {
 
     /// Takes no new groups from now on, and stops once nothing is pending or
     /// in flight.
-    pub fn on_shutdown(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_shutdown(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
                 BatcherStateMachine::Draining(active).on_wakeup(now, workers)
@@ -394,7 +395,7 @@ impl ActiveState {
     fn on_groups(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> Result<Effects, String> {
@@ -411,7 +412,7 @@ impl ActiveState {
     fn on_request_succeeded(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -454,7 +455,7 @@ impl ActiveState {
     fn on_request_partial(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -505,7 +506,7 @@ impl ActiveState {
     fn on_request_failed(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         cause: FailureCause,
@@ -602,14 +603,14 @@ impl ActiveState {
 
     /// A request on a worker that left the pool holds none of the pool's
     /// permits, so the governor counts only the requests on `workers`.
-    fn sync_governor(&mut self, workers: &[WorkerId]) {
+    fn sync_governor(&mut self, workers: &[Candidate]) {
         let in_flight = workers
             .iter()
-            .map(|worker| self.assigner.requests_on(worker))
+            .map(|candidate| self.assigner.requests_on(&candidate.worker))
             .sum();
         self.governor.set_pool(workers.len(), in_flight);
         self.reconnecting
-            .retain(|worker, _| workers.contains(worker));
+            .retain(|worker, _| workers.iter().any(|candidate| candidate.worker == *worker));
     }
 
     fn settle_key(
@@ -635,7 +636,7 @@ impl ActiveState {
     fn advance(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -653,7 +654,7 @@ impl ActiveState {
     fn place(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -901,8 +902,11 @@ mod tests {
             .expect("valid governor settings")
     }
 
-    fn pool(workers: &[&str]) -> Vec<WorkerId> {
-        workers.iter().map(|w| WorkerId::from(*w)).collect()
+    fn pool(workers: &[&str]) -> Vec<Candidate> {
+        workers
+            .iter()
+            .map(|w| Candidate::uniform(WorkerId::from(*w)))
+            .collect()
     }
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
