@@ -113,6 +113,7 @@ export class UrlFetchConsumer {
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
+                    this.topHogMetrics?.recordFilteredUrl(partitionCandidate, 'received')
                     const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
@@ -191,6 +192,7 @@ export class UrlFetchConsumer {
                     }
                     if (job === 'drop') {
                         ImageFetchConsumerMetrics.incDeduped('store', 1)
+                        this.topHogMetrics?.recordFilteredUrl(candidate, 'store_deduped')
                         for (const sourcePartition of candidate.sourcePartitions ?? []) {
                             ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'store_deduped', 1)
                         }
@@ -199,11 +201,13 @@ export class UrlFetchConsumer {
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     notReady.push(candidate)
+                    this.topHogMetrics?.recordFilteredUrl(candidate, 'not_ready')
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
                         ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'not_ready', 1)
                     }
                 } else {
                     fetchable.push(candidate)
+                    this.topHogMetrics?.recordFilteredUrl(candidate, 'fetchable')
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
                         ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'fetchable', 1)
                     }

@@ -1,6 +1,8 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -10,6 +12,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { aiObservabilityTracesNodesRetrieve } from '../../generated/api'
 import {
     decodeIdSegment,
     makeEvaluationResults,
@@ -18,11 +21,19 @@ import {
     makeTraceResource,
 } from './adapter/testFixtures'
 import { TraceDrawerHost } from './TraceDrawerHost'
+import type { TraceDrawerListId } from './traceDrawerLists'
 import { traceDrawerLogic } from './traceDrawerLogic'
 import { TraceListRow } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
+jest.mock('../../generated/api', () => {
+    const actual = jest.requireActual('../../generated/api')
+    return {
+        ...actual,
+        aiObservabilityTracesNodesRetrieve: jest.fn(actual.aiObservabilityTracesNodesRetrieve),
+    }
+})
 jest.mock('../../utils', () => ({
     ...jest.requireActual('../../utils'),
     queryEvaluationRuns: jest.fn().mockResolvedValue([]),
@@ -30,7 +41,7 @@ jest.mock('../../utils', () => ({
 
 const TRACE_BASE_URL = '/api/projects/:team_id/ai_observability/traces/:id'
 const LIST_PATH = urls.aiObservabilityTraces()
-const LIST_ID = 'traces'
+const LIST_ID: TraceDrawerListId = 'traces'
 const ROW_A: TraceListRow = { traceId: 'a', timestamp: '2026-09-01T10:15:00Z', stepId: null }
 const ROW_B: TraceListRow = { traceId: 'b', timestamp: '2026-09-01T10:20:00Z', stepId: null }
 
@@ -54,6 +65,7 @@ function useTraceMocks(firstTraceReply: TraceReply): void {
             [`${TRACE_BASE_URL}/evaluations/`]: () => [200, makeEvaluationResults()],
             [`${TRACE_BASE_URL}/clusters/`]: () => [200, { clusters: [] }],
             [`${TRACE_BASE_URL}/feedback/`]: () => [200, makeFeedback({ scores: [], responses: [] })],
+            [`${TRACE_BASE_URL}/summary/`]: () => [404, { detail: 'No summary yet.' }],
         },
     })
 }
@@ -70,15 +82,15 @@ function setUp(url: string, sceneRect: Partial<DOMRect> = {}): void {
     router.actions.push(url)
 }
 
-function drawerUrl({ traceId, timestamp }: TraceListRow): string {
-    return combineUrl(LIST_PATH, { trace: traceId, ts: timestamp ?? undefined }).url
+function drawerUrl({ traceId, timestamp }: TraceListRow, listPath: string = LIST_PATH): string {
+    return combineUrl(listPath, { trace: traceId, ts: timestamp ?? undefined }).url
 }
 
-function renderHost(rows: TraceListRow[]): RenderResult {
-    const logic = traceDrawerLogic({ listId: LIST_ID })
+function renderHost(rows: TraceListRow[], listId: TraceDrawerListId = LIST_ID): RenderResult {
+    const logic = traceDrawerLogic({ listId })
     logic.mount()
     logic.actions.setRows(rows)
-    return render(<TraceDrawerHost listId={LIST_ID} />)
+    return render(<TraceDrawerHost listId={listId} />)
 }
 
 function attr(container: Element, name: string): HTMLElement {
@@ -148,6 +160,63 @@ describe('TraceDrawerHost', () => {
         expect(attr(view.container, 'trace-drawer-close')).toBe(close)
         expect(host.values.mode).toBe('thread')
         release()
+    })
+
+    it.each(['spans', 'summary'] as const)(
+        'applies the opening of the list once, so stepping from %s stays there',
+        async (mode) => {
+            silenceKeaLoadersErrors()
+            useTraceMocks(answerTrace('a'))
+            setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
+            const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
+            const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })
+            await waitFor(() => expect(host.values.mode).toBe('summary'))
+            act(() => host.actions.setMode(mode))
+
+            fireEvent.click(attr(view.container, 'trace-drawer-next'))
+
+            await view.findAllByText('answer-b')
+            expect(host.values.mode).toBe(mode)
+        }
+    )
+
+    it('steps with n and p, but not while typing or with a modal open', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findAllByText('answer-a')
+
+        fireEvent.keyDown(attr(view.container, 'trace-view-search-input'), { key: 'n' })
+        expect(router.values.searchParams.trace).toBe('a')
+
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.keyDown(modal.getByText('Save'), { key: 'n' })
+        modal.unmount()
+        expect(router.values.searchParams.trace).toBe('a')
+
+        fireEvent.keyDown(document.body, { key: 'n' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('b'))
+
+        fireEvent.keyDown(document.body, { key: 'p' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
+
+    it('reads no node when it closes on a step other than the default', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(combineUrl(LIST_PATH, { trace: 'a', ts: ROW_A.timestamp ?? undefined, step: 'span-1' }).url)
+        const view = renderHost([ROW_A])
+        await view.findAllByText('answer-a')
+        await waitFor(() => expect(aiObservabilityTracesNodesRetrieve).toHaveBeenCalled())
+        jest.mocked(aiObservabilityTracesNodesRetrieve).mockClear()
+
+        fireEvent.click(attr(view.container, 'trace-drawer-close'))
+
+        expect(router.values.searchParams.trace).toBeUndefined()
+        expect(aiObservabilityTracesNodesRetrieve).not.toHaveBeenCalled()
     })
 
     it('writes a clicked step to the list URL and stays on the list', async () => {
