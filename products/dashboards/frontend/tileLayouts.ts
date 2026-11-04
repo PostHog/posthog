@@ -1,6 +1,5 @@
 import { Layout } from 'react-grid-layout'
 
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import {
@@ -227,9 +226,7 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
 export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
-        tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
-            .map((tile) => tile.id)
+        tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
     )
 
     // Always calculate sm layout first to establish reference order

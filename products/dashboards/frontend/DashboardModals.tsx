@@ -3,8 +3,6 @@ import { router } from 'kea-router'
 import { Suspense, useEffect } from 'react'
 
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
-import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -15,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType } from '~/types'
 
-import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
@@ -24,7 +21,7 @@ import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
 
-// These modals carry their own editors and integration setup, which a dashboard needs only once one opens.
+// These modals carry their own editors, the rich text stack included, and integration setup, which a dashboard needs only once one opens.
 const AddWidgetModal = lazyWithRetry(() =>
     import('./widgets/AddWidgetModal').then((m) => ({ default: m.AddWidgetModal }))
 )
@@ -38,6 +35,14 @@ const SubscriptionsModal = lazyWithRetry(() =>
 )
 const TerraformExportModal = lazyWithRetry(() =>
     import('lib/components/TerraformExporter/TerraformExportModal').then((m) => ({ default: m.TerraformExportModal }))
+)
+const TextCardModal = lazyWithRetry(() =>
+    import('lib/components/Cards/TextCard/TextCardModal').then((m) => ({ default: m.TextCardModal }))
+)
+const ImageTileModal = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/ImageTile/ImageTileModal').then((m) => ({
+        default: m.ImageTileModal,
+    }))
 )
 
 export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JSX.Element {
@@ -68,13 +73,14 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     const textRouteTile =
         textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(textTileId)) : undefined
     const isCreatingTextTile = textTileId === null
-    const textRouteHasImage =
-        !!textRouteTile?.text && !!getImageOnlyTextCardImage(textCardConverter, textRouteTile.text.body)
+    const textRouteHasImage = !!textRouteTile?.text && !!getImageOnlyTextCardImage(textRouteTile.text.body)
     const buttonRouteTile =
         buttonTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(buttonTileId)) : undefined
     const isCreatingButtonTile = buttonTileId === null
     const selectedImageTileId = textRouteHasImage ? (textRouteTile?.id ?? null) : null
     const shouldShowImageTileModal = showImageTileModal || selectedImageTileId !== null
+    const isTextTileModalOpen = showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)
+    const shouldRenderTextTile = useKeepMountedWhileOpen(isTextTileModalOpen)
     const hasMissingRouteTile = (textTileId !== null && !textRouteTile) || (buttonTileId !== null && !buttonRouteTile)
     const closeTile = (): void => {
         if (
@@ -136,21 +142,25 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
             {canEditDashboard && (
                 <>
                     {shouldShowImageTileModal ? (
-                        <ImageTileModal
-                            key={selectedImageTileId ?? 'new'}
-                            isOpen={shouldShowImageTileModal}
-                            onClose={closeTile}
-                            dashboard={dashboard}
-                            imageTileId={selectedImageTileId}
-                        />
-                    ) : (
-                        <TextCardModal
-                            isOpen={showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)}
-                            onClose={closeTile}
-                            dashboard={dashboard}
-                            textTileId={textTileId}
-                        />
-                    )}
+                        <Suspense fallback={<DashboardModalLoading isOpen onClose={closeTile} />}>
+                            <ImageTileModal
+                                key={selectedImageTileId ?? 'new'}
+                                isOpen={shouldShowImageTileModal}
+                                onClose={closeTile}
+                                dashboard={dashboard}
+                                imageTileId={selectedImageTileId}
+                            />
+                        </Suspense>
+                    ) : shouldRenderTextTile ? (
+                        <Suspense fallback={<DashboardModalLoading isOpen={isTextTileModalOpen} onClose={closeTile} />}>
+                            <TextCardModal
+                                isOpen={isTextTileModalOpen}
+                                onClose={closeTile}
+                                dashboard={dashboard}
+                                textTileId={textTileId}
+                            />
+                        </Suspense>
+                    ) : null}
                     <ButtonTileCardModal
                         isOpen={showButtonTileModal && (isCreatingButtonTile || !!buttonRouteTile?.button_tile)}
                         onClose={closeTile}

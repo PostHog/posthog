@@ -17,6 +17,7 @@ class SourceInputsStore:
     update_fields = _store.INPUTS_UPDATE_FIELDS
     load = staticmethod(_store.SourceInputsStore.load)
     load_many = staticmethod(_store.SourceInputsStore.load_many)
+    preload = staticmethod(_store.SourceInputsStore.preload)
     load_settings = staticmethod(_store.SourceInputsStore.load_settings)
     stored_as_string = staticmethod(_store.SourceInputsStore.stored_as_string)
     assign = staticmethod(_store.SourceInputsStore.assign)
