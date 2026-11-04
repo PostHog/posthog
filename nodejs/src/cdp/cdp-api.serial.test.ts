@@ -2880,13 +2880,19 @@ describe('CDP API', () => {
             }
         )
 
-        it('refuses a template send token on the code send route', async () => {
+        it.each([
+            ['a template send token on the code send route', 'transactional_email/send', 'transactional_email'],
+            ['a code send token on the template send route', 'transactional_email', 'transactional_email/send'],
+        ])('refuses %s', async (_desc, route, tokenRoute) => {
+            const unauthorizedBefore = await outcomeCount('unauthorized')
+
             const res = await supertest(app)
-                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/transactional_email/send`)
-                .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
+                .set({ Authorization: `Bearer ${tokenFor(tokenRoute, team.id, hogFlow.id)}` })
                 .send({ ...body, send: codeSend })
 
             expect(res.status).toEqual(401)
+            expect(await outcomeCount('unauthorized')).toEqual(unauthorizedBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
