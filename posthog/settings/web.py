@@ -544,7 +544,7 @@ WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
 # Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
-SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "10/day")
 
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may

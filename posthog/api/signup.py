@@ -59,7 +59,12 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupAttemptIPThrottle,
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+)
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -531,7 +536,13 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
+
+    def perform_create(self, serializer: SignupSerializer) -> None:
+        super().perform_create(serializer)
+        for throttle in self.get_throttles():
+            if isinstance(throttle, SignupIPThrottle):
+                throttle.record_signup(self.request, self)
 
 
 class InviteSignupSerializer(serializers.Serializer):

@@ -1815,14 +1815,15 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
-        """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
-
-        # Clear any existing rate limit cache
         cache.clear()
 
-        for i in range(6):
+        for i in range(5):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+        for i in range(11):
             response = self.client.post(
                 "/api/signup/",
                 {
@@ -1833,15 +1834,38 @@ class TestSignupAPI(APIBaseTest):
                 },
             )
 
-            if i < 5:
+            if i < 10:
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
                 # Clean up the created org and user to allow next signup
                 Organization.objects.filter(for_internal_metrics=False).delete()
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "11th signup should be rate limited"
                 )
+                self.assertIn("Retry-After", response.headers)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limits_failed_attempts_by_ip(self, mock_get_ip):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        cache.clear()
+
+        for i in range(30):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "User",
+                "email": "user@example.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):

@@ -7,10 +7,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
@@ -561,6 +562,11 @@ export const signupLogic = kea<signupLogicType>([
                     // never scored can reach the server and be refused there. Send the user back to the
                     // password step.
                     if (error.attr === 'password') {
+                        // A password error on a passkey signup means the server session no longer holds the
+                        // passkey. The next submit would leave out the password again and fail the same way.
+                        if (values.passkeyRegistered) {
+                            actions.setPasskeyRegistered(false)
+                        }
                         actions.setSignupPanelAuthManualErrors({
                             password: String(error.detail || 'Please choose a stronger password'),
                         })
@@ -580,10 +586,23 @@ export const signupLogic = kea<signupLogicType>([
                     }
 
                     if (error.code === 'throttled') {
+                        const retryAfterHeader = e instanceof ApiError ? e.headers?.get('Retry-After') : null
+                        const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN
+                        const hasRetryAfter = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+                        posthog.capture('signup throttled', {
+                            retry_after_seconds: hasRetryAfter ? retryAfterSeconds : null,
+                            with_passkey: values.passkeyRegistered,
+                        })
+                        const retryAfter = hasRetryAfter
+                            ? dayjs.duration(retryAfterSeconds, 'seconds').humanize(true)
+                            : 'later'
+                        const googleSuggestion = values.preflight?.available_social_auth_providers?.['google-oauth2']
+                            ? ', or sign up with Google instead'
+                            : ''
                         actions.setSignupPanelOnboardingManualErrors({
                             generic: {
                                 code: error.code,
-                                detail: 'Too many signup attempts. Please try again later.',
+                                detail: `Too many signup attempts from your network. Try again ${retryAfter}${googleSuggestion}.`,
                             },
                         })
                     } else {
