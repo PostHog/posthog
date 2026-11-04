@@ -2,7 +2,7 @@ import './Today.scss'
 
 import { useState } from 'react'
 
-import { IconArrowRight, IconHide, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -25,6 +25,7 @@ import { todayNumber } from './todayNumbers'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel, pulseWhy } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
+import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
@@ -110,18 +111,11 @@ export function TodayPulseCard({
                         <span />
                     )}
                     <div className="-me-1.5 flex items-center">
-                        <Button
-                            size="icon-xs"
-                            aria-label={pinned ? 'Unpin from your home' : 'Pin to your home'}
-                            tooltip={pinned ? 'Unpin from your home' : 'Pin to your home'}
-                            aria-pressed={pinned}
+                        <TodayPulsePinButton
+                            pinned={pinned}
                             disabledReason={pinDisabledReason}
-                            onClick={onTogglePin}
-                            className={pinned ? undefined : 'text-muted-foreground'}
-                            data-attr="today-pulse-card-pin"
-                        >
-                            {pinned ? <IconPinFilled /> : <IconPin />}
-                        </Button>
+                            onToggle={onTogglePin}
+                        />
                         {!pinned && (
                             <Button
                                 size="icon-xs"
