@@ -235,8 +235,8 @@ function leavesOutlookConditionalOpen(roots: DefaultTreeAdapterMap['childNode'][
     while (pending.length) {
         const node = pending.pop()!
         if (defaultTreeAdapter.isCommentNode(node)) {
-            for (const match of `<!--${node.data}-->`.matchAll(/<!(?:--)?\[(if\b|endif\])/gi)) {
-                depth = match[1].toLowerCase() === 'if' ? depth + 1 : Math.max(depth - 1, 0)
+            for (const match of `<!--${node.data}-->`.matchAll(/<!(?:--)?\[(?:(if)\b|endif\](?:--)?>)/gi)) {
+                depth = match[1] ? depth + 1 : Math.max(depth - 1, 0)
             }
         } else if (defaultTreeAdapter.isElementNode(node)) {
             const children =
