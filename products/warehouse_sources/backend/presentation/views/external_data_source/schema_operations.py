@@ -125,6 +125,16 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
     )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. "
+            "Any change starts a full resync of the table."
+        ),
+    )
     row_filters = RowFiltersField(
         required=False,
         allow_null=True,
