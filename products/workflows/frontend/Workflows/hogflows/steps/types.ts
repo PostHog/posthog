@@ -441,7 +441,10 @@ export const isOptOutEligibleAction = (
     return ['function_email', 'function_sms', 'function_push'].includes(action.type)
 }
 
-export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
+// An interface, not an alias, so kea-typegen names it instead of expanding the whole step shape in every logic.
+export interface EmailAction extends Extract<HogFlowAction, { type: 'function_email' }> {}
+
+export const isEmailAction = (action: HogFlowAction): action is EmailAction => {
     return ['function_email'].includes(action.type)
 }
 

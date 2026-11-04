@@ -21,7 +21,7 @@ import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from
 import type { AppMetricsCommonParams } from '../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from '../../../../frontend/src/lib/dayjs'
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
-import { isEmailAction, isPushAction } from './hogflows/steps/types'
+import { EmailAction, isEmailAction, isPushAction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -499,65 +499,7 @@ export interface workflowMetricsSummaryLogicValues {
     conversionStatsFailed: boolean
     conversionStatsLoading: boolean
     convertedUsersUrl: string
-    emailActions: ({
-        config: {
-            inputs: Record<
-                string,
-                {
-                    bytecode?: any
-                    order?: number | undefined
-                    secret?: boolean | undefined
-                    templating?: 'hog' | 'liquid' | undefined
-                    value: any
-                }
-            >
-            message_category_id?: string | undefined
-            message_category_type?: 'marketing' | 'transactional' | undefined
-            template_id: 'template-email'
-            template_uuid?: string | undefined
-            tracking_enabled?: boolean | undefined
-            utm_params?:
-                | {
-                      utm_campaign?: string | undefined
-                      utm_content?: string | undefined
-                      utm_medium?: string | undefined
-                      utm_source?: string | undefined
-                  }
-                | undefined
-            utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
-            utm_tags_enabled?: boolean | undefined
-        }
-        created_at?: number | undefined
-        description: string
-        filters?:
-            | {
-                  actions?: any[] | undefined
-                  events?: any[] | undefined
-                  properties?: any[] | undefined
-              }
-            | null
-            | undefined
-        id: string
-        name: string
-        on_error?: 'abort' | 'continue' | null | undefined
-        output_variable?:
-            | {
-                  key: string
-                  label?: string | null | undefined
-                  result_path?: string | null | undefined
-                  spread?: boolean | null | undefined
-              }
-            | {
-                  key: string
-                  label?: string | null | undefined
-                  result_path?: string | null | undefined
-                  spread?: boolean | null | undefined
-              }[]
-            | null
-            | undefined
-        type: 'function_email'
-        updated_at?: number | undefined
-    } & Record<string, unknown>)[]
+    emailActions: EmailAction[]
     emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
     emailLinkTotalsByActionIdLoading: boolean
     emailMetricsRows: EmailMetricRow[]
@@ -738,65 +680,7 @@ export interface workflowMetricsSummaryLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sourceWorkflow: (workflow: HogFlow, originalWorkflow: HogFlow | null, arg: boolean | undefined) => HogFlow
         loading: (appMetricsTrendsLoading: boolean, completedLoading: boolean) => boolean
-        emailActions: (sourceWorkflow: HogFlow) => ({
-            config: {
-                inputs: Record<
-                    string,
-                    {
-                        bytecode?: any
-                        order?: number | undefined
-                        secret?: boolean | undefined
-                        templating?: 'hog' | 'liquid' | undefined
-                        value: any
-                    }
-                >
-                message_category_id?: string | undefined
-                message_category_type?: 'marketing' | 'transactional' | undefined
-                template_id: 'template-email'
-                template_uuid?: string | undefined
-                tracking_enabled?: boolean | undefined
-                utm_params?:
-                    | {
-                          utm_campaign?: string | undefined
-                          utm_content?: string | undefined
-                          utm_medium?: string | undefined
-                          utm_source?: string | undefined
-                      }
-                    | undefined
-                utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
-                utm_tags_enabled?: boolean | undefined
-            }
-            created_at?: number | undefined
-            description: string
-            filters?:
-                | {
-                      actions?: any[] | undefined
-                      events?: any[] | undefined
-                      properties?: any[] | undefined
-                  }
-                | null
-                | undefined
-            id: string
-            name: string
-            on_error?: 'abort' | 'continue' | null | undefined
-            output_variable?:
-                | {
-                      key: string
-                      label?: string | null | undefined
-                      result_path?: string | null | undefined
-                      spread?: boolean | null | undefined
-                  }
-                | {
-                      key: string
-                      label?: string | null | undefined
-                      result_path?: string | null | undefined
-                      spread?: boolean | null | undefined
-                  }[]
-                | null
-                | undefined
-            type: 'function_email'
-            updated_at?: number | undefined
-        } & Record<string, unknown>)[]
+        emailActions: (sourceWorkflow: HogFlow) => EmailAction[]
         pushActions: (sourceWorkflow: HogFlow) => ({
             config: {
                 inputs: Record<
@@ -882,67 +766,7 @@ export interface workflowMetricsSummaryLogicMeta {
             sentSummaryLabel: string
         ) => AppMetricsTimeSeriesResponse | null
         emailMetricsRows: (
-            emailActions: ({
-                config: {
-                    inputs: Record<
-                        string,
-                        {
-                            bytecode?: any
-                            order?: number | undefined
-                            secret?: boolean | undefined
-                            templating?: 'hog' | 'liquid' | undefined
-                            value: any
-                        }
-                    >
-                    message_category_id?: string | undefined
-                    message_category_type?: 'marketing' | 'transactional' | undefined
-                    template_id: 'template-email'
-                    template_uuid?: string | undefined
-                    tracking_enabled?: boolean | undefined
-                    utm_params?:
-                        | {
-                              utm_campaign?: string | undefined
-                              utm_content?: string | undefined
-                              utm_medium?: string | undefined
-                              utm_source?: string | undefined
-                          }
-                        | undefined
-                    utm_params_from_default?:
-                        | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
-                        | undefined
-                    utm_tags_enabled?: boolean | undefined
-                }
-                created_at?: number | undefined
-                description: string
-                filters?:
-                    | {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                    | null
-                    | undefined
-                id: string
-                name: string
-                on_error?: 'abort' | 'continue' | null | undefined
-                output_variable?:
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }[]
-                    | null
-                    | undefined
-                type: 'function_email'
-                updated_at?: number | undefined
-            } & Record<string, unknown>)[],
+            emailActions: EmailAction[],
             emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
         ) => EmailMetricRow[]
         pushMetricsRows: (
