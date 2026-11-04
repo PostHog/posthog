@@ -3,7 +3,6 @@ import type { CdpConfig } from './config'
 import { FrequencyCapValkeyConfig, createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import {
     RateLimiterValkeyConfig,
-    createSandboxEmailCapValkeyPool,
     createSesRateLimiterValkeyPool,
 } from './services/rate-limiter/rate-limiter-valkey-pool'
 
@@ -28,7 +27,13 @@ export function createEmailActionValkeys(
 export function createSandboxEmailCapValkey(
     config: SandboxEmailCapValkeyConfig
 ): Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'> {
+    // The caps run inside a send, so a stalled Valkey must fail the check instead of holding the worker's batch.
     return config.WORKFLOWS_SANDBOX_SENDER_ENABLED
-        ? { sandboxEmailCapValkey: createSandboxEmailCapValkeyPool(config) }
+        ? {
+              sandboxEmailCapValkey: createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', {
+                  optional: true,
+                  failFast: true,
+              }),
+          }
         : {}
 }

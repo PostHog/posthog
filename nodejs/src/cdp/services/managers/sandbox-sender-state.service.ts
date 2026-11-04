@@ -1,6 +1,7 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { PubSub } from '~/common/utils/pubsub'
+import { sleep } from '~/common/utils/utils'
 
 import { BoundedPrimaryLookup } from '../../utils/bounded-primary-lookup'
 
@@ -32,8 +33,7 @@ export class SandboxSenderStateService {
             name: 'sandbox_sender_state',
             refreshAgeMs: 30_000,
             refreshJitterMs: 5_000,
-            loader: async (tenantNames) => await this.fetchStates(tenantNames),
-            loaderRetry: DEFAULT_LOADER_RETRY,
+            loader: async (tenantNames) => await this.fetchStatesWithRetry(tenantNames),
         })
         pubSub.on<{ tenantName: string }>('reload-sandbox-sender-state', ({ tenantName }): void => {
             this.generation++
@@ -43,18 +43,36 @@ export class SandboxSenderStateService {
 
     // `fresh` reads the row itself, for the check right before delivery: a worker that missed the
     // reload message would otherwise answer from a cached state until the next refresh.
+    // A reload message during a read means the row changed after the read began, so both paths read again.
     public async isPaused(tenantName: string, { fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
-        if (fresh) {
-            return isDisabled((await this.fetchStates([tenantName]))[tenantName])
-        }
         for (let attempt = 0; attempt < 2; attempt++) {
-            const state = await this.lazyLoader.get(tenantName)
+            const state = fresh
+                ? (await this.fetchStatesWithRetry([tenantName]))[tenantName]
+                : await this.lazyLoader.get(tenantName)
             if (state?.generation === this.generation) {
                 return isDisabled(state)
             }
-            this.lazyLoader.markForRefresh(tenantName)
+            if (!fresh) {
+                this.lazyLoader.markForRefresh(tenantName)
+            }
         }
         throw new Error('Sandbox sender state changed during lookup')
+    }
+
+    // Both the cached and the fresh check retry here, so a database blip right before delivery does not skip the send.
+    private async fetchStatesWithRetry(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {
+        const { retryIntervalMs, retryJitterMs = 0, maxElapsedMs } = DEFAULT_LOADER_RETRY
+        const giveUpAt = performance.now() + maxElapsedMs
+        for (;;) {
+            try {
+                return await this.fetchStates(tenantNames)
+            } catch (error) {
+                if (error?.isRetriable !== true || performance.now() >= giveUpAt) {
+                    throw error
+                }
+                await sleep(retryIntervalMs + Math.floor(Math.random() * retryJitterMs))
+            }
+        }
     }
 
     private async fetchStates(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {

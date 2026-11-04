@@ -112,11 +112,11 @@ describe('OrganizationMembersService', () => {
 
         expect(check).toEqual(
             expected === 'allowed'
-                ? { organizationBlocked: false, blocked: [], deliverTo: [memberEmail] }
+                ? { organizationBlocked: false, blocked: [], deliverTo: new Map([[address, memberEmail]]) }
                 : {
                       organizationBlocked: false,
                       blocked: [{ address, unverifiedMember: expected === 'unverified' }],
-                      deliverTo: [],
+                      deliverTo: new Map(),
                   }
         )
     })
@@ -130,7 +130,22 @@ describe('OrganizationMembersService', () => {
         expect(await service.checkRecipients(team.id, [memberEmail, outsider])).toEqual({
             organizationBlocked: false,
             blocked: [{ address: outsider, unverifiedMember: false }],
-            deliverTo: [memberEmail],
+            deliverTo: new Map([[memberEmail, memberEmail]]),
+        })
+    })
+
+    it.each([
+        ['delivers to the address that matches one exactly', 'Member', true],
+        ['blocks an address that matches neither', 'MEMBER', false],
+    ])('%s of two members whose addresses differ only in case', async (_case, written, delivered) => {
+        await createMember(`Member-${team.id}@example.com`, organizationId, true)
+        await createMember(`member-${team.id}@example.com`, organizationId, true)
+        const address = `${written}-${team.id}@example.com`
+
+        expect(await service.checkRecipients(team.id, [address])).toEqual({
+            organizationBlocked: false,
+            blocked: delivered ? [] : [{ address, unverifiedMember: false }],
+            deliverTo: new Map(delivered ? [[address, address]] : []),
         })
     })
 
@@ -204,7 +219,7 @@ describe('OrganizationMembersService', () => {
                 await expect(next).resolves.toEqual({
                     organizationBlocked: false,
                     blocked: [{ address: memberEmail, unverifiedMember: false }],
-                    deliverTo: [],
+                    deliverTo: new Map(),
                 })
             } finally {
                 jest.useRealTimers()
@@ -218,11 +233,15 @@ describe('OrganizationMembersService', () => {
             email,
             is_email_verified: true,
         })
-        const allowed = { organizationBlocked: false, blocked: [], deliverTo: ['member@example.com'] }
+        const allowed = {
+            organizationBlocked: false,
+            blocked: [],
+            deliverTo: new Map([['member@example.com', 'member@example.com']]),
+        }
         const memberBlocked = {
             organizationBlocked: false,
             blocked: [{ address: 'member@example.com', unverifiedMember: false }],
-            deliverTo: [],
+            deliverTo: new Map(),
         }
 
         it('fails closed when every member lookup outlasts its one-minute decision', async () => {
@@ -295,13 +314,18 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one member lookup across sends and reloads it after a minute', async () => {
+        it('shares one member lookup across concurrent and later sends and reloads it after a minute', async () => {
             let now = 0
             let member = 'member@example.com'
             const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
+            expect(
+                await Promise.all([
+                    service.checkRecipients(1, ['member@example.com']),
+                    service.checkRecipients(1, ['member@example.com']),
+                ])
+            ).toEqual([allowed, allowed])
             expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
             expect(query).toHaveBeenCalledTimes(1)
 
