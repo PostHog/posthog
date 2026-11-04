@@ -43,6 +43,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
 from products.warehouse_sources.backend.facade.contracts import (
     ConfigValueError,
     LegacyHistoryTableError,
@@ -60,6 +61,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    clear_masked_column_bounds,
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
@@ -83,8 +85,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    ambiguous_masked_columns,
+    collision_alias_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    fold_column_name,
     get_cdc_adapter,
+    hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
     history_columns,
     history_naming_unless_taken,
@@ -96,6 +102,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     is_history_table_mode,
     is_incremental_history_enabled_for_team,
     known_source_key,
+    masking_key_unavailable,
     new_history_naming,
     pin_history_naming,
     pinned_history_naming,
@@ -106,6 +113,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    stage_handed_over_reset,
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
@@ -163,6 +171,7 @@ def source_syncs_on_demand(source_type: str) -> bool:
 
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
+WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -187,6 +196,20 @@ def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dic
         )
     )
     return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook.
+
+    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
+    the first schema of each source looks the source up and keeps the answer for the rest.
+    """
+    if not schema_needs_webhook(schema):
+        return False
+    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
+    if schema.source_id not in missing_by_source:
+        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
+    return missing_by_source[schema.source_id]
 
 
 def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
@@ -604,6 +627,176 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
 
 
+MASKING_KEY_UNAVAILABLE_ERROR = (
+    "Column masking isn't set up on this PostHog instance. "
+    "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret of at least 32 characters, then try again."
+)
+
+
+def masked_key_conflict_error(
+    masked_columns: list[str],
+    primary_key_columns: Iterable[str] | None,
+    incremental_fields: Iterable[str | None],
+    partition_keys: Iterable[str] = (),
+) -> str | None:
+    # A partition column is read as a date or a number to pick the partition, which a digest is not.
+    protected = {
+        fold_column_name(column)
+        for column in [*(primary_key_columns or []), *partition_keys, *incremental_fields]
+        if column
+    }
+    conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
+    if conflicting:
+        return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
+    return None
+
+
+def masked_columns_error(
+    masked_columns: list[str],
+    *,
+    source_type: str,
+    is_direct_query: bool,
+    source_columns: Iterable[object],
+    primary_key_columns: Iterable[str] | None,
+    incremental_fields: Iterable[str | None],
+    partition_keys: Iterable[str] = (),
+) -> str | None:
+    """Why this mask cannot be saved, or None. `source_columns` is empty when no columns are known yet."""
+    # A direct query source never syncs, so a saved mask would protect nothing.
+    if is_direct_query:
+        return "Column masking is not supported for direct query sources."
+    # A managed-schema source declares fixed column types, which a string digest breaks.
+    if not source_supports_column_selection(source_type):
+        return "Column masking is not supported for this source type."
+    if masking_key_unavailable():
+        return MASKING_KEY_UNAVAILABLE_ERROR
+    known = [name for name in source_columns if isinstance(name, str)]
+    # A mask that names no real column hashes nothing, so the intended column would sync in plaintext.
+    if not known:
+        return "Can't mask columns before the table's columns are known. Sync the table once, then try again."
+    known_folded = {fold_column_name(name) for name in known}
+    unknown = [column for column in masked_columns if fold_column_name(column) not in known_folded]
+    if unknown:
+        return (
+            f"Unknown columns in masked_columns: {sorted(unknown)}. "
+            "Run `Pull new schemas` to refresh available columns."
+        )
+    ambiguous = ambiguous_masked_columns(masked_columns, known)
+    if ambiguous:
+        return (
+            f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
+            "Rename the source columns so they differ by more than case."
+        )
+    return masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
+
+
+def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:
+    """Each mask under its column's own name, once. The UI compares names exactly."""
+    by_folded: dict[str, str] = {}
+    for name in source_columns:
+        by_folded.setdefault(fold_column_name(name), name)
+    return list(dict.fromkeys(by_folded.get(fold_column_name(column), column) for column in masked_columns))
+
+
+def _stage_mask_rebuild(config: dict[str, Any]) -> None:
+    config["reset_pipeline"] = True
+
+
+def _stage_disabled_cdc_mask_snapshot(config: dict[str, Any]) -> None:
+    config["cdc_mode"] = "snapshot"
+    config["reset_pipeline"] = True
+    config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+    config.pop(CDC_RESET_PENDING_KEY, None)
+
+
+def _validate_masked_columns(
+    instance: ExternalDataSchema, validated_data: dict[str, Any], data: dict[str, Any]
+) -> bool:
+    """Reject a mask the sync cannot honor. Returns whether the request changes the masked set."""
+    mask_in_request = "masked_columns" in validated_data
+    masked_columns = (validated_data["masked_columns"] if mask_in_request else instance.masked_columns) or []
+
+    # Also checked when only the key or the cursor moves, so neither can land on a masked column.
+    if masked_columns and (mask_in_request or "primary_key_columns" in data or "incremental_field" in data):
+        metadata_columns = (instance.schema_metadata or {}).get("columns")
+        source_columns: list[str] = [
+            name
+            for column in (metadata_columns if isinstance(metadata_columns, list) else [])
+            if isinstance(column, dict) and isinstance(name := column.get("name"), str)
+        ]
+        synced_columns = (
+            [column["name"] for column in instance.table.get_user_facing_columns()]
+            if instance.table is not None
+            else []
+        )
+        # Non-SQL sources record no column metadata, so their synced columns are the known ones.
+        if not source_columns:
+            source_columns = synced_columns
+        # Some sources record their columns after normalization, so the metadata can list an alias too.
+        aliases = collision_alias_masked_columns(masked_columns, [*source_columns, *synced_columns])
+        if aliases:
+            raise ValidationError(
+                f"Can't mask {sorted(aliases)}: the column was renamed because two source columns share its "
+                "name. Rename one of the source columns, then mask it."
+            )
+        primary_key_columns = [*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])]
+        # Without a stored key, a sync merges and partitions on `id` when the table has one.
+        if not primary_key_columns:
+            primary_key_columns = [name for name in source_columns if name.lower() == "id"][:1]
+        # The stored key and cursor count too: an update can leave them in place, for example when a
+        # CDC table ignores the incremental field in the request. A full-refresh table keeps the cursor
+        # of an earlier sync method in its settings, but reads no cursor.
+        sync_type = data.get("sync_type") or instance.sync_type
+        stored_cursor = instance.incremental_field if sync_type != ExternalDataSchema.SyncType.FULL_REFRESH else None
+        incremental_fields = [data.get("incremental_field"), stored_cursor]
+        partition_keys = [*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])]
+        # A stored mask whose column left the source must not block unrelated edits, so only new masks
+        # are checked against the known columns. Every mask is still checked against the keys.
+        stored = {fold_column_name(column) for column in instance.masked_columns or []}
+        new_masks = [column for column in masked_columns if fold_column_name(column) not in stored]
+        error = (
+            masked_columns_error(
+                new_masks,
+                source_type=instance.source.source_type,
+                is_direct_query=instance.source.is_direct_query,
+                source_columns=source_columns,
+                primary_key_columns=primary_key_columns,
+                incremental_fields=incremental_fields,
+                partition_keys=partition_keys,
+            )
+            if new_masks
+            else None
+        ) or masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
+        if error:
+            raise ValidationError(error)
+        if mask_in_request:
+            masked_columns = canonical_masked_columns(masked_columns, source_columns)
+            validated_data["masked_columns"] = masked_columns
+
+    # An omitted field is unchanged. Without this, any other edit to a masked table would read as
+    # "remove every mask" and start a full resync.
+    if not mask_in_request:
+        return False
+    changed = {fold_column_name(column) for column in (instance.masked_columns or [])} != {
+        fold_column_name(column) for column in masked_columns
+    }
+    if not changed:
+        return False
+    # A mask change rebuilds the table from the source. A webhook table keeps its rows through a
+    # reset, because the source cannot send them again, so the old values would stay as they are.
+    if instance.is_webhook and instance.table is not None:
+        raise ValidationError(
+            "Can't change masked columns on a synced webhook table, because its data can't be fetched "
+            "again from the source. Delete and recreate the table to change masking."
+        )
+    if is_any_external_data_schema_paused(instance.team_id):
+        raise ValidationError(
+            "Monthly sync limit reached. Please increase your billing limit before changing "
+            "masked columns, because the change needs a full resync."
+        )
+    return True
+
+
 def _refuse_reserved_columns(
     instance: ExternalDataSchema,
     *,
@@ -822,6 +1015,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    webhook_not_registered = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether this table uses webhook sync, but its source has no enabled webhook. Such a table "
+            "gets no webhook updates. Each sync polls the source API instead, which is slower and can read "
+            "the whole table. Set up the webhook on the source, or change `sync_type`."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -830,6 +1031,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Names of source columns to sync. `null` (default) syncs all columns. "
             "Primary-key columns and the active incremental field are always retained, "
             "even if not listed here."
+        ),
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at "
+            "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
+            "Primary-key, partition and incremental columns can't be masked, and direct query "
+            "sources don't support masking. Any change to this list starts a full resync of the table "
+            "(CDC tables take a new snapshot), or stages it until syncing is turned on. A synced "
+            "webhook table can't change its masked columns, because its data can't be fetched again."
         ),
     )
     row_filters = RowFiltersField(
@@ -921,7 +1135,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "primary_key_columns",
             "cdc_table_mode",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "enabled_columns",
+            "masked_columns",
             "row_filters",
             "row_filter_columns",
             "available_columns",
@@ -944,6 +1160,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "status",
             "pending_self_managed_table",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -1133,6 +1350,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
+        return webhook_not_registered(schema, self.context)
+
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
         return linked_table_id(schema, self.context)
@@ -1201,6 +1422,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         instance: ExternalDataSchema,
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
+        mutate_locked_config: Callable[[dict[str, Any]], None] | None = None,
     ) -> ExternalDataSchema:
         """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
@@ -1225,6 +1447,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             merged.update(changed)
             for key in removed:
                 merged.pop(key, None)
+            if mutate_locked_config is not None:
+                mutate_locked_config(merged)
             validated_data["sync_type_config"] = merged
             # Apply to the locked row rather than the request's copy. The copy still holds whatever
             # the other writer replaced, and activity logging diffs the stored row against the
@@ -1313,6 +1537,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     raise ValidationError(
                         "Column metadata is unavailable. Run `Pull new schemas` before selecting source columns."
                     )
+
+        masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
@@ -1782,6 +2008,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
+        # Rows already synced hold the old values, and the column changes type between the source
+        # type and text, so a mask change rebuilds the table. CDC takes a new snapshot further down.
+        # The rebuild is staged on the locked row: a run can clear an earlier reset, or repair can stage
+        # one, between this request's read and its save.
+        stage_locked_config: Callable[[dict[str, Any]], None] | None = None
+        if masked_columns_changed:
+            will_sync = should_sync if should_sync is not None else instance.should_sync
+            if not is_cdc:
+                validated_data.setdefault("sync_type_config", instance.sync_type_config)
+                stage_locked_config = _stage_mask_rebuild
+                if will_sync:
+                    trigger_refresh = True
+            elif will_sync:
+                # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
+                stage_locked_config = stage_handed_over_reset
+            else:
+                # Capture does not read a table that does not sync, so the new snapshot is staged in this
+                # save. A self-managed publication takes no snapshot of its own when the table is turned on.
+                stage_locked_config = _stage_disabled_cdc_mask_snapshot
+                instance.initial_sync_complete = False
+                validated_data["initial_sync_complete"] = False
+
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
@@ -1849,14 +2097,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
-        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        updated_instance = self._save_merging_sync_type_config(
+            instance, validated_data, original_sync_type_config, stage_locked_config
+        )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
+
+        if masked_columns_changed:
+            # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
+            clear_masked_column_bounds(
+                updated_instance.team_id, updated_instance.table_id, updated_instance.masked_columns
+            )
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
         # one table. Cancel it; the user decides when to sync again.
-        if api_version_changed:
+        # A mask change cancels it too, as the resync button does, so the masking rebuild starts now
+        # instead of waiting for the next schedule tick.
+        import_cancelled = False
+        if api_version_changed or (masked_columns_changed and not is_cdc):
             running_job = (
                 ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
                 .order_by("-created_at")
@@ -1869,12 +2128,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         cancel_external_data_workflow(running_job.workflow_id)
                     except temporalio.service.RPCError as e:
                         logger.exception(
-                            "Could not cancel running workflow after api_version change",
+                            "Could not cancel running workflow after a schema change",
                             schema_id=str(instance.id),
+                            workflow_id=running_job.workflow_id,
+                            reason="api_version_change" if api_version_changed else "mask_change",
                             exc_info=e,
                         )
 
                 self._run_temporal_side_effect(cancel_running_import)
+                import_cancelled = True
 
         if source.supports_scheduled_sync and (
             should_sync is not None
@@ -1938,7 +2200,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
-            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
+            self._run_temporal_side_effect(
+                lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
+            )
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
@@ -1954,10 +2218,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(sync_cdc_schedule)
 
+        # Capture finishes this reset before it reads the change stream again, and it empties the change
+        # buffer first: files captured before the change hold the old values and the old column type.
+        cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
+        if cdc_mask_reset:
+            # The save above staged the reset, so the hand-over only pauses the schedule and starts capture.
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger, stage=False))
+
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
         # automatically once the snapshot completes via `run_post_load_operations`.
-        if is_cdc and "cdc_table_mode" in data:
+        if is_cdc and "cdc_table_mode" in data and not cdc_mask_reset:
             new_cdc_table_mode = data.get("cdc_table_mode")
             if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
                 logger.info(
@@ -2457,6 +2728,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if kwargs.get("many") and args:
             context = kwargs["context"]
             context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 

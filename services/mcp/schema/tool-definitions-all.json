@@ -6636,7 +6636,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), column masking (masked_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively, except a masked_columns change, which starts a full resync of the table. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -8291,7 +8291,7 @@
         }
     },
     "inbox-reports-create": {
-        "description": "File a finding as an inbox report in this project, for example something your own agent found. Search `inbox-reports-list` first and update an existing report rather than filing a near-duplicate. The report passes the same safety judge a scout report passes, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. `evidence` lists the observations behind the report, at least one. Safe to retry: resending a call returns the first report (`idempotent_replay` true) instead of a second one, keyed on `idempotency_key` or, without one, on the report's content. A filed report never starts an implementation run or opens a pull request on its own, even when it names a `repository`, `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers` routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before then.",
+        "description": "File a finding as an inbox report in this project, for example something your own agent found. Search `inbox-reports-list` first and update an existing report rather than filing a near-duplicate. The report passes the same safety judge a scout report passes, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. `evidence` lists the observations behind the report, at least one. Safe to retry: resending a call returns the first report (`idempotent_replay` true) instead of a second one, keyed on `idempotency_key` or, without one, on the report's content. A filed report never starts an implementation run or opens a pull request on its own, even when it names a `repository`, `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers` routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before then. A 403 means the organization has not approved AI data processing: tell the person that an organization admin must turn it on, and do not retry before then.",
         "category": "Signals",
         "feature": "signals",
         "summary": "File an inbox report",
@@ -9025,7 +9025,7 @@
         }
     },
     "llma-dataset-archive": {
-        "description": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
+        "description": "Archive a dataset by ID. Its revisions and items remain readable until expiry, but item mutations are rejected until the dataset is restored. Archived datasets and historical revisions expire after 30 days of inactivity; active datasets expire after 90 days. Archiving an already archived dataset leaves it unchanged.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Archive dataset",
@@ -9169,7 +9169,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-item-version-list": {
-        "description": "List every immutable version of a dataset item, newest first. The response includes version metadata only. To retrieve a version's content, call `llma-dataset-item-get` with the item ID and its `dataset_revision` as `revision`.",
+        "description": "List retained immutable versions of a dataset item, newest first. Unused history expires after 30 days. The response includes version metadata only. To read content, call `llma-dataset-item-get` with a retained revision containing the version. Its introducing `dataset_revision` may have expired even when a later snapshot still needs the version; expired revisions return 404.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List dataset item versions",
@@ -9185,7 +9185,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-list": {
-        "description": "List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND).",
+        "description": "List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND). Active datasets expire after 90 days of inactivity; archived datasets expire after 30 days. Listing datasets does not refresh retention. Expired datasets are omitted.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List datasets",
@@ -9217,7 +9217,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-revision-list": {
-        "description": "List immutable revisions for a dataset by UUID, newest first. Use a revision number with the dataset item list tool to inspect that exact snapshot.",
+        "description": "List available immutable revisions for a dataset by UUID, newest first. Historical revisions expire after 30 days of inactivity and are omitted. Listing does not refresh retention. Use a revision number with the dataset item list tool to inspect that exact snapshot and refresh its retention.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List dataset revisions",
@@ -13586,7 +13586,7 @@
         }
     },
     "scout-members-list": {
-        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they belong to. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only means no draft PR can be opened as that person. Pass `search` to narrow a large roster by name or email. Pass `team` with a bare team slug (no `@org/` prefix) to turn a slug from a note, from CODEOWNERS, or from an owners file into the people on that team, maintainers first: take the first 1 to 3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic snapshot, so it can lag the live team. Strictly team-scoped.",
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they belong to. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only means no draft PR can be opened as that person. Pass `search` to narrow a large roster by name or email. Pass `team` with a bare team slug (no `@org/` prefix) to turn a slug from a note, from CODEOWNERS, or from an owners file into the people on that team, maintainers first: take the first 1 to 3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic snapshot, so it can lag the live team. When `search` or `team` narrows the result to 10 members or fewer, each row also carries `activity`: the member's recent headline, themes, and the objects they own or watch. Use it as context to check a candidate against the report; general activity is not evidence of ownership. `activity` is null when the member has no ready summary or summaries are not available for this project, and a null value is not evidence against the member. Strictly team-scoped.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List project members for reviewer routing",
@@ -17827,7 +17827,7 @@
         }
     },
     "workflows-get-email-template": {
-        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
+        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build the content of your update from this response. To display a template to the user, use workflows-show-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email template",
@@ -18188,6 +18188,37 @@
             "readOnlyHint": false
         }
     },
+    "workflows-send-email-execute": {
+        "description": "Step 2 of 2 for send email. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Send one transactional email to one recipient with the content you pass, such as a receipt or an order update. No template has to exist in PostHog first. Name the email with template_key (for example welcome); sends under one key share a workflow, so their metrics and runs group together. Pass the subject and the body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes out as typed. When the user points you at a local file, such as an HTML email in their repository, read the file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the project's default sender; sender_required means the project has several senders and no default, so ask the user which address to send from. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends it only after the user replies with the literal word 'confirm'. PostHog checks the sender and the content when execute runs, so settle from before prepare, and tell the user which address the email goes out from (the address you pass, or the project's default sender). Each execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled for this project, or the project does not exist: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional email (execute)",
+        "title": "Send transactional email (execute)",
+        "required_scopes": ["transactional_email:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging/send/email/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-from-code"
+    },
+    "workflows-send-email-prepare": {
+        "description": "Step 1 of 2 for send email. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Send one transactional email to one recipient with the content you pass, such as a receipt or an order update. No template has to exist in PostHog first. Name the email with template_key (for example welcome); sends under one key share a workflow, so their metrics and runs group together. Pass the subject and the body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes out as typed. When the user points you at a local file, such as an HTML email in their repository, read the file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the project's default sender; sender_required means the project has several senders and no default, so ask the user which address to send from. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends it only after the user replies with the literal word 'confirm'. PostHog checks the sender and the content when execute runs, so settle from before prepare, and tell the user which address the email goes out from (the address you pass, or the project's default sender). Each execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled for this project, or the project does not exist: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional email (prepare)",
+        "title": "Send transactional email (prepare)",
+        "required_scopes": ["transactional_email:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-from-code"
+    },
     "workflows-sending-rules-get": {
         "description": "The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap, email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.",
         "category": "Workflows",
@@ -18312,7 +18343,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+        "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content with your edited design, plus only the other writable fields you change. The tool refuses the read-only fields of a fetched template: created_at, updated_at, transactional_hog_flow_id and _posthogUrl. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

@@ -23,6 +23,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDown
 
 from products.warehouse_sources.backend.models import external_data_schema as schema_models
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import CONSOLIDATED_WRITE_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
@@ -79,6 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
@@ -120,6 +123,7 @@ def _make_pipeline() -> PipelineV3:
         is_webhook=False,
         is_append=False,
         table=None,
+        masked_columns=None,
     )
     pipeline._table = None
     pipeline._logger = _make_logger()
@@ -259,6 +263,32 @@ class TestAttemptScopedRunUuid:
             pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
 
             await pipeline.run()
+
+        mock_reset.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mask_on_a_key_resolved_at_sync_time_fails_before_the_reset(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._reset_pipeline = True
+        cast(MagicMock, pipeline._schema).configure_mock(
+            masked_columns=["order_uuid"],
+            incremental_field=None,
+            partitioning_keys=None,
+            partitioning_keys_override=None,
+        )
+        pipeline._resource = MagicMock(
+            primary_keys=["order_uuid"], partition_keys=None, replace_scope=None, cdc_write_mode=None
+        )
+
+        with (
+            patch(f"{_PIPELINE}.reset_rows_synced_if_needed", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE}.handle_reset_or_full_refresh", new_callable=AsyncMock) as mock_reset,
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            with pytest.raises(NonRetryableException, match="order_uuid"):
+                await pipeline.run()
 
         mock_reset.assert_not_called()
 
@@ -1382,6 +1412,53 @@ class TestSingleTableRunIsUntouched:
         pipeline._s3_batch_writer.write_batch.assert_called_once()
         pipeline._pg_producer.hold_batch.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "cdc_write_mode,expected",
+        [
+            pytest.param(None, [mask_value(1, "a@example.com")], id="source_rows"),
+            # Capture masked the change before it wrote the buffer, and a second hash would differ from the snapshot's.
+            pytest.param(CONSOLIDATED_WRITE_MODE, ["already-masked"], id="buffered_change_rows"),
+        ],
+    )
+    async def test_masked_columns_are_hashed_once_before_anything_is_staged(
+        self, cdc_write_mode: str | None, expected: list[str]
+    ) -> None:
+        pipeline = _make_pipeline()
+        cast(MagicMock, pipeline._schema).configure_mock(
+            incremental_field=None,
+            enabled_columns=None,
+            masked_columns=["email"],
+            team_id=1,
+            partitioning_keys=None,
+            partitioning_keys_override=None,
+        )
+        pipeline._resource = MagicMock(
+            primary_keys=["id"],
+            column_hints=None,
+            cdc_write_mode=cdc_write_mode,
+            partition_keys=None,
+            replace_scope=None,
+            preserve_column_names=False,
+        )
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+        with (
+            patch.object(pipeline, "_stage_batch", AsyncMock(return_value=1)) as stage_batch,
+            patch.object(pipeline, "_advance_handoff_checkpoint", AsyncMock()),
+            patch(
+                f"{module}.update_incremental_field_values",
+                AsyncMock(return_value=MagicMock(last_value=None, earliest_value=None)),
+            ),
+            patch(f"{module}.update_row_tracking_after_batch", AsyncMock()),
+        ):
+            email = "a@example.com" if cdc_write_mode is None else "already-masked"
+            await pipeline._process_batch(pa.table({"id": [1], "email": [email]}), 0, 1)
+
+        assert stage_batch.call_args.args[0].column("email").to_pylist() == expected
+        sink_table = cast(MagicMock, pipeline._sinks.stage_chunk).call_args.args[1]
+        assert sink_table.column("email").to_pylist() == expected
+
     def test_the_activity_runs_the_base_class_for_a_source_without_lanes(self) -> None:
         # What keeps every other source off the subclass. `lanes=None` is what a source that
         # never heard of lanes carries, and `[]` what a lane build that found nothing returns.
@@ -1792,6 +1869,7 @@ def _runnable_pipeline(manager: ResumableSourceManager[_Cursor], items) -> Pipel
         is_append=False,
         should_use_incremental_field=False,
         table=None,
+        masked_columns=None,
     )
     pipeline._process_batch = AsyncMock()  # type: ignore[method-assign]
     return pipeline
@@ -2373,6 +2451,7 @@ class TestFinalMarkerIsTheLastDataRow:
             is_append=False,
             should_use_incremental_field=False,
             table=None,
+            masked_columns=None,
         )
         pipeline._s3_batch_writer = MagicMock(
             write_batch=MagicMock(
