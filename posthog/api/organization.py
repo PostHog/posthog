@@ -782,8 +782,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The new organization would sit outside the token's scope, so the token could never use it.
         if get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             raise exceptions.PermissionDenied(
-                "API keys scoped to specific organizations can't create organizations. "
-                "Use a key with access to all organizations."
+                "Access limited to specific organizations can't create a new organization. "
+                "Use an API key or connection with access to all organizations."
             )
         # Set user context for activity logging
         with ImpersonatedContext(self.request):

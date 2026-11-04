@@ -312,6 +312,8 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            // The API refuses to create an organization for a key scoped to specific organizations.
+            ...(_apiKey?.scoped_organizations?.length ? ['organization-create'] : []),
             ...(props.excludeTools ?? []),
         ]
 
