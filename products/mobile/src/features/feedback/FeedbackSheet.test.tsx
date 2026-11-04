@@ -21,7 +21,7 @@ describe('FeedbackSheet', () => {
     beforeEach(() => jest.mocked(useKeyboardState).mockReturnValue(0))
     afterEach(() => setAnalyticsClient(null))
 
-    test('waits for delivery and sends once with the email and question response', async () => {
+    test('allows dismissal during delivery and sends once across reopening', async () => {
         const capture = jest.fn()
         let deliver!: () => void
         const delivery = new Promise<void>((resolve) => {
@@ -31,9 +31,8 @@ describe('FeedbackSheet', () => {
         setAnalyticsClient({ capture, flush, identify: jest.fn(), reset: jest.fn() })
         const onClose = jest.fn()
         const onSent = jest.fn()
-        render(<FeedbackSheet visible email="person@example.com" onClose={onClose} onSent={onSent} />, {
-            wrapper: OverlayHost,
-        })
+        const props = { email: 'person@example.com', onClose, onSent }
+        const { rerender } = render(<FeedbackSheet visible {...props} />, { wrapper: OverlayHost })
 
         fireEvent.changeText(screen.getByTestId('feedback-message'), '   ')
         expect(screen.getByTestId('feedback-send')).toBeDisabled()
@@ -45,13 +44,18 @@ describe('FeedbackSheet', () => {
         expect(screen.getByTestId('feedback-send')).toBeDisabled()
         expect(screen.getByLabelText('Sending feedback')).toBeOnTheScreen()
         expect(onSent).not.toHaveBeenCalled()
-        expect(onClose).not.toHaveBeenCalled()
+        expect(onClose).toHaveBeenCalledTimes(1)
+        rerender(<FeedbackSheet visible={false} {...props} />)
+        rerender(<FeedbackSheet visible {...props} />)
+        expect(screen.getByTestId('feedback-message')).toHaveProp('value', '  The inbox needs a search.  ')
+        expect(screen.getByTestId('feedback-send')).toBeDisabled()
+        fireEvent.press(screen.getByTestId('feedback-send'))
 
         await act(async () => deliver())
         fireEvent.press(screen.getByLabelText('Close', { includeHiddenElements: true }))
 
         const events = capture.mock.calls.map(([event]) => event)
-        expect(events).toEqual(['survey shown', 'survey sent'])
+        expect(events).toEqual(['survey shown', 'survey sent', 'survey dismissed', 'survey shown'])
         const sent = capture.mock.calls[1][1]
         expect(sent).toMatchObject({
             $survey_response: 'The inbox needs a search.',
@@ -61,9 +65,9 @@ describe('FeedbackSheet', () => {
         // Survey results read the question-keyed response, and the Slack message reads `$survey_response`.
         const questionKeys = Object.keys(sent).filter((key) => key.startsWith('$survey_response_'))
         expect(questionKeys.map((key) => sent[key])).toEqual(['The inbox needs a search.'])
-        expect(flush).toHaveBeenCalledTimes(2)
+        expect(flush).toHaveBeenCalledTimes(4)
         expect(onSent).toHaveBeenCalledTimes(1)
-        expect(onClose).toHaveBeenCalledTimes(1)
+        expect(onClose).toHaveBeenCalledTimes(2)
     })
 
     test.each(['HTTP 429', 'HTTP 503', 'Network request failed'])(

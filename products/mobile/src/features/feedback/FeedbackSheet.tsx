@@ -47,9 +47,6 @@ export function FeedbackSheet({ visible, email, onClose, onSent }: FeedbackSheet
     const canSend = trimmed.length > 0 && !sending
 
     const dismiss = (): void => {
-        if (inFlight.current) {
-            return
-        }
         if (!sent.current) {
             feedbackDismissed()
         }
