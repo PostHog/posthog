@@ -11,7 +11,7 @@ reading `events`. On mode 2, a second pass finds the scans those rules miss in t
 
 import json
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import partial
 from typing import TYPE_CHECKING, Generic, Protocol
@@ -410,7 +410,7 @@ class EventsScan:
 
     @classmethod
     def of(
-        cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
+        cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: Collection[str]
     ) -> "EventsScan | None":
         """The scan of `node`, or None when `node` does not read `events`. `ctes` holds the CTE names in scope. The
         resolver reads a CTE when one has the table's dotted name."""
@@ -421,18 +421,19 @@ class EventsScan:
         table_name = ".".join(parts)
         if table_name not in EVENTS_NAMES or table_name in ctes:
             return None
+        cte_names = frozenset(ctes)
         scan = cls(
             join=join,
             alias=join.alias or "__".join(parts),
             # The resolver reads the head of a chain of two or more parts as one of these tables first. Some warehouse
             # tables match a name in any case.
-            other_tables=frozenset(name.lower() for name in ctes.union(_join_names(join.next_join))),
+            other_tables=frozenset(name.lower() for name in cte_names.union(_join_names(join.next_join))),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
         aliases = select_aliases(node)
         # The resolver tries a joined table's name, a CTE and a select alias before it reads a qualifier such as
         # `posthog.events` as the name of a table.
-        scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in aliases))
+        scan.qualifier_shadows = cte_names.union(_join_names(join.next_join), (name for name, _ in aliases))
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
             name for name, expr in aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
@@ -925,13 +926,14 @@ class _FlagCalledConstantFinder(SyntaxVisitor):
 
 
 class ScanVisitor(SyntaxVisitor):
-    """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTE names in scope, which `EventsScan.of` needs."""
+    """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTEs in scope by name, which `EventsScan.of`
+    needs. A subclass reads `ctes` only during the call, because a later CTE of the same WITH changes it in place."""
 
     def __init__(self) -> None:
         super().__init__()
-        # The CTE names in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
+        # The CTEs in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
         # A name missing here lets a subclass change the scan, and the binding check then rejects the change.
-        self.ctes: frozenset[str] = frozenset()
+        self.ctes: dict[str, ast.CTE] = {}
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         outer = self.ctes
@@ -939,7 +941,7 @@ class ScanVisitor(SyntaxVisitor):
         self.visit(initial)
         # The resolver gives every later branch the first branch's WITH.
         if isinstance(initial, ast.SelectQuery) and initial.ctes:
-            self.ctes = self.ctes.union(initial.ctes)
+            self.ctes = {**self.ctes, **initial.ctes}
         for subsequent in node.subsequent_select_queries:
             self.visit(subsequent.select_query)
         self.ctes = outer
@@ -950,9 +952,12 @@ class ScanVisitor(SyntaxVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         outer = self.ctes
-        for cte in (node.ctes or {}).values():
-            self.visit(cte.expr)
-            self.ctes = self.ctes.union([cte.name])
+        if node.ctes:
+            # One copy per WITH keeps a long WITH linear.
+            self.ctes = dict(outer)
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+                self.ctes[cte.name] = cte
         self.visit_scan_query(node)
         super().visit_select_query(node)
         self.ctes = outer

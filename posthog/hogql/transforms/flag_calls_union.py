@@ -11,7 +11,7 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 
 import math
 from collections import ChainMap
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
@@ -29,6 +29,7 @@ from posthog.hogql.database.lazy_join_tags import (
     PERSONS,
 )
 from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENTS_WITH_FLAG_CALLS_CHAIN,
     EVENTS_WITH_FLAG_CALLS_TABLE,
@@ -74,6 +75,15 @@ if TYPE_CHECKING:
 # The most compared values the flag-call finder reads for one scan. Past it, the finder treats the scan as one that
 # names flag calls. The union returns the right rows for any scan, so the limit costs only a second table read.
 _COMPARED_VALUES_BUDGET = 100_000
+
+# The resolver reads a name as a column of events before it reads it as a CTE. The database only adds fields to the
+# events table, so each of these names shadows a CTE in every query.
+_EVENTS_FIELDS = frozenset(EventsTable().fields)
+
+# The value the flag-call finder gives a CTE whose expression reads a name. That name binds in the scope around the
+# WITH, which the finder does not track, so the finder treats the CTE as one that names flag calls. A scan that the
+# union can read then costs a second table read. On mode 2, a scan that the union refuses then fails the query.
+_MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
 _UNION_JOIN_RESOLVERS = frozenset(
     {
@@ -236,7 +246,8 @@ def rename_flag_call_scans_to_union(
     1. Its query compares the scan's `event` with `$feature_flag_called` by `=` or `IN`, in one of the query's own
        clauses. A subquery's comparison does not count. A funnel step column such as
        `if(event = '$feature_flag_called' AND ..., 1, 0)` counts. A name of one of the query's aliases reads the
-       expression that the alias names.
+       expression that the alias names. A name of a column CTE in scope, `WITH <expr> AS name`, reads `<expr>` when
+       no lambda's name, select alias or events column has that name.
     2. The scan is the first table in FROM, and every join after it is INNER, LEFT or CROSS, GLOBAL or not.
     3. The scan has no FINAL, table arguments, column aliases or SAMPLE other than 1, and its query selects no `*`
        or `COLUMNS(...)`.
@@ -418,7 +429,11 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
 
 
 def _flag_call_scans(
-    node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str], aliases: "_Aliases"
+    node: ast.SelectQuery,
+    flag_key_compares_as_string: Callable[[], bool],
+    ctes: Mapping[str, ast.CTE],
+    aliases: "_Aliases",
+    with_values: "_WithValues",
 ) -> list[tuple[int, EventsScan]]:
     """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, with its position."""
     scans: list[tuple[int, EventsScan]] = []
@@ -442,15 +457,21 @@ def _flag_call_scans(
                     flag_key_compares_as_string=flag_key_compares_as_string,
                 )
             )
-            if scan is not None and _names_flag_calls(node, scan, aliases):
+            if scan is not None and _names_flag_calls(node, scan, aliases, ctes, with_values):
                 scans.append((position, scan))
         join = join.next_join
         position += 1
     return scans
 
 
-def _names_flag_calls(node: ast.SelectQuery, scan: EventsScan, aliases: "_Aliases") -> bool:
-    finder = _FlagCallComparisonFinder(node, scan, aliases)
+def _names_flag_calls(
+    node: ast.SelectQuery,
+    scan: EventsScan,
+    aliases: "_Aliases",
+    ctes: Mapping[str, ast.CTE],
+    with_values: "_WithValues",
+) -> bool:
+    finder = _FlagCallComparisonFinder(node, scan, aliases, ctes, with_values)
     finder.visit(node)
     return finder.found
 
@@ -459,8 +480,8 @@ class _Aliases(CloningVisitor):
     """Copies an unresolved expression with each name of a select alias that names a field replaced by that field.
 
     The resolver reads a name without a table prefix as a select alias before it reads it as a column.
-    `swap_scans_found_by_type` reads a pin of `event` through aliases of a field, and through no other alias. A scan
-    that the union leaves to that swap must be one that the swap can read.
+    `swap_scans_found_by_type` reads a pin of `event` through aliases of a field, and through no other alias or CTE.
+    A scan that the union leaves to that swap must be one that the swap can read, so this copy keeps each CTE name.
     """
 
     def __init__(self, node: ast.SelectQuery) -> None:
@@ -524,6 +545,23 @@ class _Aliases(CloningVisitor):
         return node
 
     visit_select_query = visit_select_set_query = visit_lambda = _keep
+
+
+class _WithValues:
+    """The value that each column CTE, `WITH <expr> AS name`, gives a read of its name, cached by CTE."""
+
+    def __init__(self) -> None:
+        self._values: dict[int, ast.Expr] = {}
+
+    def of(self, cte: ast.CTE) -> ast.Expr:
+        value = self._values.get(id(cte))
+        if value is None:
+            value = unwrap_alias(cte.expr)
+            items = value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value]
+            if any(isinstance(unwrap_alias(item), ast.Field) for item in items):
+                value = _MAY_NAME_FLAG_CALLS
+            self._values[id(cte)] = value
+        return value
 
 
 class _ScanReadCopier(CloningVisitor):
@@ -680,11 +718,20 @@ class _UnionTableFinder(SyntaxVisitor):
 class _FlagCallComparisonFinder(SyntaxVisitor):
     """Finds `event = '$feature_flag_called'` or an `IN` list with it, on the scan, in its own query's clauses."""
 
-    def __init__(self, root: ast.SelectQuery, scan: EventsScan, aliases: _Aliases) -> None:
+    def __init__(
+        self,
+        root: ast.SelectQuery,
+        scan: EventsScan,
+        aliases: _Aliases,
+        ctes: Mapping[str, ast.CTE],
+        with_values: _WithValues,
+    ) -> None:
         super().__init__()
         self.root = root
         self.reader = scan
         self.aliases = aliases
+        self.ctes = ctes
+        self.with_values = with_values
         # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to None. An alias
         # inside a lambda maps to the expression that it names. Each lambda adds a layer, so entering one copies nothing.
         self.lambda_names: ChainMap[str, ast.Expr | None] | None = None
@@ -726,7 +773,22 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         if names is not None and isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
             named = names[str(read.chain[0])]
             return read if named is None else named
-        return self.aliases.target(read)
+        return self._with_value(self.aliases.target(read))
+
+    def _with_value(self, expr: ast.Expr) -> ast.Expr:
+        """The value of the column CTE that `expr` names, or `expr` when it names none.
+
+        The caller has already read `expr` as a lambda's name and a select alias. The resolver also reads a name as a
+        column of any table in FROM before it reads a CTE. This check knows only the events columns, so a column of
+        another table that shadows a CTE can send the scan to the union.
+        """
+        if not (isinstance(expr, ast.Field) and len(expr.chain) == 1):
+            return expr
+        name = str(expr.chain[0])
+        cte = self.ctes.get(name)
+        if cte is None or cte.cte_type != "column" or name in _EVENTS_FIELDS:
+            return expr
+        return self.with_values.of(cte)
 
     def _check(self, expr: ast.Expr) -> None:
         if self.found:
@@ -754,11 +816,14 @@ class _UnionRenamer(ScanVisitor):
         self.only_in_flag_evaluations = only_in_flag_evaluations
         self.renamed = False
         self.refusals: list[UnionRefusal] = []
+        self.with_values = _WithValues()
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         aliases = _Aliases(node)
         # Only the first scan can be renamed, and it comes first, so each refusal reads the query as written.
-        for position, scan in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes, aliases):
+        for position, scan in _flag_call_scans(
+            node, self.flag_key_compares_as_string, self.ctes, aliases, self.with_values
+        ):
             if position == 0 and self._reads_only_flag_calls(node, scan, aliases):
                 continue
             refusal = _union_refusal(node, scan, position)
