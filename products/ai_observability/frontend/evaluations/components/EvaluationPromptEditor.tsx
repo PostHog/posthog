@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTextArea } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
+import { judgePromptsFor } from '../evaluationSnippets'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
 export function EvaluationPromptEditor(): JSX.Element {
@@ -16,6 +19,7 @@ export function EvaluationPromptEditor(): JSX.Element {
 
     const prompt = evaluation.evaluation_config.prompt
     const allowsNA = evaluation.output_config.allows_na ?? false
+    const templatePrompts = judgePromptsFor(evaluation)
 
     return (
         <div className="space-y-4">
@@ -41,6 +45,23 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         className="font-mono text-sm"
                         maxLength={2000}
                     />
+                    {templatePrompts.length > 0 && (
+                        <LemonMenu
+                            items={templatePrompts.map(({ label, prompt: templatePrompt }) => ({
+                                label,
+                                onClick: () => setEvaluationPrompt(templatePrompt),
+                            }))}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                sideIcon={<IconChevronDown />}
+                                data-attr="llma-evaluation-prompt-insert-template"
+                            >
+                                Start from a template
+                            </LemonButton>
+                        </LemonMenu>
+                    )}
                 </div>
             </LemonField.Pure>
         </div>

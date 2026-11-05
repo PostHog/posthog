@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconCheck, IconChevronDown, IconExternal, IconMinus, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconExternal, IconMinus, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { urls } from '~/scenes/urls'
+import { SidePanelTab } from '~/types'
 
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
@@ -18,7 +21,7 @@ import {
     numericOutputConfigError,
     numericScorePasses,
 } from '../constants'
-import { HogSnippet, hogSnippetsFor } from '../hogSnippets'
+import { HogSnippet, hogAdaptPrompt, hogSnippetsFor } from '../evaluationSnippets'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
 
@@ -395,6 +398,7 @@ export function HogTestResultsPanel(): JSX.Element | null {
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
     const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -486,6 +490,17 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 Insert an example
                             </LemonButton>
                         </LemonMenu>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconSparkles />}
+                            onClick={() =>
+                                openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(hogAdaptPrompt(evaluation, source)))
+                            }
+                            data-attr="llma-evaluation-hog-adapt-with-ai"
+                        >
+                            Adapt with PostHog AI
+                        </LemonButton>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
