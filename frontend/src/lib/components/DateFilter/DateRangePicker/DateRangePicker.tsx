@@ -102,8 +102,7 @@ export const DateRangePicker = ({
     const logic = dateRangePickerLogic({ key: logicKey })
     const { customFrom, customTo, history } = useValues(logic)
     const { setCustomFrom, setCustomTo, addToHistory } = useActions(logic)
-    // Per instance: two pickers with one logicKey (a viewer and its full-screen copy) would otherwise
-    // open together, and the hidden one's outside-press dismiss closes both before an option click lands.
+    // Per instance, not in the keyed logic: pickers sharing a logicKey must not open together.
     const [popoverOpen, setPopoverOpen] = useState(false)
 
     const effectiveTimezone = timezone ?? 'UTC'
