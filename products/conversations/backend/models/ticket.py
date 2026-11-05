@@ -125,6 +125,9 @@ class Ticket(Taggable, UUIDTModel):
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
     ai_triage = models.JSONField(default=dict, blank=True)
+    # Empty until support triage routes the ticket, and empty for a ticket it classifies as
+    # spam or cannot route, so an unrouted ticket never shows a brief nobody wrote.
+    ticket_brief = models.JSONField(default=dict, blank=True)
 
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
