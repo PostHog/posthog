@@ -181,7 +181,7 @@ class TestWelcomeEndpoint(APIBaseTest):
                 for index in range(45)
             ]
         )
-        for overrides in [
+        excluded_rows: list[dict[str, object]] = [
             {"team_id": self.team.id + 2},
             {"scope": "Other"},
             {"is_system": True},
@@ -189,7 +189,8 @@ class TestWelcomeEndpoint(APIBaseTest):
             {"was_impersonated": True},
             {"was_impersonated": None},
             {"created_at": now - timedelta(days=31)},
-        ]:
+        ]
+        for overrides in excluded_rows:
             ActivityLog.objects.create(
                 **{
                     "team_id": self.team.id,
