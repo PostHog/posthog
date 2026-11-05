@@ -324,24 +324,28 @@ impl SeriesLabelGate {
     /// fill the gap.
     pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
-        let (outcome, merged) = match self
+        let before = self.len.load(Ordering::Acquire);
+        let result = self
             .pull_from_redis(client, PullKind::Seed, now - self.window_secs, budget)
-            .await
-        {
-            Ok(merged) => {
+            .await;
+        // Nothing else writes the cache before the seed returns, so its growth
+        // is what the seed merged, including pages read before a failure.
+        let merged = self.len.load(Ordering::Acquire).saturating_sub(before);
+        let outcome = match result {
+            Ok(_) => {
                 info!("Seeded series label cache with {merged} series from Redis");
-                ("complete", merged)
+                "complete"
             }
-            Err(PullError::Timeout { merged }) => {
+            Err(PullError::Timeout { .. }) | Err(PullError::Redis(CustomRedisError::Timeout)) => {
                 warn!(
-                    "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
+                    "Series label cache seed timed out within its {}s budget after {merged} series, starting with a partial cache",
                     budget.as_secs()
                 );
-                ("timeout", merged)
+                "timeout"
             }
             Err(e) => {
-                warn!("Could not seed series label cache from Redis, starting empty: {e}");
-                ("error", 0)
+                warn!("Could not finish seeding series label cache from Redis, starting with {merged} series: {e}");
+                "error"
             }
         };
         counter!("capture_metrics_series_seed", "outcome" => outcome).increment(1);
@@ -1296,6 +1300,27 @@ mod tests {
         assert_eq!(
             recorded(&snapshotter, "capture_metrics_series_seeded", None),
             Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_series_merged_before_a_redis_failure() {
+        let first = bucket_keys(START - WINDOW.as_secs() as i64, START).remove(0);
+        let client = MockRedisClient::new().zrangebyscore_ret(&first, vec!["1".into(), "2".into()]);
+
+        let snapshotter = seed_with_metrics(&client, Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(2.0)
         );
     }
 
