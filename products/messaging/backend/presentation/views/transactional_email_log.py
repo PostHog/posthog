@@ -31,7 +31,8 @@ from products.messaging.backend.facade.transactional_email_log import (
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
-from products.workflows.backend.facade.api import get_viewable_workflow_ids
+from products.workflows.backend.facade.api import get_workflow_view_access
+from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 RETENTION_NOTE = f"The log keeps sends for {EMAIL_STATUS_RETENTION_DAYS} days."
 
@@ -204,9 +205,9 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return ["hog_flow:read", "query:read"]
         return None
 
-    def _workflow_ids(self) -> set[str]:
+    def _workflow_access(self) -> WorkflowViewAccess:
         # Sends inherit the access of the workflow behind their email.
-        return get_viewable_workflow_ids(team_id=self.team_id, user_access_control=self.user_access_control)
+        return get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
 
     @validated_request(
         query_serializer=TransactionalEmailLogListQuerySerializer,
@@ -227,7 +228,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=query.get("date_to"),
                 limit=query["limit"],
                 offset=query["offset"],
-                workflow_ids=self._workflow_ids(),
+                access=self._workflow_access(),
             )
         return Response(
             TransactionalEmailLogListSerializer(
@@ -256,7 +257,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             message_id = UUID(str(pk))
         except ValueError:
             raise NotFound()
-        detail = get_transactional_email(self.team_id, message_id, workflow_ids=self._workflow_ids())
+        detail = get_transactional_email(self.team_id, message_id, access=self._workflow_access())
         if detail is None:
             raise NotFound()
         data = {
@@ -286,7 +287,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 EmailStatsGroupBy(query["group_by"]),
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),
-                workflow_ids=self._workflow_ids(),
+                access=self._workflow_access(),
             )
         return Response(TransactionalEmailStatsSerializer({"results": [asdict(row) for row in rows]}).data)
 
@@ -304,7 +305,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def results(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         query = request.validated_query_data
         workflow_id = str(query["workflow_id"])
-        if workflow_id not in self._workflow_ids():
+        if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
         with query_concurrency_slots(self.team):
             outcome = transactional_email_results(

@@ -49,6 +49,7 @@ const REASON_TEXT: Record<string, string> = {
     frequency_capped: 'The recipient hit a frequency cap',
     canceled: 'The send was canceled',
     workflow_unavailable: 'The transactional email was deleted before it went out',
+    attachments_missing: "The email's attachments couldn't be found",
 }
 
 export function emailReasonText(reason: string | null | undefined): string | null {
