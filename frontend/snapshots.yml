@@ -16162,6 +16162,14 @@ snapshots:
         hash: v1.k794b7964.9a8c427062ed7bc3ded83b2ccb343c593cb6f3f1a45b7e110d1d3a316f62dc16.9csuq0SryVkPRVZot6IgvtXxR1j7452hPCWAUhsUBo0
     scenes-app-support-threadreportentry--several-reports-across-states--light:
         hash: v1.k794b7964.ec55e023b31b2a327072c0e9fe3b164f74d81a226aa3efae9d6fe79d98db5da6.R5v-7fBBPhhayu8hBAHgU6eyTieyIbMYD3ewFUeP_Vo
+    scenes-app-support-ticketbriefpanel--ask-only--dark:
+        hash: v1.k794b7964.7d5b167ea9e6579debe41a078f9f53f3b1ec8939f44952868d1a9a1bad609072.joXj13w_aBWLVI7f4gagYg_JUH4MbsyI8ysGxlE0UQk
+    scenes-app-support-ticketbriefpanel--ask-only--light:
+        hash: v1.k794b7964.8a95c6a0acbb15bdaa4ce8f0a4345aca79566f1eb7f532afa026d26ac2f7976d.iE4tV8CW1cz5Qe5QTTuyBq1-dljsl_U3STY42tSTWIg
+    scenes-app-support-ticketbriefpanel--full-brief--dark:
+        hash: v1.k794b7964.80ab385f0ce8cfb08e7f057f9874102ef808dd588825cc9eecbb5ae94fb48c0b.nb0iw7u3PNJk7gYb9AIyaAoMWKW_g4l036vw3-hlCsY
+    scenes-app-support-ticketbriefpanel--full-brief--light:
+        hash: v1.k794b7964.c4ec08fb99384c2a45c3eec8213e3fde7a0ee8690aeb7097f5c223d098208740.OdHv8dxDFuLFvqg2ZqJ1sQF4uWAe3D9as6-iHEkSu6k
     scenes-app-support-trustedrelaysendersettings--edited--dark:
         hash: v1.k794b7964.2c9db845ce25898d0c859e183a669a0030b0ce6d561ec8bc9f5f4bef42aca8c3.zzliZmUtPNTJ3XLSFytZ8hyt7SUI8snt1Mn4jkgu5hc
     scenes-app-support-trustedrelaysendersettings--edited--light:
