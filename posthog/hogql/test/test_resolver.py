@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
@@ -2409,3 +2409,67 @@ class TestResolver(BaseTest):
         # so the canonical-form guard must not reject their queries
         expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
         resolve_types(expr, self.context, dialect="postgres")
+
+    @parameterized.expand(
+        [
+            ("direct", "SELECT properties.$browser, count() FROM events GROUP BY timestamp, properties", None),
+            ("ordinal", "SELECT properties, count() FROM events GROUP BY 1", None),
+            ("alias", "SELECT properties AS p, count() FROM events GROUP BY p", None),
+            ("group_by_all", "SELECT properties, count() FROM events GROUP BY ALL", None),
+            ("grouping_sets", "SELECT event, count() FROM events GROUP BY GROUPING SETS ((event), (properties))", None),
+            ("tuple_key", "SELECT properties.$browser, count() FROM events GROUP BY (properties, event)", None),
+            ("group_by_all_inside_an_expression", "SELECT tuple(properties, count()) FROM events GROUP BY ALL", None),
+            (
+                "subquery_column",
+                "SELECT properties, count() FROM (SELECT properties FROM events) GROUP BY properties",
+                None,
+            ),
+            (
+                "cte_alias_column",
+                "WITH e AS (SELECT properties AS p FROM events) SELECT p, count() FROM e GROUP BY p",
+                None,
+            ),
+            (
+                "nested_union_column",
+                "SELECT properties, count() FROM ((SELECT properties FROM events UNION ALL SELECT properties FROM events) UNION ALL SELECT properties FROM events) GROUP BY properties",
+                None,
+            ),
+            ("column_aliased_table", "SELECT p.$browser, count() FROM events AS e(uuid, event, p) GROUP BY p", None),
+            (
+                "person_properties_on_events",
+                "SELECT count() FROM events GROUP BY person.properties",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+        ]
+    )
+    def test_whole_properties_document_cannot_be_a_grouping_key(
+        self, _name: str, query: str, poe_mode: PersonsOnEventsMode | None
+    ) -> None:
+        context = self.context
+        if poe_mode is not None:
+            modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=poe_mode))
+            database = Database.create_for(team=self.team, modifiers=modifiers)
+            context = HogQLContext(
+                database=database, team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers
+            )
+        with self.assertRaisesMessage(QueryError, "Can't group by the whole properties column"):
+            resolve_types(self._select(query), context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("property_key", "SELECT properties.$browser, count() FROM events GROUP BY properties.$browser"),
+            (
+                "json_function",
+                "SELECT JSONExtractString(properties, '$browser'), count() FROM events GROUP BY JSONExtractString(properties, '$browser')",
+            ),
+            ("to_string", "SELECT toString(properties), count() FROM events GROUP BY toString(properties)"),
+            ("ordinal_to_key", "SELECT event, count() FROM events GROUP BY 1"),
+            ("aggregate_under_group_by_all", "SELECT any(properties), count() FROM events GROUP BY ALL"),
+            ("aggregate_argument", "SELECT any(properties) FROM events GROUP BY event"),
+            ("subquery_wrapped", "SELECT s, count() FROM (SELECT toString(properties) AS s FROM events) GROUP BY s"),
+            ("tuple_of_keys", "SELECT properties.$browser, count() FROM events GROUP BY (properties.$browser, event)"),
+            ("persons_document", "SELECT properties.email, count() FROM persons GROUP BY properties"),
+        ]
+    )
+    def test_grouping_by_a_property_key_or_a_wrapped_document_resolves(self, _name: str, query: str) -> None:
+        resolve_types(self._select(query), self.context, dialect="clickhouse")

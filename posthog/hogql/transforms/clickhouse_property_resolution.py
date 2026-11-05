@@ -52,7 +52,6 @@ from posthog.hogql.restricted_properties import (
 )
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
-    GroupedJSONDocuments,
     before_grouping,
     is_grouped,
     visit_after_grouping,
@@ -1190,7 +1189,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
-        self._grouped_json_documents: GroupedJSONDocuments | None = None
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1202,9 +1200,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
-        saved_grouped_json_documents = self._grouped_json_documents
         try:
-            self._grouped_json_documents = GroupedJSONDocuments(node, self.context) if is_grouped(node) else None
             with self._grouped_clause(False):
                 if not is_grouped(node):
                     return super().visit_select_query(node)
@@ -1214,7 +1210,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                     setattr(result, clause, value)
             return result
         finally:
-            self._grouped_json_documents = saved_grouped_json_documents
             self._tables_in_scope.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
@@ -1303,14 +1298,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     # --- value substitution ---
 
     def visit_property_access(self, node: ast.PropertyAccess) -> ast.Expr:
-        field_type = _blob_field_type_of(node)
-        if (
-            self._in_grouped_clause
-            and self._grouped_json_documents is not None
-            and field_type is not None
-            and self._grouped_json_documents.contains(field_type)
-        ):
-            return super().visit_property_access(node)
         substituted = _substitute_value_read(node, self.context)
         if substituted is not None:
             return substituted

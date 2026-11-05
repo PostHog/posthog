@@ -6,9 +6,14 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from posthog.hogql import ast
-from posthog.hogql.compilation import compilation_budget
+from posthog.hogql.base import AST
 from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -41,66 +46,6 @@ def visit_after_grouping(node: ast.SelectQuery, visit: Callable[[Any], Any]) -> 
     return rebuilt
 
 
-class GroupedJSONDocuments:
-    def __init__(self, node: ast.SelectQuery, context: "HogQLContext") -> None:
-        self.context = context
-        self.fields: set[tuple[int, tuple[str, ...]]] = set()
-        self._aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self._seen_aliases: set[str] = set()
-        grouping_keys = node.select if node.group_by_mode == "all" else node.group_by or []
-        for key in grouping_keys:
-            for expr in key.exprs if isinstance(key, ast.GroupingSet) else [key]:
-                if (
-                    node.group_by_mode != "all"
-                    and isinstance(expr, ast.Constant)
-                    and isinstance(expr.value, int)
-                    and not isinstance(expr.value, bool)
-                    and 1 <= expr.value <= len(node.select)
-                ):
-                    expr = node.select[expr.value - 1]
-                self._collect(expr)
-
-    @staticmethod
-    def _field_key(field_type: ast.FieldType) -> tuple[int, tuple[str, ...]]:
-        table_type = field_type.table_type
-        path = [field_type.name]
-        # Virtual wrappers are recreated per reference; retain the FROM binding so self-joins stay distinct.
-        while isinstance(table_type, ast.VirtualTableType):
-            path.append(table_type.field)
-            table_type = table_type.table_type
-        return id(table_type), tuple(reversed(path))
-
-    def contains(self, field_type: ast.FieldType) -> bool:
-        return self._field_key(field_type) in self.fields
-
-    def _collect(self, expr: ast.Expr) -> None:
-        budget = compilation_budget.get()
-        if budget is not None:
-            budget.check_time()
-        if isinstance(expr, ast.Alias):
-            self._collect(expr.expr)
-        elif isinstance(expr, ast.Tuple):
-            for item in expr.exprs:
-                self._collect(item)
-        elif isinstance(expr, ast.Call):
-            if expr.name == "tuple" or (expr.name == "toString" and len(expr.args) == 1):
-                for item in expr.args:
-                    self._collect(item)
-        elif isinstance(expr, ast.Field):
-            field_type = expr.type
-            while isinstance(field_type, ast.FieldAliasType):
-                field_type = field_type.type
-            if isinstance(field_type, ast.FieldType) and isinstance(
-                field_type.resolve_database_field(self.context), StringJSONDatabaseField
-            ):
-                self.fields.add(self._field_key(field_type))
-            elif isinstance(expr.type, ast.FieldAliasType):
-                alias = expr.type.alias
-                if alias in self._aliases and alias not in self._seen_aliases:
-                    self._seen_aliases.add(alias)
-                    self._collect(self._aliases[alias])
-
-
 class GroupedClauseTracker:
     """Tracks whether the expression under visit sees the grouped rows.
 
@@ -128,3 +73,107 @@ class GroupedClauseTracker:
                 yield
         else:
             yield
+
+
+WHOLE_DOCUMENT_GROUPING_ERROR = (
+    "Can't group by the whole properties column. "
+    "Group by the properties you need, like properties.$browser, or by uuid for one row per event."
+)
+
+
+class _AggregateFinder(TraversingVisitor):
+    found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if find_hogql_aggregation(node.name):
+            self.found = True
+        else:
+            super().visit_call(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        """A subquery's aggregates group the subquery's rows."""
+
+
+def _has_aggregate(node: ast.Expr) -> bool:
+    finder = _AggregateFinder()
+    finder.visit(node)
+    return finder.found
+
+
+class _ImplicitGroupingKeys(TraversingVisitor):
+    """Collects the keys GROUP BY ALL takes from a select column: its largest parts that hold no aggregate."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.keys: list[ast.Expr] = []
+
+    def visit(self, node: AST | None) -> None:
+        if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
+            return
+        if isinstance(node, ast.Expr) and not _has_aggregate(node):
+            self.keys.append(node)
+            return
+        super().visit(node)
+
+
+def _grouping_keys(node: ast.SelectQuery) -> list[ast.Expr]:
+    """The keys ClickHouse groups by: an ordinal names a select column, a tuple is one key per element, and
+    GROUP BY ALL takes the largest aggregate-free parts of every select column."""
+    if node.group_by_mode == "all":
+        implicit = _ImplicitGroupingKeys()
+        for expr in node.select:
+            implicit.visit(expr)
+        return implicit.keys
+    keys: list[ast.Expr] = []
+    for group in node.group_by or []:
+        for key in group.exprs if isinstance(group, ast.GroupingSet) else [group]:
+            if isinstance(key, ast.Constant) and type(key.value) is int and 1 <= key.value <= len(node.select):
+                key = node.select[key.value - 1]
+            if isinstance(key, ast.Tuple):
+                keys.extend(key.exprs)
+            elif isinstance(key, ast.Call) and key.name == "tuple":
+                keys.extend(key.args)
+            else:
+                keys.append(key)
+    return keys
+
+
+def _reads_events_json_document(field_type: ast.Type | None, context: "HogQLContext") -> bool:
+    """Whether a field reads a JSON document of the events table, through any alias, subquery, CTE, view or union."""
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    if not isinstance(field_type, ast.FieldType):
+        return False
+    table_type: ast.Type = field_type.table_type
+    if isinstance(table_type, ast.CTETableAliasType):
+        table_type = table_type.cte_table_type
+    if isinstance(table_type, (ast.SelectQueryAliasType, ast.CTETableType, ast.SelectViewType)):
+        table_type = table_type.select_query_type
+    while isinstance(table_type, ast.SelectSetQueryType):
+        table_type = table_type.types[0]
+    if isinstance(table_type, ast.SelectQueryType):
+        return _reads_events_json_document(table_type.columns.get(field_type.name), context)
+    if not isinstance(table_type, ast.BaseTableType):
+        return False
+    database_field = field_type.resolve_database_field(context)
+    # The native table stores the columns that have a null-keys companion as JSON and reads their keys as subcolumns.
+    return (
+        isinstance(table_type.resolve_database_table(context), EVENTS_TABLE_TYPES)
+        and isinstance(database_field, StringJSONDatabaseField)
+        and database_field.name in NULL_KEYS_COLUMNS
+    )
+
+
+def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLContext") -> None:
+    """Rejects a JSON document of the events table, `properties` or `person_properties`, as a grouping key.
+
+    The native events table reads a key as a subcolumn, and ClickHouse does not accept the subcolumn
+    `properties.$browser` as a function of the key `properties`, so a key read after `GROUP BY properties` fails
+    there while the legacy table accepts it. Both tables reject the key so a query cannot work on one and fail on
+    the other.
+    """
+    for key in _grouping_keys(node):
+        while isinstance(key, ast.Alias):
+            key = key.expr
+        if isinstance(key, ast.Field) and _reads_events_json_document(key.type, context):
+            raise QueryError(WHOLE_DOCUMENT_GROUPING_ERROR, node=key)

@@ -208,10 +208,9 @@ Integer extraction keeps ClickHouse's JSON parser on the serialized value, becau
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
-When a grouping key is a whole JSON document, JSON functions in these clauses keep that document argument instead of reading an ungrouped subcolumn.
-Direct property reads also extract from the grouped document, including person-property documents.
-This also applies when the document is grouped by a select-list position or as part of a tuple.
-Grouping by an extracted key still reads only that key.
+A whole properties document cannot be a grouping key: HogQL rejects `GROUP BY properties` on both events tables, whether the document is named directly, by select-list position, through an alias, inside a tuple key, under GROUP BY ALL, or as a column of a subquery, CTE, view or union.
+The native table reads a key as a subcolumn, which ClickHouse does not accept as a function of the grouped document, so a key read after `GROUP BY properties` works on the legacy table only; rejecting the key everywhere keeps a query from changing behavior at the switch.
+Group by the keys the query reads, or by `uuid` for one row per event; an expression over the document such as `toString(properties)` is not rejected.
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
 The subquery exports the columns, lazy-join fields and property keys the outer query reads, found by their resolved table binding rather than by alias text.
 A property key is exported as its stored value and the outer read keeps its own conversion, so a Numeric definition and an explicit string parser read the same export.
