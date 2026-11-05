@@ -2501,13 +2501,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             try {
                                 // Only persist sm layouts; xs layouts are derived on the fly
                                 const draftByTile = values.draftLayouts ? layoutsByTile(values.layouts) : null
-                                const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => {
+                                // Each tile sent is locked and saved on the server, so send only the ones that moved.
+                                const layoutsToUpdate = (values.dashboard?.tiles || []).flatMap((tile) => {
+                                    const saved = values.savedTilePlacements[tile.id]
                                     const sm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
-                                    return {
-                                        id: tile.id,
-                                        layouts: sm ? { sm } : {},
-                                        ...groupKeyUpdate(tile, values.savedTilePlacements[tile.id]),
+                                    const savedSm = saved?.layouts?.sm
+                                    // The grid adds its own fields (moved, static, min sizes), so compare the cell only.
+                                    const cellChanged =
+                                        savedSm && sm ? !sameGridCell(savedSm, sm) : Boolean(savedSm) !== Boolean(sm)
+                                    if (!cellChanged && !tileGroupChanged(tile, saved)) {
+                                        return []
                                     }
+                                    return [{ id: tile.id, layouts: sm ? { sm } : {}, ...groupKeyUpdate(tile, saved) }]
                                 })
 
                                 const currentDashboard = values.dashboard
@@ -2532,16 +2537,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
                                 const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
 
-                                const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
-                                    const originalLayouts = values.savedTilePlacements[tile.id]?.layouts?.sm
-                                    const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
-                                    // The grid adds its own fields (moved, static, min sizes), so compare the cell only.
-                                    const cellChanged =
-                                        originalLayouts && updatedLayouts
-                                            ? !sameGridCell(originalLayouts, updatedLayouts)
-                                            : Boolean(originalLayouts) !== Boolean(updatedLayouts)
-                                    return cellChanged || tileGroupChanged(tile, values.savedTilePlacements[tile.id])
-                                })
+                                const layoutsChanged = layoutsToUpdate.length > 0
 
                                 const colorsChanged = breakdownColorsChanged || themeChanged
                                 const hasChanges = scope === 'colors' ? colorsChanged : layoutsChanged
@@ -2615,10 +2611,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 return updatedDashboard
                             } catch (e) {
                                 if (scope === 'layout') {
+                                    // The success listener rolls back and says so, unless a newer edit is queued.
                                     cache.layoutSaveFailed = true
-                                    lemonToast.error(
-                                        'Could not save the layout, so it is back where it was. Try again.'
-                                    )
                                 } else {
                                     lemonToast.error('Could not update dashboard: ' + String(e))
                                 }
@@ -5909,7 +5903,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // A full reload would drop unsaved layout edits, so only the groups go back.
                     try {
                         const saved = await dashboardsRetrieve(String(values.currentTeamId), props.id)
-                        actions.restoreTileGroups(saved.customization?.groups ?? {})
+                        const savedGroups = saved.customization?.groups ?? {}
+                        // A group whose delete failed still exists, so undo can put tiles back in it.
+                        const removedGroupKeys: Set<string> | undefined = cache.removedTileGroupKeys
+                        for (const groupKey of Object.keys(savedGroups)) {
+                            removedGroupKeys?.delete(groupKey)
+                        }
+                        actions.restoreTileGroups(savedGroups)
                     } catch {
                         if (!values.draftLayouts) {
                             actions.loadDashboard({ action: DashboardLoadAction.Update })
@@ -6153,10 +6153,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 if (!(await groupSaved) && values.dashboard?.id === dashboardId) {
+                    // A tile moved somewhere else since it was added keeps that newer placement.
                     for (const tile of createdTiles) {
-                        actions.setTileProperty(tile.id, { group_key: null })
-                        const layouts = values.savedTilePlacements[tile.id]?.layouts ?? tile.layouts
-                        actions.tilePlacementsSaved({ [tile.id]: { layouts, group_key: null } })
+                        const currentTile = values.tiles.find((candidate) => candidate.id === tile.id)
+                        if (currentTile && (currentTile.group_key ?? null) === groupKey) {
+                            actions.setTileProperty(tile.id, { group_key: null })
+                        }
+                        const saved = values.savedTilePlacements[tile.id]
+                        if (!saved || (saved.group_key ?? null) === groupKey) {
+                            const layouts = saved?.layouts ?? tile.layouts
+                            actions.tilePlacementsSaved({ [tile.id]: { layouts, group_key: null } })
+                        }
                     }
                 }
             } catch (e) {
@@ -6263,13 +6270,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             if (cache.layoutSaveFailed) {
                 cache.layoutSaveFailed = false
-                if (values.dashboard) {
-                    actions.applyDashboardUpdate(
-                        withSavedTilePlacements(values.dashboard, values.savedTilePlacements),
-                        values.savedTilePlacements
-                    )
+                // A layout staged while this save was out holds this change too, and its own save is queued
+                // and sends the whole layout again. Rolling back here would drop that newer move.
+                const newerLayoutQueued =
+                    values.draftLayouts !== cache.draftLayoutsAtSave && values.hasUnsavedLayoutChanges
+                if (newerLayoutQueued) {
+                    lemonToast.error('Could not save the layout. Trying again with your latest change.')
+                } else {
+                    lemonToast.error('Could not save the layout, so it is back where it was. Try again.')
+                    if (values.dashboard) {
+                        actions.applyDashboardUpdate(
+                            withSavedTilePlacements(values.dashboard, values.savedTilePlacements),
+                            values.savedTilePlacements
+                        )
+                    }
+                    actions.clearDraftLayouts()
                 }
-                actions.clearDraftLayouts()
             }
             // A failed or no-op save resolves with the dashboard from before the save, which holds unsaved moves.
             if (dashboard && payload?.scope !== 'colors' && cache.dashboardChangesPersisted) {

@@ -460,16 +460,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         []
     )
 
-    const flushPendingLayouts = useCallback(() => {
-        finishInteraction()
-        // Remeasure once the gesture settles, since height updates were suppressed during it.
-        requestAnimationFrame(() => {
-            if (containerRef.current) {
-                setContainerHeight(containerRef.current.clientHeight)
-            }
-        })
+    const flushPendingLayouts = useCallback(
+        (discardLayout = false) => {
+            finishInteraction({ discardLayout })
+            // Remeasure once the gesture settles, since height updates were suppressed during it.
+            requestAnimationFrame(() => {
+                if (containerRef.current) {
+                    setContainerHeight(containerRef.current.clientHeight)
+                }
+            })
+        },
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [finishInteraction])
+        [finishInteraction]
+    )
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -519,7 +522,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const handleResizeStop = useCallback(() => {
         setLayoutGestureActive(false)
-        flushPendingLayouts()
+        flushPendingLayouts(false)
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized')
         }
@@ -573,9 +576,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             dragEndTimeout.current = window.setTimeout(() => {
                 isDragging.current = false
             }, 250)
-            flushPendingLayouts()
             // The drop target is read from the grids as they look now, so their drop space stays until it is.
-            finishTileDrag(newItem, element, event)
+            const leftSection = finishTileDrag(newItem, element, event)
+            // A tile that left its section saves as one move from where the drag started. Saving the source
+            // grid's layout first would record a second undo step, with the tile at the row the drag reached.
+            flushPendingLayouts(leftSection)
             setLayoutGestureActive(false)
             if (dashboard?.id) {
                 reportDashboardTileRepositioned(dashboard.id, 'moved')

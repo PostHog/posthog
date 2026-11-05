@@ -28,7 +28,8 @@ interface DashboardLayoutInteraction {
     handleLayoutChange: (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
     interactionInProgress: MutableRefObject<boolean>
     startInteraction: (layout: Layout, item: LayoutItem, kind: InteractionKind) => void
-    finishInteraction: () => void
+    /** `discardLayout` drops the gesture's layout, for a tile that left its grid. */
+    finishInteraction: (options?: { discardLayout?: boolean }) => void
 }
 
 export function useDashboardLayoutInteraction({
@@ -106,22 +107,27 @@ export function useDashboardLayoutInteraction({
         resizeNeighbors.current = kind === 'resize' ? getResizeNeighbors(baselineLayout.current, item, item.i) : {}
     }, [])
 
-    const finishInteraction = useCallback((): void => {
-        interactionInProgress.current = false
-        acceptingGestureLayout.current = true
-        setTimeout(() => {
-            acceptingGestureLayout.current = false
-        }, 0)
-        if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
+    const finishInteraction = useCallback(
+        ({ discardLayout = false }: { discardLayout?: boolean } = {}): void => {
+            interactionInProgress.current = false
+            if (!discardLayout) {
+                acceptingGestureLayout.current = true
+                setTimeout(() => {
+                    acceptingGestureLayout.current = false
+                }, 0)
+            }
+            if (pendingLayouts.current && !discardLayout) {
+                updateLayouts(pendingLayouts.current)
+            }
             pendingLayouts.current = null
-        }
-        baselineLayout.current = null
-        baselineById.current = new Map()
-        resizeNeighbors.current = {}
-        activeItemId.current = null
-        interactionKind.current = null
-    }, [updateLayouts])
+            baselineLayout.current = null
+            baselineById.current = new Map()
+            resizeNeighbors.current = {}
+            activeItemId.current = null
+            interactionKind.current = null
+        },
+        [updateLayouts]
+    )
 
     return { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction }
 }

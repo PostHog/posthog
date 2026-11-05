@@ -1953,6 +1953,42 @@ describe('dashboardLogic', () => {
                 expect(logic.values.canUndoLayoutChange).toBe(true)
             })
 
+            it('sends only the tile that moved', async () => {
+                await storeComputedLayouts()
+                jest.spyOn(api, 'update').mockClear()
+
+                let firstTile: DashboardTile
+                await expectLogic(logic, () => {
+                    firstTile = moveFirstTileRight()
+                }).toFinishAllListeners()
+
+                expect(savedTiles().map((tile) => tile.id)).toEqual([firstTile!.id])
+            })
+
+            it('keeps a move staged while an earlier autosave was out when that save fails', async () => {
+                await storeComputedLayouts()
+                const firstTileId = logic.values.dashboard!.tiles[0].id
+                const xOf = (): number => logic.values.layouts.sm!.find((layout) => layout.i === String(firstTileId))!.x
+                const startX = xOf()
+                let failFirstSave = (): void => {}
+                const update = jest.spyOn(api, 'update')
+                update.mockImplementationOnce(
+                    () =>
+                        new Promise((_, reject) => {
+                            failFirstSave = () => reject(new Error('offline'))
+                        })
+                )
+
+                moveFirstTileRight()
+                moveFirstTileRight()
+                failFirstSave()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(xOf()).toEqual(startX + 2)
+                expect(savedTiles().find((tile) => tile.id === firstTileId)?.layouts.sm?.x).toEqual(startX + 2)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
             it('does not save or record an undo step for a layout that matches the saved one', async () => {
                 await storeComputedLayouts()
                 jest.spyOn(api, 'update').mockClear()
@@ -6018,7 +6054,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.saveEditModeChanges('layout')
             }).toFinishAllListeners()
-            expect(api.update).toHaveBeenCalledWith(
+            expect(api.update).toHaveBeenLastCalledWith(
                 `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     tiles: expect.arrayContaining([
@@ -6026,13 +6062,14 @@ describe('dashboardLogic', () => {
                             id: firstTile.id,
                             layouts: { sm: expect.objectContaining({ ...shiftedSm, x: changedX }) },
                         }),
-                        expect.objectContaining({
-                            id: duplicatedTile.id,
-                            layouts: { sm: expect.objectContaining(duplicatedSm) },
-                        }),
                     ]),
                 })
             )
+            // The server placed the duplicate where it shows, so the save leaves it out.
+            const savedTileIds = (api.update as jest.Mock).mock.calls
+                .at(-1)[1]
+                .tiles.map((tile: { id: number }) => tile.id)
+            expect(savedTileIds).not.toContain(duplicatedTile.id)
         })
 
         it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
