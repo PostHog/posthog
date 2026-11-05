@@ -18,6 +18,7 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 from products.error_tracking.backend.notifications import (
     AssignmentActor,
     _AssignerExcludingResolver,
+    _ErrorTrackingViewerResolver,
     dispatch_issue_assigned_realtime,
 )
 from products.notifications.backend.facade.enums import TargetType
@@ -83,8 +84,9 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         data = mock_create_notification.call_args.args[0]
         assert data.target_type == TargetType.ROLE
         assert data.target_id == str(role_id)
-        assert isinstance(data.resolver, _AssignerExcludingResolver)
-        assert data.resolver._assigner_id == self.assigner.id
+        assert isinstance(data.resolver, _ErrorTrackingViewerResolver)
+        assert isinstance(data.resolver._inner, _AssignerExcludingResolver)
+        assert data.resolver._inner._assigner_id == self.assigner.id
 
     @parameterized.expand([("user",), ("role",)])
     @patch("products.error_tracking.backend.notifications.create_notification")
@@ -103,7 +105,8 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         assert data.target_id == str(assignee_id)
         assert data.title == "An assignment rule assigned an issue to you"
         assert data.metadata == {"trigger": "automatic"}
-        assert data.resolver is None
+        assert isinstance(data.resolver, _ErrorTrackingViewerResolver)
+        assert not isinstance(data.resolver._inner, _AssignerExcludingResolver)
 
     @patch("products.error_tracking.backend.notifications.create_notification", side_effect=RuntimeError("boom"))
     def test_dispatch_failure_is_swallowed(self, _mock_create_notification):
@@ -134,6 +137,25 @@ class TestAssignerExcludingResolver(SimpleTestCase):
         mock_super_resolve.return_value = resolved_ids
         resolver = _AssignerExcludingResolver(assigner_id=assigner_id)
         result = resolver.resolve(TargetType.ROLE, "1", team_id=1)
+        assert result == expected
+
+
+class TestErrorTrackingViewerResolver(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("keeps_viewers", {10}, None, [10]),
+            ("failed_check_keeps_nobody", None, RuntimeError("database down"), []),
+        ]
+    )
+    def test_resolves_only_viewers(self, _name, viewer_ids, error, expected):
+        inner = MagicMock()
+        inner.resolve.return_value = [10, 20]
+        with patch(
+            "products.error_tracking.backend.notifications.error_tracking_viewer_ids",
+            return_value=viewer_ids,
+            side_effect=error,
+        ):
+            result = _ErrorTrackingViewerResolver(inner=inner).resolve(TargetType.ROLE, "1", team_id=1)
         assert result == expected
 
 
@@ -178,9 +200,12 @@ class TestSendIssueAssignedEmail(_AssignmentTestBase):
             assert "Alice</b> has assigned you" in message.html_body
             assert message.campaign_key.startswith(f"error_tracking_issue_assigned_{assignment.id}_")
 
-    def test_skips_members_without_error_tracking_access(self, MockEmailMessage: MagicMock):
+    @parameterized.expand([("role_member_denied", "role", ["assigner"]), ("sole_assignee_denied", "user", [])])
+    def test_skips_members_without_error_tracking_access(
+        self, MockEmailMessage: MagicMock, _name, assignee_type, expected_recipients
+    ):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        assignment, _ = self._create_assignment("role")
+        assignment, _ = self._create_assignment(assignee_type)
         restricted_user_id = self.assignee.id
 
         class FakeUserAccessControl:
@@ -197,17 +222,22 @@ class TestSendIssueAssignedEmail(_AssignmentTestBase):
                 assert (resource, level) == ("error_tracking", "viewer")
                 return self.user_id != restricted_user_id
 
-        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+        with patch("products.error_tracking.backend.logic.assignees.UserAccessControl", FakeUserAccessControl):
             send_error_tracking_issue_assigned(assignment.id, None, assigned_by="An assignment rule")
 
-        assert [to["raw_email"] for to in mocked_email_messages[0].to] == [self.assigner.email]
+        emails = {"assignee": self.assignee.email, "assigner": self.assigner.email}
+        expected_messages = [[emails[key] for key in expected_recipients]] if expected_recipients else []
+        assert [[to["raw_email"] for to in message.to] for message in mocked_email_messages] == expected_messages
 
     def test_failed_access_check_sends_nothing(self, MockEmailMessage: MagicMock):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         assignment, _ = self._create_assignment("user")
 
         with (
-            patch("posthog.tasks.email.UserAccessControl.for_user_ids", side_effect=RuntimeError("database down")),
+            patch(
+                "products.error_tracking.backend.logic.assignees.UserAccessControl.for_user_ids",
+                side_effect=RuntimeError("database down"),
+            ),
             pytest.raises(RuntimeError),
         ):
             send_error_tracking_issue_assigned(assignment.id, None, assigned_by="An assignment rule")

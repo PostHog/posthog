@@ -20,7 +20,7 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic import assignees, built_in_filters, external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -669,6 +669,11 @@ def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorT
     if resolved is None:
         return None
     return _to_fingerprint(resolved)
+
+
+def error_tracking_viewer_ids(*, user_ids: list[int], team_id: int) -> set[int]:
+    """The users among `user_ids` who can view error tracking in the team. Raises when the access check fails."""
+    return assignees.error_tracking_viewer_ids(user_ids=user_ids, team_id=team_id)
 
 
 def get_issue_permalink(team_id: int, issue_id: UUID) -> str:

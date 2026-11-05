@@ -12,8 +12,10 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef
 
 from posthog.dataclasses import frozen
+from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 
@@ -23,6 +25,24 @@ def assignee_property(assignee: dict[str, Any]) -> str:
     # exact-match filters on the assignee property behave the same across all events.
     assignee_id = int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"])
     return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
+
+
+def error_tracking_viewer_ids(*, user_ids: list[int], team_id: int) -> set[int]:
+    """The users among `user_ids` who can view error tracking in the team.
+
+    Raises when the access check fails, so each caller chooses how to fail closed.
+    """
+    if not user_ids:
+        return set()
+    access_by_user = UserAccessControl.for_user_ids(user_ids=user_ids, team=Team.objects.get(id=team_id))
+    sample = next(iter(access_by_user.values()), None)
+    if sample is not None and not sample.access_controls_supported:
+        return set(user_ids)
+    return {
+        user_id
+        for user_id, access in access_by_user.items()
+        if access.check_access_level_for_resource("error_tracking", "viewer")
+    }
 
 
 @frozen

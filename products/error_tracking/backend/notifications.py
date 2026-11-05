@@ -8,7 +8,7 @@ from posthog.models import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.logic import build_issue_permalink_path, get_canonical_fingerprint
-from products.error_tracking.backend.logic.assignees import assignee_property
+from products.error_tracking.backend.logic.assignees import assignee_property, error_tracking_viewer_ids
 from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
@@ -36,6 +36,28 @@ class _AssignerExcludingResolver(RecipientsResolver):
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         users = super().resolve(target_type, target_id, team_id)
         return [uid for uid in users if uid != self._assigner_id]
+
+
+class _ErrorTrackingViewerResolver(RecipientsResolver):
+    """Keep only the recipients `inner` resolves who can view error tracking. A failed check keeps nobody.
+
+    `create_notification` checks access again afterwards, but that check keeps everyone when it fails.
+    """
+
+    def __init__(self, inner: RecipientsResolver) -> None:
+        super().__init__()
+        self._inner = inner
+
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
+        if team_id is None:
+            return []
+        user_ids = self._inner.resolve(target_type, target_id, team_id)
+        try:
+            viewer_ids = error_tracking_viewer_ids(user_ids=user_ids, team_id=team_id)
+        except Exception:
+            logger.exception("issue_assigned.access_check_failed", team_id=team_id)
+            return []
+        return [user_id for user_id in user_ids if user_id in viewer_ids]
 
 
 @frozen
@@ -108,7 +130,7 @@ def dispatch_issue_assigned_realtime(
                 source_type=SourceType.ERROR_TRACKING,
                 source_id=str(issue.id),
                 metadata=metadata,
-                resolver=resolver,
+                resolver=_ErrorTrackingViewerResolver(inner=resolver or RecipientsResolver()),
                 idempotency_key=idempotency_key,
             )
         )

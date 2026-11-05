@@ -2078,29 +2078,6 @@ def get_users_for_orgs_with_no_ingested_events(
     return users
 
 
-def filter_members_by_error_tracking_access(
-    memberships: list[OrganizationMembership], team: Team
-) -> list[OrganizationMembership]:
-    """Drop members who cannot view error tracking, the check the in-app assignment notification also makes.
-
-    A failed check raises, so the task retries rather than send issue details to members it could not check.
-    """
-    if not memberships:
-        return memberships
-    access_by_user = UserAccessControl.for_user_ids(
-        user_ids=[membership.user_id for membership in memberships], team=team
-    )
-    sample = next(iter(access_by_user.values()), None)
-    if sample is not None and not sample.access_controls_supported:
-        return memberships
-    return [
-        membership
-        for membership in memberships
-        if (access := access_by_user.get(membership.user_id)) is not None
-        and access.check_access_level_for_resource("error_tracking", "viewer")
-    ]
-
-
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_error_tracking_issue_assigned(
@@ -2135,7 +2112,13 @@ def send_error_tracking_issue_assigned(
             for membership in memberships_to_email
             if (membership.user_id in role_user_ids and membership.user_id != assigner_id)
         ]
-    memberships_to_email = filter_members_by_error_tracking_access(memberships_to_email, team)
+    # A failed access check raises, so the task retries rather than send issue details unchecked.
+    viewer_ids = error_tracking_api.error_tracking_viewer_ids(
+        user_ids=[membership.user_id for membership in memberships_to_email], team_id=team.id
+    )
+    memberships_to_email = [membership for membership in memberships_to_email if membership.user_id in viewer_ids]
+    if not memberships_to_email:
+        return
 
     campaign_key_segment = "" if assigner_id is not None else "automatic_"
     campaign_key: str = (
