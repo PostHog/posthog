@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 
 from markdown_it import MarkdownIt
 
+from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
 from posthog.temporal.ai.anomaly_investigation.notebook import (
     NotebookRenderContext,
     _summary_content,
@@ -30,7 +31,9 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             triggered_dates=["2024-06-01", "2024-06-02"],
             interval="day",
         )
-        return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
+        return NotebookRenderContext(
+            alert=alert, evaluated=EvaluatedCheck.of_alert_check(alert_check), insight=insight, report=report
+        )
 
     def test_builds_markdown_the_cell_tools_accept(self) -> None:
         report = InvestigationReport(

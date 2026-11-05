@@ -11,7 +11,7 @@ from products.error_tracking.backend.facade.contracts import IssueSummaryCategor
 from products.ml_inference.backend.facade.contracts import DecisionQuestion
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v4"
+ISSUE_SUMMARY_PROMPT_VERSION = "v5"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.

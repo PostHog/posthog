@@ -10,11 +10,15 @@ import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
     InboxReportSectionKey,
+    SignalAlertScope,
     SignalReport,
     SignalReportActionability,
     SignalReportPriority,
     SignalRunKind,
+    SignalSourceProduct,
+    SignalSourceType,
 } from './types'
+import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
@@ -64,6 +68,7 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -189,6 +194,7 @@ export type InboxReportActionType =
     | 'claim'
     | 'unclaim'
     | 'expand_preview'
+    | 'add_note'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -234,10 +240,10 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
-export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'priority' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -253,7 +259,7 @@ export type InboxQueryChange =
     | 'created_window'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
@@ -318,10 +324,34 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
 // and sort changes read it, so the ranking test can join them to the ranker without each caller
 // passing it. The Inbox scene clears it on unmount.
 let servedInboxRankerId: string | null = null
+// The reports whose pill reached the screen, from impressions. A list response cannot answer this,
+// because the list stays mounted and hidden behind a deep-linked report and still loads a pill arm.
+const seenInboxRankingPillReportIds = new Set<string>()
 
-/** Record the ranker of the latest list response. Null when the sort is not Recommended. */
-export function setInboxServedRanker(rankerId: string | null): void {
+/** Record the ranker of the latest list response, null when the sort is not Recommended. A list without pills ends pill attribution. */
+export function setInboxServedRanker(rankerId: string | null, rankingPill: boolean = false): void {
     servedInboxRankerId = rankerId
+    if (!rankingPill) {
+        seenInboxRankingPillReportIds.clear()
+    }
+}
+
+interface RankingPillProperties {
+    pill_shown: boolean
+    pill_open: number | null
+    pill_action: number | null
+    pill_fix: number | null
+}
+
+/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
+    const lifts = rankingPill ? rankingPillLifts(report) : null
+    return {
+        pill_shown: lifts !== null,
+        pill_open: lifts?.open ?? null,
+        pill_action: lifts?.action ?? null,
+        pill_fix: lifts?.fix ?? null,
+    }
 }
 
 interface BaseReportProperties {
@@ -466,8 +496,15 @@ export function captureInboxReportsImpressed(params: {
     createdWindow: string | null
     /** The ranker the server used for a Recommended list. Null for other sorts. */
     rankerId: string | null
+    /** Whether the Recommended list showed score pills. */
+    rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
+    if (params.rankingPill) {
+        params.reports
+            .filter((report) => rankingPillLifts(report) !== null)
+            .forEach((report) => seenInboxRankingPillReportIds.add(report.id))
+    }
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
         tab: params.tab,
         list_size: params.listSize,
@@ -478,6 +515,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        ranking_pill: params.rankingPill,
         has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
@@ -489,6 +527,7 @@ export function captureInboxReportsImpressed(params: {
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
             ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
+            ...rankingPillProperties(report, params.rankingPill),
         })),
     })
 }
@@ -526,6 +565,7 @@ export function captureInboxReportOpened(
             list_size: params.listSize,
             section: params.section,
             ranker_id: params.rankerId,
+            ...rankingPillProperties(params.report, seenInboxRankingPillReportIds.has(params.report.id)),
         },
         options
     )
@@ -571,15 +611,20 @@ export function captureInboxReportScrolled(params: {
     })
 }
 
-/** The hover card on a report's model score opened, under one of the model sorts. */
+/**
+ * The hover card on a report's model score opened. `tag` is the single-head tag under a model sort,
+ * and `pill` is the three-score pill on the Recommended sort, which has no active head.
+ */
 export function captureInboxRankingDetailsViewed(params: {
     report: SignalReport
-    head: string
+    surface: 'tag' | 'pill'
+    head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
         ...baseReportProperties(params.report),
+        surface: params.surface,
         ranking_head: params.head,
         ranking_state: params.state,
         ranking_strength: params.strength,
@@ -606,6 +651,12 @@ export function captureInboxReportAction(params: {
         bulk_size: params.bulkSize ?? 1,
         // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
         ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
+        ...(params.report
+            ? rankingPillProperties(
+                  params.report,
+                  params.surface !== 'today' && seenInboxRankingPillReportIds.has(params.report.id)
+              )
+            : {}),
         ...params.extra,
     })
 }
@@ -900,6 +951,24 @@ export function captureSignalSourceFiltersChanged(params: {
         filter: params.filter,
         selected_count: params.selectedCount,
         reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
+/**
+ * The product analytics source switched between investigated alerts only and all firing alerts.
+ * Fired once the request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceAlertScopeChanged(params: {
+    alertScope: SignalAlertScope
+    previousAlertScope: SignalAlertScope
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_ALERT_SCOPE_CHANGED, {
+        source_product: SignalSourceProduct.Analytics,
+        source_type: SignalSourceType.AnomalyInvestigation,
+        alert_scope: params.alertScope,
+        previous_alert_scope: params.previousAlertScope,
         success: params.success,
     })
 }

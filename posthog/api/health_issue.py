@@ -17,13 +17,13 @@ from drf_spectacular.utils import (
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.status import HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -263,7 +263,7 @@ class HealthIssueDetailSerializer(HealthIssueSerializer):
         return {"human": remediation.human, "agent": remediation.agent}
 
 
-class HealthIssuePagination(LimitOffsetPagination):
+class HealthIssuePagination(BoundedLimitOffsetPagination):
     default_limit = 50
     max_limit = 250
 

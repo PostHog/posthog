@@ -784,7 +784,8 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
         .filter(team__organization__is_active=True)
         .exclude(team__organization__is_pending_deletion=True)
-        .select_related("team", "created_by")
+        # The access check reads each team's organization.
+        .select_related("team__organization", "created_by")
         .order_by("created_at")
     )
     pipelines: list[tuple[bool, ActivePipeline]] = []

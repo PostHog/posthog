@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 import pytest
 from posthog.test.base import BaseTest
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
     TRANSIENT_SOURCE_ERROR_MESSAGE,
+    TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
@@ -34,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
@@ -400,6 +401,23 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             "SSL SYSCALL error: EOF detected",
             TRANSIENT_CONNECT_DROPPED_MESSAGE,
         ),
+        # An SSH-tunneled source connects to the local end of the tunnel, so libpq names loopback.
+        # The tunnel closes the connection when the SSH server cannot reach the database.
+        (
+            "postgres_ssh_tunnel_closed_at_connect",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "server closed the connection unexpectedly",
+            TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
+        ),
+        # A loopback host does not claim failures that are not a connect-time drop.
+        (
+            "postgres_ssh_tunnel_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+        ),
         # The same drop on an established connection, which keeps the idle-connection copy.
         (
             "postgres_server_closed_mid_stream",
@@ -478,16 +496,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # A hand-rolled transport's own retryable marker, which no map names for this source.
         (
             "retryable_status_marker",
-            ExternalDataSourceType.HUBSPOT,
-            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            ExternalDataSourceType.GITHUB,
+            "Github API error (retryable): status=500, url=https://api.example.com/repos/things",
             TRANSIENT_SOURCE_ERROR_MESSAGE,
         ),
         # A source that names its vendor for the same marker keeps that copy over the generic one.
         (
             "retryable_status_marker_with_source_copy",
-            ExternalDataSourceType.MATOMO,
-            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
-            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+            ExternalDataSourceType.STRIPE,
+            "Acme API error (retryable): status=503, url=https://api.example.com/index.php",
+            "Acme kept returning temporary errors.",
+            {"Acme API error (retryable)": "Acme kept returning temporary errors."},
         ),
         # A Redshift cluster that never answered the connect keeps its schedule.
         (
@@ -500,7 +519,11 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 )
 @pytest.mark.django_db(transaction=True)
 def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_schema(
-    _name: str, source_type: ExternalDataSourceType, internal_error: str, expected_message: str
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expected_message: str,
+    fake_retry_exhausted_errors: dict[str, str] | None = None,
 ) -> None:
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -521,6 +544,18 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         latest_error=internal_error,
     )
 
+    fake_source = mock.MagicMock()
+    fake_source.get_non_retryable_errors.return_value = {}
+    fake_source.get_retry_exhausted_errors.return_value = fake_retry_exhausted_errors
+    registry_patch = (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.SourceRegistry.get_source",
+            return_value=fake_source,
+        )
+        if fake_retry_exhausted_errors is not None
+        else contextlib.nullcontext()
+    )
+
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
@@ -533,6 +568,7 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
+        registry_patch,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 

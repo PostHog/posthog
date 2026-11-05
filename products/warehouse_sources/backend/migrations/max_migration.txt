@@ -1,1 +1,1 @@
-0191_repin_qualys_vmdr_api_version_6_0
+0196_externaldataschema_masked_columns

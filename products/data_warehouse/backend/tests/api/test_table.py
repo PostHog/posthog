@@ -18,6 +18,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import (
@@ -32,8 +33,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-
-PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestResolveCreatedVia(SimpleTestCase):
@@ -158,7 +157,7 @@ class TestTable(APIBaseTest):
     ):
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+            mock_anti_ssrf_dns_lookup(resolves_to=resolved_ips),
             patch.object(DataWarehouseTable, "get_columns") as patch_get_columns,
         ):
             response = self.client.post(
@@ -999,7 +998,7 @@ class TestTable(APIBaseTest):
 
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
@@ -1052,7 +1051,7 @@ class TestTable(APIBaseTest):
 
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",

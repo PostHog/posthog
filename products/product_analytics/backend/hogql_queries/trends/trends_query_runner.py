@@ -67,6 +67,7 @@ from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.result_series import get_action_names, get_series_custom_name
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.utils.utils import get_response_hogql
@@ -98,6 +99,20 @@ from products.product_analytics.backend.hogql_queries.trends.trends_actors_query
 )
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+
+
+def resolve_series_custom_name(
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode], series_label: str | None
+) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the series label (None for all events)
+    # is a rename applied via the query editor or API. Either should win over the raw event name.
+    # get_series_custom_name applies the same rule to a serialized node, for exports and cache hits.
+    if series.custom_name:
+        return series.custom_name
+    if series.name and series.name != series_label:
+        return series.name
+    return None
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -760,6 +775,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     ]
 
             series_object["order"] = series.series_order
+            series_object["custom_name"] = resolve_series_custom_name(series.series, series_label)
             res.append(series_object)
         return res
 
@@ -895,6 +911,34 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return ", ".join(events)
 
         return None  # type: ignore [unreachable]
+
+    def series_custom_name(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
+        """The `custom_name` that build_series_response writes on the rows of this series."""
+        if series.custom_name:
+            return series.custom_name
+        if not series.name:
+            return None
+        # The series label costs a query for an action series, so it is resolved only when a `name` needs comparing
+        try:
+            series_label = self.series_event(series)
+        except Action.DoesNotExist:
+            # build_series_response drops a series whose action is gone, so no row reads this name
+            return None
+        return resolve_series_custom_name(series, series_label)
+
+    def _series_custom_names(self) -> list[str | None] | None:
+        if super()._series_custom_names() is None:
+            return None
+        return self._resolved_series_custom_names
+
+    @cached_property
+    def _resolved_series_custom_names(self) -> list[str | None]:
+        # A cache hit asks for the names twice: to decide whether to parse the results, then to patch them.
+        # get_action_names loads every action the series reference in one query, where series_event runs one per series.
+        series_query = {"series": [series.model_dump(mode="json") for series in self.query.series]}
+        needs_label = any(not series.custom_name and series.name for series in self.query.series)
+        action_names = get_action_names(self.team, series_query) if needs_label else {}
+        return [get_series_custom_name(node, action_names) for node in series_query["series"]]
 
     def update_hogql_modifiers(self) -> None:
         if (
@@ -1157,6 +1201,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula = formula_node.formula
         base_result = results_group[0]
         base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
+        base_result["custom_name"] = formula_node.custom_name
 
         if aggregate_values:
             series_data = [[s["aggregated_value"]] for s in results_group]

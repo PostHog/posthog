@@ -230,6 +230,62 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         for sql in cohort_selects:
             assert 'posthog_team"."event_names"' not in sql
 
+    @parameterized.expand(
+        [
+            (
+                "list_properties",
+                [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}],
+                ("email", "is_set", "is_set"),
+            ),
+            # Old dict-style groups carry no operator, which filters validation requires.
+            ("dict_properties", [{"properties": {"email": "a@example.com"}}], ("email", "exact", "a@example.com")),
+        ]
+    )
+    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(
+        self, _name: str, groups: list[dict], expected_leaf: tuple[str, str, str]
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="legacy_groups_cohort", groups=groups, filters=None)
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        assert (leaf["key"], leaf["operator"], leaf["value"]) == expected_leaf
+        assert cohort.condition_type == {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+
+    def test_resave_counts_unconvertible_legacy_groups_as_errors(self) -> None:
+        # A behavioral leaf without a time window converts to nothing.
+        leaf = {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"}
+        cohort = Cohort.objects.create(
+            team=self.team, name="unconvertible_groups_cohort", groups=[{"properties": [leaf]}], filters=None
+        )
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], stdout=out)
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert "1 errors" in out.getvalue()
+
+    def test_resave_leaves_static_legacy_groups_cohort_untouched(self) -> None:
+        # The flags service assumes a static cohort is never realtime.
+        groups = [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}]
+        cohort = Cohort.objects.create(
+            team=self.team, name="static_legacy_groups_cohort", groups=groups, filters=None, is_static=True
+        )
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert cohort.cohort_type != "realtime"
+
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):
     def test_cohort_dependency_blocks_realtime(self):
@@ -506,6 +562,49 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
         assert cohort_b.cohort_type == "realtime"
 
         # 3. Cohort A cannot be realtime (references B which has dependencies)
+        assert cohort_a.cohort_type is None
+
+    def test_cohort_referencing_legacy_groups_non_leaf_cannot_be_realtime(self):
+        """Same as above, with B defined only through legacy `groups`."""
+        team: Team = self.team
+
+        cohort_c = Cohort.objects.create(
+            team=team, name="cohort_c", filters=_make_person_only_filters(email="c@example.com")
+        )
+        cohort_b = Cohort.objects.create(
+            team=team,
+            name="cohort_b",
+            filters=None,
+            groups=[
+                {
+                    "properties": [
+                        {"type": "cohort", "key": "id", "value": cohort_c.id},
+                        {"type": "person", "key": "name", "value": "B User"},
+                    ]
+                }
+            ],
+        )
+        cohort_a = Cohort.objects.create(
+            team=team,
+            name="cohort_a",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort_b.id},
+                        {"type": "person", "key": "name", "operator": "exact", "value": "A User"},
+                    ],
+                }
+            },
+        )
+
+        call_command("resave_cohorts", team_id=[team.id])
+
+        cohort_a.refresh_from_db()
+        cohort_b.refresh_from_db()
+
+        assert cohort_b.filters
+        assert cohort_b.cohort_type == "realtime"
         assert cohort_a.cohort_type is None
 
 

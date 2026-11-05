@@ -13,7 +13,7 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     Grouping,
@@ -29,7 +29,7 @@ from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
-from products.logs.backend.platform_cutover import hand_over, has_begun_cutover, in_an_environment
+from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert
 from products.logs.backend.platform_source_config import filters_of
 
 GROUPING_NOT_AVAILABLE: Final = "Grouping isn't available for this alert yet. Set the mode to single to save it."
@@ -43,14 +43,13 @@ def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
 
 
 def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
-    """Hands a new alert to the platform when its team has begun the cutover, so the team never has
-    to be cut over again for it, and creates the copy with `grouping`. False when the alert stays
-    with logs.
+    """Hands a new alert to the platform, and creates the copy with `grouping`, unless its team keeps
+    its alerts on logs. False when the alert stays with logs.
 
     Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping.
     """
     grouping = grouping if grouping is not None else Grouping()
-    if in_an_environment(alert) or not has_begun_cutover(alert.team_id):
+    if in_an_environment(alert) or not takes_new_alert(alert.team_id, new_alert_id=alert.id):
         _refuse_grouping_on_logs(grouping)
         return False
     if grouping.mode != GroupingMode.SINGLE and (problem := grouping_problem(grouping.keys, alert.threshold_operator)):
@@ -63,9 +62,7 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
 
 def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID:
     """Creates a logs alert through the platform API: the logs row and the platform's copy, both owned
-    by the platform, as a create through the logs API does in a team that has begun the cutover.
-
-    The team counts as begun from then on, because the platform owns one of its logs alerts.
+    by the platform.
     """
     try:
         claim_alert_slot(team_id)
@@ -106,7 +103,7 @@ def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping:
 
 
 def on_deleted(*, team_id: int, alert_id: UUID) -> None:
-    delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+    delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
 def _platform_change_of(

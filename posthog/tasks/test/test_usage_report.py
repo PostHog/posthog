@@ -97,11 +97,13 @@ from products.batch_exports.backend.facade.enums import (
     BatchExportModel,
     BatchExportRunStatus,
 )
+from products.business_knowledge.backend.models import KnowledgeUsageKey, KnowledgeUsageRecord
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.signals.backend.facade.billing import TeamSignalsCredits
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -330,6 +332,20 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
+
+            # Different amounts per meter and team, so a swapped or misattributed counter fails the expectations.
+            for team, usage_key, quantity in [
+                (self.org_1_team_1, KnowledgeUsageKey.CHUNKS, 120),
+                (self.org_1_team_1, KnowledgeUsageKey.QUERIES, 7),
+                (self.org_1_team_2, KnowledgeUsageKey.CHUNKS, 30),
+                (self.org_2_team_3, KnowledgeUsageKey.QUERIES, 4),
+            ]:
+                row = KnowledgeUsageRecord.objects.unscoped().create(
+                    team_id=team.id, usage_key=usage_key, quantity=quantity, surface="text"
+                )
+                KnowledgeUsageRecord.objects.unscoped().filter(id=row.id).update(
+                    created_at=now() - relativedelta(hours=12)
+                )
 
             uuids = [uuid4() for _ in range(0, 10)]
             for uuid in uuids:
@@ -749,6 +765,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_events_count_in_period": 2,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
+                    "laravel_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 2,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
@@ -797,6 +814,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
                     "mcp_event_count_in_period": 0,
+                    "business_knowledge_chunks_in_period": 150,
+                    "business_knowledge_queries_in_period": 7,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -852,6 +871,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 2,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 2,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
@@ -904,6 +924,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 120,
+                            "business_knowledge_queries_in_period": 7,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -949,6 +971,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
@@ -1001,6 +1024,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 30,
+                            "business_knowledge_queries_in_period": 0,
                         },
                     },
                 },
@@ -1069,6 +1094,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_events_count_in_period": 0,
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
+                    "laravel_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
                     "unity_events_count_in_period": 0,
@@ -1121,6 +1147,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "mcp_event_count_in_period": 0,
+                    "business_knowledge_chunks_in_period": 0,
+                    "business_knowledge_queries_in_period": 4,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1172,6 +1200,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
@@ -1226,6 +1255,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 0,
+                            "business_knowledge_queries_in_period": 4,
                         }
                     },
                 },
@@ -1820,6 +1851,7 @@ class TestQueryUsageReportSQL:
         assert "'posthog-rails'" in main_query
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
+        assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
         assert "lib_expr = 'posthog-rs-mcp', 'rust_mcp_events'" in main_query
         assert "lib_expr = 'posthog-go-mcp', 'go_mcp_events'" in main_query
         assert "lib_expr = 'posthog-ruby-mcp', 'ruby_mcp_events'" in main_query
@@ -1882,7 +1914,14 @@ class TestQueryUsageReportSQL:
     def test_get_all_event_metrics_combines_sdk_counts(
         self, mock_sync_execute: MagicMock, _mock_schema: MagicMock, _mock_property: MagicMock
     ) -> None:
-        sdk_metrics = ["rust_mcp_events", "go_mcp_events", "ruby_mcp_events", "godot_events", "unreal_events"]
+        sdk_metrics = [
+            "rust_mcp_events",
+            "go_mcp_events",
+            "ruby_mcp_events",
+            "godot_events",
+            "unreal_events",
+            "laravel_events",
+        ]
         main_results = iter(
             [
                 [(1, metric, 2) for metric in sdk_metrics],
@@ -2487,6 +2526,8 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("mcp_events", "mcp_event_count_in_period"),
+            ("business_knowledge_chunks", "business_knowledge_chunks_in_period"),
+            ("business_knowledge_queries", "business_knowledge_queries_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
             ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
@@ -5200,8 +5241,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         org_ids = [str(org_a.id), str(org_b.id)]
 
         with patch(
-            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
-            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+            "posthog.tasks.usage_report.signals_billing_credits_by_team",
+            return_value=[
+                TeamSignalsCredits(team_id=team_a1.id, credits=1500),
+                TeamSignalsCredits(team_id=team_a2.id, credits=1500),
+                TeamSignalsCredits(team_id=team_b.id, credits=1500),
+            ],
         ) as signals_credits:
             totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
 
@@ -6510,15 +6555,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     @parameterized.expand(
         [
-            ("posthog-godot", "godot_events"),
-            ("posthog-unreal", "unreal_events"),
+            ("posthog-godot", "godot_events", "unity_events"),
+            ("posthog-unreal", "unreal_events", "unity_events"),
+            ("posthog-laravel", "laravel_events", "php_events"),
         ]
     )
-    def test_game_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str) -> None:
+    def test_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str, parent_metric: str) -> None:
         _create_event(
             event="$pageview",
             team=self.team,
-            distinct_id="game_user",
+            distinct_id="sdk_user",
             timestamp=self.begin + relativedelta(hours=1),
             properties={"$lib": sdk_type},
         )
@@ -6527,7 +6573,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 1)
-        self.assertIsNone(dict(event_metrics["unity_events"]).get(self.team.id))
+        self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
 
     @parameterized.expand(
         [

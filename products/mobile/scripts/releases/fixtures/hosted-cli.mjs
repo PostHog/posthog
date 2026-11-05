@@ -89,6 +89,25 @@ if (tool === 'eas') {
         if (args.includes('--draft=false')) {
             state.releases[tag].draft = false
         }
+    } else if (operation === 'upload') {
+        if (process.env.MOBILE_FAKE_FAIL === 'receipt-upload') {
+            done()
+            process.exit(1)
+        }
+        const file = args[2]
+        state.releases[tag].assets ??= []
+        const assets = state.releases[tag].assets
+        if (assets.some(({ name }) => name === basename(file))) {
+            throw new Error('Receipt asset already exists')
+        }
+        assets.push({ name: basename(file), content: readFileSync(file, 'utf8') })
+    } else if (operation === 'download') {
+        const asset = state.releases[tag].assets?.find(({ name }) => name === flag('--pattern'))
+        if (!asset) {
+            throw new Error('Receipt asset not found')
+        }
+        done(process.env.MOBILE_FAKE_FAIL === 'receipt-download' ? '{"state":"claimed"}' : asset.content)
+        process.exit(0)
     } else {
         throw new Error(`Unexpected release operation ${operation}`)
     }
@@ -129,6 +148,10 @@ if (tool === 'eas') {
     } else if (path === 'releases' && method === 'POST') {
         done(createRelease(data))
     } else if (path.startsWith('releases/') && method === 'PATCH') {
+        if (data.draft === false && process.env.MOBILE_FAKE_FAIL === 'receipt-publish') {
+            done()
+            process.exit(1)
+        }
         const release = releases().find(({ id }) => id === Number(path.split('/')[1]))
         if (!release) {
             throw new Error('Release ID not found')

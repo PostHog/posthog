@@ -105,6 +105,11 @@ class MatchCheckIncomplete(Exception):
     """The match check could not reach an answer: every fetched recording was excluded and more remain."""
 
 
+def _combines_with_or(query: RecordingsQuery) -> bool:
+    # Read the way the recordings query builder reads it: every operand but AND, an explicit null included, is OR.
+    return query.operand != FilterLogicalOperator.AND_
+
+
 def has_recent_matching_recording(
     *,
     team: Team,
@@ -134,7 +139,7 @@ def has_recent_matching_recording(
             raise TimeoutError("The recent-recording match check ran out of time.")
         return remaining
 
-    scan_window_days = budget.window_days(unsampled=query.operand == FilterLogicalOperator.OR_)
+    scan_window_days = budget.window_days(unsampled=_combines_with_or(query))
     windowed = query.model_copy(deep=True)
     windowed.date_from = (dt.datetime.now(dt.UTC) - dt.timedelta(days=scan_window_days)).isoformat()
     windowed.date_to = None
@@ -197,7 +202,7 @@ def estimate_scanner_session_volume(
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
     # correction. Without sampling the scan is full price, so bound its window instead.
-    unsampled = query.operand == FilterLogicalOperator.OR_
+    unsampled = _combines_with_or(query)
     sample_factor = None if unsampled else _ESTIMATE_EVENTS_SAMPLE_FACTOR
     scan_window_days = budget.window_days(unsampled=unsampled)
 
