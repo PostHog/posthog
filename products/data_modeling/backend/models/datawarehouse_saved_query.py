@@ -456,6 +456,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
 
+        self.sync_frequency_interval = None
         self.last_run_at = None
         self.latest_error = None
         self.status = None

@@ -79,9 +79,10 @@ class Command(BaseCommand):
         # leaves the query off for the next run, and no row lock waits on Temporal. Until then the flag
         # is on in memory only, where the failure paths of schedule_materialization switch it off.
         saved_query.is_materialized = True
+        # A failed first enable leaves the cadence in the column, not on the node, so carry it over.
         # The default reconcile logs a failure and does not raise it, so a query that no tier runs
         # counts as re-enabled. Reconcile below instead, where a failure raises.
-        saved_query.schedule_materialization(reconcile=False)
+        saved_query.schedule_materialization(frequency_target=saved_query.sync_frequency_interval, reconcile=False)
         if not saved_query.is_materialized:
             raise SwitchedOffAgainError("scheduling switched it off again")
         nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
