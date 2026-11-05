@@ -265,6 +265,9 @@ export interface todayLogicActions {
         payload?: any
     } // teamLogic
     loadHighlights: (refresh?: boolean | undefined) => boolean // todayHighlightsLogic
+    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
+        meta: Record<string, ReportSourceMeta>
+    }
     askAi: (
         prompt: string,
         source: TodayAskSource,
@@ -273,9 +276,6 @@ export interface todayLogicActions {
         prompt: string
         report: SignalReport | undefined
         source: TodayAskSource
-    }
-    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
-        meta: Record<string, ReportSourceMeta>
     }
     askAiFinished: () => {
         value: true
