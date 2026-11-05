@@ -1,6 +1,5 @@
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { parseOrUndefined } from '@/core/schema'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
 import { parseJson, parseSecret } from './helpers'
@@ -33,7 +32,7 @@ export class FileStore implements CredentialStore {
     }
 
     async hosts(): Promise<Host[]> {
-        return Object.keys(await this.readAll()).flatMap((key) => parseOrUndefined(HostSchema, key) ?? [])
+        return Object.keys(await this.readAll()).flatMap((key) => HostSchema.safeParse(key).data ?? [])
     }
 
     async read(host: Host): Promise<StoredSecret | undefined> {
@@ -54,7 +53,7 @@ export class FileStore implements CredentialStore {
     // Removes the entries under a name that isn't a host, such as one an older hog wrote, which
     // `hosts` leaves out.
     async removeUnreadable(): Promise<boolean> {
-        return this.removeKeys((name) => parseOrUndefined(HostSchema, name) === undefined)
+        return this.removeKeys((name) => HostSchema.safeParse(name).data === undefined)
     }
 
     private async removeKeys(matches: (name: string) => boolean): Promise<boolean> {
