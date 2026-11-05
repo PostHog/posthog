@@ -20,6 +20,37 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AccountNotesListSchema = () => {
+    const AccountNotesListQueryParams = orvalSchemas.AccountNotesListQueryParams()
+    return AccountNotesListQueryParams
+}
+
+const accountNotesList = (): ToolBase<
+    ReturnType<typeof AccountNotesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAccountNoteList>
+> => ({
+    name: 'account-notes-list',
+    schema: AccountNotesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountNotesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNoteList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_notes/`,
+            query: {
+                account_id: params.account_id,
+                assigned_to: params.assigned_to,
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountRelationshipDefinitionsCreateSchema = () => {
     const AccountRelationshipDefinitionsCreateBody = orvalSchemas.AccountRelationshipDefinitionsCreateBody()
     return AccountRelationshipDefinitionsCreateBody
@@ -414,6 +445,35 @@ const accountsNotebooksCreate = (): ToolBase<
     },
 })
 
+const AccountsNotebooksListSchema = () => {
+    const AccountsNotebooksListParams = orvalSchemas.AccountsNotebooksListParams()
+    const AccountsNotebooksListQueryParams = orvalSchemas.AccountsNotebooksListQueryParams()
+    return AccountsNotebooksListParams.omit({ project_id: true }).extend(AccountsNotebooksListQueryParams.shape)
+}
+
+const accountsNotebooksList = (): ToolBase<
+    ReturnType<typeof AccountsNotebooksListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAccountNotebookList>
+> => ({
+    name: 'accounts-notebooks-list',
+    schema: AccountsNotebooksListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountsNotebooksPartialUpdateSchema = () => {
     const AccountsNotebooksPartialUpdateBody = orvalSchemas.AccountsNotebooksPartialUpdateBody()
     const AccountsNotebooksPartialUpdateParams = orvalSchemas.AccountsNotebooksPartialUpdateParams()
@@ -443,35 +503,6 @@ const accountsNotebooksPartialUpdate = (): ToolBase<
             body,
         })
         return result
-    },
-})
-
-const AccountsNotebooksListSchema = () => {
-    const AccountsNotebooksListParams = orvalSchemas.AccountsNotebooksListParams()
-    const AccountsNotebooksListQueryParams = orvalSchemas.AccountsNotebooksListQueryParams()
-    return AccountsNotebooksListParams.omit({ project_id: true }).extend(AccountsNotebooksListQueryParams.shape)
-}
-
-const accountsNotebooksList = (): ToolBase<
-    ReturnType<typeof AccountsNotebooksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAccountNotebookList>
-> => ({
-    name: 'accounts-notebooks-list',
-    schema: AccountsNotebooksListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                ordering: params.ordering,
-                search: params.search,
-                tags: params.tags,
-            },
-        })
-        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -866,37 +897,6 @@ const customPropertyDefinitionsDestroy = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
-    },
-})
-
-const AccountNotesListSchema = () => {
-    const AccountNotesListQueryParams = orvalSchemas.AccountNotesListQueryParams()
-    return AccountNotesListQueryParams
-}
-
-const accountNotesList = (): ToolBase<
-    ReturnType<typeof AccountNotesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAccountNoteList>
-> => ({
-    name: 'account-notes-list',
-    schema: AccountNotesListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountNotesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAccountNoteList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_notes/`,
-            query: {
-                account_id: params.account_id,
-                assigned_to: params.assigned_to,
-                created_by: params.created_by,
-                limit: params.limit,
-                offset: params.offset,
-                ordering: params.ordering,
-                search: params.search,
-                tags: params.tags,
-            },
-        })
-        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -2352,6 +2352,7 @@ const usageMetricsRetrieve = (): ToolBase<ReturnType<typeof UsageMetricsRetrieve
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'account-notes-list': accountNotesList,
     'account-relationship-definitions-create': accountRelationshipDefinitionsCreate,
     'account-relationship-definitions-destroy': accountRelationshipDefinitionsDestroy,
     'account-relationship-definitions-list': accountRelationshipDefinitionsList,
@@ -2364,8 +2365,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-list': accountsList,
     'accounts-meetings-list': accountsMeetingsList,
     'accounts-notebooks-create': accountsNotebooksCreate,
-    'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-list': accountsNotebooksList,
+    'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-relationships-create': accountsRelationshipsCreate,
@@ -2380,7 +2381,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
-    'account-notes-list': accountNotesList,
     'custom-property-definitions-list': customPropertyDefinitionsList,
     'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
     'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
