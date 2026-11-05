@@ -1334,12 +1334,27 @@ describe('queryDatabaseLogic', () => {
             async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
+                const capabilities = (referenceable: boolean): Record<string, unknown> => ({
+                    materialize: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    lineage: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    referenceable_from_hogql: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                })
                 viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
                     [
-                        { name: 'trino_view', is_raw_managed_trino: true },
-                        { name: 'clickhouse_view', is_raw_managed_trino: false },
+                        {
+                            name: 'trino_view',
+                            engine: { target: 'managed_trino', dialect: 'raw', capabilities: capabilities(false) },
+                        },
+                        {
+                            name: 'clickhouse_view',
+                            engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
+                            name: 'connection_view',
+                            engine: { target: 'connection', dialect: 'hogql', capabilities: capabilities(false) },
+                        },
                     ]
-                        .filter((view) => !onlyTrino || view.is_raw_managed_trino)
+                        .filter((view) => !onlyTrino || view.name === 'trino_view')
                         .map((view) => ({
                             ...view,
                             id: view.name,
