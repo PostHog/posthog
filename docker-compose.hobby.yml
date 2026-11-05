@@ -233,6 +233,8 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
+            TEMPORAL_SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
