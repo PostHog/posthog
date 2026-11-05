@@ -443,7 +443,7 @@ class TestTrialExecution(BaseTest):
     @parameterized.expand(
         [
             (entrypoint, limited, claimed)
-            for entrypoint in ("facade", "tool", "canvas")
+            for entrypoint in ("facade", "tool", "canvas", "bootstrap")
             for limited in (True, False)
             for claimed in (True, False)
         ]
@@ -487,6 +487,14 @@ class TestTrialExecution(BaseTest):
                     )
                 elif entrypoint == "tool":
                     async_to_sync(run_task_tool)(team=self.team, user=self.user, task_id=str(task.id))
+                elif entrypoint == "bootstrap":
+                    created = tasks_facade.bootstrap_task_run(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        validated_data={"mode": "background", "environment": TaskRun.Environment.CLOUD},
+                    )
+                    assert created is not None and created.error is None and created.run is not None
                 else:
                     result = tasks_facade.run_task(
                         task.id,
@@ -499,6 +507,99 @@ class TestTrialExecution(BaseTest):
         if entrypoint == "canvas":
             resolve_quota.assert_called_once()
         assert task.runs.count() == (0 if limited else 1)
+
+    def test_bootstrapped_run_can_start_after_the_quota_is_reached(self) -> None:
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Admitted bootstrap",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=False):
+            created = tasks_facade.bootstrap_task_run(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background", "environment": TaskRun.Environment.CLOUD},
+            )
+        assert created is not None and created.error is None and created.run is not None
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True),
+            patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as dispatch,
+        ):
+            assert tasks_facade.start_task_run(
+                created.run.id, task.id, self.team.id, self.user.id, validated_data={}
+            ) == ("started", task.id)
+        dispatch.assert_called_once()
+        assert task.runs.count() == 1
+
+    @parameterized.expand(
+        [
+            (TaskRun.Environment.LOCAL, "background", "implementation"),
+            (TaskRun.Environment.CLOUD, "interactive", "implementation"),
+            (TaskRun.Environment.CLOUD, "background", "discussion"),
+        ]
+    )
+    def test_other_bootstrap_billing_keeps_its_existing_gate(
+        self, environment: str, mode: str, relationship: str
+    ) -> None:
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Local implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
+        with patch(
+            "products.signals.backend.facade.self_driving.self_driving_quota_gate",
+            side_effect=AssertionError("This work does not use the cloud Self-driving gate"),
+        ):
+            created = tasks_facade.bootstrap_task_run(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": mode, "environment": environment},
+            )
+        assert created is not None and created.error is None and created.run is not None
+        assert task.runs.count() == 1
+
+    def test_bootstrap_uses_an_active_trial_instead_of_the_ordinary_quota(self) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Trial bootstrap",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with patch(
+            "products.signals.backend.facade.self_driving.self_driving_quota_gate",
+            side_effect=AssertionError("A trial-funded run uses trial admission"),
+        ):
+            created = tasks_facade.bootstrap_task_run(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background", "environment": TaskRun.Environment.CLOUD},
+            )
+        assert created is not None and created.error is None and created.run is not None
+        assert task.runs.get().state["self_driving_funding"]["grant_id"] == str(grant.id)
 
     def test_accepted_pipeline_without_trial_finishes_after_the_quota(self) -> None:
         self.flag_mock.return_value = False

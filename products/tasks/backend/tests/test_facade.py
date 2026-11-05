@@ -117,6 +117,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             extra_state: dict | None = None,
             branch: str | None = None,
             acting_user_id: int | None = None,
+            **kwargs: Any,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -128,6 +129,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 extra_state=extra_state,
                 branch=branch,
                 acting_user_id=acting_user_id,
+                **kwargs,
             )
 
         def bootstrap() -> None:
