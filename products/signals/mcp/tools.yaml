@@ -389,9 +389,9 @@ tools:
             (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and
             `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`,
             and the rest still go through. Before a bulk change, count the matching reports with inbox-reports-list and
-            `count_only=true`, tell the user the count and the filters, and get their confirmation. Keep a request
-            that names "my inbox" inside `view=for_you`. Do not page through the project to change more reports than
-            the user confirmed.
+            `count_only=true`, tell the user the count and the filters, and get their confirmation. Keep a request that
+            names "my inbox" inside `view=for_you`. Do not page through the project to change more reports than the user
+            confirmed.
     inbox-reports-claim:
         operation: signals_reports_claim
         enabled: true
