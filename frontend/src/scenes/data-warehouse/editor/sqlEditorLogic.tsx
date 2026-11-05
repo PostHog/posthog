@@ -2661,6 +2661,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         disabled={isLoading}
                                         placeholder="What does this view show?"
                                         minRows={2}
+                                        stopPropagation
                                     />
                                 </LemonField>
                                 <div className="flex gap-2 mt-2">
