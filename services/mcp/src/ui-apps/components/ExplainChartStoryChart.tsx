@@ -3,8 +3,9 @@ import type { ReactElement, ReactNode } from 'react'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
+import { LifecycleVisualizer } from './LifecycleVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
-import type { FunnelResult, FunnelsQuery, TrendsQuery, TrendsResult } from './types'
+import type { FunnelResult, FunnelsQuery, LifecycleQuery, LifecycleResult, TrendsQuery, TrendsResult } from './types'
 
 export interface ExplainChartStoryChartProps {
     data: ExplainChartData
@@ -18,6 +19,17 @@ export function ExplainChartStoryChart({ data, overlay, chartClassName }: Explai
             <FunnelVisualizer
                 query={data.query as unknown as FunnelsQuery}
                 results={data.steps.map((step, order) => ({ ...step, order })) as unknown as FunnelResult}
+                overlay={overlay}
+                chartClassName={chartClassName}
+                showTitle={false}
+            />
+        )
+    }
+    if (data.query.kind === 'LifecycleQuery') {
+        return (
+            <LifecycleVisualizer
+                query={data.query as unknown as LifecycleQuery}
+                results={data.results as unknown as LifecycleResult}
                 overlay={overlay}
                 chartClassName={chartClassName}
                 showTitle={false}

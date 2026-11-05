@@ -71,6 +71,7 @@ export interface explainChartLogicValues {
     trendsFilter: TrendsFilter | null | undefined // trendsDataLogic
     funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
     isFunnels: boolean // insightVizDataLogic
+    isLifecycle: boolean // insightVizDataLogic
     chartStory: ExplainChartData | null
     consentRequested: boolean
     explainAvailable: boolean
@@ -191,6 +192,7 @@ export interface explainChartLogicMeta {
             display: ChartDisplayType | null | undefined,
             isFunnels: boolean,
             funnelsFilter: FunnelsFilter | null | undefined,
+            isLifecycle: boolean,
             insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => boolean
         explainAvailable: (storyAvailable: boolean, effectivePhaiView: PhaiViewMode) => boolean
@@ -251,7 +253,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             trendsDataLogic(props),
             ['display', 'indexedResults', 'isTrends', 'trendsFilter', 'results', 'incompletenessOffsetFromEnd'],
             insightVizDataLogic(props),
-            ['funnelsFilter', 'isFunnels'],
+            ['funnelsFilter', 'isFunnels', 'isLifecycle'],
         ],
         actions: [
             sidePanelStateLogic,
@@ -364,18 +366,20 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     selectors(({ props }) => ({
         insightId: [(s) => [s.insight], (insight: insightLogicValues['insight']): number | null => insight.id ?? null],
         storyAvailable: [
-            (s) => [s.featureFlags, s.isTrends, s.display, s.isFunnels, s.funnelsFilter, s.insight],
+            (s) => [s.featureFlags, s.isTrends, s.display, s.isFunnels, s.funnelsFilter, s.isLifecycle, s.insight],
             (
                 featureFlags: FeatureFlagsSet,
                 isTrends: boolean,
                 display: ChartDisplayType | null | undefined,
                 isFunnels: boolean,
                 funnelsFilter: FunnelsFilter | null | undefined,
+                isLifecycle: boolean,
                 insight: insightLogicValues['insight']
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.EXPLAIN_CHART] &&
                 ((isTrends && insightPageShowsStory(display)) ||
-                    (isFunnels && insightPageShowsFunnelStory(funnelsFilter))) &&
+                    (isFunnels && insightPageShowsFunnelStory(funnelsFilter)) ||
+                    isLifecycle) &&
                 !!insight.short_id &&
                 !props.filtersOverride &&
                 !props.variablesOverride,

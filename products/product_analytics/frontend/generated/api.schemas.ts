@@ -9155,6 +9155,11 @@ export interface StorySeriesResultApi {
      * @maxItems 5000
      */
     days?: string[]
+    /**
+     * The lifecycle status the series counts, such as dormant. Lifecycle charts only.
+     * @maxLength 40
+     */
+    status?: string
 }
 
 export interface StoryFunnelStepApi {
@@ -9335,7 +9340,7 @@ export interface StoryChapterApi {
 }
 
 /**
- * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
+ * The insight query the explanation follows: a TrendsQuery or LifecycleQuery for a time series, a FunnelsQuery for funnel steps.
  */
 export type ExplainChartDataApiQuery = { [key: string]: unknown }
 
@@ -9345,7 +9350,7 @@ export interface ExplainChartDataApi {
      * * `time_series` - Time series
      * * `funnel_steps` - Funnel steps */
     shape?: ChartExplanationShapeEnumApi
-    /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
+    /** The insight query the explanation follows: a TrendsQuery or LifecycleQuery for a time series, a FunnelsQuery for funnel steps. */
     query: ExplainChartDataApiQuery
     /** Every series on the chart when it was explained. Time series only. */
     results?: StorySeriesResultApi[]

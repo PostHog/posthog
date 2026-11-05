@@ -13,6 +13,7 @@ import type {
     StoryChapter,
     StoryEvidenceChartData,
     StoryFunnelsQuery,
+    StoryLifecycleQuery,
     StorySeriesResult,
     StoryTrendsQuery,
     TimeSeriesExplainChartData,
@@ -61,7 +62,7 @@ const TOTAL_DISPLAYS = new Set([
 ])
 
 const NOT_SUPPORTED =
-    'This tool explains trends charts and funnels that show steps. For other kinds, write the explanation in the chat instead.'
+    'This tool explains trends and lifecycle charts, and funnels that show steps. For other kinds, write the explanation in the chat instead.'
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 const NOT_FUNNEL_STEPS =
@@ -147,7 +148,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
     )
 }
 
-type StoryQuery = StoryTrendsQuery | StoryFunnelsQuery
+type StoryQuery = StoryTrendsQuery | StoryLifecycleQuery | StoryFunnelsQuery
 
 interface StoryChart {
     query: StoryQuery
@@ -161,6 +162,9 @@ function asStoryQuery(query: unknown): StoryQuery {
     if (inner?.kind === 'TrendsQuery') {
         return asTrendsQuery(inner)
     }
+    if (inner?.kind === 'LifecycleQuery') {
+        return { ...inner } as StoryLifecycleQuery
+    }
     if (inner?.kind === 'FunnelsQuery') {
         const funnel = { ...inner } as StoryFunnelsQuery
         const vizType = funnel.funnelsFilter?.funnelVizType
@@ -173,6 +177,9 @@ function asStoryQuery(query: unknown): StoryQuery {
 }
 
 function pageShowsStory(query: StoryQuery): boolean {
+    if (query.kind === 'LifecycleQuery') {
+        return true
+    }
     return query.kind === 'FunnelsQuery'
         ? insightPageShowsFunnelStory(query.funnelsFilter)
         : insightPageShowsStory(query.trendsFilter?.display)
@@ -319,7 +326,7 @@ interface ShownChart {
 }
 
 function trendsChart(
-    query: StoryTrendsQuery,
+    query: StoryTrendsQuery | StoryLifecycleQuery,
     results: StorySeriesResult[],
     seriesIndex: number,
     timezone: string | undefined

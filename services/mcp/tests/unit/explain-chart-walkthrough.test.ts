@@ -97,6 +97,34 @@ describe('explain chart', () => {
         expect(chapter?.anchor).toBeNull()
     })
 
+    it('counts dormant users on a lifecycle chart as people, not as a negative number', () => {
+        const data = {
+            shape: 'time_series',
+            query: { kind: 'LifecycleQuery', interval: 'day', series: [] },
+            results: [{ label: 'dormant', status: 'dormant', data: [-30, -31, -60, -29, -30], days: DAYS }],
+            seriesIndex: 0,
+            insightName: 'Active users',
+            lastPointInProgress: false,
+            headline: 'A headline.',
+            chapters: [
+                {
+                    title: 'More going dormant',
+                    range: [2, 2],
+                    summary: null,
+                    cause: null,
+                    confidence: null,
+                    confidenceReason: null,
+                    evidence: [],
+                },
+            ],
+        } as ExplainChartData
+
+        const [, chapter] = buildStoryPages(data, String)
+
+        expect(chapter?.facts).toContain('⟦v:60⟧')
+        expect(chapter?.facts).not.toContain('-60')
+    })
+
     it('describes a funnel by its steps and puts the marker on the step people reach', () => {
         const chapter = { summary: null, cause: null, confidence: null, confidenceReason: null, evidence: [] }
         const data: ExplainChartData = {

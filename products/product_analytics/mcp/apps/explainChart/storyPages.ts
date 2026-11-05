@@ -40,7 +40,9 @@ function factsOf(data: ExplainChartData, formatValue: StoryFactsOptions['formatV
         }
     }
     const series = data.results[data.seriesIndex]
-    const values = series?.data ?? []
+    // A lifecycle chart draws dormant users below zero. The facts count them as people.
+    const values =
+        series?.status === 'dormant' ? (series.data ?? []).map((value) => Math.abs(value)) : (series?.data ?? [])
     const days = series?.days ?? []
     const options: StoryFactsOptions = {
         interval: data.query.interval ?? 'day',
