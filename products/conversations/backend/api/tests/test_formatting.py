@@ -15,7 +15,9 @@ from posthog.comment.formatting import (
     rich_content_to_markdown,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
+    unescape_markdown,
 )
+from posthog.comment.tiptap import markdown_to_tiptap_doc
 from posthog.models import Organization, User
 
 
@@ -700,6 +702,31 @@ class TestRichContentBlockNodes(SimpleTestCase):
     )
     def test_rich_content_to_markdown_block_nodes(self, _name: str, doc: dict, expected: str) -> None:
         assert rich_content_to_markdown(doc) == expected
+
+    @parameterized.expand(
+        [
+            ("prose_punctuation_kept_clean", "Use v2.5 (not v1), e.g. query-time properties!", None),
+            ("formatting_characters_escaped", "2 * 3, a_b, [label]", "2 \\* 3, a\\_b, \\[label\\]"),
+            ("numbered_line_start_escaped", "1. not a list", "1\\. not a list"),
+            ("bullet_line_start_escaped", "- not a bullet", "\\- not a bullet"),
+            ("heading_line_start_escaped", "# not a heading", "\\# not a heading"),
+        ]
+    )
+    def test_rich_content_to_markdown_escapes_only_what_markdown_acts_on(
+        self, _name: str, text: str, expected: str | None
+    ) -> None:
+        assert rich_content_to_markdown({"type": "doc", "content": [_paragraph(text)]}) == (expected or text)
+
+    def test_unescape_markdown_clears_the_wide_set_a_stored_reply_carries(self) -> None:
+        # A reply stored before the escape set narrowed still holds an escape for each of these,
+        # and the text/plain part of a reply email has to shed all of them.
+        escaped = "e\\.g\\. query\\-time \\(v2\\) \\{a\\} \\| 2 \\* 3\\!"
+        assert unescape_markdown(escaped) == "e.g. query-time (v2) {a} | 2 * 3!"
+
+    def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
+        # An AI reply arrives as markdown, becomes a tiptap doc, and is serialized back out. A
+        # parser that keeps the backslash escapes it again, and the customer sees the backslash.
+        assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
 
     def test_slack_payload_falls_back_to_text_when_blocks_cannot_represent_doc(self) -> None:
         doc = {

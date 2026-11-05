@@ -54,6 +54,21 @@ describe('SupportEditor serialization and preview schema', () => {
             '1. parent\n   - child',
         ],
         [
+            'prose punctuation left alone, because the customer also reads this as plain text',
+            { type: 'doc', content: [paragraph('Use v2.5 (not v1), e.g. query-time properties!')] },
+            'Use v2.5 (not v1), e.g. query-time properties!',
+        ],
+        [
+            'the characters that would still format the reply',
+            { type: 'doc', content: [paragraph('2 * 3, a_b, `code`, [label]')] },
+            '2 \\* 3, a\\_b, \\`code\\`, \\[label\\]',
+        ],
+        [
+            'a numbered line that would turn into a list',
+            { type: 'doc', content: [paragraph('1. not a list')] },
+            '1\\. not a list',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',

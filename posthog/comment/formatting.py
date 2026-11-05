@@ -30,7 +30,10 @@ _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
-_RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_MD_ESCAPE_INLINE = re.compile(r"[\\`*_\[\]]|!(?=\[)")
+_RE_MD_ESCAPE_LINE_START = re.compile(
+    r"^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?=[ \t]*$)|\d{1,9}[.)](?=[ \t]|$))", re.MULTILINE
+)
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
@@ -439,8 +442,35 @@ def _normalize_single_newlines_to_markdown(text: str) -> str:
     return _RE_SINGLE_NEWLINE.sub("  \n", text)
 
 
+def _escape_line_start_markdown(match: re.Match) -> str:
+    indent, marker = match.group(1), match.group(2)
+    if marker[0].isdigit():
+        # A numbered marker takes the backslash on its delimiter, because `\1` is not an escape.
+        return f"{indent}{marker[:-1]}\\{marker[-1]}"
+    return f"{indent}\\{marker}"
+
+
 def _escape_markdown(text: str) -> str:
-    return _RE_MD_ESCAPE.sub(r"\\\1", text)
+    """
+    Escape the markdown characters that would otherwise change how the text renders.
+
+    The set stays narrow because this markdown is also read as plain text, by the text/plain part
+    of a reply email and by the widget's conversation list. Every backslash added here shows up for
+    the customer on those surfaces, so a character is escaped only where markdown acts on it. This
+    must match `escapeMarkdown` in the support composer (SupportEditor.tsx).
+    """
+    text = _RE_MD_ESCAPE_INLINE.sub(r"\\\g<0>", text)
+    return _RE_MD_ESCAPE_LINE_START.sub(_escape_line_start_markdown, text)
+
+
+def unescape_markdown(text: str) -> str:
+    """
+    Remove markdown escapes, for a reader that gets the text as plain text.
+
+    The character set is the wide one the composer used before, so a reply stored then still
+    unescapes now.
+    """
+    return _RE_MD_ESCAPED_CHAR.sub(r"\1", text)
 
 
 def _escape_alt_text(text: str) -> str:

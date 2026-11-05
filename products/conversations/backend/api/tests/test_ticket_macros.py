@@ -51,6 +51,9 @@ class TestTicketMacroAPI(APIBaseTest):
         stored = TicketMacro.objects.for_team(self.team.id).get(pk=data["id"])
         assert stored.body == "Hi {{customer.first_name}} What's up\\!"
 
+        narrow = self._create(body="Hi {{customer.first\\_name}}", shortcut="hi-narrow")
+        assert narrow["body"] == "Hi {{customer.first_name}}"
+
         TicketMacro.objects.for_team(self.team.id).filter(pk=stored.id).update(body="Bye \\{\\{customer\\.name\\}\\}")
         response = self.client.get(f"{self.base_url}{stored.id}/")
         assert response.status_code == status.HTTP_200_OK
