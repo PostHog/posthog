@@ -36,7 +36,7 @@ syncing on. Turning syncing on starts billing, so the user must agree first.
 | `external-data-schemas-partial-update`            | Turn syncing on, and set `sync_type` and `sync_frequency`    |
 | `external-data-sources-bulk-update-schemas`       | Do the same for many schemas of one source in one request    |
 | `external-data-schemas-incremental-fields-create` | See which sync methods the table supports                    |
-| `external-data-schemas-reload`                    | Start the first sync now                                     |
+| `external-data-schemas-reload`                    | Start a sync now, only if none started on its own            |
 | `external-data-schemas-cancel`                    | Stop a sync that is running                                  |
 
 ## Workflow
@@ -102,8 +102,11 @@ Delta tables):
 
 For many schemas of one source, use `external-data-sources-bulk-update-schemas` with one entry per schema.
 
-Choose a `sync_frequency` that matches how often the bucket changes. A less frequent schedule bills fewer rows. To
-start the first sync now, call `external-data-schemas-reload`. In the web app, turning syncing on shows a
+Choose a `sync_frequency` that matches how often the bucket changes. A less frequent schedule bills fewer rows.
+Turning syncing on usually starts the first sync by itself. Do not call `external-data-schemas-reload` right away: a
+reload after a sync that already ran imports and bills every row again. Call `external-data-schemas-retrieve` first,
+and call the reload only if, after a minute or two, no sync has started (`status` is still empty and there is no
+`last_synced_at`). In the web app, turning syncing on shows a
 confirmation dialog for these tables.
 
 ### Step 5 - Check the first sync
@@ -138,15 +141,16 @@ new sync succeeds. No MCP tool uploads or replaces a file, so ask the user to do
 Find the text in `latest_error` on the schema. These are the exact messages from the code. Some errors turn syncing
 off (`should_sync` becomes `false`), and `latest_error` then shows a shorter message, given below. After the user
 fixes the cause, turn syncing on again with `external-data-schemas-partial-update` (`{"should_sync": true}`); waiting
-alone does not resume the sync.
+alone does not resume the sync. Then check the sync as in step 5, and call `external-data-schemas-reload` only if no sync
+starts.
 
 - `The storage provider denied access to the bucket '<location>'. Check the access key and secret, and that the key can
 list and read objects in this bucket.` The key from the old table is no longer valid, or it cannot list and read the
   table's folder. For a Delta table the message reads `... denied access to the bucket for the Delta table '<name>'.
 Check that the key can read its folder.` The key must list and read the table's whole path. This error turns syncing
-  off and can show as `The storage provider rejected these credentials. ...`. Ask the user to fix the key, or update
-  the source credentials with `external-data-sources-partial-update`, then turn syncing on again and call
-  `external-data-schemas-reload`.
+  off and can show as `The storage provider rejected these credentials. ...`. Ask the user to fix the key's access in
+  their storage provider, or to enter new credentials for the source in the PostHog app. Do not ask for keys in the
+  chat or send them through a tool. Then turn syncing on again.
 - `No files are available for table '<name>'. No file in the bucket matches '<pattern>'.` No file matches the table's
   pattern now. The files may have been moved, renamed or removed. A variant says `The files it was discovered from may
 have been renamed, moved, or removed from the bucket.` Ask the user to check the bucket.
@@ -155,7 +159,7 @@ have been renamed, moved, or removed from the bucket.` Ask the user to check the
   table often comes back by itself.
 - Both `No files are available` errors turn syncing off when they fail the sync, and can show as
   `The files behind this table are no longer in the bucket. ...`. Ask the user to restore the files or the Delta
-  folder, then turn syncing on again and call `external-data-schemas-reload`.
+  folder, then turn syncing on again.
 - `PostHog did not replace the self-managed table '<name>', because <reason>. The table still reads its own files. To
 continue, an organization admin must make the access rules of this source the same as the rules of the table, then
 turn syncing on again. PostHog support can help with this.` Access rules changed after the move. The sync fails once
