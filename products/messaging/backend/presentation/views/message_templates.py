@@ -61,11 +61,12 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
-    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -80,6 +81,15 @@ from products.messaging.backend.facade.transactional_email import (
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
+)
+from products.messaging.backend.presentation.views.code_send_fields import (
+    CODE_SEND_EXTRA_FIELDS,
+    AddressListField,
+    AttachmentListField,
+    field_not_accepted_refusal,
+    template_send_refusal,
+    validate_pipeline_address,
+    with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -425,16 +435,8 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     )
 
 
-def _validate_pipeline_address(address: str) -> None:
-    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
-        raise serializers.ValidationError(
-            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
-            "non-ASCII domains aren't supported."
-        )
-
-
 class TransactionalEmailMessageSerializer(serializers.Serializer):
-    to = serializers.EmailField(validators=[_validate_pipeline_address], help_text="Email address of the recipient.")
+    to = serializers.EmailField(validators=[validate_pipeline_address], help_text="Email address of the recipient.")
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -450,7 +452,16 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_SEND_FIELDS = (
+    "template_key",
+    "subject",
+    "html",
+    "text",
+    "from",
+    "reply_to",
+    "capture_engagement",
+    *CODE_SEND_EXTRA_FIELDS,
+)
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -496,11 +507,32 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(validators=[_validate_pipeline_address]),
+        child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
         help_text="Addresses replies to the email your code rendered go to.",
+    )
+    cc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    bcc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    attachments = AttachmentListField(
+        required=False,
+        allow_null=True,
+        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
+        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
+        "`template_id`, which refuses any file here.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -545,7 +577,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
-            if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
+            if extra_field := next((field for field in CODE_SEND_EXTRA_FIELDS if data.get(field)), None):
+                raise template_send_refusal(extra_field)
+            for field in CODE_SEND_EXTRA_FIELDS:
+                data.pop(field, None)
+            if code_field := next(
+                (field for field in CODE_SEND_FIELDS if field in sent and field not in CODE_SEND_EXTRA_FIELDS), None
+            ):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
         unknown = next((field for field in sorted(sent) if field not in self.fields), None)
@@ -813,6 +851,9 @@ class TransactionalEmailSendMixin:
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+        except FieldNotAccepted as e:
+            outcome.update({"outcome": "rejected", "error_code": e.code})
+            raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)
@@ -1211,6 +1252,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def get_throttles(self):
         return transactional_email_throttles()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)
+        if isinstance(response.data, dict):
+            response.data = with_code_send_reason(response.data)
+        return response
+
     @validated_request(
         SendEmailSerializer,
         responses=SEND_RESPONSES,
@@ -1261,6 +1308,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            cc=tuple(data.get("cc") or ()),
+            bcc=tuple(data.get("bcc") or ()),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
         )
         return self._queue_send(
             request,

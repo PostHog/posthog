@@ -22,8 +22,7 @@ export function ExperimentHealthTab(): JSX.Element {
     }
 
     return (
-        // A reading width, so a finding's buttons stay next to its title.
-        <div className="flex flex-col gap-2 max-w-3xl" data-attr="experiment-health-tab">
+        <div className="flex flex-col gap-2" data-attr="experiment-health-tab">
             <LemonCard hoverEffect={false} className="p-0">
                 <HealthChecksOverview
                     checks={healthChecks}
