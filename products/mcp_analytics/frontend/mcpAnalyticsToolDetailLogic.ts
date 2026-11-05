@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
 import {
@@ -122,20 +123,41 @@ export interface DateFilter {
 // default to the last 30 days.
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-30d', dateTo: null }
 
+async function queryWithConcurrencyRetry(
+    query: Parameters<typeof api.query>[0],
+    breakpoint: (ms: number) => Promise<void>
+): Promise<unknown> {
+    try {
+        return await api.query(query)
+    } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'rate_limited') {
+            throw error
+        }
+        const retryAfter = Number(error.headers?.get('Retry-After') ?? 5)
+        const delay = Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : 5
+        await breakpoint(delay * 1000)
+        return await api.query(query)
+    }
+}
+
 // Tools most often called immediately before/after this one within the same conversation.
 async function neighborRows(
     toolName: string,
     direction: 'before' | 'after',
     dateRange: DateRange,
-    sharedQueryFilters: MCPSharedQueryFilters
+    sharedQueryFilters: MCPSharedQueryFilters,
+    breakpoint: (ms: number) => Promise<void>
 ): Promise<ResultRows> {
-    const response = (await api.query({
-        kind: NodeKind.MCPToolNeighborsQuery,
-        toolName,
-        neighborDirection: direction,
-        dateRange,
-        ...sharedQueryFilters,
-    })) as { results?: MCPToolNeighborItem[] }
+    const response = (await queryWithConcurrencyRetry(
+        {
+            kind: NodeKind.MCPToolNeighborsQuery,
+            toolName,
+            neighborDirection: direction,
+            dateRange,
+            ...sharedQueryFilters,
+        },
+        breakpoint
+    )) as { results?: MCPToolNeighborItem[] }
     return (response?.results ?? []).map((r) => [r.neighbor_tool, r.co_occurrences])
 }
 
@@ -437,12 +459,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             null as ToolSummary | null,
             {
                 loadSummary: async (_: void, breakpoint): Promise<ToolSummary | null> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolStatsQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolStatsItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolStatsQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolStatsItem[] }
                     breakpoint()
                     const row = response?.results?.[0]
                     if (!row) {
@@ -465,12 +490,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as DescriptionRevision[],
             {
                 loadDescriptions: async (_: void, breakpoint): Promise<DescriptionRevision[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolDescriptionsQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolDescriptionItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolDescriptionsQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolDescriptionItem[] }
                     breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         description: r.description,
@@ -484,12 +512,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             {
                 // Reads the same MCPToolStatsQuery as `summary`; the coverage denominator is the call count.
                 loadIntentCoverage: async (_: void, breakpoint): Promise<IntentCoverage | null> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolStatsQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolStatsItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolStatsQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolStatsItem[] }
                     breakpoint()
                     const row = response?.results?.[0]
                     if (!row) {
@@ -506,13 +537,16 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 // so a superseded response fetched at a different interval (e.g. day → hour on a fast
                 // back/forward) would otherwise land and collapse a day's rows into one hourly bucket.
                 loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolDailyStatsQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        interval: values.interval,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolDailyStatItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolDailyStatsQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            interval: values.interval,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolDailyStatItem[] }
                     breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         day: r.day,
@@ -530,12 +564,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as MCPToolFailureItem[],
             {
                 loadFailureBuckets: async (_: void, breakpoint): Promise<MCPToolFailureItem[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolFailuresQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolFailureItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolFailuresQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolFailureItem[] }
                     breakpoint()
                     return response?.results ?? []
                 },
@@ -548,16 +585,19 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     bucket: MCPToolFailureItem,
                     breakpoint
                 ): Promise<MCPToolFailureOccurrenceItem[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolFailureOccurrencesQuery,
-                        toolName: props.toolName,
-                        // Raw bucket parts, not the composed label — the backend normalizes them the
-                        // same way it grouped the failures table, so the bucket round-trips exactly.
-                        errorType: bucket.error_type,
-                        errorStatus: bucket.error_status || undefined,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolFailureOccurrenceItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolFailureOccurrencesQuery,
+                            toolName: props.toolName,
+                            // Raw bucket parts, not the composed label — the backend normalizes them the
+                            // same way it grouped the failures table, so the bucket round-trips exactly.
+                            errorType: bucket.error_type,
+                            errorStatus: bucket.error_status || undefined,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolFailureOccurrenceItem[] }
                     // Bail if a newer bucket was selected while this request was in flight,
                     // so a slow earlier bucket can't overwrite the latest one.
                     breakpoint()
@@ -572,12 +612,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as ResultRows,
             {
                 loadSampleIntentRows: async (_: void, breakpoint): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolSampleIntentsQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolSampleIntentItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolSampleIntentsQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolSampleIntentItem[] }
                     breakpoint()
                     return (response?.results ?? []).map((r) => [r.timestamp, r.intent, r.intent_source, r.harness])
                 },
@@ -591,7 +634,8 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         props.toolName,
                         'before',
                         values.dateRange,
-                        values.sharedQueryFilters
+                        values.sharedQueryFilters,
+                        breakpoint
                     )
                     breakpoint()
                     return rows
@@ -606,7 +650,8 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         props.toolName,
                         'after',
                         values.dateRange,
-                        values.sharedQueryFilters
+                        values.sharedQueryFilters,
+                        breakpoint
                     )
                     breakpoint()
                     return rows
@@ -619,12 +664,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 // Server-resolved harness labels via the same runner as the dashboard (scoped to this
                 // tool's new-SDK calls by toolName), so the pill matches the dashboard's bucketing exactly.
                 loadByHarnessRows: async (_: void, breakpoint): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPHarnessBreakdownQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPHarnessBreakdownQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPHarnessBreakdownItem[] }
                     breakpoint()
                     return (response?.results ?? []).map((r) => [
                         r.harness,
@@ -642,12 +690,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             {
                 // The person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
                 loadTopUserRows: async (_: void, breakpoint): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolTopUsersQuery,
-                        toolName: props.toolName,
-                        dateRange: values.dateRange,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPToolTopUserItem[] }
+                    const response = (await queryWithConcurrencyRetry(
+                        {
+                            kind: NodeKind.MCPToolTopUsersQuery,
+                            toolName: props.toolName,
+                            dateRange: values.dateRange,
+                            ...values.sharedQueryFilters,
+                        },
+                        breakpoint
+                    )) as { results?: MCPToolTopUserItem[] }
                     breakpoint()
                     return (response?.results ?? []).map((r) => [
                         [r.distinct_id, '', r.person_properties],
