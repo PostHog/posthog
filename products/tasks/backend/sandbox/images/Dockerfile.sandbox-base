@@ -78,11 +78,11 @@ RUN set -eux; \
     git --version; \
     git help -a | grep -q '[[:space:]]backfill'
 
-# Install Node.js 24.x. The layer cache keys on this RUN text, so cd-sandbox-base-image.yml
+# Install Node.js 26.x. The layer cache keys on this RUN text, so cd-sandbox-base-image.yml
 # passes the newest nodesource package as NODEJS_VERSION to rebuild the layer when Node ships
 # a release. A build without the arg installs the newest package.
 ARG NODEJS_VERSION
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
     apt-get install -y --no-install-recommends "nodejs${NODEJS_VERSION:+=$NODEJS_VERSION}" && \
     rm -rf /var/lib/apt/lists/*
 

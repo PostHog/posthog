@@ -16,6 +16,8 @@ function secret(apiKey: string): StoredSecret {
     return { apiKey }
 }
 
+const US_OAUTH: StoredSecret = { accessToken: 'pha_access', refreshToken: 'phr_refresh' }
+
 // A keychain that answers after `delayMs` of fake time, or never, or fails the way Bun reports a
 // denied dialog.
 function dialogSecrets(behavior: number | 'never' | 'denied'): (runtime: FakeRuntime) => Secrets {
@@ -51,16 +53,16 @@ describe('credential stores', () => {
             expect(await store.remove(EU)).toBe(false)
 
             await store.write(EU, secret('phx_first'))
-            await store.write(US, secret('phx_us'))
+            await store.write(US, US_OAUTH)
             await store.write(`${EU}/`, secret('phx_second'))
 
             expect(await store.read(EU)).toEqual(secret('phx_second'))
-            expect(await store.read(US)).toEqual(secret('phx_us'))
+            expect(await store.read(US)).toEqual(US_OAUTH)
 
             expect(await store.remove(EU)).toBe(true)
 
             expect(await store.read(EU)).toBeUndefined()
-            expect(await store.read(US)).toEqual(secret('phx_us'))
+            expect(await store.read(US)).toEqual(US_OAUTH)
         })
     })
 
@@ -88,7 +90,7 @@ describe('credential stores', () => {
         const start = runtime.now()
 
         const outcome = await new KeychainStore(runtime).read(EU).then(
-            (stored) => stored?.apiKey,
+            (stored) => (stored && 'apiKey' in stored ? stored.apiKey : stored),
             (error: unknown) => (error instanceof HogError ? error.code : error)
         )
 

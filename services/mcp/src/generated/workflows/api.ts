@@ -41,6 +41,12 @@ export const HogFlowsListQueryParams = () => zod.object({
             "Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last."
         ),
     limit: zod.number().max(hogFlowsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    name: zod
+        .string()
+        .optional()
+        .describe(
+            'Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod

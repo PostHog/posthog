@@ -1,3 +1,6 @@
+import asyncio
+import contextlib
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -13,7 +16,7 @@ from posthog.token_bucket import Budget, TEST_reset_scripts
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.api import validate_signal_input
-from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
+from products.signals.backend.facade.source_configs import AlertNamePatterns, SignalSourceConfigSnapshot
 
 _MODULE = "posthog.temporal.alerts.alert_firing_signal"
 
@@ -32,6 +35,11 @@ async def _validated_emit(**kwargs) -> bool:
         extra=kwargs["extra"],
         remediation=None,
     )
+    return True
+
+
+async def _hang(**_kwargs) -> bool:
+    await asyncio.Event().wait()
     return True
 
 
@@ -73,6 +81,7 @@ class TestEmitAlertFiringSignal(BaseTest):
         previous_state: str = AlertState.NOT_FIRING,
         scope: str = "all_firing_alerts",
         source_enabled: bool | None = True,
+        patterns: AlertNamePatterns | None = None,
         emit: AsyncMock | None = None,
     ) -> tuple[bool, AsyncMock]:
         emit = emit or AsyncMock(side_effect=_validated_emit)
@@ -83,6 +92,7 @@ class TestEmitAlertFiringSignal(BaseTest):
                 return_value=None if source_enabled is None else _source(source_enabled),
             ),
             patch(f"{_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(f"{_MODULE}.get_analytics_alert_name_patterns", return_value=patterns or AlertNamePatterns()),
         ):
             signal = prepare_alert_firing_signal(
                 alert, check, previous_state=previous_state, breaches=["The value is above the threshold"]
@@ -116,6 +126,12 @@ class TestEmitAlertFiringSignal(BaseTest):
             ("default_scope", {}, {"scope": "investigated_only"}, False),
             ("source_disabled", {}, {"source_enabled": False}, False),
             ("no_source_row", {}, {"source_enabled": None}, False),
+            (
+                "allow_pattern_matching_the_insight_name",
+                {},
+                {"patterns": AlertNamePatterns(allow=("^Daily",))},
+                True,
+            ),
         ]
     )
     def test_emits_once_per_episode_only_when_every_gate_passes(
@@ -140,14 +156,39 @@ class TestEmitAlertFiringSignal(BaseTest):
             ("dispatched_spends_the_cap", {"return_value": True}, False),
             ("not_dispatched_refunds_it", {"return_value": False}, True),
             ("emission_error_is_swallowed_and_refunds_it", {"side_effect": RuntimeError("temporal down")}, True),
+            ("hung_emission_times_out_and_refunds_it", {"side_effect": _hang}, True),
+            ("cancelled_attempt_refunds_it", {"side_effect": asyncio.CancelledError()}, True),
         ]
     )
     def test_cap_counts_only_dispatched_signals(self, _name: str, first_emit: dict, second_expected: bool) -> None:
         first = self._alert_and_check()
         second = self._alert_and_check()
 
-        with patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=1, per_hour=1)):
-            self._emit(*first, emit=AsyncMock(**first_emit))
+        with (
+            patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=1, per_hour=1)),
+            patch(f"{_MODULE}.EMISSION_TIMEOUT_SECONDS", 0.05),
+        ):
+            with contextlib.suppress(asyncio.CancelledError):
+                self._emit(*first, emit=AsyncMock(**first_emit))
             emitted, _ = self._emit(*second)
 
         assert emitted is second_expected
+
+    @parameterized.expand(
+        [
+            ("blocked_by_the_alert_name", AlertNamePatterns(block=("dropped$",))),
+            ("not_allowed", AlertNamePatterns(allow=("(?i)checkout",))),
+            ("invalid_stored_patterns", AlertNamePatterns(invalid=True)),
+        ]
+    )
+    def test_filtered_alert_emits_nothing_and_spends_no_cap(self, _name: str, patterns: AlertNamePatterns) -> None:
+        filtered = self._alert_and_check()
+        passing = self._alert_and_check()
+
+        with patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=1, per_hour=1)):
+            filtered_emitted, filtered_emit = self._emit(*filtered, patterns=patterns)
+            passing_emitted, _ = self._emit(*passing)
+
+        assert filtered_emitted is False
+        filtered_emit.assert_not_awaited()
+        assert passing_emitted is True

@@ -43,6 +43,21 @@ describe('creationChecklist', () => {
         expect(firstTodo(overrides)).toBe(expected)
     })
 
+    it('sums up each done item, with only the first line of a long prompt', () => {
+        const evaluation = {
+            ...judge('Is it helpful?\nAnswer true or false.'),
+            target: 'generation',
+            model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'key-1' },
+        } as EvaluationConfig
+        expect(creationChecklist(input({ evaluation })).map((item) => item.summary)).toEqual([
+            'Helpfulness',
+            'Is it helpful?',
+            'Pass or fail',
+            'gpt-5-mini',
+            '100% of all generations',
+        ])
+    })
+
     it('asks for no prompt, result or model on a sentiment evaluation', () => {
         const sentiment = { ...judge(''), evaluation_type: 'sentiment', output_type: 'sentiment' } as EvaluationConfig
         expect(
