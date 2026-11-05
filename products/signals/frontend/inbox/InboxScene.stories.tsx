@@ -133,7 +133,8 @@ export const MonitoringReportsExist: Story = {
             <InboxStateFilter />
         </div>
     ),
-    play: async ({ canvas }) => {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
         await waitFor(() => expect(within(document.body).getByText('Monitoring', { exact: true })).toBeVisible())
     },
@@ -142,7 +143,8 @@ export const MonitoringReportsExist: Story = {
 export const NoMonitoringReports: Story = {
     ...MonitoringReportsExist,
     decorators: [statusAvailabilityMocks(0)],
-    play: async ({ canvas }) => {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
         await waitFor(() =>
             expect(reportListLogic(sectionListLogicProps('outcome-monitoring')).values.hasProjectReports).toBe(false)
         )
