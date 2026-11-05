@@ -40,7 +40,7 @@ _SPAN_SQL = (
 )
 _MAX_ATTRS_PER_ROW = 8
 _TOKEN_DELIMITERS = frozenset(" \t\r\n\"'")
-_BARE_VALUE_RE = re.compile(r"[\w.:/@+…-]*")
+_BARE_VALUE_RE = re.compile(r"[\w./@+…-]*")
 _PADDING_RE = re.compile(r"^(\d+)([smh])$")
 _ID_LIKE_RE = re.compile(r"(^|[._])(id|uuid)$|[a-z](Id|ID)$|^(run|request)")
 _NOISE_KEYS = frozenset(
