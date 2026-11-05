@@ -22,7 +22,7 @@ FLAG_GATE = "products.feature_flags.backend.api.code_analysis.posthog_feature_fl
 CREATE_TASK = "products.feature_flags.backend.code_analysis.tasks_facade.create_and_run_task"
 LATEST_RUN = "products.feature_flags.backend.code_analysis.tasks_facade.get_latest_run_by_task"
 
-VALID_OUTPUT = {
+VALID_OUTPUT: dict[str, Any] = {
     "repository": "acme/web",
     "commit_sha": "4f2c91a",
     "references": [
