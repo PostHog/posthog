@@ -31,7 +31,7 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -727,17 +727,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             assert len(response["results"]) == 1
 
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
+        action = create_action(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
+            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event1_uuid
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-01T00:00:00.000Z&before=2020-01-09T00:00:00.000Z&action_id=%s"
-            % action.pk
+            % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event2_uuid
@@ -925,9 +925,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert response["results"][0]["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
 
     def test_action_no_steps(self):
-        action = Action.objects.create(team=self.team)
+        action = create_action(team=self.team)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.id)
         assert response.status_code == 200
         assert len(response.json()["results"]) == 0
 

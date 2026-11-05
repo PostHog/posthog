@@ -1,11 +1,14 @@
 import { Command as Commander, CommanderError, Option } from 'commander'
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
+import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
 import {
     argumentSyntax,
+    longFlag,
     optionFlags,
+    parseOption,
     type Command,
     type CommandTree,
     type Group,
@@ -16,6 +19,7 @@ import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
 import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
+import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
@@ -184,6 +188,11 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            // An empty value, often an unset shell variable, fails here instead of falling back to a
+            // default, such as the login's project.
+            for (const [name, spec] of Object.entries(node.options ?? {})) {
+                options[name] = parseOption(spec, options[name], longFlag(name), 'invalid_input')
+            }
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
                 if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
                     options.dryRun = true
@@ -407,7 +416,9 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
-// Read without the schema, so an opt-out still counts in a file another check rejects. A file
+const TelemetryOptOut = z.object({ cli: z.object({ telemetry: z.literal(false) }) })
+
+// Read without the full schema, so an opt-out still counts in a file another check rejects. A file
 // that isn't JSON stops the command later, with telemetry on.
 async function configOptsOut(runtime: Runtime): Promise<boolean> {
     const path = await findConfig(runtime)
@@ -415,7 +426,7 @@ async function configOptsOut(runtime: Runtime): Promise<boolean> {
         return false
     }
     try {
-        return (JSON.parse(await runtime.readFile(path)) as { cli?: { telemetry?: unknown } })?.cli?.telemetry === false
+        return parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut) !== undefined
     } catch {
         return false
     }

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 
 from django.contrib.contenttypes.models import ContentType
@@ -7,9 +9,10 @@ from django.db import models
 from parameterized import parameterized
 
 from posthog.models import Tag, TaggedItem, Team
+from posthog.models.tagged_item_registry import content_type_id_for_legacy_field
 from posthog.models.tagged_items_relation import Taggable
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models import EventDefinition
 from products.product_analytics.backend.facade.models import Insight
@@ -21,9 +24,16 @@ class TestTaggedItem(BaseTest):
             return Dashboard.objects.create(team_id=self.team.id, name="dashboard")
         if kind == "insight":
             return Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
-        if kind == "event_definition":
-            return EventDefinition.objects.create(team=self.team, name="event")
-        return Action.objects.create(team=self.team, name="action")
+        return EventDefinition.objects.create(team=self.team, name="event")
+
+    def _tagger(self, kind: str) -> Callable[[Tag], TaggedItem]:
+        if kind == "action":
+            # The action model stays inside its product, so the row is written by content type and id.
+            action = create_action(team=self.team, name="action")
+            content_type_id = content_type_id_for_legacy_field("action")
+            return lambda tag: TaggedItem.objects.create(tag=tag, content_type_id=content_type_id, object_id=action.id)
+        obj = self._taggable(kind)
+        return lambda tag: obj.tagged_items.create(tag=tag)
 
     def test_exactly_one_object_constraint(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -75,11 +85,11 @@ class TestTaggedItem(BaseTest):
     @parameterized.expand(["dashboard", "insight", "event_definition", "action"])
     def test_uniqueness_constraint(self, kind: str):
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
-        obj = self._taggable(kind)
+        tag_object = self._tagger(kind)
 
-        obj.tagged_items.create(tag=tag)
+        tag_object(tag)
         with self.assertRaises(ValidationError):
-            obj.tagged_items.create(tag=tag)
+            tag_object(tag)
 
     def test_uniqueness_constraint_property_definition(self):
         try:
