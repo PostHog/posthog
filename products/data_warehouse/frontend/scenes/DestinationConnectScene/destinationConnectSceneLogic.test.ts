@@ -191,7 +191,7 @@ describe('destinationConnectSceneLogic', () => {
         expect(destinationConnectSceneLogic.values.migrationItemId).toBeNull()
     })
 
-    it('offers a retry when the prefill fails, and the retry loads it', async () => {
+    it('offers a retry when the prefill fails, and the retry loads it only while the link names that item', async () => {
         let failing = true
         useMocks({
             get: {
@@ -222,6 +222,19 @@ describe('destinationConnectSceneLogic', () => {
             host: 'db.example.com',
             port: 6543,
             user: 'loader',
+        })
+
+        await expectLogic(destinationConnectSceneLogic, () => {
+            router.actions.push('/data-warehouse/connect-destination', {
+                kind: 'postgresql',
+                migration_id: MIGRATION_ID,
+                migration_item_id: ITEM_2,
+            })
+            retry?.action?.()
+        }).toFinishAllListeners()
+        expect(destinationConnectSceneLogic.values).toMatchObject({
+            migrationItemId: ITEM_2,
+            lockedSetupValues: { host: 'billing.example.com' },
         })
     })
 

@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import {
@@ -415,7 +415,15 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 // Clears the item, so opening the same link again loads it again.
                 actions.migrationPrefillFailed()
                 lemonToast.error("Couldn't load the connection details from Fivetran. You can still fill them in.", {
-                    button: { label: 'Try again', action: () => actions.loadMigrationPrefill(migrationId, itemId) },
+                    button: {
+                        label: 'Try again',
+                        // The toast outlives navigation, so a retry must not load this item over another link.
+                        action: () => {
+                            if (migrationLinkIds(router.values.searchParams)?.itemId === itemId) {
+                                actions.loadMigrationPrefill(migrationId, itemId)
+                            }
+                        },
+                    },
                 })
                 return
             }
