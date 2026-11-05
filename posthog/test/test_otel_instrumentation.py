@@ -3,6 +3,7 @@ import os
 import re
 import asyncio
 import logging
+import contextlib
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import NoReturn
@@ -21,6 +22,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from opentelemetry.util.types import AttributeValue
 from parameterized import parameterized
 
@@ -36,23 +38,39 @@ from posthog.otel_instrumentation import (
 URL_WITH_CREDENTIALS = "https://user:secret@api.example.com/hooks/secret?token=secret"
 
 
-def _get_with_requests(url: str) -> None:
-    with responses.RequestsMock() as mocked_responses:
-        mocked_responses.get(re.compile(".*"))
+def _get_with_requests(url: str, fail: bool) -> None:
+    body = requests.ConnectionError(f"cannot reach {url}") if fail else ""
+    with responses.RequestsMock() as mocked_responses, contextlib.suppress(requests.ConnectionError):
+        mocked_responses.get(re.compile(".*"), body=body)
         requests.get(url)
 
 
-def _get_with_httpx(url: str) -> None:
-    with mock.patch.object(httpcore.ConnectionPool, "handle_request", return_value=httpcore.Response(200)):
+def _get_with_httpx(url: str, fail: bool) -> None:
+    error = httpcore.ConnectError(f"cannot reach {url}") if fail else None
+    with (
+        mock.patch.object(
+            httpcore.ConnectionPool, "handle_request", return_value=httpcore.Response(200), side_effect=error
+        ),
+        contextlib.suppress(httpx.ConnectError),
+    ):
         httpx.get(url)
 
 
-def _get_with_async_httpx(url: str) -> None:
+def _get_with_async_httpx(url: str, fail: bool) -> None:
     async def get() -> None:
         async with httpx.AsyncClient() as client:
             await client.get(url)
 
-    with mock.patch.object(httpcore.AsyncConnectionPool, "handle_async_request", return_value=httpcore.Response(200)):
+    error = httpcore.ConnectError(f"cannot reach {url}") if fail else None
+    with (
+        mock.patch.object(
+            httpcore.AsyncConnectionPool,
+            "handle_async_request",
+            return_value=httpcore.Response(200),
+            side_effect=error,
+        ),
+        contextlib.suppress(httpx.ConnectError),
+    ):
         asyncio.run(get())
 
 
@@ -473,15 +491,19 @@ class TestOutboundCallSpans(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("requests", _get_with_requests),
-            ("httpx", _get_with_httpx),
-            ("httpx_async", _get_with_async_httpx),
+            ("requests", _get_with_requests, False),
+            ("requests_failed", _get_with_requests, True),
+            ("httpx", _get_with_httpx, False),
+            ("httpx_failed", _get_with_httpx, True),
+            ("httpx_async", _get_with_async_httpx, False),
+            ("httpx_async_failed", _get_with_async_httpx, True),
         ]
     )
-    def test_span_keeps_only_the_url_origin(self, _client: str, get: Callable[[str], None]) -> None:
-        get(URL_WITH_CREDENTIALS)
+    def test_span_keeps_only_the_url_origin(self, _case: str, get: Callable[[str, bool], None], fail: bool) -> None:
+        get(URL_WITH_CREDENTIALS, fail)
 
         (span,) = self.exporter.get_finished_spans()
-        attributes = dict(span.attributes or {})
-        self.assertEqual(attributes["http.url"], "https://api.example.com")
-        self.assertNotIn("secret", str(attributes))
+        recorded = (span.attributes, [(event.name, event.attributes) for event in span.events], span.status.description)
+        self.assertEqual(dict(span.attributes or {})["http.url"], "https://api.example.com")
+        self.assertEqual(span.status.status_code, StatusCode.ERROR if fail else StatusCode.UNSET)
+        self.assertNotIn("secret", str(recorded))

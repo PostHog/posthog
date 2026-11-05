@@ -2,13 +2,14 @@ import os
 import atexit
 import typing
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 from django.http import HttpRequest, HttpResponse
 
 import structlog
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
@@ -23,8 +24,11 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import Span
+from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
+from opentelemetry.trace import Link, Span, SpanKind, StatusCode
+from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.http import sanitize_method
+from opentelemetry.util.types import Attributes
 from requests import PreparedRequest
 
 # Get a structlog logger for this module's own messages
@@ -120,6 +124,81 @@ def _otel_httpx_request_hook(span: Span, request: RequestInfo) -> None:
 
 async def _otel_httpx_async_request_hook(span: Span, request: RequestInfo) -> None:
     _otel_httpx_request_hook(span, request)
+
+
+class _ExceptionTypeOnlyTracer(trace.Tracer):
+    def __init__(self, tracer: trace.Tracer) -> None:
+        self._tracer = tracer
+
+    def start_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+    ) -> Span:
+        return self._tracer.start_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+
+    @_agnosticcontextmanager
+    def start_as_current_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+        end_on_exit: bool = True,
+    ) -> Iterator[Span]:
+        with self._tracer.start_as_current_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+            end_on_exit=end_on_exit,
+        ) as span:
+            try:
+                yield span
+            except Exception as error:
+                span.set_attribute(ERROR_TYPE, type(error).__name__)
+                span.set_status(StatusCode.ERROR)
+                raise
+
+
+class _ExceptionTypeOnlyTracerProvider(trace.TracerProvider):
+    def __init__(self, provider: trace.TracerProvider) -> None:
+        self._provider = provider
+
+    def get_tracer(
+        self,
+        instrumenting_module_name: str,
+        instrumenting_library_version: str | None = None,
+        schema_url: str | None = None,
+        attributes: Attributes = None,
+    ) -> trace.Tracer:
+        tracer = self._provider.get_tracer(
+            instrumenting_module_name, instrumenting_library_version, schema_url, attributes
+        )
+        return _ExceptionTypeOnlyTracer(tracer)
 
 
 def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
@@ -286,7 +365,10 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
 
 def instrument_requests_client(provider: trace.TracerProvider) -> None:
     try:
-        RequestsInstrumentor().instrument(tracer_provider=provider, request_hook=_otel_requests_request_hook)
+        RequestsInstrumentor().instrument(
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
+            request_hook=_otel_requests_request_hook,
+        )
         logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
     except Exception as e:
         logger.exception(
@@ -297,7 +379,7 @@ def instrument_requests_client(provider: trace.TracerProvider) -> None:
 def instrument_httpx_client(provider: trace.TracerProvider) -> None:
     try:
         HTTPXClientInstrumentor().instrument(
-            tracer_provider=provider,
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
             request_hook=_otel_httpx_request_hook,
             async_request_hook=_otel_httpx_async_request_hook,
         )
