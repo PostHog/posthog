@@ -305,6 +305,7 @@ class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
 ):
     scope_object = "conversation"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "cancel"]
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"

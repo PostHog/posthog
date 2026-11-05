@@ -17,6 +17,8 @@ export interface QuillSceneNameProps {
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
     suffix?: ReactNode
+    /** Shown after the open field, where `suffix` is hidden. */
+    fieldSuffix?: ReactNode
     editDataAttr?: string
 }
 
@@ -34,6 +36,7 @@ export function QuillSceneName({
     onGenerateMetadata,
     isGeneratingMetadata = false,
     suffix,
+    fieldSuffix,
     editDataAttr = 'scene-name-edit',
 }: QuillSceneNameProps): JSX.Element {
     const { name, isEditing, containerRef, startEditing, change, blur, saveFromEnter, cancel } = useSceneNameEditing({
@@ -59,7 +62,12 @@ export function QuillSceneName({
 
     if (editable && isEditing) {
         return (
-            <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1" data-attr="scene-name-edit-row">
+            <div
+                ref={containerRef}
+                onBlur={blur}
+                className="flex min-w-0 flex-1 items-center gap-1"
+                data-attr="scene-name-edit-row"
+            >
                 <Input
                     aria-label="Name"
                     name="name"
@@ -67,7 +75,6 @@ export function QuillSceneName({
                     readOnly={isGeneratingMetadata}
                     placeholder="Enter name"
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
-                    onBlur={blur}
                     onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
                         if (event.key === 'Enter') {
                             event.preventDefault()
@@ -104,6 +111,7 @@ export function QuillSceneName({
                         </TooltipContent>
                     </Tooltip>
                 )}
+                {fieldSuffix}
             </div>
         )
     }

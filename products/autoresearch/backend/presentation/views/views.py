@@ -45,6 +45,7 @@ from products.autoresearch.backend.facade.contracts import (
     InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
+    TrainingRunCapReached,
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
@@ -78,6 +79,7 @@ from .serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingRunCapReachedSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
@@ -442,7 +444,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
-            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            429: OpenApiResponse(
+                response=TrainingRunCapReachedSerializer,
+                description=(
+                    "The project started its limit of training runs in the last 24 hours (this body), "
+                    "or the team is over its PostHog Desktop usage limit."
+                ),
+            ),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
@@ -482,6 +490,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        except TrainingRunCapReached as exc:
+            body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
+            return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(

@@ -3,7 +3,6 @@ from typing import Any, cast
 from products.warehouse_sources.sources.azure_blob._config import AzureBlobSourceConfig
 from products.warehouse_sources.sources.sdk import (
     AZURE_EXAMPLE_URL,
-    FEATURE_FLAG,
     KEYWORDS,
     AzureBlobConfig,
     DataWarehouseSourceCategory,
@@ -38,7 +37,6 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
     )
 
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/storageservices/blob-service-rest-api"
-    requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "azure"
 
     @property
@@ -78,7 +76,6 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
             caption=source_caption("an Azure Blob Storage container"),
             iconPath="/static/services/azure_blob.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
             fields=cast(
                 list[FieldType],
                 [

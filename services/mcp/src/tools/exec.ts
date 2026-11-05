@@ -688,6 +688,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     ),
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    // Self-managed tables (reading a bucket in place) can no longer be created.
+    'warehouse-tables-create': () =>
+        'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import files from a bucket, add an Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2 source with "data-warehouse-source-setup" (run "external-data-sources-wizard" for the credential fields of each source type).',
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }

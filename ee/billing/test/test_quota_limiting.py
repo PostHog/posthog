@@ -273,7 +273,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(4, 11)):
+        with self.assertNumQueries(FuzzyInt(4, 13)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
@@ -346,7 +346,12 @@ class TestQuotaLimiting(BaseTest):
     @patch("posthoganalytics.capture")
     def test_todays_usage_reads_every_legacy_row_shape(self, _capture) -> None:
         def flag_requests(_begin, _end, request_type):
-            return [(str(self.team.id), 7 if request_type == FlagRequestType.DECIDE else 2)]
+            counts = {
+                FlagRequestType.DECIDE: 7,
+                FlagRequestType.LOCAL_EVALUATION: 2,
+                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: 3,
+            }
+            return [(str(self.team.id), counts[request_type])]
 
         with (
             self.settings(USE_TZ=False),
@@ -375,7 +380,7 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
-        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10
+        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10 + 3
         assert self.organization.usage["rows_synced"]["todays_usage"] == 5
         assert self.organization.usage["rows_exported"]["todays_usage"] == 3
 
@@ -2510,6 +2515,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         mcp_events=0,
         ai_credits=0,
         signals_credits=0,
+        signals_spend_credits=0,
         posthog_code_credits=0,
         posthog_code_token_credits=0,
         sandbox_compute_credits=0,

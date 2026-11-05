@@ -20,6 +20,7 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 
 from collections import defaultdict
 from collections.abc import Collection
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -106,6 +107,7 @@ __all__ = [
     "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
+    "import_started_before",
     "list_column_statistics",
     "column_sensitivity",
     "column_sensitivity_enabled",
@@ -824,6 +826,30 @@ def column_sensitivity_enabled(team_id: int) -> bool:
     )
 
     return is_team_flag_enabled(team_id, "warehouse-column-sensitivity")
+
+
+def import_started_before(
+    team_id: int, table_names: Collection[str], finished_by: datetime
+) -> dict[str, datetime | None]:
+    """Start time of the newest import that finished by `finished_by`, per synced table name. None when there is none.
+
+    Ordered on `created_at` so each probe walks `idx_extdatajob_latest_run` and stops at the first match.
+    """
+    consumed = (
+        _ExternalDataJob.objects.filter(
+            team_id=team_id,
+            pipeline_id=OuterRef("source_id"),
+            schema_id=OuterRef("pk"),
+            status=_ExternalDataJob.Status.COMPLETED,
+            finished_at__lte=finished_by,
+        )
+        .order_by("-created_at")
+        .values("created_at")[:1]
+    )
+    schemas = _ExternalDataSchema.objects.filter(
+        team_id=team_id, table__name__in=table_names, deleted=False, should_sync=True
+    ).annotate(consumed_started_at=Subquery(consumed))
+    return dict(schemas.values_list("table__name", "consumed_started_at"))
 
 
 def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
