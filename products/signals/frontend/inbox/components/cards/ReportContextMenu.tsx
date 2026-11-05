@@ -52,6 +52,7 @@ import {
     canResolveReport,
     canUnassignMe,
     hasOpenImplementationPr,
+    implementationClaimDisabledReason,
 } from '../../utils/reportActions'
 import { isReportClaimable, reportClaimant, teammateClaimHolder } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
@@ -150,7 +151,8 @@ function ReportContextMenuItems({
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
-    const createPrDisabledReason = globalPrDisabledReason ?? githubDisabledReason
+    const createPrDisabledReason =
+        globalPrDisabledReason ?? githubDisabledReason ?? implementationClaimDisabledReason(report, user?.uuid)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)

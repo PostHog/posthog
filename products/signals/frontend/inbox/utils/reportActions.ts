@@ -1,6 +1,9 @@
+import { fullNameOrEmail } from 'lib/utils/strings'
+
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
 // Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
 // the list row context menu, so the surfaces cannot drift apart. Mirrors desktop `reportActions.ts`.
+import { reportClaimant } from './reportClaim'
 import { primaryReportPullRequest, hasActiveReportPullRequest } from './reportPullRequests'
 
 /**
@@ -38,6 +41,31 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
         return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
     }
     return false
+}
+
+/**
+ * Why the claim blocks Create PR for this user, or null. Mirrors the server's `claim_report_for_task`:
+ * a new task starts only on an unclaimed report or under a claim the person starting it holds directly,
+ * so the claim of their own agent blocks it too.
+ */
+export function implementationClaimDisabledReason(
+    report: Pick<SignalReport, 'assignee'>,
+    userUuid: string | null | undefined
+): string | null {
+    const assignee = report.assignee
+    if (!assignee || (assignee.kind === 'user' && !!userUuid && assignee.user?.uuid === userUuid)) {
+        return null
+    }
+    if (assignee.kind === 'task') {
+        return 'A task is already working on this report.'
+    }
+    const claimant = reportClaimant(report)
+    if (!claimant) {
+        return 'Someone else is working on this report.'
+    }
+    return claimant.uuid === userUuid
+        ? 'Your agent is working on this report.'
+        : `${fullNameOrEmail(claimant)} is working on this report.`
 }
 
 export function canResolveReport(report: SignalReport): boolean {

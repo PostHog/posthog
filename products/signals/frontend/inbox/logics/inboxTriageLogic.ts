@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
@@ -10,7 +11,12 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
-import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canUnassignMe,
+    hasOpenImplementationPr,
+    implementationClaimDisabledReason,
+} from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -51,6 +57,7 @@ export interface inboxTriageLogicValues {
     currentReport: SignalReport | null
     currentReportUrl: string | null
     expanded: boolean
+    implementationDisabledReason: string | null
     isRestoringPosition: boolean
     isUnassigningCurrent: boolean
     nextReport: SignalReport | null
@@ -196,6 +203,10 @@ export interface inboxTriageLogicMeta {
         nextReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
         canCreatePr: (currentReport: SignalReport | null) => boolean
+        implementationDisabledReason: (
+            currentReport: SignalReport | null,
+            user: null | import('~/types').UserType
+        ) => string | null
         isUnassigningCurrent: (currentReport: SignalReport | null, unassigningReportIds: string[]) => boolean
         unassignDisabledReason: (
             currentReport: SignalReport | null,
@@ -363,6 +374,11 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             (currentReport: SignalReport | null): boolean =>
                 currentReport !== null && canCreateImplementationPr(currentReport),
         ],
+        implementationDisabledReason: [
+            (s) => [s.currentReport, userLogic.selectors.user],
+            (currentReport: SignalReport | null, user: { uuid: string } | null): string | null =>
+                currentReport ? implementationClaimDisabledReason(currentReport, user?.uuid) : null,
+        ],
         isUnassigningCurrent: [
             (s) => [s.currentReport, s.unassigningReportIds],
             (currentReport: SignalReport | null, unassigningReportIds: string[]): boolean =>
@@ -491,7 +507,13 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             createPrForCurrent: () => {
                 const report = values.currentReport
-                if (!report || !values.canCreatePr || values.isCreatingPr || values.createPrDisabledReason) {
+                if (
+                    !report ||
+                    !values.canCreatePr ||
+                    values.isCreatingPr ||
+                    values.createPrDisabledReason ||
+                    values.implementationDisabledReason
+                ) {
                     return
                 }
                 const access = reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' })
