@@ -1,14 +1,3 @@
-"""Read-path parity: routing the web-analytics query runner to the dimensional
-precompute tables (for opted-in queries) must produce the same results as the v2
-pre-aggregated tables — including under multi-dimension filters, the capability
-the fixed-dimension tables exist to provide.
-
-The write-path parity test (`test_web_dimensional_precompute_parity`) asserts the
-dimensional table *contents* equal v2's. This test instead drives the query
-*runner* end-to-end, so it covers the read path the write-path test doesn't: the
-dimensional builder's table selection and the `job_id IN` dedup filter.
-"""
-
 from datetime import UTC, datetime
 
 import time_machine
