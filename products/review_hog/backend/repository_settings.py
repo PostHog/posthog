@@ -280,8 +280,12 @@ class ProjectRepositories:
         *,
         selected: bool | None = None,
         flash_for: str | None | Unset = UNSET,
+        review_drafts: bool | None = None,
     ) -> RepositoryWriteResult:
-        """Include or remove a repository, or set or clear its exception. Omitted fields keep their value."""
+        """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
+
+        Omitted fields keep their value.
+        """
         ref = self.verified_ref(ref)
         with transaction.atomic():
             row = find_matching_row(ref, RepositoryOwnership.rows_for(ref))
@@ -296,13 +300,19 @@ class ProjectRepositories:
                 new_flash_for = row.flash_for if row is not None else None
             else:
                 new_flash_for = flash_for
+            new_review_drafts = review_drafts if review_drafts is not None else row is not None and row.review_drafts
 
             if not new_selected and not takes_all:
                 if isinstance(flash_for, str):
                     raise RepositorySettingsError("Include the repository in this project before you add an exception.")
-                # The repository leaves the project, so its exception goes too.
+                if review_drafts:
+                    raise RepositorySettingsError(
+                        "Include the repository in this project before you turn on draft reviews."
+                    )
+                # The repository leaves the project, so its exception and its draft setting go too.
                 new_flash_for = None
-            if not new_selected and new_flash_for is None:
+                new_review_drafts = False
+            if not new_selected and new_flash_for is None and not new_review_drafts:
                 if row is not None:
                     row.delete()
                 return RepositoryWriteResult(repository=None, taken_from=None)
@@ -332,6 +342,7 @@ class ProjectRepositories:
             row.installation_id = ref.installation_id
             row.selected = new_selected
             row.flash_for = new_flash_for
+            row.review_drafts = new_review_drafts
             try:
                 with transaction.atomic():
                     row.save()
@@ -480,12 +491,14 @@ class RepositoryOverview:
 
     @staticmethod
     def follows_project(entry: OverviewEntry) -> bool:
-        """No exception and no own choice, so the entry gets exactly what every other such entry gets."""
+        """No exception, no draft reviews and no own choice, so the entry gets what every other such entry gets."""
         has_exception = entry.repository is not None and entry.repository.flash_for is not None
+        reviews_drafts = entry.repository is not None and entry.repository.review_drafts
         return (
             entry.owner == RepositoryOwnerKind.THIS_PROJECT
             and entry.in_project
             and not has_exception
+            and not reviews_drafts
             and entry.my_choice is None
         )
 

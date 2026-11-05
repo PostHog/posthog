@@ -1072,6 +1072,20 @@ export interface _MetricQueryResponseApi {
     hint?: string
 }
 
+export interface _MetricQueryCountApi {
+    /** Metric name as it appears in the team's data. */
+    metric_name: string
+    /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+    query_count: number
+    /** When a query last read the metric, ISO 8601. */
+    last_queried_at: string
+}
+
+export interface _MetricQueryCountsResponseApi {
+    /** Metrics that queries read in the window, the most queried first. */
+    results: _MetricQueryCountApi[]
+}
+
 export interface _MetricSamplesBodyApi {
     /**
      * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
@@ -1579,6 +1593,21 @@ export type MetricsNamesRetrieveParams = {
      * @maxLength 255
      */
     value?: string
+}
+
+export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
 }
 
 export type MetricsValuesRetrieveParams = {

@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
     OAuthPointer,
     PointerPath,
@@ -613,6 +614,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         )
 
         return derive_credential_auth_type(self.get_source_config)
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
 
     def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
         """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
