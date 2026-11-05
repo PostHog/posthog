@@ -10483,7 +10483,7 @@ Note: Per-version download counts are already included in the synced `versions` 
 
 ## Ruddr — **thin**
 
-Today (13): `allocations`, `clients`, `invoice_items`, `invoices`, `members`, `pipeline_activities`, `project_prepayments`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
+Today (17): `allocations`, `clients`, `invoice_items`, `invoices`, `members`, `opportunities`, `opportunity_stages`, `pipeline_activities`, `project_health_reports`, `project_members`, `project_prepayments`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
@@ -10494,17 +10494,17 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `invoices` — billing and revenue, entirely absent from the current 5 tables (high)
 - [x] `invoice-items` — line-item revenue tied back to projects and time entries (high)
 - [x] `allocations` — planned resource allocation to compare against logged time entries (high)
-- [ ] `project-members` — membership table joining members to the projects we already sync (high)
-- [ ] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
-- [ ] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
+- [x] `project-members` — membership table joining members to the projects we already sync (high)
+- [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
+- [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
 - [ ] `project-expenses` — cost side of project profitability (medium)
 - [ ] `payments` — cash collection against invoices (medium)
 - [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
-- [ ] `project-health-reports` — periodic project status history, a natural trend series (medium)
+- [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
 - [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
-Note: Ruddr documents roughly 78 list endpoints; the connector exposes 13. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
+Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
 ## RunPod — adequate
 
