@@ -19,7 +19,8 @@ type Check = {
     description: string
     status: string
     reason: string | null
-    measurement: { value: number; threshold: number; unit: string; warns: string } | null
+    values: Record<string, string | number | boolean | null>
+    rule: object | null
 }
 
 const DESCRIPTION = 'Looks for a problem in the setup of the experiment that can make its results wrong.'
@@ -30,7 +31,8 @@ const passed = (key: string, name: string): Check => ({
     description: DESCRIPTION,
     status: 'passed',
     reason: null,
-    measurement: null,
+    values: {},
+    rule: null,
 })
 
 const EXPERIMENT_CHECKS: Check[] = [
@@ -62,7 +64,14 @@ const EXPOSURE_CHECKS: Check[] = [
     passed('test_account_filter_removes_exposures', 'Test account filters that leave out most users'),
     {
         ...passed('srm', 'Split of users across variants'),
-        measurement: { value: 0.71, threshold: 0.001, unit: 'p_value', warns: 'below' },
+        values: { p_value: 0.62, compared_count: 3000, multiple_variant_count: 18 },
+        rule: {
+            value: 'p_value',
+            threshold: 0.001,
+            warns: 'below',
+            test: 'chi_squared',
+            minimum: { value: 'compared_count', threshold: 100 },
+        },
     },
     {
         ...passed('bias_risk_multiple_excluded', 'Bias from an uneven split'),

@@ -21,7 +21,12 @@ import {
 } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
+import {
+    INBOX_REPORT_SECTION_LIST_PARAMS,
+    reportListLogic,
+    sectionListLogicProps,
+    shouldDefaultToEntireProject,
+} from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
@@ -75,12 +80,12 @@ describe('reportListLogic', () => {
                     [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
                 })
             ).toFinishAllListeners()
-            expect(requests).toHaveLength(2)
+            expect(requests).toHaveLength(1)
             expect(requests.every((url) => new URL(url).searchParams.get('status') === 'monitoring')).toBe(true)
             expect(logic.values).toMatchObject({ count: 1, reports: [makeReport('monitored')] })
 
             await expectLogic(logic, () => featureFlagLogic.actions.setFeatureFlags([], {})).toFinishAllListeners()
-            expect(requests).toHaveLength(2)
+            expect(requests).toHaveLength(1)
             expect(logic.values).toMatchObject({ count: 0, reports: [], hasMore: false })
         } finally {
             logic.unmount()
@@ -283,6 +288,70 @@ describe('reportListLogic', () => {
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
 
+        it('takes the count of a loaded section from its reloaded page, not from a late count of the old query', async () => {
+            logic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            const MINE = FIRST_PAGE.slice(0, 3)
+            const requests: string[] = []
+            let releaseOldCount: () => void = () => {}
+            const heldOldCount = new Promise<void>((resolve) => {
+                releaseOldCount = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (params.get('count_only') === 'true') {
+                            requests.push(`count:${params.get('assignee') ?? 'all'}`)
+                            await heldOldCount
+                            return [200, { count: 99, next: null, previous: null, results: [] }]
+                        }
+                        requests.push(`page:${params.get('assignee') ?? 'all'}`)
+                        return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
+                    },
+                },
+            })
+
+            logic.actions.loadCount()
+            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+            releaseOldCount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toEqual(['count:all', 'page:mine'])
+            expect(logic.values.count).toBe(MINE.length)
+        })
+
+        it('takes the count of a loaded section from its reloaded page, not from a count the bulk action outran', async () => {
+            const REMAINING = FIRST_PAGE.slice(0, 4)
+            let releaseOldCount: () => void = () => {}
+            const heldOldCount = new Promise<void>((resolve) => {
+                releaseOldCount = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('count_only') === 'true') {
+                            await heldOldCount
+                            return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: REMAINING.length, next: null, previous: null, results: REMAINING }]
+                    },
+                },
+            })
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+
+            logic.actions.loadCount()
+            bulkLogic.actions.bulkDismissSuccess()
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+            releaseOldCount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.count).toBe(REMAINING.length)
+            bulkLogic.unmount()
+        })
+
         it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
             let releasePage: () => void = () => {}
             const heldPage = new Promise<void>((resolve) => {
@@ -417,6 +486,46 @@ describe('reportListLogic', () => {
                 bulkLogic.unmount()
             }
         )
+    })
+
+    // `InboxStateFilter` hides the Closed state until the project holds a closed report, so this
+    // project-wide check has to keep up with reports that close while the inbox is open.
+    describe('closed state availability', () => {
+        let projectClosedReports: number
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            projectClosedReports = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (params.get('count_only') === 'true') {
+                            return [200, { count: projectClosedReports, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic(sectionListLogicProps('closed'))
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('rechecks the project for closed reports when the loaded section refreshes', async () => {
+            expect(logic.values.hasProjectClosedReports).toBe(false)
+
+            projectClosedReports = 1
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.hasProjectClosedReports).toBe(true)
+        })
     })
 
     // A scope change while a request for the old query is in flight. The old response lands last,

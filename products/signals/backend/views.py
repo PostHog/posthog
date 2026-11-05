@@ -315,6 +315,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -1814,11 +1815,12 @@ class SignalReportViewSet(
         description=(
             "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
             "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
-            "The request never waits on the model. A current stored list returns quickly. Otherwise the request "
-            "reads every candidate report, which can take some seconds, starts a background build and returns the "
-            "last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, "
-            "and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list "
-            "is about can read it."
+            "The request never waits on the model. By default it returns the last stored list quickly, and "
+            "`checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every "
+            "candidate report, which can take some seconds. `refresh`, `focus` and your first request start a "
+            "background build and set `building: true`. With no stored list, the request returns your reports in "
+            "inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new "
+            "list. Only the user the list is about can read it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["inbox:read"], pagination_class=None)
@@ -1841,6 +1843,7 @@ class SignalReportViewSet(
             refresh=query["refresh"],
             focus=query.get("focus"),
             wait_seconds=query["wait_seconds"],
+            max_age_minutes=query.get("max_age_minutes"),
         )
         report_user_action(
             user,
@@ -1856,6 +1859,7 @@ class SignalReportViewSet(
                 "refresh": query["refresh"],
                 "has_focus": bool(query.get("focus")),
                 "wait_seconds": query["wait_seconds"],
+                "max_age_minutes": query.get("max_age_minutes"),
                 "result_count": len(served.results),
                 "duration_ms": round((time.monotonic() - started) * 1000),
                 "check_ms": served.timings.check_ms,
@@ -2858,6 +2862,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
 
     @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
@@ -3282,6 +3287,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

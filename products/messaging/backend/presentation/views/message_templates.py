@@ -38,10 +38,14 @@ from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
+from posthog.permissions import (
+    is_authenticated_via_project_secret_api_key,
+    legacy_scope_object_used,
+    scopes_caller_lacks,
+)
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,
@@ -62,11 +66,12 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
-    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -81,6 +86,15 @@ from products.messaging.backend.facade.transactional_email import (
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
+)
+from products.messaging.backend.presentation.views.code_send_fields import (
+    CODE_SEND_EXTRA_FIELDS,
+    AddressListField,
+    AttachmentListField,
+    field_not_accepted_refusal,
+    template_send_refusal,
+    validate_pipeline_address,
+    with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -354,7 +368,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         # Programmatically authored templates often supply html without a design, which the
         # visual editor can't open. Wrap the html in a single custom HTML block; the stored
         # html stays untouched, so nothing about the sent email changes.
-        if email and email.get("html") and not email.get("design"):
+        if email and email.get("html") and html_wrap_design_needs_refresh(email["html"], email.get("design")):
             email["design"] = build_html_wrap_design(email["html"])
         # Design-only saves get their html rendered server-side (the send path uses html
         # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
@@ -428,16 +442,8 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     )
 
 
-def _validate_pipeline_address(address: str) -> None:
-    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
-        raise serializers.ValidationError(
-            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
-            "non-ASCII domains aren't supported."
-        )
-
-
 class TransactionalEmailMessageSerializer(serializers.Serializer):
-    to = serializers.EmailField(validators=[_validate_pipeline_address], help_text="Email address of the recipient.")
+    to = serializers.EmailField(validators=[validate_pipeline_address], help_text="Email address of the recipient.")
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -453,7 +459,16 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_SEND_FIELDS = (
+    "template_key",
+    "subject",
+    "html",
+    "text",
+    "from",
+    "reply_to",
+    "capture_engagement",
+    *CODE_SEND_EXTRA_FIELDS,
+)
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -499,11 +514,32 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(validators=[_validate_pipeline_address]),
+        child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
         help_text="Addresses replies to the email your code rendered go to.",
+    )
+    cc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    bcc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    attachments = AttachmentListField(
+        required=False,
+        allow_null=True,
+        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
+        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
+        "`template_id`, which refuses any file here.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -548,7 +584,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
-            if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
+            if extra_field := next((field for field in CODE_SEND_EXTRA_FIELDS if data.get(field)), None):
+                raise template_send_refusal(extra_field)
+            for field in CODE_SEND_EXTRA_FIELDS:
+                data.pop(field, None)
+            if code_field := next(
+                (field for field in CODE_SEND_FIELDS if field in sent and field not in CODE_SEND_EXTRA_FIELDS), None
+            ):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
         unknown = next((field for field in sorted(sent) if field not in self.fields), None)
@@ -816,6 +858,9 @@ class TransactionalEmailSendMixin:
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+        except FieldNotAccepted as e:
+            outcome.update({"outcome": "rejected", "error_code": e.code})
+            raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)
@@ -924,8 +969,8 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` and `make_transactional` are custom write actions; list them so programmatic callers (MCP/personal
-    # API key) get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get hog_flow:write
+    # checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = [
         "create",
         "update",
@@ -933,12 +978,13 @@ class MessageTemplatesViewSet(
         "patch",
         "destroy",
         "design",
-        "make_transactional",
     ]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
     psak_allowed_actions = ["send"]
     transactional_email_send_actions = ("send",)
+    # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
+    records_have_object_access_rules = False
 
     serializer_class = MessageTemplateSerializer
 
@@ -947,16 +993,14 @@ class MessageTemplatesViewSet(
             return transactional_email_throttles()
         return super().get_throttles()
 
-    def dangerously_get_object(self) -> MessageTemplateRow:
+    def read_object(self) -> MessageTemplateRow | None:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
             # A send never reads the tags, so it skips their queries.
-            template = get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
+            return get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
         except MessageTemplateMissing:
-            raise NotFound()
-        self.check_object_permissions(self.request, template)
-        return template
+            return None
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
@@ -1166,11 +1210,13 @@ class MessageTemplatesViewSet(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
-            "nothing."
+            "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
+            "the response leaves out `content` and `draft_content`."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None)
+    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
         template = self.get_object()
@@ -1202,7 +1248,12 @@ class MessageTemplatesViewSet(
                 )
             except Exception as e:
                 logger.warning("Failed to capture message template usage event", error=str(e))
-        return Response(self._serialize(updated))
+        data = self._serialize(updated)
+        # A send-scoped key can't read templates, so converting one must not hand it their content.
+        if scopes_caller_lacks(request, ["hog_flow:read"]):
+            data.pop("content", None)
+            data.pop("draft_content", None)
+        return Response(data)
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -1211,9 +1262,24 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
+    # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
+    records_have_object_access_rules = False
 
     def get_throttles(self):
         return transactional_email_throttles()
+
+    def read_object(self) -> MessageTemplateRow | None:
+        # The `email` action names its template in the request body, not in the URL.
+        try:
+            return get_template(self.team_id, self.request.validated_data["template_id"], with_tags=False)
+        except MessageTemplateMissing:
+            return None
+
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)
+        if isinstance(response.data, dict):
+            response.data = with_code_send_reason(response.data)
+        return response
 
     @validated_request(
         SendEmailSerializer,
@@ -1238,11 +1304,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
-            try:
-                template = get_template(self.team_id, request.validated_data["template_id"], with_tags=False)
-            except MessageTemplateMissing:
-                raise NotFound()
-            self.check_object_permissions(request, template)
+            template = self.get_object()
         return self._queue_transactional_email(request, template, route="send_email")
 
     def _send_code_email(self, request: Any) -> Response:
@@ -1265,6 +1327,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            cc=tuple(data.get("cc") or ()),
+            bcc=tuple(data.get("bcc") or ()),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
         )
         return self._queue_send(
             request,
