@@ -69,9 +69,12 @@ class IncrementalState:
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
+    return parse_incremental_config(saved_query.incremental_config)
+
+
+def parse_incremental_config(raw: Any) -> Optional[IncrementalConfig]:
     """Return the config only when it is enabled and complete. Anything malformed reads as off,
     so a half-written config degrades to a full refresh rather than failing a run."""
-    raw = saved_query.incremental_config
     if not isinstance(raw, dict) or not raw.get("enabled"):
         return None
 

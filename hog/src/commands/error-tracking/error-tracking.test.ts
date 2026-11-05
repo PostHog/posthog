@@ -11,7 +11,7 @@ import {
     writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
@@ -156,6 +156,37 @@ describe('hog error-tracking upload', () => {
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('upload --dry-run calls an empty map a bundler problem only when its file is 4096 bytes or more', async () => {
+        const files: Record<string, string> = {
+            'dist/ok.js': 'a();\n//# sourceMappingURL=ok.js.map\n//# chunkId=00000000-0000-4000-8000-000000000000',
+            'dist/ok.js.map': MAP,
+        }
+        for (const [name, size, id] of [
+            ['page', 2900, 1],
+            ['stub', 4095, 2],
+            ['chunk', 4096, 3],
+        ] as const) {
+            const tail = `\n//# sourceMappingURL=${name}.js.map\n//# chunkId=00000000-0000-4000-8000-00000000000${id}`
+            files[`dist/${name}.js`] = 'a'.repeat(size - tail.length) + tail
+            files[`dist/${name}.js.map`] = JSON.stringify({ version: 3, sources: [], names: [], mappings: '' })
+        }
+        const result = await runHog(['et', 'upload', '--dry-run', 'dist'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project(files),
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(0)
+        const reasons = Object.fromEntries(
+            result.json().skipped.map((skip: { path: string; reason: string }) => [basename(skip.path), skip.reason])
+        )
+        expect(reasons).toEqual({
+            'page.js': 'the sourcemap is empty',
+            'stub.js': 'the sourcemap is empty',
+            'chunk.js': 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
+        })
     })
 
     test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
