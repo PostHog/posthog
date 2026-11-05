@@ -254,7 +254,7 @@ object ChartRenderer {
         val pill = snapshot.deltaText?.let { arrow(snapshot.deltaSign) + it }
         views.setContentDescription(
             R.id.chart_root,
-            listOfNotNull(data.pin.name, snapshot.valueText, pill, snapshot.rangeLabel, snapshot.rows.joinToString(". ") { "${it.label}: ${it.value}" }.takeIf { it.isNotEmpty() }, updated).joinToString(", "),
+            listOfNotNull(data.pin.name, headline, pill, snapshot.rangeLabel, snapshot.rows.joinToString(". ") { "${it.label}: ${it.value}" }.takeIf { it.isNotEmpty() }, updated).joinToString(", "),
         )
         return views
     }
