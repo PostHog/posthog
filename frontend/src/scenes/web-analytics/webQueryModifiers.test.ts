@@ -16,6 +16,14 @@ const trends: QuerySchema = {
     kind: NodeKind.InsightVizNode,
     source: { kind: NodeKind.TrendsQuery, series: [] },
 }
+const webVitals: QuerySchema = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.WebVitalsQuery,
+        properties: [],
+        source: { kind: NodeKind.TrendsQuery, series: [] },
+    },
+}
 
 const layout = { colSpanClassName: 'md:col-span-full' as const }
 const insightProps = { dashboardItemId: 'new-test' as const }
@@ -39,15 +47,16 @@ const tiles: WebAnalyticsTile[] = [
     },
     { kind: 'query', tileId: TileId.GRAPHS, layout, query: trends, insightProps },
     { kind: 'replay', tileId: TileId.REPLAY, layout },
+    { kind: 'query', tileId: TileId.WEB_VITALS, layout, query: webVitals, insightProps },
 ]
 
-describe('applyWebQueryModifiers', () => {
+describe('webQueryModifiers', () => {
     it('keeps the same tiles when there are no modifiers', () => {
         expect(applyWebQueryModifiers(tiles, {})).toBe(tiles)
     })
 
     it('sets the modifiers on web analytics queries only, including wrapped sources inside sections and tabs', () => {
-        const [overviewTile, sectionTile, trendsTile, replayTile] = applyWebQueryModifiers(tiles, {
+        const [overviewTile, sectionTile, trendsTile, replayTile, webVitalsTile] = applyWebQueryModifiers(tiles, {
             useDimensionalTables: true,
         })
 
@@ -61,5 +70,11 @@ describe('applyWebQueryModifiers', () => {
         expect(trendsTile).toMatchObject({ query: { source: trends.source } })
         expect((trendsTile as { query: { source: object } }).query.source).not.toHaveProperty('webQueryModifiers')
         expect(replayTile).toBe(tiles[3])
+        expect(webVitalsTile).toMatchObject({
+            query: { source: { webQueryModifiers: { useDimensionalTables: true } } },
+        })
+        expect((webVitalsTile as { query: { source: { source: object } } }).query.source.source).not.toHaveProperty(
+            'webQueryModifiers'
+        )
     })
 })
