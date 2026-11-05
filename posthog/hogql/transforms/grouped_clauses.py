@@ -101,7 +101,12 @@ class _AliasExpressions(TraversingVisitor):
 
 
 def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Expr:
-    """The expression behind an alias, or behind a reference to one, which is what ClickHouse groups by."""
+    """The expression behind an alias, or behind a reference to one, which is what ClickHouse groups by.
+
+    Every alias followed on the way is pointed at the result, so a chain of aliases that each name the previous one
+    is walked once for the query instead of once per reference.
+    """
+    followed: list[int] = []
     while True:
         if isinstance(expr, ast.Alias):
             expr = expr.expr
@@ -109,8 +114,11 @@ def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Exp
         if isinstance(expr, ast.Field) and isinstance(expr.type, ast.FieldAliasType):
             aliased = aliases.get(id(expr.type))
             if aliased is not None:
+                followed.append(id(expr.type))
                 expr = aliased
                 continue
+        for alias_type_id in followed:
+            aliases[alias_type_id] = expr
         return expr
 
 
