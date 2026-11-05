@@ -185,16 +185,20 @@ function tagNameAt(html: string, position: number): string | null {
 const CONDITIONAL_COMMENT_START = '<!--[if'
 const CONDITIONAL_COMMENT_MARKERS = ['<![endif]-->', '<!-->']
 
-function positionAfterLayoutMarkup(html: string, position: number): number {
-    // Outlook renders what a conditional comment holds, so its content is scanned like any other
-    // markup; only the markers around it are skipped.
+// Outlook renders what a conditional comment holds, so the scan skips only its markers.
+function positionAfterConditionalMarker(html: string, position: number): number | null {
     if (html.startsWith(CONDITIONAL_COMMENT_START, position)) {
         const end = html.indexOf(']>', position + CONDITIONAL_COMMENT_START.length)
         return end === -1 ? -1 : end + 2
     }
     const marker = CONDITIONAL_COMMENT_MARKERS.find((candidate) => html.startsWith(candidate, position))
-    if (marker !== undefined) {
-        return position + marker.length
+    return marker === undefined ? null : position + marker.length
+}
+
+function positionAfterLayoutMarkup(html: string, position: number): number {
+    const afterMarker = positionAfterConditionalMarker(html, position)
+    if (afterMarker !== null) {
+        return afterMarker
     }
     if (html.startsWith('<!--', position)) {
         const end = html.indexOf('-->', position + 4)
