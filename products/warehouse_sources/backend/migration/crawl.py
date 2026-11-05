@@ -129,9 +129,10 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...],
         else Q(status__in=_KEEP_ON_REFRESH) | ~Q(vendor_connection_id__in=planned_ids)
     )
     reserved = {
-        (ExternalDataSourceType(proposal["source_type"]), proposal["prefix"])
-        for proposal in items.filter(keeps, proposal__isnull=False).values_list("proposal", flat=True)
-        if proposal
+        (ExternalDataSourceType(source_type), prefix)
+        for source_type, prefix in items.filter(keeps, proposal__isnull=False).values_list(
+            "proposal__source_type", "proposal__prefix"
+        )
     }
     planned = with_unique_prefixes(planned, reserved)
 
