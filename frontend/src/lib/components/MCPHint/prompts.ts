@@ -30,7 +30,7 @@ export type SurfacePrompts = {
 }
 
 const AI_OBSERVABILITY_EVALUATION_PROMPT =
-    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, with an example trace for each. Recommend one evaluation per failure mode, and say whether it should return pass/fail, a score, or categories. If this project has no AI provider key, still create the LLM judges and tell me how to add a key so they can run. Ask which ones I want before creating anything. Create them disabled, test each on a few recent generations, and show me the results before enabling."
+    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, with an example trace for each. Recommend one evaluation per failure mode, and say whether it should return pass/fail, a score, or categories. If this project has no AI provider key, still create the LLM judges and tell me how to add a key so they can run. Ask which ones I want before creating anything. Create them disabled, test each on a few recent generations, show me the results, and ask me once whether to enable them. Enable the ones I approve."
 
 export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'feature_flags.create': {

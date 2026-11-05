@@ -484,6 +484,28 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 {"0.2.0"},
             ),
             (
+                "posthog-laravel",
+                "PostHog/posthog-php",
+                [
+                    _release("laravel-v0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("laravel-v0.1.0", "2026-07-01T00:00:00Z"),
+                    _release("4.11.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0", "0.1.0"},
+            ),
+            (
+                "posthog-php",
+                "PostHog/posthog-php",
+                [
+                    _release("laravel-v0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("4.11.0", "2026-08-01T00:00:00Z"),
+                    _release("v4.10.0", "2026-07-01T00:00:00Z"),
+                ],
+                "4.11.0",
+                {"4.11.0", "4.10.0"},
+            ),
+            (
                 "posthog-rails",
                 "PostHog/posthog-ruby",
                 [
@@ -549,6 +571,16 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 ],
                 "3.28.0",
                 {"3.28.0", "3.6.1", "3.3.3"},
+            ),
+            (
+                "posthog-roblox",
+                "PostHog/posthog-roblox",
+                [
+                    _release("v0.2.0", "2026-10-15T00:00:00Z"),
+                    _release("v0.1.7", "2026-06-07T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0", "0.1.7"},
             ),
             (
                 "js",

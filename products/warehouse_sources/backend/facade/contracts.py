@@ -111,6 +111,23 @@ class RevenueViewSyncInput:
 
 
 @dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one person-property source."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
+
+
+@dataclass(frozen=True)
 class RevenueSourceTable:
     id: UUID
     name: str
@@ -264,6 +281,18 @@ class TableNames:
 
     row_name: str
     queryable_key: str
+
+
+@dataclass(frozen=True)
+class TableAwaitingFirstSync:
+    """A table that a synced schema will create, but whose first sync has not created yet.
+
+    ``names`` holds the names a query can write for it once it exists.
+    ``first_sync_failed`` is true when the latest sync attempt failed.
+    """
+
+    names: TableNames
+    first_sync_failed: bool
 
 
 WAREHOUSE_OBJECT_TABLE = "table"

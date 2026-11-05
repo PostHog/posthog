@@ -1,7 +1,12 @@
 import { getUiCapability, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 
-import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import {
+    classifyAuthFailure,
+    isStepUpChallengeError,
+    mapErrorToAuthResponse,
+    validateBearerToken,
+} from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -141,7 +146,9 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
-    console.error('[handleCatchError]', error)
+    if (!isStepUpChallengeError(error)) {
+        console.error('[handleCatchError]', error)
+    }
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'

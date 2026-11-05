@@ -95,6 +95,7 @@ export function ReplayListHeader({
                     )}
                     <Button
                         variant="outline"
+                        size="sm"
                         className="ml-auto mr-1"
                         onClick={() => setSelectMode(false)}
                         tooltip="Done selecting (Esc)"
@@ -106,6 +107,7 @@ export function ReplayListHeader({
             ) : (
                 <>
                     <Button
+                        size="sm"
                         className="ml-1"
                         onClick={() => setSelectMode(true)}
                         disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
@@ -116,7 +118,7 @@ export function ReplayListHeader({
                     </Button>
                     <div className="ml-auto flex items-center gap-0.5">
                         <DropdownMenu>
-                            <DropdownMenuTrigger render={<Button data-attr="list-view-menu" />}>
+                            <DropdownMenuTrigger render={<Button size="sm" data-attr="list-view-menu" />}>
                                 {watchSortLabel(listSort.order ?? filters.order)}
                                 <IconChevronDown />
                             </DropdownMenuTrigger>
@@ -128,7 +130,7 @@ export function ReplayListHeader({
                             <DropdownMenuTrigger
                                 render={
                                     <Button
-                                        size="icon"
+                                        size="icon-sm"
                                         tooltip="List settings"
                                         aria-label="List settings"
                                         data-attr="list-settings-menu"
@@ -143,7 +145,7 @@ export function ReplayListHeader({
                         </DropdownMenu>
                         <Separator orientation="vertical" className="h-4 mx-0.5" />
                         <Button
-                            size="icon"
+                            size="icon-sm"
                             onClick={onCollapse}
                             tooltip="Collapse playlist"
                             aria-label="Collapse playlist"

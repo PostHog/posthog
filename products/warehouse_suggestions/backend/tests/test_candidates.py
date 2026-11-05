@@ -24,6 +24,7 @@ from products.warehouse_suggestions.backend.facade.contracts import (
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
 )
@@ -216,6 +217,33 @@ class TestMaterializeRules(SimpleTestCase):
         estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
 
         assert estimate.clears_a_floor is expect_clear
+
+    @parameterized.expand(
+        [
+            ("time_earns_it", 1, WarehouseSuggestionMainSaving.WAITING),
+            ("bytes_earn_it", 2 * 1024**4, WarehouseSuggestionMainSaving.SCANNED),
+        ]
+    )
+    def test_reads_save_waiting_time_and_refreshes_cost_background_time(
+        self, _name: str, bytes_per_read: int, main_saving: WarehouseSuggestionMainSaving
+    ) -> None:
+        reads = busy_reads(
+            human_reads=90,
+            human_duration_ms=90 * 10_000,
+            alone_duration_ms_median=10_000.0,
+            human_read_bytes=90 * bytes_per_read,
+            alone_read_bytes_median=float(bytes_per_read),
+        )
+        ctx = context(team_reads({}, refreshes={VIEW_ID: SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3)}))
+
+        estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
+
+        assert (
+            estimate.waiting_seconds_saved,
+            estimate.background_seconds_saved,
+            estimate.seconds_saved,
+            estimate.main_saving,
+        ) == (900, -300, 600, main_saving)
 
     @parameterized.expand(
         [
@@ -745,7 +773,9 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
         ):
             result = MaterializeCandidate().evaluate(candidate_context)
 
-        assert result.measurement_requests == ((view_subject(VIEW_ID),) if expect_measurement_request else ())
+        assert tuple(request.subject for request in result.measurement_requests) == (
+            (view_subject(VIEW_ID),) if expect_measurement_request else ()
+        )
         if not expect_draft:
             assert result.drafts == ()
             return
@@ -755,4 +785,14 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
             draft.payload.refresh_interval_seconds,
             draft.payload.recomputed_by_views,
             draft.payload.refresh_interval_basis,
-        ) == (HOUR.total_seconds(), 2, WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH)
+            draft.payload.waiting_seconds_saved_per_month,
+            draft.payload.background_seconds_saved_per_month,
+            draft.payload.main_saving,
+        ) == (
+            HOUR.total_seconds(),
+            2,
+            WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
+            0,
+            draft.payload.saves_seconds_per_month,
+            WarehouseSuggestionMainSaving.BACKGROUND,
+        )

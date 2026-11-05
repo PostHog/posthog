@@ -246,6 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?,
             index_topic: config.index_topic.clone(),
+            index_delivery_timeout: Duration::from_millis(config.index_delivery_timeout_ms.into()),
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
             fetch_history: (!config.image_fetch_history_table.is_empty()).then(
                 || -> Arc<dyn FetchHistory> {

@@ -7,7 +7,8 @@ edition = "2021"
 workspace = true
 
 [features]
-# Exposes `TeamAccess::with_granted`, a loaded reader for tests that have no database.
+# Exposes `TeamAccess::with_granted` and `TeamAccessPoller::accept_granted`, which load a reader
+# for tests that have no database.
 test-util = []
 
 [dependencies]

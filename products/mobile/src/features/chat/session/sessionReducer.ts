@@ -746,6 +746,10 @@ class Draft {
             this.retireSpinner(status)
             return
         }
+        const prefix = `status-${status}-`
+        if (this.items.some((item) => item.kind === 'notice' && item.spinning && item.id.startsWith(prefix))) {
+            return
+        }
         this.notice(text, 'info', `status-${status}`, true)
     }
 

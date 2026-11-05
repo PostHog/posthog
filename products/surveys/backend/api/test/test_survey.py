@@ -33,7 +33,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -4820,7 +4820,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
 
 class TestSurveyWithActions(APIBaseTest):
     def test_can_use_actions_with_properties(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="person subscribed",
             steps_json=[
@@ -4900,13 +4900,13 @@ class TestSurveyWithActions(APIBaseTest):
         assert value["name"] == "person subscribed"
 
     def test_can_set_associated_actions(self):
-        user_subscribed_action = Action.objects.create(
+        user_subscribed_action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
         )
 
-        user_unsubscribed_action = Action.objects.create(
+        user_unsubscribed_action = create_action(
             team=self.team,
             name="user unsubscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -4945,12 +4945,12 @@ class TestSurveyWithActions(APIBaseTest):
         assert survey.actions.filter(name="user unsubscribed").exists()
 
     def test_can_remove_associated_actions(self):
-        user_subscribed_action = Action.objects.create(
+        user_subscribed_action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
         )
-        Action.objects.create(
+        user_unsubscribed_action = create_action(
             team=self.team,
             name="user unsubscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -4963,7 +4963,7 @@ class TestSurveyWithActions(APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
         )
-        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.actions.set([user_subscribed_action.id, user_unsubscribed_action.id])
         survey_with_actions.save()
         assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
 
@@ -4999,7 +4999,7 @@ class TestSurveyWithActions(APIBaseTest):
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
     def test_linking_an_action_needs_viewer_access_to_it(self) -> None:
-        restricted = Action.objects.create(team=self.team, name="restricted", steps_json=[{"event": "$pageview"}])
+        restricted = create_action(team=self.team, name="restricted", steps_json=[{"event": "$pageview"}])
         AccessControl.objects.create(
             team=self.team, resource="action", resource_id=str(restricted.id), access_level="none"
         )
@@ -5007,7 +5007,7 @@ class TestSurveyWithActions(APIBaseTest):
         stored = Survey.objects.create(
             team=self.team, created_by=self.user, name="linked", type="popover", questions=questions
         )
-        stored.actions.set([restricted])
+        stored.actions.set([restricted.id])
         conditions = {"actions": {"values": [{"name": "restricted", "id": restricted.id}]}}
         self.client.force_login(self._create_user("survey-member@example.com"))
 
@@ -5044,12 +5044,12 @@ class TestSurveyWithActions(APIBaseTest):
         assert response.json()["attr"] == "conditions"
 
     def test_can_clear_associated_actions(self):
-        Action.objects.create(
+        user_subscribed_action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
         )
-        Action.objects.create(
+        user_unsubscribed_action = create_action(
             team=self.team,
             name="user unsubscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -5062,7 +5062,7 @@ class TestSurveyWithActions(APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
         )
-        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.actions.set([user_subscribed_action.id, user_unsubscribed_action.id])
         survey_with_actions.save()
         assert survey_with_actions.actions.filter(name="user subscribed").exists()
         assert survey_with_actions.actions.filter(name="user unsubscribed").exists()
@@ -5092,6 +5092,30 @@ class TestSurveyWithActions(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey is not None
         assert len(survey.actions.all()) == 0
+
+    def test_update_without_conditions_keeps_associated_actions(self):
+        action = create_action(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+            conditions={"actions": {"values": [{"id": action.id}]}},
+        )
+        survey_with_actions.actions.set([action.id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={"name": "renamed survey"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert list(Survey.objects.get(id=survey_with_actions.id).actions.values_list("id", flat=True)) == [action.id]
 
 
 class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
@@ -7114,7 +7138,7 @@ class TestSurveyBulkDuplication(APIBaseTest):
             created_by=self.user,
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Test Action",
         )

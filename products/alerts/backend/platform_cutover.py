@@ -12,15 +12,18 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
+from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.facade.destinations import choose_delivery_path
 from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
@@ -32,8 +35,10 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.delivery import has_legacy_event_emitter
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
-# A firing never moves, so only these states are carried over.
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
+    # The platform carries the firing with its start unknown. An insight alert notifies on every
+    # firing check, so the platform's next check sends what the insight stack would have sent.
+    AlertState.FIRING: PlatformAlertState.FIRING,
     AlertState.NOT_FIRING: PlatformAlertState.NOT_FIRING,
     # The platform keeps a snooze on the copy's `snooze_until`, which the copy takes from this alert.
     AlertState.SNOOZED: PlatformAlertState.NOT_FIRING,
@@ -71,10 +76,6 @@ class CutoverSkip(StrEnum):
     ENVIRONMENT = "environment"
     # The platform cannot copy it, such as an alert with no cadence.
     NOT_ON_PLATFORM = "not_on_platform"
-    # The investigation agent reads and writes the insight stack's checks, which the platform does not keep.
-    INVESTIGATION = "investigation"
-    # The two stacks key a firing differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The insight scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -83,6 +84,12 @@ class CutoverSkip(StrEnum):
     # Its destinations need the HogFunction path, and nothing emits the insight events that path
     # sends, so the platform would deliver it natively and lose what its destinations add.
     NO_HOG_FUNCTION_PATH = "no_hog_function_path"
+    # The insight stack's agent still runs for a recent firing, or its held notification is unsent.
+    # Moved now, that notification could not go out, and the platform would start a second agent.
+    INVESTIGATION_UNSETTLED = "investigation_unsettled"
+    # A recent check fired and its workflow can still notify. Moved now, that notification would be
+    # dropped, and nobody would hear of the firing if the platform's next check clears.
+    NOTIFICATION_PENDING = "notification_pending"
 
 
 @frozen
@@ -101,6 +108,37 @@ def _insight_check_owed(team_id: int, alert_id: UUID, at: datetime) -> bool:
     # A check advances `next_check_at` when it saves, so an alert the scheduler does not owe a check
     # under the caller's lock has no check between reading it and notifying for it.
     return AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).filter(due_insight_alerts_q(at)).exists()
+
+
+def _investigation_unsettled(alert: AlertConfiguration, at: datetime) -> bool:
+    """Whether a recent check of the alert has an investigation in flight, or a finished one whose
+    held notification neither went out nor was suppressed. Past the in-flight horizon the insight
+    stack's safety net has sent it."""
+    in_flight = Q(investigation_status__in=[InvestigationStatus.PENDING, InvestigationStatus.RUNNING])
+    held = Q(
+        investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
+        state=AlertState.FIRING,
+        notification_sent_at__isnull=True,
+        notification_suppressed_by_agent=False,
+    )
+    return (
+        AlertCheck.objects.filter(alert_configuration=alert, created_at__gte=at - IN_FLIGHT_INVESTIGATION_HORIZON)
+        .filter(in_flight | held)
+        .exists()
+    )
+
+
+def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> bool:
+    # A check's workflow notifies before its execution timeout ends, so past that the insight stack
+    # has sent the notification or given up on it.
+    horizon = alert_timeouts(alert.calculation_interval).workflow_execution
+    return AlertCheck.objects.filter(
+        alert_configuration=alert,
+        created_at__gte=at - horizon,
+        state=AlertState.FIRING,
+        notification_sent_at__isnull=True,
+        notification_suppressed_by_agent=False,
+    ).exists()
 
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
@@ -144,13 +182,15 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
         if in_an_environment(alert):
             return CutoverSkip.ENVIRONMENT
         if not can_move(alert):
-            return CutoverSkip.INVESTIGATION if alert.investigation_agent_enabled else CutoverSkip.NOT_ON_PLATFORM
+            return CutoverSkip.NOT_ON_PLATFORM
         if not delivers_as_it_does_today(alert):
             return CutoverSkip.NO_HOG_FUNCTION_PATH
-        if alert.state == AlertState.FIRING:
-            return CutoverSkip.FIRING
         if _insight_check_owed(team_id, alert.id, at):
             return CutoverSkip.CHECK_DUE
+        if _investigation_unsettled(alert, at):
+            return CutoverSkip.INVESTIGATION_UNSETTLED
+        if _firing_notification_pending(alert, at):
+            return CutoverSkip.NOTIFICATION_PENDING
         if not hand_over(alert, at):
             return CutoverSkip.PLATFORM_FIRING
     return None
@@ -162,9 +202,9 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 
 def can_move(alert: AlertConfiguration) -> bool:
-    """Whether the platform can own the alert: one it evaluates, with a threshold or a detector, which
-    no investigation agent reads."""
-    return platform_upsert_of(alert) is not None and not alert.investigation_agent_enabled
+    """Whether the platform can own the alert: one it evaluates, with a threshold or a detector, and
+    with or without the investigation agent."""
+    return platform_upsert_of(alert) is not None
 
 
 def has_begun_cutover(team_id: int) -> bool:

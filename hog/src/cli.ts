@@ -178,7 +178,10 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             if (globals.noTelemetry) {
                 telemetry.disable()
             }
-            telemetry.credentials = () => resolveCredentials({ ...runtime, writeStderr: () => {} }, globals)
+            let ctx: Context | undefined
+            telemetry.credentials = () =>
+                ctx?.requestedCredentials ??
+                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
@@ -200,7 +203,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 args[name] = spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
             }
 
-            const ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
+            ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })

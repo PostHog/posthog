@@ -45,7 +45,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.aeo.backend.facade.testing import create_citation_check, create_prompt
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -238,6 +238,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             ("inbox_report_checks", "config"),
             ("inbox_report_artefacts", "content"),
             ("inbox_report_actions", "metadata"),
+            ("activity_logs", "credential_id"),
+            ("activity_logs", "impersonated_by_id"),
         ]
     )
     def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
@@ -394,8 +396,8 @@ def _create_feature_request_history(team: Team, label: str):
     return create_feature_request_history(team_id=team.pk, feature_request=feature_request, changed_at=timezone.now())
 
 
-def _create_action(team: Team, label: str) -> Action:
-    return Action.objects.create(team=team, name=f"action_{label}")
+def _create_action(team: Team, label: str) -> int:
+    return create_action(team=team, name=f"action_{label}").id
 
 
 def _create_cohort(team: Team, label: str) -> Cohort:
@@ -1738,6 +1740,68 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         rows = {row[0]: row[1] for row in response.results}
 
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
+
+
+class TestSystemEndpointCurrentVersion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([(1,), (2,), (99,), (1, True, True), (1, True, False)])
+    def test_current_version_fields(self, current_version, access_denied=False, reader_is_creator=True):
+        endpoint = _create_endpoint(self.team, "current")
+        if access_denied:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            endpoint.created_by = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+            endpoint.save(update_fields=["created_by"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="endpoint",
+                resource_id=str(endpoint.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+        endpoint.current_version = current_version
+        endpoint.save(update_fields=["current_version"])
+        for version in (1, 2):
+            EndpointVersion.objects.create(
+                endpoint=endpoint,
+                team=self.team,
+                version=version,
+                description=f"Version {version}",
+                query={"kind": "HogQLQuery", "query": f"SELECT {version}"},
+                cache_ttl_seconds=version * 60,
+                columns=[{"name": "result", "type": "integer"}],
+                created_by=self.user,
+            )
+        _create_endpoint_version(self.team, "other")
+
+        response = execute_hogql_query(
+            """
+            SELECT name, current_version, description, query.query, data_freshness_seconds,
+                   columns, version.version, version.description
+            FROM system.data_modeling_endpoints
+            WHERE name = 'ep_current'
+            """,
+            team=self.team,
+            user=self.user,
+        )
+
+        if access_denied and not reader_is_creator:
+            assert response.results == []
+            return
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:2] == ("ep_current", current_version)
+        if current_version == 99:
+            assert row[2] == ""
+        else:
+            assert row[2:5] == (f"Version {current_version}", f"SELECT {current_version}", current_version * 60)
+            assert json.loads(row[5]) == [{"name": "result", "type": "integer"}]
+            assert row[6:] == (current_version, f"Version {current_version}")
 
 
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):

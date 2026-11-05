@@ -215,7 +215,7 @@ class SlackTransport:
                 # the thread. So a resolve and a repeat firing also go to the channel, where legacy
                 # posted each one as a new message.
                 reply_broadcast=in_reply_to is not None
-                and message.transition.kind in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
+                and message.transition.kind.delivered_as in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
                 **({"attachments": content.attachments} if content.attachments else {}),
             )
 

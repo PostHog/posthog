@@ -16,3 +16,4 @@ pub mod scan;
 pub mod seal;
 pub mod session;
 pub mod url_policy;
+pub mod v4_image_refs;

@@ -65,6 +65,7 @@ from products.signals.backend.anomaly_scores.queue import (
     _cooldown_key,
     _fleet_budget_key,
     _project_budget_key,
+    _take_turns,
     _team_loaded_key,
     _too_expensive_key,
     active_insights,
@@ -110,6 +111,7 @@ from products.signals.backend.anomaly_scores.tick import (
     run_insight,
     shard_picks,
 )
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
     AnomalyScoringState,
@@ -121,6 +123,13 @@ from products.subscriptions.backend.facade.testing import create_subscription
 NEW_YORK = ZoneInfo("America/New_York")
 ORGANIZATION_ID = "4dc8564d-bd82-1065-2f40-97f7c50f67cf"
 NOW = datetime(2026, 10, 22, 12, tzinfo=UTC)
+
+
+def _enable_analytics_source(team: Team, *, enabled: bool = True) -> None:
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    SignalSourceConfig.objects.create(
+        team=team, source_product=source_product, source_type=source_type, enabled=enabled
+    )
 
 
 def _trends(**source: Any) -> dict[str, Any]:
@@ -605,6 +614,16 @@ class TestTickSelection(SimpleTestCase):
 
         assert is_due(insight, newest_bucket, timezone, now) is due
 
+    def test_teams_take_turns_in_an_order_that_changes_with_the_tick(self) -> None:
+        team_orders = {1: [11, 12], 1_000_000: [21, 22]}
+        ticks = [NOW + timedelta(minutes=10 * index) for index in range(50)]
+
+        orders = [_take_turns(team_orders, tick) for tick in ticks]
+
+        assert {order[0] for order in orders} == {11, 21}
+        assert all(order in ([11, 21, 12, 22], [21, 11, 22, 12]) for order in orders)
+        assert all(_take_turns(team_orders, tick) == order for tick, order in zip(ticks, orders))
+
 
 class TestScoreEvents(SimpleTestCase):
     def test_a_revisit_emits_every_bucket_after_the_newest_scored_one_of_each_series(self) -> None:
@@ -967,6 +986,8 @@ class TestEligibleTeams(BaseTest):
         expected: set[str],
     ) -> None:
         teams = {"main": self.team, "second": Team.objects.create(organization=self.organization, name="second")}
+        for team in teams.values():
+            _enable_analytics_source(team)
         if second_setting is not None:
             SignalTeamConfig.objects.create(team=teams["second"], anomaly_scoring_enabled=second_setting)
         other = Organization.objects.create(name="other")
@@ -986,15 +1007,20 @@ class TestEligibleTeams(BaseTest):
 
     @parameterized.expand(
         [
-            # name, listed, percentage, denied, skipped, allow_other, has_source, enrolled
-            ("listed_without_source", True, 0.0, False, False, False, False, True),
-            ("listed_and_denied", True, 0.0, True, False, False, False, False),
-            ("rollout", False, 100.0, False, False, False, True, True),
-            ("rollout_without_source", False, 100.0, False, False, False, False, False),
-            ("rollout_at_zero", False, 0.0, False, False, False, True, False),
-            ("rollout_denied", False, 100.0, True, False, False, True, False),
-            ("rollout_team_skipped", False, 100.0, False, True, False, True, False),
-            ("rollout_ignores_the_allowlist", False, 100.0, False, False, True, True, True),
+            # name, listed, percentage, denied, skipped, allow_other, source, enrolled
+            ("listed", True, 0.0, False, False, False, "analytics", True),
+            ("listed_without_source", True, 0.0, False, False, False, None, False),
+            ("listed_with_another_source", True, 0.0, False, False, False, "other", False),
+            ("listed_with_analytics_off", True, 0.0, False, False, False, "analytics_off", False),
+            ("listed_and_denied", True, 0.0, True, False, False, "analytics", False),
+            ("rollout", False, 100.0, False, False, False, "analytics", True),
+            ("rollout_without_source", False, 100.0, False, False, False, None, False),
+            ("rollout_with_another_source", False, 100.0, False, False, False, "other", False),
+            ("rollout_with_analytics_off", False, 100.0, False, False, False, "analytics_off", False),
+            ("rollout_at_zero", False, 0.0, False, False, False, "analytics", False),
+            ("rollout_denied", False, 100.0, True, False, False, "analytics", False),
+            ("rollout_team_skipped", False, 100.0, False, True, False, "analytics", False),
+            ("rollout_ignores_the_allowlist", False, 100.0, False, False, True, "analytics", True),
         ]
     )
     def test_enrollment_by_list_and_rollout(
@@ -1005,7 +1031,7 @@ class TestEligibleTeams(BaseTest):
         denied: bool,
         skipped: bool,
         allow_other: bool,
-        has_source: bool,
+        source: str | None,
         enrolled: bool,
     ) -> None:
         other = Team.objects.create(organization=Organization.objects.create(name="other"), name="other")
@@ -1018,10 +1044,12 @@ class TestEligibleTeams(BaseTest):
             skip_team_ids=(self.team.id,) if skipped else (),
             allow_team_ids=(other.id,) if allow_other else (),
         )
-        if has_source:
+        if source == "other":
             SignalSourceConfig.objects.create(
                 team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
             )
+        elif source is not None:
+            _enable_analytics_source(self.team, enabled=source == "analytics")
 
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             eligible = {team.id for team in eligible_teams(config)}
@@ -1031,9 +1059,7 @@ class TestEligibleTeams(BaseTest):
         assert other.id not in eligible
 
     def test_rollout_skips_a_team_that_turned_scoring_off(self) -> None:
-        SignalSourceConfig.objects.create(
-            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
-        )
+        _enable_analytics_source(self.team)
         SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
         config = AnomalyScoringConfig(enabled=True, self_driving_organization_percentage=100.0)
 
@@ -1152,6 +1178,10 @@ class TestActiveInsights(BaseTest):
 
 
 class TestDueList(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _enable_analytics_source(self.team)
+
     def _config(self, *team_ids: int) -> AnomalyScoringConfig:
         return AnomalyScoringConfig(
             enabled=True,
@@ -1260,6 +1290,7 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
     @time_machine.travel(NOW, tick=False)
     def test_the_refresh_removes_inactive_insights_and_resumes_with_the_teams_that_waited(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        _enable_analytics_source(other_team)
         active = {
             team.id: Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
             for team in (self.team, other_team)
@@ -1325,6 +1356,10 @@ class TestReadSpend(ClickhouseTestMixin, BaseTest):
 
 
 class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _enable_analytics_source(self.team)
+
     def test_reads_the_newest_scored_bucket_of_each_series(self) -> None:
         def score(insight_id: int, series_key: str, bucket: datetime, source: str = "insight") -> None:
             _create_event(
@@ -1412,6 +1447,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
     @time_machine.travel(NOW, tick=False)
     def test_select_insights_lets_each_project_pick_before_any_project_picks_twice(self) -> None:
         small_team = Team.objects.create(organization=self.organization, name="Small")
+        _enable_analytics_source(small_team)
         viewers = [
             User.objects.create_and_join(self.organization, f"viewer{index}@example.com", "password")
             for index in range(5)
@@ -1438,10 +1474,11 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.WEIGHTED), NOW, limit=2)
 
-        assert [pick.team_id for pick in selection.picks] == [self.team.id, small_team.id]
-        assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
-        assert selection.picks[1].insight_id == small_insight.id
-        assert [pick.too_expensive for pick in selection.picks] == [0, 2]
+        picks = {pick.team_id: pick for pick in selection.picks}
+        assert len(selection.picks) == 2 and set(picks) == {self.team.id, small_team.id}
+        assert picks[self.team.id].insight_id in {insight.id for insight in large_insights}
+        assert picks[small_team.id].insight_id == small_insight.id
+        assert [picks[self.team.id].too_expensive, picks[small_team.id].too_expensive] == [0, 2]
         assert selection.candidates == 4
         assert [(team.team_id, team.active, team.active_intervals) for team in selection.census] == [
             (self.team.id, 3, {"day": 3}),
@@ -1454,6 +1491,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         self, _name: str, error: type[Exception]
     ) -> None:
         slow_team = Team.objects.create(organization=self.organization, name="Slow")
+        _enable_analytics_source(slow_team)
         dashboards = {team.id: Dashboard.objects.create(team=team, name="Main") for team in (self.team, slow_team)}
         insights = {}
         for team in (self.team, slow_team):
@@ -1487,6 +1525,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
     @time_machine.travel(NOW, tick=False)
     def test_select_insights_skips_a_project_over_its_cpu_limit(self) -> None:
         heavy_team = Team.objects.create(organization=self.organization, name="Heavy")
+        _enable_analytics_source(heavy_team)
         insights = {}
         for team in (self.team, heavy_team):
             insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
@@ -1528,6 +1567,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
     @time_machine.travel(NOW, tick=False)
     def test_a_plan_past_its_deadline_loads_one_team_and_the_next_plan_starts_from_another(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        _enable_analytics_source(other_team)
         insights = {}
         for team in (self.team, other_team):
             insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))

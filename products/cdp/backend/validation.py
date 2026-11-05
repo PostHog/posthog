@@ -23,7 +23,7 @@ from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -240,6 +240,85 @@ def build_html_wrap_design(html: str) -> dict:
             "values": {},
         },
     }
+
+
+_UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
+_UNLAYER_LAYOUT_TAGS = frozenset({"!doctype", "html", "body", "table", "tbody", "tr", "td", "div"})
+_TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
+_SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
+
+
+_CONDITIONAL_COMMENT_START = "<!--[if"
+_CONDITIONAL_COMMENT_MARKERS = ("<![endif]-->", "<!-->")
+
+
+# Outlook renders what a conditional comment holds, so the scan skips only its markers.
+def _position_after_conditional_marker(html: str, position: int) -> int | None:
+    if html.startswith(_CONDITIONAL_COMMENT_START, position):
+        end = html.find("]>", position + len(_CONDITIONAL_COMMENT_START))
+        return -1 if end == -1 else end + 2
+    for marker in _CONDITIONAL_COMMENT_MARKERS:
+        if html.startswith(marker, position):
+            return position + len(marker)
+    return None
+
+
+def _position_after_layout_markup(html: str, position: int) -> int:
+    after_marker = _position_after_conditional_marker(html, position)
+    if after_marker is not None:
+        return after_marker
+    if html.startswith("<!--", position):
+        end = html.find("-->", position + 4)
+        return -1 if end == -1 else end + 3
+    tag = _TAG_NAME.match(html, position)
+    end = html.find(">", position)
+    if tag is None or end == -1:
+        return -1
+    closing = _SKIPPED_ELEMENT_ENDS.get(tag.group(1))
+    if closing is not None:
+        end = html.find(closing, end)
+        return -1 if end == -1 else end + len(closing)
+    return end + 1 if tag.group(1) in _UNLAYER_LAYOUT_TAGS else -1
+
+
+def _is_only_unlayer_layout(html: str) -> bool:
+    html = html.lower()
+    position = 0
+    while position < len(html):
+        if html[position] == "<":
+            position = _position_after_layout_markup(html, position)
+            if position == -1:
+                return False
+        elif html.startswith("&nbsp;", position):
+            position += 6
+        elif html[position].isspace():
+            position += 1
+        else:
+            return False
+    return True
+
+
+def _is_unlayer_render_of(html: str, block_html: str) -> bool:
+    start = html.find(block_html)
+    if start == -1:
+        return False
+    around_block = html[:start] + html[start + len(block_html) :]
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and _is_only_unlayer_layout(around_block)
+
+
+def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
+    if not design:
+        return True
+    try:
+        wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return (
+        isinstance(wrapped_html, str)
+        and wrapped_html != html
+        and design == build_html_wrap_design(wrapped_html)
+        and not _is_unlayer_render_of(html, wrapped_html)
+    )
 
 
 def register_supported_function(name: str) -> None:
@@ -666,6 +745,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "posthog_survey",
             "task_skills",
             "replay_vision_scan",
         ]
@@ -868,6 +948,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "posthog_survey":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a survey ID."})
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
@@ -925,7 +1008,11 @@ class InputsItemSerializer(serializers.Serializer):
 
                 _validate_email_sender_override(from_value, self.context)
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if (
+                isinstance(value.get("html"), str)
+                and value["html"]
+                and html_wrap_design_needs_refresh(value["html"], value.get("design"))
+            ):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
                 value = {**value, "design": build_html_wrap_design(value["html"])}
@@ -1218,7 +1305,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    actions = get_actions(project_id=context["get_team"]().project_id, action_ids=added_ids)
     denied_ids = user_access_control.denied_object_ids(
         "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
     )
@@ -1368,8 +1455,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
         if action_ids:
-            # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
-            for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
+            for action in get_actions(project_id=team.project_id, action_ids=action_ids, include_deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
         validate_realtime_cohorts(collected, team, require_ready=require_ready)

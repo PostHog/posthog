@@ -1,5 +1,6 @@
-import { memo, type ReactElement, type ReactNode, useMemo, useRef } from 'react'
-import { ScrollView, Text, View } from 'react-native'
+import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import type { ScrollViewInstance } from 'react-native'
+import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -27,7 +28,7 @@ const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssista
     const styles = useStyles()
     return (
         <View style={styles.assistant} testID="session-assistant">
-            <ChatMarkdown text={item.text} streaming={!item.complete} />
+            <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
         </View>
     )
 })
@@ -55,12 +56,21 @@ function statusLine(session: Session): string | null {
 export function SessionThread({ session, onRetryHistory, topInset = 0 }: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const positioned = useRef(false)
+    const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
+    const pauseFollowing = useCallback((): void => {
+        following.current = false
+    }, [])
+    const updateFollowing = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+        following.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= 24
+    }
 
     if (session.history.status === 'loading') {
         positioned.current = false
+        following.current = true
         return (
             <View style={[styles.scroll, { paddingTop: topInset }]}>
                 <LoadingView label="Loading session" />
@@ -102,7 +112,7 @@ export function SessionThread({ session, onRetryHistory, topInset = 0 }: Session
             case 'error':
                 return <ErrorRow key={item.id} item={item} />
             case 'notice':
-                return <NoticeRow key={item.id} item={item} />
+                return <NoticeRow key={item.id} item={item} onToggle={pauseFollowing} />
             case 'progress':
                 return <ProgressRow key={item.id} item={item} />
         }
@@ -118,7 +128,13 @@ export function SessionThread({ session, onRetryHistory, topInset = 0 }: Session
             style={styles.scroll}
             contentContainerStyle={[styles.content, { paddingTop: topInset + 12 }]}
             scrollIndicatorInsets={{ top: topInset }}
+            onScrollBeginDrag={pauseFollowing}
+            onScrollEndDrag={updateFollowing}
+            onMomentumScrollEnd={updateFollowing}
             onContentSizeChange={() => {
+                if (!following.current) {
+                    return
+                }
                 scroll.current?.scrollToEnd({ animated: positioned.current })
                 positioned.current = true
             }}

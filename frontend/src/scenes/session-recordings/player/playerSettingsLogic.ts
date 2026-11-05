@@ -75,6 +75,7 @@ export interface playerSettingsLogicValues {
     userPreferenceSidebarOpen: boolean
     watchDebugDock: WatchDebugDock
     watchLayoutOffered: boolean
+    watchPanelCollapsed: boolean
     watchPanelTab: WatchPanelTab | null
 }
 
@@ -140,6 +141,9 @@ export interface playerSettingsLogicActions {
     setWatchDebugDock: (dock: WatchDebugDock) => {
         dock: WatchDebugDock
     }
+    setWatchPanelCollapsed: (collapsed: boolean) => {
+        collapsed: boolean
+    }
     setWatchPanelTab: (tab: WatchPanelTab) => {
         tab: WatchPanelTab
     }
@@ -197,6 +201,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
         setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
         setWatchPanelTab: (tab: WatchPanelTab) => ({ tab }),
+        setWatchPanelCollapsed: (collapsed: boolean) => ({ collapsed }),
         setWatchDebugDock: (dock: WatchDebugDock) => ({ dock }),
         dismissDebugHint: true,
         setLegacyDebugLinkPending: (pending: boolean) => ({ pending }),
@@ -312,6 +317,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         watchPanelTab: [null as WatchPanelTab | null, { persist: true }, { setWatchPanelTab: (_, { tab }) => tab }],
+        watchPanelCollapsed: [false, { persist: true }, { setWatchPanelCollapsed: (_, { collapsed }) => collapsed }],
     })),
 
     selectors({
@@ -400,6 +406,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setWatchDebugDock: ({ dock }) => {
             if (dock === 'bottom' && values.debugMode && !isDebugWatchPanelTab(values.watchPanelTab)) {
                 actions.setWatchPanelTab(SessionRecordingSidebarTab.INSPECTOR)
+            }
+        },
+        setWatchPanelTab: () => {
+            if (values.watchPanelCollapsed) {
+                actions.setWatchPanelCollapsed(false)
             }
         },
     })),

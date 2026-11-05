@@ -45,7 +45,6 @@ PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
-TASK_TITLE_AI_GATEWAY_FEATURE_FLAG = "tasks-title-ai-gateway"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
 ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"

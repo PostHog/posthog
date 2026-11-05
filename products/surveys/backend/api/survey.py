@@ -71,8 +71,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
@@ -1318,9 +1318,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
             raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
 
-        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
         if self.instance is not None:
-            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+            action_ids -= set(self.instance.actions.values_list("id", flat=True))
+        added_actions = get_actions(project_id=self.context["project_id"], action_ids=action_ids)
         denied_ids = self.context["view"].user_access_control.denied_object_ids(
             "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
         )
@@ -2094,7 +2094,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.save()
 
             self._add_user_survey_interacted_filters(instance)
-            self._associate_actions(instance, validated_data.get("conditions"))
+            if "conditions" in validated_data:
+                self._associate_actions(instance, validated_data["conditions"])
             self._add_internal_response_sampling_filters(instance)
 
         log_activity(
@@ -2183,7 +2184,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
+        instance.actions.set(existing_action_ids(project_id=self.context["project_id"], action_ids=action_ids))
         instance.save()
 
     def _should_survey_flags_be_active(self, instance: Survey) -> bool:
@@ -3714,11 +3715,16 @@ class _SurveyAPIActionStepSerializer(ActionStepJSONSerializer):
         return fields
 
 
-class SurveyAPIActionSerializer(serializers.ModelSerializer):
-    steps = _SurveyAPIActionStepSerializer(many=True, required=False)
+class SurveyAPIActionSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True, help_text="ID of the action.")
+    name = serializers.CharField(read_only=True, allow_null=True, help_text="Name of the action, or null if unnamed.")
+    steps = _SurveyAPIActionStepSerializer(
+        many=True, read_only=True, help_text="Steps an event must match one of to match the action."
+    )
 
+    # Not read by DRF on a plain Serializer: get_survey_conditions_with_actions projects a stale stored
+    # actions blob down to these fields, so the public payload never carries more than the serializer would.
     class Meta:
-        model = Action
         fields = [
             "id",
             "name",

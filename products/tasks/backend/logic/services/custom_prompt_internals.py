@@ -92,6 +92,9 @@ _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
 _TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
 
+# Pi reports the normal end of a turn as "stop". ACP adapters report the same state as "end_turn".
+_PI_END_TURN_STOP_REASON = "stop"
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -145,6 +148,7 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_skills: bool = False
     disable_repo_hooks: bool = False
     """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
     can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
@@ -363,6 +367,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_skills:
+        extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
@@ -1069,10 +1075,74 @@ class TurnLogState:
     refused: bool
 
 
+def _is_subagent_update(update: dict[str, object]) -> bool:
+    # Older Codex adapters omit parent metadata on updates but namespace child tool IDs.
+    tool_call_id = update.get("toolCallId")
+    if isinstance(tool_call_id, str) and tool_call_id.startswith("subagent:"):
+        return True
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in ("posthog", "claudeCode"):
+        metadata = meta.get(channel)
+        if isinstance(metadata, dict):
+            parent = metadata.get("parentToolCallId")
+            if isinstance(parent, str) and parent:
+                return True
+    return False
+
+
+def _pi_event(entry: dict) -> dict | None:
+    """The conversation event of a log entry that a Pi run wrote in its native format."""
+    event = entry.get("event") if entry.get("type") == "pi_event" else None
+    return event if isinstance(event, dict) else None
+
+
+def _pi_turn_text(lines: list[str]) -> str | None:
+    """The last assistant text of the Pi turn that ends `lines`.
+
+    Pi logs one line for each streamed text delta, so a turn's text can span several polls and
+    the lines of one poll can hold only its tail. This reads back through the whole log for that
+    reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
+    strips each entry, which deletes the spaces between words.
+
+    Pi writes a compaction summary as one assistant chunk directly after the completed `compacting`
+    status, with the same timestamp. That chunk is context for the model and not the answer, so this
+    drops it. Text from before a compaction is the answer only when no text follows the compaction.
+    """
+    parts: list[str] = []
+    earliest_chunk_timestamp: object = None
+    turn_closed = False
+    for line in reversed(lines):
+        try:
+            event = _pi_event(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "assistant_message_chunk":
+            content = event.get("content")
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+                earliest_chunk_timestamp = event.get("timestamp")
+        elif event_type == "runtime_status" and event.get("status") == "compacting":
+            if parts and event.get("isComplete") and earliest_chunk_timestamp == event.get("timestamp"):
+                parts.pop()
+            if parts:
+                break
+        elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
+            break
+        elif event_type == "turn_completed":
+            turn_closed = True
+    return "".join(reversed(parts)).strip() or None
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    The end of a Pi turn is the exception: its text comes from the whole log (see `_pi_turn_text`).
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
@@ -1100,6 +1170,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    pi_turn_ended = False
     refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
@@ -1110,6 +1181,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        pi_event = _pi_event(entry)
+        if pi_event is not None:
+            if pi_event.get("type") == "turn_completed" and pi_event.get("stopReason") == _PI_END_TURN_STOP_REASON:
+                agent_finished = True
+                pi_turn_ended = True
             continue
         notification = entry.get("notification")
         if not isinstance(notification, dict):
@@ -1135,6 +1212,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         update = params.get("update") if isinstance(params, dict) else None
         if not isinstance(update, dict):
             continue
+        # Child activity can interleave with a parent's streamed answer without ending it.
+        # Child text must not become part of the response the caller validates either.
+        if _is_subagent_update(update):
+            continue
         parsed_updates.append(update)
     # Walk backwards from the end to find the final agent response.
     # First, skip non-agent entries (e.g. usage_update) to find the last
@@ -1145,18 +1226,18 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     found_agent_msg = False
     for update in reversed(parsed_updates):
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
+        if not is_agent_msg:
+            if found_agent_msg:
+                break
+            continue
+        found_agent_msg = True
         text = _extract_text(update)
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
+    if pi_turn_ended:
+        latest_text = _pi_turn_text(all_lines)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:

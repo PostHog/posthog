@@ -15,6 +15,7 @@ use metrics::counter;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
+use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::keys::batch::{FlushKeys, KeyStore, SessionId};
 use replay_core_v4::keys::kms::AwsKms;
@@ -27,6 +28,7 @@ use crate::history::{mark_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
+use crate::watermark::FlushDone;
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
     session_keyed_frames, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
@@ -54,6 +56,7 @@ pub struct Writer {
     /// The flush does not wait for index rows, so they get their own producer with a delivery timeout of minutes.
     pub index_producer: FutureProducer<KafkaContext>,
     pub index_topic: String,
+    pub index_delivery_timeout: Duration,
     /// Remote image references this process sent to the fetcher, or found fresh in its history, by UTC day. A
     /// reference goes out again each day unless its stored image needs no refresh, so the fetcher refreshes it within
     /// every refresh interval and keeps the image as long as the blocks that reference it.
@@ -156,6 +159,7 @@ pub async fn write_flush(
     writer: &Writer,
     concurrency: usize,
     work: &Arc<FlushWork>,
+    flush_done: &FlushDone,
 ) -> Result<(), FlushError> {
     let now = Utc::now();
     let mut resolved = work.keys.lock().await;
@@ -199,12 +203,13 @@ pub async fn write_flush(
                 month.to_owned(),
                 work.clone(),
             );
-            Some(seal_blocking(&writer.seal_permits, move || {
+            let seal = seal_blocking(&writer.seal_permits, move || {
                 let compressed = work.compressed(Arc::as_ptr(&block) as usize, || {
                     compress_block(&block, &key, &team_key, &month)
                 })?;
-                seal_compressed(&compressed, &object_key).map(|sealed| (index, sealed))
-            }))
+                seal_compressed(&compressed, &object_key)
+            });
+            Some(async move { (index, seal.await) })
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
@@ -214,26 +219,19 @@ pub async fn write_flush(
             .collect::<Vec<_>>(),
         mark_fresh_urls(writer, &urls, &day),
     );
-    for result in results {
+    for (index, result) in results {
         match result {
-            Ok(sealed) => done.push(sealed),
+            Ok(sealed) => done.push((index, sealed)),
             // A panic in one block loses that block only. Its messages are committed with the rest of the flush.
             Err(WriteError::Panicked(error)) => {
-                tracing::error!(%error, "sealing a block panicked: the block is dropped");
+                let session = &blocks[index].session;
+                tracing::error!(%error, team_id = session.team_id, session_id = %session.session_id, "sealing a block panicked: the block is dropped");
                 counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => "panicked")
                     .increment(1);
             }
             Err(error) => return Err(error.into()),
         }
     }
-    // Fail closed: a block that still holds a declined URL, a credential or a private host, is not stored.
-    done.retain(|(_, block)| {
-        let Some(outcome) = block.counts.dropped else {
-            return true;
-        };
-        counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => outcome).increment(1);
-        false
-    });
     let (indices, mut sealed): (Vec<usize>, Vec<_>) = done.into_iter().unzip();
 
     // This attempt's own copy: a retry fills the writer's columns again from zero.
@@ -247,12 +245,21 @@ pub async fn write_flush(
         stats[index].url_fingerprints = std::mem::take(&mut block.url_fingerprints);
         stats[index].surfacing.visited_url_fingerprints =
             std::mem::take(&mut block.visited_url_fingerprints);
+        // A reader must see the reason: the block can hold a declined URL, a credential or a private host.
+        if let Some(outcome) = block.counts.unread {
+            let session = &blocks[index].session;
+            tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is stored without a full read");
+            counter!("ai_research_v4_recorder_unread_blocks_total", "outcome" => outcome)
+                .increment(1);
+            stats[index].unread_reason = Some(outcome.to_owned());
+        }
     }
     // Before the index is written: building the jobs counts each block's image URLs into its stats. A dropped block's
-    // images are not stored, so the fetcher does not fetch them.
+    // images are not stored, and a block past the edit budget holds no reference to its images, so the fetcher does not
+    // fetch them.
     let mut kept = vec![false; blocks.len()];
     for &index in &indices {
-        kept[index] = true;
+        kept[index] = blocks[index].url_limit != Some(UrlLimit::Edits);
     }
     let jobs = fetch_jobs(
         &urls,
@@ -308,7 +315,13 @@ pub async fn write_flush(
         index.push(IndexMessage::block(&row)?);
     }
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
-    send_index(&writer.index_producer, &writer.index_topic, &day, index);
+    send_index(
+        &writer.index_producer,
+        &writer.index_topic,
+        &day,
+        index,
+        flush_done.clone(),
+    );
     Ok(())
 }
 
@@ -381,14 +394,14 @@ async fn produce_jobs(writer: &Writer, jobs: FetchJobs, day: &str, now_ms: i64) 
     metrics::gauge!("ai_research_v4_recorder_sent_urls").set(writer.sent_urls.entry_count() as f64);
 }
 
-/// Hands the index rows to the producer and returns without waiting for their delivery. A task counts the outcomes.
-/// `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
+/// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
 pub fn send_index(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
     write_day: &str,
     messages: Vec<IndexMessage>,
-) {
+    done: FlushDone,
+) -> tokio::task::JoinHandle<()> {
     let mut deliveries = Vec::with_capacity(messages.len());
     let mut failed = Failures::default();
     for message in &messages {
@@ -426,7 +439,8 @@ pub fn send_index(
             }
         }
         failed.report();
-    });
+        done.finish();
+    })
 }
 
 /// The index rows of one flush that did not reach the topic. They are logged once per flush, not once per row.
@@ -483,7 +497,8 @@ mod tests {
     async fn sends_one_record_per_row_with_its_index_and_write_day() {
         let (cluster, producer) = create_mock_kafka().await;
         cluster.create_topic(TOPIC, 1, 1).unwrap();
-        send_index(
+        let done = FlushDone::default();
+        let delivered = send_index(
             &producer,
             TOPIC,
             "2026-10-15",
@@ -491,10 +506,15 @@ mod tests {
                 message(Index::Blocks, "session-1", Some(1_000)),
                 message(Index::Images, "image:v4:7:2026-10:abc", None),
             ],
+            done.clone(),
         );
+        // The test runtime has one thread, so the delivery task has not run yet.
+        assert!(!done.is_finished());
         producer
             .flush(Timeout::After(Duration::from_secs(5)))
             .unwrap();
+        delivered.await.unwrap();
+        assert!(done.is_finished());
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", cluster.bootstrap_servers())
