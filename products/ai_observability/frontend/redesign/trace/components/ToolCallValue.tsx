@@ -29,6 +29,7 @@ function ValueBody({ value }: { value: unknown }): JSX.Element {
 
 function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): JSX.Element {
     const [details, setDetails] = useState<HTMLDetailsElement | null>(null)
+    const [isOpen, setIsOpen] = useState(false)
     const showsQuery = useShowsQuery(details, highlightQuery)
     useLayoutEffect(() => {
         if (details && showsQuery) {
@@ -36,18 +37,26 @@ function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): J
         }
     }, [details, showsQuery])
 
+    // Only one of the line and the body is in the page at a time. A closed fold then costs one text node however big
+    // the value is, and the search highlighter never marks text that is not shown.
     return (
-        <details ref={setDetails} className="group min-w-0 px-2 py-1">
+        <details
+            ref={setDetails}
+            onToggle={(event) => setIsOpen(event.currentTarget.open)}
+            className="group min-w-0 px-2 py-1"
+        >
             <summary
                 className="flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden"
                 data-attr="trace-view-tool-value-toggle"
             >
                 <IconChevronRight className="shrink-0 text-secondary transition-transform group-open:rotate-90 motion-reduce:transition-none" />
-                <span className="min-w-0 truncate font-mono text-xs group-open:hidden">
-                    {typeof value === 'string' ? value : JSON.stringify(value)}
-                </span>
+                {isOpen ? null : (
+                    <span className="min-w-0 truncate font-mono text-xs">
+                        {typeof value === 'string' ? value : JSON.stringify(value)}
+                    </span>
+                )}
             </summary>
-            <ValueBody value={value} />
+            {isOpen ? <ValueBody value={value} /> : null}
         </details>
     )
 }

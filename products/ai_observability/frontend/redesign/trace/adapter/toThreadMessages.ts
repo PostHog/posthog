@@ -4,6 +4,7 @@ import { normalizeMessages } from '../../../messageNormalization'
 import { CompatMessage } from '../../../types'
 import { INTERNAL_THINKING_ROLE, INTERNAL_TOOL_RESULT_ROLE, extractText, extractTextContent } from '../../../utils'
 import { MessagePart, MessageRole, ThreadMessage } from '../types'
+import { hasLossyNumber } from './jsonNumbers'
 import { TeamId, isAttachmentItemType, toAttachment } from './toAttachment'
 
 const TEXT_ITEM_TYPES = new Set(['text', 'input_text', 'output_text'])
@@ -35,12 +36,10 @@ function parseArguments(args: unknown): unknown {
     }
 }
 
-// JSON numbers past 2^53 lose digits when parsed, so a result with an id like that keeps its exact text.
-const UNSAFE_INTEGER = /\d{16,}/
-
-// Tools often return JSON as text, which reads better as the structure it encodes. Scalars stay as written.
+// Tools often return JSON as text, which reads better as the structure it encodes. Scalars stay as written, and so
+// does a result whose numbers parsing would round, because the view must show the captured value.
 function parseToolResult(result: unknown): unknown {
-    if (typeof result === 'string' && UNSAFE_INTEGER.test(result)) {
+    if (typeof result === 'string' && hasLossyNumber(result)) {
         return result
     }
     const parsed = parseArguments(result)
