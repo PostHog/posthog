@@ -19,9 +19,8 @@ export function ProductEmptyStateFooter({
     onDocs: () => void
     onSkip: () => void
 }): JSX.Element {
-    return (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {config.FooterActions ? <config.FooterActions /> : null}
+    const links = (
+        <>
             {showManualSetup && manualSetupUrl ? (
                 <LemonButton
                     type="secondary"
@@ -52,6 +51,12 @@ export function ProductEmptyStateFooter({
                     Skip for now
                 </LemonButton>
             ) : null}
+        </>
+    )
+
+    return (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {config.FooterActions ? <config.FooterActions>{links}</config.FooterActions> : links}
         </div>
     )
 }
