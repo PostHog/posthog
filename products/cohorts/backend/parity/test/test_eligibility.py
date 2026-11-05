@@ -1,12 +1,13 @@
 import json
 import math
+from datetime import date
 from pathlib import Path
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cohorts.backend.parity.eligibility import screen_team
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit, screen_team
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "eligibility_golden.json"
 _CASES = json.loads(_FIXTURE.read_text())["cases"]
@@ -53,3 +54,45 @@ class TestEligibilityGoldenVectors(SimpleTestCase):
                 self.assertIsNone(screened[1].max_window_days)
             else:
                 self.assertEqual(screened[1].max_window_days, expected)
+
+
+def _behavioral(**window: object) -> dict:
+    return {"type": "behavioral", "key": "$pageview", "event_type": "events", "value": "performed_event", **window}
+
+
+def _and(*values: dict) -> dict:
+    return {"type": "AND", "values": list(values)}
+
+
+class TestBehavioralHistoryOverLimit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sliding_at_the_limit", _behavioral(time_value=400, time_interval="day"), False),
+            ("sliding_past_the_limit", _behavioral(time_value=401, time_interval="day"), True),
+            ("thirteen_months_of_thirty_days", _behavioral(time_value=13, time_interval="month"), False),
+            ("relative_start", _behavioral(explicit_datetime="-2y"), True),
+            ("absolute_start_at_the_limit", _behavioral(explicit_datetime="2025-10-01"), False),
+            # The written date is 401 days back; read in UTC it would be 400.
+            ("absolute_start_past_the_limit", _behavioral(explicit_datetime="2025-09-30T23:00:00-05:00"), True),
+            ("range_with_only_an_end", _behavioral(explicit_datetime_to="2026-01-01"), True),
+            ("sub_day_window", _behavioral(time_value=10_000, time_interval="hour"), False),
+            (
+                "nested_leaf_past_the_limit",
+                _and(
+                    {
+                        "type": "OR",
+                        "values": [
+                            _behavioral(time_value=7, time_interval="day"),
+                            _behavioral(time_value=2, time_interval="year"),
+                        ],
+                    }
+                ),
+                True,
+            ),
+        ]
+    )
+    def test_history_over_limit(self, _name: str, properties: dict, expected: bool) -> None:
+        self.assertEqual(
+            behavioral_history_over_limit(properties, limit_days=400, today=date(2026, 11, 5)),
+            expected,
+        )

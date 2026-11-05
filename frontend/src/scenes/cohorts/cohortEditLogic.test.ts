@@ -234,11 +234,15 @@ describe('cohortEditLogic', () => {
             state: 'building',
             ready_at: null,
             build: { phase: 'scanning', percent_complete: 40, updated_at: '2026-09-15T10:00:00Z' },
+            reason: null,
+            history_limit_days: null,
         }
         const readyRealtime: CohortRealtimeReadinessApi = {
             state: 'ready',
             ready_at: '2026-09-15T10:20:00Z',
             build: null,
+            reason: null,
+            history_limit_days: null,
         }
         const criteriaGroupKeys = (): (string | undefined)[] =>
             logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
@@ -367,7 +371,13 @@ describe('cohortEditLogic', () => {
             try {
                 logic.actions.armRealtimeReadinessPoll()
 
-                served = { state: 'needs_attention', ready_at: null, build: null }
+                served = {
+                    state: 'needs_attention',
+                    ready_at: null,
+                    build: null,
+                    reason: null,
+                    history_limit_days: null,
+                }
                 await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
                 expect(detailFetches).toBe(afterMount + 1)
 
