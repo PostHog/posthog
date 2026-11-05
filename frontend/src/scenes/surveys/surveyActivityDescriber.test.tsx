@@ -1,7 +1,10 @@
 import { render } from '@testing-library/react'
+import { Provider } from 'kea'
 
-import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLogRow'
+import { ActivityChange, ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 
+import { initKeaTests } from '~/test/init'
 import {
     ActivityScope,
     BasicSurveyQuestion,
@@ -300,36 +303,48 @@ describe('surveyActivityDescriber', () => {
         [
             'its schedule ended',
             { job_type: 'survey_schedule_ended', job_id: '1', payload: {} },
-            'stopped Example survey after its last scheduled repeat',
+            'Example survey after its last scheduled repeat',
         ],
         [
             'it reached its response limit',
             { job_type: 'survey_responses_limit_reached', job_id: '1', payload: { responses_limit: 300 } },
-            'stopped Example survey after reaching its limit of 300 responses',
+            'Example survey after reaching its limit of 300 responses',
         ],
-        ['a person stopped it', null, 'stopped Example survey'],
+        ['a person stopped it', null, 'stoppedExample survey'],
     ])('says why the survey stopped when %s', (_, trigger, expected) => {
-        const { description } = surveyActivityDescriber({
-            activity: 'updated',
-            created_at: '2026-01-01T00:00:00Z',
-            scope: ActivityScope.SURVEY,
-            item_id: '1',
-            is_system: true,
-            detail: {
-                name: 'Example survey',
-                changes: [
-                    {
-                        type: ActivityScope.SURVEY,
-                        action: 'created',
-                        field: 'end_date',
-                        before: null,
-                        after: '2026-01-01T00:00:00Z',
+        initKeaTests()
+        // Activity rows render the summary, so assert on the row rather than the description alone.
+        const [humanized] = humanize(
+            [
+                {
+                    activity: 'updated',
+                    created_at: '2026-01-01T00:00:00Z',
+                    scope: ActivityScope.SURVEY,
+                    item_id: '1',
+                    is_system: true,
+                    detail: {
+                        name: 'Example survey',
+                        changes: [
+                            {
+                                type: ActivityScope.SURVEY,
+                                action: 'created',
+                                field: 'end_date',
+                                before: null,
+                                after: '2026-01-01T00:00:00Z',
+                            },
+                        ],
+                        merge: null,
+                        trigger,
                     },
-                ],
-                merge: null,
-                trigger,
-            },
-        })
-        expect(getTextContent(<>{description}</>).replace(/\s+/g, ' ')).toMatch(new RegExp(`${expected}$`))
+                },
+            ],
+            () => surveyActivityDescriber
+        )
+        const row = getTextContent(
+            <Provider>
+                <ActivityLogRow logItem={humanized} />
+            </Provider>
+        )
+        expect(row.replace(/\s+/g, ' ')).toMatch(new RegExp(`${expected}$`))
     })
 })

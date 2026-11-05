@@ -421,12 +421,17 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         if (changes.length === 1) {
             const { field, description } = changes[0]
             const preposition = field === 'conditions' ? 'for' : getPreposition(field)
+            const target = (
+                <>
+                    {surveyLink}
+                    {systemStopReason(logItem.detail.trigger)}
+                </>
+            )
             return {
-                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, surveyLink, preview),
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, target, preview),
                 description: (
                     <>
-                        {user} {description} {preposition} {surveyLink}
-                        {systemStopReason(logItem.detail.trigger)}
+                        {user} {description} {preposition} {target}
                     </>
                 ),
             }
