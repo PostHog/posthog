@@ -1951,7 +1951,7 @@ export const getEvaluationsTestOnSampleCreateUrl = (projectId: string) => {
 }
 
 /**
- * Run an unsaved LLM judge or sentiment evaluation on a few samples. Saves nothing and emits no results.
+ * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
  */
 export const evaluationsTestOnSampleCreate = async (
     projectId: string,

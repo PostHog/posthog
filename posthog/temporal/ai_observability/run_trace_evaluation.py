@@ -333,13 +333,18 @@ def _fetch_trace(
 
 
 def fetch_trace_for_evaluation(
-    team_id: int, trace_id: str, window_start: datetime, window_end: datetime | None = None
+    team_id: int,
+    trace_id: str,
+    window_start: datetime,
+    window_end: datetime | None = None,
+    *,
+    user: "User | None" = None,
 ) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
     date_to = window_end or datetime.now(UTC)
-    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
+    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None, user=user)
 
 
 @frozen
@@ -712,9 +717,12 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     return run_trace_llm_judge(inputs)
 
 
-def run_trace_llm_judge(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+def run_trace_llm_judge(
+    inputs: ExecuteTraceEvaluationInputs, *, user: "User | None" = None
+) -> EvaluationActivityResult:
     """The trace judge outside any activity wrapper, so the editor's test endpoint grades a trace
-    exactly the way a live run does."""
+    exactly the way a live run does. A test passes the requesting user, so their property restrictions
+    apply to what the judge reads."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -738,7 +746,11 @@ def run_trace_llm_judge(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActiv
     allows_na = output_config.get("allows_na", False)
 
     outcome = fetch_trace_for_evaluation(
-        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+        inputs.team_id,
+        inputs.trace_id,
+        datetime.fromisoformat(inputs.window_start),
+        inputs.window_end_datetime,
+        user=user,
     )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)

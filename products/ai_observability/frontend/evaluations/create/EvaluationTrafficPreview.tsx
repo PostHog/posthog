@@ -16,6 +16,7 @@ import {
     JUDGE_TEST_LIMIT,
     type PreviewRow,
     evaluationPreviewLogic,
+    outputConfigError,
     resultPasses,
     testableKind,
 } from '../evaluationPreviewLogic'
@@ -43,12 +44,12 @@ function ResultTag({
     evaluation: EvaluationConfig
 }): JSX.Element {
     const passes = resultPasses(result, evaluation)
-    const value =
-        result.categories && result.categories.length > 0
-            ? result.categories.join(', ')
-            : result.score !== null && result.score !== undefined
-              ? String(result.score)
-              : 'N/A'
+    // An empty list is a real answer from a multiple-choice evaluation, unlike a null result.
+    const value = result.categories
+        ? result.categories.join(', ') || 'No categories'
+        : result.score !== null && result.score !== undefined
+          ? String(result.score)
+          : 'N/A'
     return (
         <Tooltip title={result.error || result.reasoning || undefined}>
             <LemonTag
@@ -192,9 +193,7 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
                             ? evaluation.evaluation_type === 'llm_judge'
                                 ? 'Write a prompt and pick a model first'
                                 : 'Write the code first'
-                            : testCount === 0
-                              ? `No ${unit}s to test`
-                              : undefined
+                            : (outputConfigError(evaluation) ?? (testCount === 0 ? `No ${unit}s to test` : undefined))
                     }
                     tooltip="Each run is one call on your own API key."
                     data-attr="llma-evaluation-create-preview-test"

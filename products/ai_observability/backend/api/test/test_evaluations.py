@@ -2786,6 +2786,13 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
         evaluation.refresh_from_db()
         assert evaluation.name == "Existing Evaluation"
 
+        judge_test_response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {"evaluation_type": "llm_judge"},
+            format="json",
+        )
+        assert judge_test_response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_editor_user_can_create_and_edit_evaluations(self):
         self.client.force_login(self.editor_user)
 
@@ -2865,16 +2872,18 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
 
     @parameterized.expand(
         [
-            ("sample_traffic", {}, status.HTTP_200_OK),
+            ("sample_traffic", "evaluation:read", status.HTTP_200_OK),
+            ("test_on_sample", "evaluation:read", status.HTTP_403_FORBIDDEN),
             # Past the scope check the body is validated, so a payload without a config is a 400, not a 403.
-            ("test_on_sample", {"evaluation_type": "sentiment"}, status.HTTP_400_BAD_REQUEST),
+            ("test_on_sample", "evaluation:write", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_read_scoped_api_key_can_call_preview(self, endpoint: str, payload: dict, expected_status: int) -> None:
+    def test_preview_scopes_for_api_keys(self, endpoint: str, scope: str, expected_status: int) -> None:
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="preview", user=self.user, secure_value=hash_key_value(raw_key), scopes=["evaluation:read"]
+            label="preview", user=self.user, secure_value=hash_key_value(raw_key), scopes=[scope]
         )
+        payload = {"evaluation_type": "sentiment"} if endpoint == "test_on_sample" else {}
         self.client.logout()
 
         response = self.client.post(

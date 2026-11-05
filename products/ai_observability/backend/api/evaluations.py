@@ -1,7 +1,8 @@
+import time
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
@@ -21,6 +22,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
@@ -35,11 +37,16 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.rate_limit import (
+    AIObservabilityEvaluationJudgeTestSustainedThrottle,
+    AIObservabilityEvaluationJudgeTestThrottle,
+)
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
@@ -1080,6 +1087,7 @@ OVERVIEW_CACHE_SECONDS = 300
 MAX_PINNED_SAMPLE_IDS = 10
 # Each unit is a paid judge call on the customer's key, made while the request waits.
 MAX_TEST_ON_SAMPLE_UNITS = 3
+TEST_ON_SAMPLE_BUDGET_SECONDS = 60
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1648,6 +1656,9 @@ def _fetch_generation_events(
         query_type="EvaluationTestHog",
         fall_back_to_events=False,
         limit_context=None,
+        # Pinned ids replace the filters, so nothing can reference a warehouse table, and the auto-test on
+        # every edit skips building the team's full table catalog.
+        posthog_tables_only=bool(sample_ids),
     )
     events = []
     for row in response.results or []:
@@ -1664,9 +1675,18 @@ def _fetch_generation_events(
     return events
 
 
-def _generation_io_preview(event: Mapping[str, Any]) -> tuple[str, str]:
+@frozen
+class IOPreview:
+    input: str
+    output: str
+
+
+def _generation_io_preview(event: Mapping[str, Any]) -> IOPreview:
     io = extract_event_io(event["event"], event["properties"])
-    return last_message_text(io.input_raw, "user")[:200], last_message_text(io.output_raw, "assistant")[:200]
+    return IOPreview(
+        input=last_message_text(io.input_raw, "user")[:200],
+        output=last_message_text(io.output_raw, "assistant")[:200],
+    )
 
 
 def _sample_unit_ids(
@@ -1764,7 +1784,8 @@ def _unit_previews(*, team: Team, user: "User", target: str, unit_ids: Sequence[
     for row in response.results or []:
         unit_id, trace_id, latest, generation_count, total_cost = row[:5]
         properties = merge_heavy_properties({}, dict(zip(HEAVY_COLUMN_NAMES, row[5:], strict=True)))
-        input_preview, output_preview = _generation_io_preview({"event": "$ai_generation", "properties": properties})
+        io_preview = _generation_io_preview({"event": "$ai_generation", "properties": properties})
+        input_preview, output_preview = io_preview.input, io_preview.output
         previews.append(
             {
                 "sample_id": str(unit_id),
@@ -1784,10 +1805,8 @@ def _unit_previews(*, team: Team, user: "User", target: str, unit_ids: Sequence[
 _UNSAVED_EVALUATION_ID = "unsaved"
 
 
-def _judge_unit(
-    evaluation: dict[str, Any], target: str, unit: Any, target_config: Mapping[str, Any]
-) -> EvaluationActivityResult:
-    """Run the function a live run uses on one sampled unit. Nothing is emitted or saved."""
+def _judge_unit(evaluation: dict[str, Any], target: str, unit: Any, user: "User") -> EvaluationActivityResult:
+    """Run the function a live run uses on one sampled unit, as the requesting user. Nothing is emitted or saved."""
     if target == EvaluationTarget.SESSION.value:
         return run_session_llm_judge(
             ExecuteSessionEvaluationInputs(
@@ -1795,18 +1814,20 @@ def _judge_unit(
                 team_id=evaluation["team_id"],
                 session_id=unit,
                 window_start=datetime.now(UTC).isoformat(),
-            )
+            ),
+            user=user,
         )
     if target == EvaluationTarget.TRACE.value:
-        window = timedelta(seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS))
+        # No window end, like a live run, which reads the whole trace. A pinned trace's trigger is its first
+        # generation, so a window from there could cut off the generation that matched the filters.
         return run_trace_llm_judge(
             ExecuteTraceEvaluationInputs(
                 evaluation=evaluation,
                 team_id=evaluation["team_id"],
                 trace_id=unit.trace_id,
                 window_start=unit.trigger_timestamp.isoformat(),
-                window_end=(unit.trigger_timestamp + window).isoformat(),
-            )
+            ),
+            user=user,
         )
     return execute_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=unit))
 
@@ -1815,11 +1836,7 @@ def _test_on_sample_row(result: EvaluationActivityResult) -> dict[str, Any]:
     if result.get("skipped"):
         return {"result": None, "reasoning": None, "error": result["reasoning"]}
     row: dict[str, Any] = {"result": result.get("verdict"), "reasoning": result["reasoning"] or None, "error": None}
-    if result["result_type"] == "sentiment":
-        row["score"] = result.get("sentiment_score")
-        label = result.get("sentiment_label")
-        row["categories"] = [label] if label else None
-    elif result["result_type"] == "numeric":
+    if result["result_type"] == "numeric":
         row["score"] = result.get("score")
     elif result["result_type"] == "categorical":
         row["categories"] = result.get("categories")
@@ -1841,6 +1858,15 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     queryset = Evaluation.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "test_on_sample":
+            return [
+                *super().get_throttles(),
+                AIObservabilityEvaluationJudgeTestThrottle(),
+                AIObservabilityEvaluationJudgeTestSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
@@ -2243,7 +2269,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             result = run_hog_eval(
                 bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
             )
-            input_preview, output_preview = _generation_io_preview(event_data)
+            io_preview = _generation_io_preview(event_data)
+            input_preview, output_preview = io_preview.input, io_preview.output
             results.append(
                 {
                     "sample_id": event_data["uuid"],
@@ -2321,10 +2348,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return Response({"results": results})
 
     @extend_schema(request=EvaluationTestOnSampleRequestSerializer, responses={200: TestHogResponseSerializer})
-    @action(detail=False, methods=["post"], url_path="test_on_sample", required_scopes=["evaluation:read"])
+    @action(detail=False, methods=["post"], url_path="test_on_sample", required_scopes=["evaluation:write"])
     def test_on_sample(self, request: Request, **kwargs) -> Response:
-        """Run an unsaved LLM judge or sentiment evaluation on a few samples. Saves nothing and emits no results."""
-        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+        """Run an unsaved LLM judge on a few samples. Saves nothing and emits no results."""
+        # Each call spends the team's own provider key, so it takes the access that saving an evaluation does.
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "editor"):
             raise exceptions.PermissionDenied()
 
         serializer = EvaluationTestOnSampleRequestSerializer(data=request.data)
@@ -2424,14 +2452,25 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             units, unit_ids, previews = [], [], {}
 
         # ponytail: sequential judge calls, up to three; run them concurrently if the wait gets long.
+        # A slow model can take minutes per call, so later calls are skipped once the request has run long
+        # enough, rather than being billed after the browser has already given up.
+        started = time.monotonic()
         results = []
         for unit, unit_id in zip(units, unit_ids):
-            try:
-                row = _test_on_sample_row(_judge_unit(evaluation, target, unit, target_config))
-            except Exception as error:
-                row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
+            if time.monotonic() - started > TEST_ON_SAMPLE_BUDGET_SECONDS:
+                row = {
+                    "result": None,
+                    "reasoning": None,
+                    "error": "Not run, because the earlier runs took over a minute.",
+                }
+            else:
+                try:
+                    row = _test_on_sample_row(_judge_unit(evaluation, target, unit, user))
+                except Exception as error:
+                    row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
             if target == EvaluationTarget.GENERATION.value:
-                input_preview, output_preview = _generation_io_preview(unit)
+                io_preview = _generation_io_preview(unit)
+                input_preview, output_preview = io_preview.input, io_preview.output
                 trace_id = unit["properties"].get("$ai_trace_id")
             else:
                 preview = previews.get(unit_id, {})
@@ -2450,11 +2489,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 }
             )
 
-        counts = (
-            _hog_test_result_counts(results, output_type, evaluation["output_config"])
-            if evaluation_type == EvaluationType.LLM_JUDGE.value
-            else {"error_count": sum(1 for result in results if result["error"])}
-        )
+        counts = _hog_test_result_counts(results, output_type, evaluation["output_config"])
         report_user_action(
             request.user,
             "llma evaluation tested on sample",

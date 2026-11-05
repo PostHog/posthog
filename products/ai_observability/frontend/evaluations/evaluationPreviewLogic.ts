@@ -16,8 +16,21 @@ import type {
     TestHogRequestApi,
     TestHogResultItemApi,
 } from '../generated/api.schemas'
-import { categoricalResultPasses, evaluationIsDetector, numericScorePasses } from './constants'
-import { type LLMEvaluationLogicProps, llmEvaluationLogic, llmEvaluationLogicKey } from './llmEvaluationLogic'
+import {
+    categoricalOutputConfigError,
+    categoricalResultPasses,
+    evaluationIsDetector,
+    numericOutputConfigError,
+    numericScorePasses,
+} from './constants'
+import {
+    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+    DEFAULT_SESSION_WINDOW_SECONDS,
+    DEFAULT_TRACE_WINDOW_SECONDS,
+    type LLMEvaluationLogicProps,
+    llmEvaluationLogic,
+    llmEvaluationLogicKey,
+} from './llmEvaluationLogic'
 import type { EvaluationConfig } from './types'
 
 /** Waits for typing in a filter to settle before asking for matching traffic. */
@@ -26,6 +39,8 @@ const SAMPLE_COUNT = 5
 /** Each judge test is one call on the team's own provider key, so a click tests at most this many runs. */
 export const JUDGE_TEST_LIMIT = 3
 export const HOG_TEST_LIMIT = 10
+/** The server tests Hog on at most this many sessions, since each one loads a whole conversation. */
+const SESSION_HOG_TEST_LIMIT = 3
 /** Hog runs re-test as the code changes, once typing pauses. */
 const HOG_RETEST_DEBOUNCE_MS = 500
 
@@ -65,6 +80,17 @@ function toRow(item: EvaluationSampleTrafficItemApi): PreviewRow {
     }
 }
 
+/** Why the output settings cannot be tested yet, such as a minimum above the maximum, which the Returns step shows. */
+export function outputConfigError(evaluation: EvaluationConfig): string | null {
+    if (evaluation.output_type === 'numeric') {
+        return numericOutputConfigError(evaluation.output_config)
+    }
+    if (evaluation.output_type === 'categorical') {
+        return categoricalOutputConfigError(evaluation.output_config)
+    }
+    return null
+}
+
 /** Pass or fail under the evaluation's rule, or null for an error or a result with no verdict, such as a score with no rule. */
 export function resultPasses(result: TestHogResultItemApi, evaluation: EvaluationConfig): boolean | null {
     if (result.error) {
@@ -83,11 +109,34 @@ export function resultPasses(result: TestHogResultItemApi, evaluation: Evaluatio
     }
 }
 
+/** The longest quiet period the sampling endpoints accept, the server's cap for session previews. */
+const MAX_PREVIEW_QUIET_PERIOD_SECONDS = 24 * 60 * 60
+
+/**
+ * The sampling settings a preview request takes. A trace samples on its window. A session samples sessions that
+ * have gone quiet for as long as it would wait: its quiet period, or for a fixed window that same duration of
+ * inactivity, so every sampled session has certainly settled.
+ */
+function previewTargetConfig(evaluation: EvaluationConfig): TestHogRequestApi['target_config'] {
+    const config = evaluation.target_config
+    if (evaluation.target === 'trace') {
+        return { window_seconds: config.window_seconds ?? DEFAULT_TRACE_WINDOW_SECONDS }
+    }
+    if (evaluation.target === 'session') {
+        const quiet =
+            config.strategy === 'fixed_window'
+                ? (config.window_seconds ?? DEFAULT_SESSION_WINDOW_SECONDS)
+                : (config.quiet_period_seconds ?? DEFAULT_SESSION_QUIET_PERIOD_SECONDS)
+        return { quiet_period_seconds: Math.min(quiet, MAX_PREVIEW_QUIET_PERIOD_SECONDS) }
+    }
+    return undefined
+}
+
 function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'conditions' | 'target' | 'target_config'> {
     return {
         conditions: evaluation.conditions as TestHogRequestApi['conditions'],
         target: evaluation.target,
-        target_config: evaluation.target_config as TestHogRequestApi['target_config'],
+        target_config: previewTargetConfig(evaluation),
     }
 }
 
@@ -205,11 +254,12 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     if (auto) {
                         await breakpoint(HOG_RETEST_DEBOUNCE_MS)
                     }
-                    const { evaluation, currentTeamId, rows } = values
+                    const { evaluation, currentTeamId, rows, testKey } = values
                     const kind = testableKind(evaluation)
-                    if (!evaluation || !currentTeamId || !kind || rows.length === 0) {
+                    if (!evaluation || !currentTeamId || !kind || rows.length === 0 || outputConfigError(evaluation)) {
                         return null
                     }
+                    const hogLimit = evaluation.target === 'session' ? SESSION_HOG_TEST_LIMIT : HOG_TEST_LIMIT
                     const teamId = currentTeamId.toString()
                     const outputConfig = evaluation.output_config as TestHogRequestApi['output_config']
                     const response =
@@ -220,7 +270,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                                   output_type: evaluation.output_type as TestHogRequestApi['output_type'],
                                   output_config: outputConfig,
                                   allows_na: evaluation.output_config.allows_na ?? false,
-                                  sample_ids: rows.slice(0, HOG_TEST_LIMIT).map((row) => row.sampleId),
+                                  sample_ids: rows.slice(0, hogLimit).map((row) => row.sampleId),
                               })
                             : await evaluationsTestOnSampleCreate(teamId, {
                                   ...scope(evaluation),
@@ -235,6 +285,11 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                                   sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sampleId),
                               })
                     breakpoint()
+                    // A judge edit clears the results without starting a test, so nothing cancels this call. Its
+                    // results belong to the settings it ran with, and those have changed.
+                    if (values.testKey !== testKey) {
+                        return null
+                    }
                     if (!auto) {
                         // pinned: analytics event name and properties, because usage reviews read them
                         posthog.capture('llma evaluation create preview tested', {
@@ -262,6 +317,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
             null as string | null,
             {
                 testRows: () => null,
+                testRowsSuccess: () => null,
                 testRowsFailure: (_, { error }) => error,
             },
         ],

@@ -58,11 +58,14 @@ describe('evaluationPreviewLogic', () => {
     let logic: ReturnType<typeof evaluationPreviewLogic.build>
     let testCalls: string[]
     let saved: EvaluationConfig
+    let pending: Promise<void> | null
 
     beforeEach(() => {
         testCalls = []
-        const respond = (endpoint: string) => () => {
+        pending = null
+        const respond = (endpoint: string) => async () => {
             testCalls.push(endpoint)
+            await pending
             return [200, { results: [testResult] }]
         }
         useMocks({
@@ -125,5 +128,27 @@ describe('evaluationPreviewLogic', () => {
 
         expect(logic.values.testResults).toBeNull()
         expect(testCalls).toEqual(['judge'])
+    })
+
+    it('drops a judge result that arrives after the prompt changed', async () => {
+        mount({
+            ...evaluation,
+            evaluation_type: 'llm_judge',
+            evaluation_config: { prompt: 'Is it helpful?' },
+            model_configuration: { provider: 'openai', model: 'gpt-4.1-mini', provider_key_id: 'key-1' },
+        } as EvaluationConfig)
+        await expectLogic(logic).toFinishAllListeners()
+        let release = (): void => {}
+        pending = new Promise((resolve) => {
+            release = resolve
+        })
+
+        logic.actions.testRows({ auto: false })
+        llmEvaluationLogic(props).actions.setEvaluationPrompt('Is it accurate?')
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(testCalls).toEqual(['judge'])
+        expect(logic.values.testResults).toBeNull()
     })
 })

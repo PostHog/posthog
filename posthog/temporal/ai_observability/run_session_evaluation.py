@@ -464,9 +464,12 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     return run_session_llm_judge(inputs)
 
 
-def run_session_llm_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+def run_session_llm_judge(
+    inputs: ExecuteSessionEvaluationInputs, *, user: "User | None" = None
+) -> EvaluationActivityResult:
     """The session judge outside any activity wrapper, so the editor's test endpoint grades a session
-    exactly the way a live run does."""
+    exactly the way a live run does. A test passes the requesting user, so their property restrictions
+    apply to what the judge reads."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -494,6 +497,7 @@ def run_session_llm_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationA
         inputs.session_id,
         datetime.fromisoformat(inputs.window_start),
         inputs.window_end_datetime,
+        user=user,
     )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)

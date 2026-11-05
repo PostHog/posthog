@@ -1841,7 +1841,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
     .describe("What a preview samples from: the unsaved evaluation's conditions and target.")
 
 /**
- * Run an unsaved LLM judge or sentiment evaluation on a few samples. Saves nothing and emits no results.
+ * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
  */
 export const evaluationsTestOnSampleCreateBodyTargetDefault = `generation`
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsDefault = 1800
