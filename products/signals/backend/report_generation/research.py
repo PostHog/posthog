@@ -377,6 +377,18 @@ _DEFAULT_CHECK_SCHEDULING_GUIDANCE = """`soak_hours` is how long after the repor
 {default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
 reaches users slowly — a mobile release, a cached client bundle, a weekly batch."""
 
+_MONITORING_CHECK_SCHEDULING_GUIDANCE = """Monitoring uses one fixed observation window: the recorded Monitoring start through start + soak_hours.
+PR completion uses the latest implementation PR merge timestamp as the start. Manual entry uses
+the time Monitoring starts.
+`soak_hours` is the duration of that entire window, not a delay before starting a shorter query.
+The executor replaces relative query dates with these fixed bounds. It does not discard an initial
+deployment buffer or select only the last few hours. Choose a useful duration from the observed
+traffic and ingestion delay. If rollout uncertainty makes this window inconclusive, say so.
+Keep titles, outcome prose, agent instructions, comparisons, and minimum sample requirements
+consistent with the entire window. Agent checks must use the supplied window bounds, even when
+verification starts later. Reference and baseline periods describe their own measured periods;
+they do not move or shorten the observation window."""
+
 _METRIC_FIRST_RESEARCH_GUIDANCE = """## Prepare metric-based follow-up checks
 
 While researching, identify a metric that existing instrumentation can measure to provide useful
@@ -403,17 +415,14 @@ confidence score. Do not require statistical significance or near-certainty, and
 invented confidence percentage. Baselines and thresholds must still come from the research.
 
 Choose the shortest useful observation window based on observed activity, recurrence frequency,
-ingestion delay, and deployment timing. Allow for a deployment delay of several hours before the
-fix reaches users. Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
+ingestion delay, and deployment timing. {deployment_guidance} Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
 when a day of activity is needed, and several days only when low volume,
 rollout timing, or a known batch cycle justifies the wait. Do not choose seven days merely because
 it is conventional.
 
 Explicitly set `soak_hours` and explain the chosen window in the check's rationale. Keep the query
-window and comparison consistent with that duration. Shortening only the wait does not shorten a
-longer measurement query. For existing whole-window execution, the query window must fit entirely
-after the fix; do not include pre-fix data. This guidance changes check authoring, not execution
-or final-outcome rules. Preserve still-valid existing checks unless new evidence warrants revision.
+window and comparison consistent with that duration. {execution_guidance}
+Preserve still-valid existing checks unless new evidence warrants revision.
 
 Missing data, absent traffic, or a failed query must not count as evidence of recovery. Prefer a
 rate with a verified denominator when available. If a metric check cannot distinguish improvement
@@ -428,7 +437,7 @@ _METRIC_CHECK_GUIDANCE = """- {metric_selection} All three of these must hold. T
   `{{"metric_id": "<one of this report's metrics>", "comparison": {{"operator": "lte", "value": 10}},
   "baseline_value": <what you measured now>}}`. The `metric_id` must name a metric you returned in
   the presentation turn, so the check rides a query this report already shows. Its comparison is the
-  outcome goal, its `soak_hours` is the decision window after resolution, and its baseline is the
+  outcome goal, its `soak_hours` is {soak_description}, and its baseline is the
   observed starting point. The check copies the metric's query, kind, format, and unit for its chart.
   Do not use a per-interval goal: the executor compares the whole query window. A spec naming
   anything else is dropped."""
@@ -450,9 +459,8 @@ _MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.m
   implementation's success criterion as a separate check. Ordinary success targets use `expectation`
   (the default). A rationale saying "inconclusive" does not change the executable definition.
   If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
-  than invent them. Preserve the bounded relative query
-  and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
-  not enable interim execution or decide a final outcome.
+  than invent them. Preserve the bounded relative query for legacy execution. Monitoring replaces
+  its relative dates with the fixed observation window and compares the whole window.
 - For metric checks with `config.monitoring`, author `run_interval_minutes` based on activity and
   ingestion delay. It controls interim measurement cadence, independently of query bucket size and
   target reference period. Use at least 360 minutes and strictly less than `soak_hours * 60`.
@@ -543,11 +551,16 @@ class FixVerificationOutput(BaseModel):
             ]
         return value
 
-    def to_note(self) -> NoteArtefact:
+    def to_note(self, *, monitoring_enabled: bool = False) -> NoteArtefact:
         # The note is written before persistence can confirm which checks were scheduled.
         proposed = "".join(
-            f"\n\n_Proposed follow-up check: **{check.title}**, with a minimum wait of "
-            f"{check.soak_hours} hours after this report is resolved._"
+            f"\n\n_Proposed follow-up check: **{check.title}**, "
+            + (
+                f"observing the full {check.soak_hours} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
+                if monitoring_enabled
+                else f"with a minimum wait of {check.soak_hours} hours after this report is resolved._"
+            )
             for check in self.checks or []
         )
         return NoteArtefact(
@@ -1571,8 +1584,18 @@ def build_fix_verification_prompt(
         "  reading the project's data, such as re-reading an error issue's recent events."
     )
     scheduling_guidance = (
-        _METRIC_FIRST_SCHEDULING_GUIDANCE
+        _METRIC_FIRST_SCHEDULING_GUIDANCE.format(
+            deployment_guidance="Account for rollout uncertainty within the fixed window."
+            if monitoring_enabled
+            else "Allow for a deployment delay of several hours before the fix reaches users.",
+            execution_guidance=_MONITORING_CHECK_SCHEDULING_GUIDANCE
+            if monitoring_enabled
+            else "Shortening only the wait does not shorten a longer measurement query. For existing whole-window "
+            "execution, the query window must fit entirely after the fix; do not include pre-fix data.",
+        )
         if prefer_metric_checks
+        else _MONITORING_CHECK_SCHEDULING_GUIDANCE
+        if monitoring_enabled
         else _DEFAULT_CHECK_SCHEDULING_GUIDANCE.format(default_soak=DEFAULT_CHECK_SOAK_HOURS)
     )
     metric_method_guidance = (
@@ -1582,6 +1605,13 @@ def build_fix_verification_prompt(
         else "Do not force a product metric when another method gives better evidence."
     )
     schema_dict = FixVerificationOutput.model_json_schema()
+    if monitoring_enabled:
+        schema_dict["$defs"]["CheckSpec"]["properties"]["soak_hours"]["description"] = (
+            "Duration in hours of the entire fixed observation window from the recorded Monitoring start "
+            "through start + soak_hours. PR completion uses the latest implementation PR merge timestamp; "
+            "manual entry uses the time Monitoring starts. "
+            "No deployment buffer is excluded. Omission preserves an existing check's duration."
+        )
     if not (metric_checks_enabled and monitoring_enabled):
         schema_dict["$defs"]["CheckSpec"]["properties"].pop("run_interval_minutes", None)
     kinds = [
@@ -1609,6 +1639,9 @@ def build_fix_verification_prompt(
                 if prefer_metric_checks
                 else "decides the question",
                 agent_selection=agent_selection,
+                soak_description="the full observation duration from the recorded Monitoring start"
+                if monitoring_enabled
+                else "the decision window after resolution",
                 no_metric_guidance=(
                     "When the evidence supports no useful metric check, return no check."
                     if prefer_metric_checks
@@ -1628,7 +1661,7 @@ def build_fix_verification_prompt(
         f"```json\n{json.dumps(previous_checks, indent=2)}\n```\n"
         "Review every check against the new evidence. Set existing_check_id to its id when retaining or revising "
         "an existing check; its remaining recurrence is preserved when revised. Keep soak_hours unchanged to "
-        "preserve its exact wait, or explicitly change soak_hours when the new evidence warrants a different wait. "
+        "preserve its exact duration, or explicitly change soak_hours when the new evidence warrants different timing. "
         "Repeat a still-valid check with the same title, rationale, "
         "kind, config, and soak_hours so its schedule and approval are preserved. Revise a materially changed "
         "check by returning a corrected spec, or omit one that is no longer relevant or measurable. "
@@ -1990,7 +2023,7 @@ async def run_multi_turn_research(
                         "summary": presentation_result.summary,
                     },
                 )
-                verification_note = verification_result.to_note()
+                verification_note = verification_result.to_note(monitoring_enabled=monitoring_enabled)
                 if (
                     (metrics_enabled or agent_checks_enabled)
                     and "checks" in verification_result.model_fields_set

@@ -37,13 +37,7 @@ from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, 
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
-from products.slack_app.backend.models import (
-    ChannelWelcomeMode,
-    SlackSettings,
-    SlackUserProfileCache,
-    ThreadJoinMode,
-    UntaggedFollowupMode,
-)
+from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
@@ -85,7 +79,10 @@ from products.slack_app.backend.services.slack_settings import (
     set_untagged_followup_mode,
     set_untagged_question_mode,
 )
-from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+from products.slack_app.backend.services.slack_user_info import (
+    find_member_by_cached_slack_email,
+    is_slack_workspace_admin,
+)
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -2191,6 +2188,21 @@ def _apply_personal_preferences(
     )
 
 
+def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, model: str) -> None:
+    """Raises ``ValidationError`` with a message for the person, like the Home tab editor."""
+    _apply_personal_preferences(
+        integration,
+        slack_user_id,
+        runtime_adapter=runtime_adapter_for(model),
+        model=model,
+        reasoning_effort=None,
+    )
+
+
+def has_personal_model(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    return _stored_personal_preferences(integration, slack_user_id) != AIPreferences()
+
+
 def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the viewer's central per-(user, project) preference, which resets
     them to the project default. The reset button only renders for viewers with
@@ -2583,17 +2595,22 @@ def _auto_model_choice_offered(integration: WorkspaceIntegration, slack_user_id:
     return _resolve_home_user(integration, slack_user_id) is not None
 
 
+def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
+    """The PostHog user this Slack user linked, the check behind "Connected as" on the Home tab."""
+    slack_team_id = integration.integration_id
+    return find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=_workspace_org_ids(slack_team_id),
+    )
+
+
 def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
-    candidate_org_ids = _workspace_org_ids(slack_team_id)
-    linked_user = find_linked_posthog_user(
-        slack_user_id=slack_user_id,
-        slack_team_id=slack_team_id,
-        candidate_org_ids=candidate_org_ids,
-    )
+    linked_user = linked_posthog_user(integration, slack_user_id)
     if linked_user is not None:
         return AccountState(enabled=True, linked_email=linked_user.email)
 
@@ -2640,19 +2657,9 @@ def _resolve_home_user(integration: WorkspaceIntegration, slack_user_id: str) ->
         if linked_user is not None:
             return linked_user
 
-    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
-    if profile is None or not profile.email:
-        return None
-    membership = (
-        OrganizationMembership.objects.filter(
-            organization_id__in=candidate_org_ids,
-            user__email__iexact=profile.email,
-            user__is_active=True,
-        )
-        .select_related("user")
-        .first()
+    return find_member_by_cached_slack_email(
+        slack_team_id=slack_team_id, slack_user_id=slack_user_id, candidate_org_ids=candidate_org_ids
     )
-    return membership.user if membership else None
 
 
 def _analytics_home_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:

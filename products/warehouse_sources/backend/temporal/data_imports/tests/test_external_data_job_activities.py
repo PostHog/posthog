@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 import pytest
 from posthog.test.base import BaseTest
@@ -29,15 +30,20 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     _is_app_db_failure,
+    _non_retryable_error_message,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+    PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
@@ -111,6 +117,56 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestNonRetryableErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Each class-name or broad key below has a None value and sits before the entry that
+            # carries the message, so a first-match pick showed the customer the raw driver text.
+            (
+                "postgres_table_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for table orders",
+                "GRANT SELECT",
+            ),
+            (
+                "postgres_schema_permission",
+                PostgresSource,
+                "InsufficientPrivilege",
+                "permission denied for schema analytics",
+                "USAGE",
+            ),
+            (
+                "redshift_relation_permission",
+                RedshiftSource,
+                "InsufficientPrivilege",
+                "permission denied for relation orders",
+                "Redshift reported",
+            ),
+            (
+                "postgres_xmin_as_incremental_field",
+                PostgresSource,
+                "ValueError",
+                XMIN_AS_INCREMENTAL_FIELD_ERROR,
+                "choose a different incremental field",
+            ),
+        ]
+    )
+    def test_a_none_entry_does_not_hide_a_later_message(
+        self, _name: str, source_cls: type, exc_type: str, message: str, expected_fragment: str
+    ) -> None:
+        errors = {**Any_Source_Errors, **source_cls().get_non_retryable_errors()}
+        result = _non_retryable_error_message(errors, str(ApplicationError(message, type=exc_type)))
+        assert result is not None
+        assert expected_fragment in result
+        assert "orders" not in result and "analytics" not in result
+
+    def test_an_error_only_none_entries_match_keeps_no_message(self) -> None:
+        errors = {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
+        internal_error = str(ApplicationError("table orders is gone", type="NoSuchTableError"))
+        assert _non_retryable_error_message(errors, internal_error) is None
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
@@ -496,16 +552,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         # A hand-rolled transport's own retryable marker, which no map names for this source.
         (
             "retryable_status_marker",
-            ExternalDataSourceType.HUBSPOT,
-            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            ExternalDataSourceType.GITHUB,
+            "Github API error (retryable): status=500, url=https://api.example.com/repos/things",
             TRANSIENT_SOURCE_ERROR_MESSAGE,
         ),
         # A source that names its vendor for the same marker keeps that copy over the generic one.
         (
             "retryable_status_marker_with_source_copy",
-            ExternalDataSourceType.MATOMO,
-            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
-            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
+            ExternalDataSourceType.STRIPE,
+            "Acme API error (retryable): status=503, url=https://api.example.com/index.php",
+            "Acme kept returning temporary errors.",
+            {"Acme API error (retryable)": "Acme kept returning temporary errors."},
         ),
         # A Redshift cluster that never answered the connect keeps its schedule.
         (
@@ -518,7 +575,11 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 )
 @pytest.mark.django_db(transaction=True)
 def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_schema(
-    _name: str, source_type: ExternalDataSourceType, internal_error: str, expected_message: str
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expected_message: str,
+    fake_retry_exhausted_errors: dict[str, str] | None = None,
 ) -> None:
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -539,6 +600,18 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         latest_error=internal_error,
     )
 
+    fake_source = mock.MagicMock()
+    fake_source.get_non_retryable_errors.return_value = {}
+    fake_source.get_retry_exhausted_errors.return_value = fake_retry_exhausted_errors
+    registry_patch = (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.SourceRegistry.get_source",
+            return_value=fake_source,
+        )
+        if fake_retry_exhausted_errors is not None
+        else contextlib.nullcontext()
+    )
+
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
@@ -551,6 +624,7 @@ def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_sc
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
+        registry_patch,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 

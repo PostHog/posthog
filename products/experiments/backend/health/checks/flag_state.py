@@ -37,7 +37,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
-from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -77,6 +77,7 @@ _MIN_PEOPLE_ASSIGNED_OUTSIDE = 10
 _OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
+OTHER_EXPERIMENT_DECIDES = "Another experiment on the same feature flag decides the flag's state"
 
 
 def flag_state(ctx: HealthContext) -> CheckOutcome:
@@ -140,7 +141,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
         if _running_others(ctx):
-            return None
+            return not_applicable(OTHER_EXPERIMENT_DECIDES)
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
@@ -248,11 +249,11 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
     )
 
 
-def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
+def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | CheckSkip:
     others = ctx.other_experiments_on_flag
     # The flag's state belongs to the later experiment, and that experiment's own check reports it.
     if any(_serves_later_experiment(other, ended_at) for other in others):
-        return None
+        return not_applicable(OTHER_EXPERIMENT_DECIDES)
     if any(other.is_draft and not other.archived for other in others):
         return _shared_with_draft(ended_at, ctx.team_timezone)
     if ctx.flag_called_after_end is True:

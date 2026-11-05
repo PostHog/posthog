@@ -916,8 +916,8 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("first_attempt_waits_10s", 0, 10, True),
-            ("last_attempt_gives_up", len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False),
+            ("first_attempt_waits_10s", 0, 10, True, 0.0),
+            ("last_attempt_gives_up", len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0),
         ]
     )
     @patch.object(_send_email, "apply_async")
@@ -930,11 +930,14 @@ class TestEmail(BaseTest):
         retries: int,
         expected_countdown: int | None,
         expected_retrying: bool,
+        expected_dropped: float,
         _mock_post: MagicMock,
         _mock_feature_enabled: MagicMock,
         mock_scoped_capture: MagicMock,
         mock_apply_async: MagicMock,
     ) -> None:
+        dropped_labels = {"transport": "http"}
+        dropped_before = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
         _send_email.push_request(id="worker-task", retries=retries, is_eager=False, called_directly=False)
         try:
             with (
@@ -967,6 +970,8 @@ class TestEmail(BaseTest):
         capture = mock_scoped_capture.return_value.__enter__.return_value
         failed = [c.kwargs for c in capture.call_args_list if c.kwargs.get("event") == "transactional email failed"]
         self.assertEqual([f["properties"]["retrying"] for f in failed], [expected_retrying])
+        dropped_after = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
+        self.assertEqual(dropped_after - dropped_before, expected_dropped)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection

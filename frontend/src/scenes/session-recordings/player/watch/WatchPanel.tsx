@@ -4,7 +4,7 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
-import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
+import { QuillSummarizeRecordingBar } from 'products/replay_vision/frontend/components/QuillSummarizeRecordingBar'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -27,7 +27,7 @@ export function WatchPanel(): JSX.Element | null {
     return (
         <div data-quill className="flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground isolate" data-attr="watch-panel">
             <DebugModeBanner />
-            <RecordingTitleBlock actions={vision ? <SummarizeRecordingBar inline /> : undefined} />
+            <RecordingTitleBlock actions={vision ? <QuillSummarizeRecordingBar /> : undefined} />
             {vision && dataProcessingAccepted ? (
                 <WatchPanelTabsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
             ) : (

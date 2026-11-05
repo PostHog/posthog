@@ -6,9 +6,9 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonCollapse, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { Heading, Text } from '@posthog/quill'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -25,8 +25,11 @@ import { splitOngoingRecordings } from 'scenes/session-recordings/playlist/playl
 import { QuillListCollapsedToggle } from 'scenes/session-recordings/playlist/QuillListCollapsedToggle'
 import { QuillListLoadingState } from 'scenes/session-recordings/playlist/QuillListLoadingState'
 import { QuillListLoadMoreFooter } from 'scenes/session-recordings/playlist/QuillListLoadMoreFooter'
+import { QuillListNotice } from 'scenes/session-recordings/playlist/QuillListNotice'
 import { QuillListOnlyLiveState } from 'scenes/session-recordings/playlist/QuillListOnlyLiveState'
 import { QuillSelectedRecordingsBar } from 'scenes/session-recordings/playlist/QuillSelectedRecordingsBar'
+import { QuillSessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/QuillSessionRecordingsPlaylistTroubleshooting'
+import { QuillUnusableEventsWarning } from 'scenes/session-recordings/playlist/QuillUnusableEventsWarning'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
 import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
@@ -37,6 +40,7 @@ import { SessionRecordingPreviewFeed } from 'scenes/session-recordings/playlist/
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
+import { UnusableEventsWarning } from 'scenes/session-recordings/playlist/UnusableEventsWarning'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -48,7 +52,6 @@ const ESTIMATED_ROW_HEIGHT = 56
 type PlaylistSectionBase = {
     key: string
     title?: ReactNode
-    initiallyOpen?: boolean
 }
 
 export type PlaylistRecordingPreviewBlock = PlaylistSectionBase & {
@@ -197,7 +200,6 @@ export function Playlist({
             ),
             items: pinnedRecordings,
             render: renderRow,
-            initiallyOpen: true,
         })
     } else {
         sections.push({
@@ -209,7 +211,6 @@ export function Playlist({
                 </div>
             ),
             items: finishedRecordings,
-            initiallyOpen: !pinnedRecordings.length,
             render: renderRow,
             footer: newLayout ? (
                 <QuillListLoadMoreFooter {...loadMoreFooterProps} />
@@ -222,17 +223,9 @@ export function Playlist({
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         ?.find((s) => s.items.length > 0)?.items[0]
-    const sectionCount = sections.length
     const itemsCount = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         .flatMap((s) => s.items).length
-
-    const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
-    const [openSections, setOpenSections] = useState<string[]>(initiallyOpenSections)
-
-    const onChangeOpenSections = (activeKeys: string[]): void => {
-        setOpenSections(activeKeys)
-    }
 
     const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
         selectInitialItem && firstItem ? firstItem.id : null
@@ -263,9 +256,9 @@ export function Playlist({
                 <ListOnlyLiveState {...onlyLiveProps} />
             )
         ) : type === 'collection' ? (
-            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+            <CollectionEmptyState isSynthetic={isSynthetic} description={description} newLayout={newLayout} />
         ) : (
-            <ListEmptyState listEmptyState={listEmptyState} />
+            <ListEmptyState listEmptyState={listEmptyState} newLayout={newLayout} />
         )
 
     // Show collapsed view
@@ -354,12 +347,18 @@ export function Playlist({
                             )}
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
-                        {selectedRecordingOutsideFilters && (
-                            <LemonBanner type="warning" className="m-2">
-                                The recording you have open doesn't match the current filters. It stays in the list
-                                until you close it.
-                            </LemonBanner>
-                        )}
+                        {selectedRecordingOutsideFilters &&
+                            (newLayout ? (
+                                <QuillListNotice tone="warning" className="m-2">
+                                    The recording you have open doesn't match the current filters. It stays in the list
+                                    until you close it.
+                                </QuillListNotice>
+                            ) : (
+                                <LemonBanner type="warning" className="m-2">
+                                    The recording you have open doesn't match the current filters. It stays in the list
+                                    until you close it.
+                                </LemonBanner>
+                            ))}
                         <div
                             className="overflow-y-auto flex-1 min-h-0 [scrollbar-gutter:stable] [scrollbar-width:thin]"
                             onScroll={handleScroll}
@@ -379,47 +378,15 @@ export function Playlist({
                                     scrollEl={scrollEl}
                                 />
                             </OngoingRecordingsGroup>
-                            {sectionCount > 1 ? (
-                                <LemonCollapse
-                                    defaultActiveKeys={openSections}
-                                    panels={sections.map((s) => {
-                                        return {
-                                            key: s.key,
-                                            header: String(s.title),
-                                            content: (
-                                                <SectionContent
-                                                    section={s}
-                                                    loading={!!sessionRecordingsResponseLoading}
-                                                    loadingState={loadingState}
-                                                    setActiveItemId={onChangeActiveItem}
-                                                    activeItemId={activeItemId}
-                                                    emptyState={emptyState}
-                                                    scrollEl={scrollEl}
-                                                />
-                                            ),
-                                            className: 'p-0',
-                                        }
-                                    })}
-                                    onChange={onChangeOpenSections}
-                                    multiple
-                                    embedded
-                                    size="small"
-                                />
-                            ) : sectionCount === 1 ? (
-                                <SectionContent
-                                    section={sections[0]}
-                                    loading={!!sessionRecordingsResponseLoading}
-                                    loadingState={loadingState}
-                                    setActiveItemId={onChangeActiveItem}
-                                    activeItemId={activeItemId}
-                                    emptyState={emptyState}
-                                    scrollEl={scrollEl}
-                                />
-                            ) : sessionRecordingsResponseLoading ? (
-                                loadingState
-                            ) : (
-                                emptyState
-                            )}
+                            <SectionContent
+                                section={sections[0]}
+                                loading={!!sessionRecordingsResponseLoading}
+                                loadingState={loadingState}
+                                setActiveItemId={onChangeActiveItem}
+                                activeItemId={activeItemId}
+                                emptyState={emptyState}
+                                scrollEl={scrollEl}
+                            />
                         </div>
                     </div>
                 </div>
@@ -455,9 +422,27 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
-const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
+const ListEmptyState = ({
+    listEmptyState,
+    newLayout,
+}: Pick<PlaylistProps, 'listEmptyState'> & { newLayout: boolean }): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
+    if (newLayout) {
+        return (
+            <div data-quill className="p-3 text-sm text-muted-foreground">
+                {sessionRecordingsAPIErrored ? (
+                    <QuillListNotice tone="destructive">Error while trying to load recordings.</QuillListNotice>
+                ) : unusableEventsInFilter.length ? (
+                    <QuillUnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {listEmptyState ?? <QuillSessionRecordingsPlaylistTroubleshooting />}
+                    </div>
+                )}
+            </div>
+        )
+    }
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
@@ -476,12 +461,36 @@ const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'
 const CollectionEmptyState = ({
     isSynthetic,
     description,
+    newLayout,
 }: {
     isSynthetic?: boolean
     description?: string
+    newLayout: boolean
 }): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
+    if (newLayout) {
+        return (
+            <div data-quill className="p-3 text-sm text-muted-foreground">
+                {sessionRecordingsAPIErrored ? (
+                    <QuillListNotice tone="destructive">Error while trying to load recordings.</QuillListNotice>
+                ) : unusableEventsInFilter.length ? (
+                    <QuillUnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        <Heading size="sm" render={<h3 />} className="m-0">
+                            {isSynthetic ? 'No recordings yet' : 'No recordings in this collection'}
+                        </Heading>
+                        <Text size="sm" variant="muted">
+                            {isSynthetic
+                                ? description || 'This collection is automatically populated.'
+                                : 'Use "Add recordings" above to browse recordings and add them to this collection.'}
+                        </Text>
+                    </div>
+                )}
+            </div>
+        )
+    }
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
@@ -601,32 +610,5 @@ export function ListSection({
             </div>
             {footer}
         </>
-    )
-}
-
-/**
- * TODO add docs on how to enrich custom events with session_id and link to it from here
- */
-const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
-    return (
-        <LemonBanner type="warning">
-            <p>Cannot use these events to filter for session recordings:</p>
-            <li className="my-1">
-                {props.unusableEventsInFilter.map((event) => (
-                    <span key={event}>"{event}"</span>
-                ))}
-            </li>
-            <p>
-                Events have to have a <PropertyKeyInfo value="$session_id" /> to be used to filter recordings. This is
-                added automatically by{' '}
-                <Link to="https://posthog.com/docs/libraries/js" target="_blank">
-                    the Web SDK
-                </Link>
-                ,{' '}
-                <Link to="https://posthog.com/docs/libraries" target="_blank">
-                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
-                </Link>
-            </p>
-        </LemonBanner>
     )
 }

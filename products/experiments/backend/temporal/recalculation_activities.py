@@ -110,6 +110,7 @@ async def calculate_experiment_metric_for_recalculation(
     query_to: str,
     role: str = "primary",
     precomputation_mode: PrecomputationMode | None = None,
+    calculation_key_version: int = 1,
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
@@ -119,8 +120,8 @@ async def calculate_experiment_metric_for_recalculation(
     to resolve it. Defaults to "primary" so existing call sites and tests that don't pass it remain valid. The
     workflow passes these arguments by position, so recorded histories depend on their order, not their names.
 
-    precomputation_mode comes from discovery. The workflow passes it only for a DIRECT calc on the activity queue,
-    and None keeps the AUTO mode. A calc on the precompute queue also uses AUTO, because PRECOMPUTED is reserved
+    precomputation_mode comes from discovery. The workflow passes it for a DIRECT calc on the activity queue, and
+    as None ahead of a calculation_key_version other than 1. None keeps the AUTO mode. A calc on the precompute queue also uses AUTO, because PRECOMPUTED is reserved
     for staff tools.
 
     Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
@@ -145,6 +146,7 @@ async def calculate_experiment_metric_for_recalculation(
                 is_final_attempt,
                 attempt,
                 precomputation_mode,
+                calculation_key_version,
             )
         )
         try:
