@@ -291,7 +291,8 @@ Claude web and desktop also get the compact tool-domain index inline, because th
 Optional, task-specific guidance is served through the same tool:
 
 - `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
-- `learn analytics` loads the core analytics guidance: governed metrics first, typed query runners over SQL, schema-first discovery, and the catalog's certified tables and verified joins. Agents load it for almost every data task, so it stays small.
+- `learn analytics` loads the core analytics guidance: governed metrics first, typed query runners over SQL, and schema-first discovery. Agents load it for almost every data task, so it stays small. Claude web and desktop also get the catalog's certified tables and verified joins here; other cli clients keep the query-tool routing inline in the command reference instead.
+- `learn sql` (cli clients other than Claude web and desktop) loads the guidance for writing `execute-sql`: searching saved entities, certified tables, and verified joins.
 - `learn artifacts` loads the guidance for choosing and building a notebook, dashboard, or saved insight, and for explaining why a chart changed.
 - `learn activity` loads the configuration history procedure when an activity log reader is available.
 - `learn examples` loads worked multi-step analysis plans.

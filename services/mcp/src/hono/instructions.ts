@@ -155,7 +155,7 @@ export class InstructionsBuilder {
     /** Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it in the
      *  compact reference, and the `analytics` guide leaves it out. Claude web/desktop keep it in the guide. */
     private compactExecContext(state: ExecToolState): InstructionsContext {
-        return { ...this.buildContext(state), queryRoutingInline: !state.clientProfile.isClaudeChatHost() }
+        return { ...this.buildContext(state), cliLearnLayout: !state.clientProfile.isClaudeChatHost() }
     }
 
     buildExecCommandReference(state: ExecToolState): string {

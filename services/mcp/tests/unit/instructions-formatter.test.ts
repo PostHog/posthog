@@ -439,6 +439,21 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('cli exec guidance with skills', () => {
+        it('serves catalog trust and entity search from the sql guide instead of analytics', () => {
+            const guides = new InstructionsFormatter().buildExecLearnGuides({ ...fullCtx, cliLearnLayout: true })
+            const content = (id: string): string => guides.find((guide) => guide.id === id)?.content ?? ''
+
+            expect(
+                ['#### Catalog trust signals', '#### Searching for existing entities'].map((heading) => [
+                    content('analytics').includes(heading),
+                    content('sql').includes(heading),
+                ])
+            ).toEqual([
+                [false, true],
+                [false, true],
+            ])
+        })
+
         it('keeps the query-tool routing inline', () => {
             const result = new InstructionsFormatter().buildCompactExecCommandReference(
                 { ...fullCtx, renderUiEnabled: false, queryRoutingInline: true },
