@@ -19,7 +19,11 @@ import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-p
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate, HogFunctionType } from '../types'
 import type { HogTransformerServiceConfig } from './hog-transformer.service'
-import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
+import {
+    HogTransformerService,
+    createHogTransformerService,
+    hogTransformationProtectedPropertyWrites,
+} from './hog-transformer.service'
 import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 
 jest.mock('@posthog/hogvm-node', () => ({
@@ -1041,17 +1045,27 @@ describe('HogTransformer', () => {
         })
 
         describe('capture-owned $ai_gateway properties', () => {
-            const insertTransformation = async (hog: string) => {
+            let writesBefore: number
+
+            const protectedPropertyWrites = async () =>
+                (await hogTransformationProtectedPropertyWrites.get()).values[0]?.value ?? 0
+
+            const insertTransformation = async (hog: string, filters?: HogFunctionType['filters']) => {
                 const fn = createHogFunction({
                     type: 'transformation',
                     name: 'gateway writer',
                     team_id: teamId,
                     enabled: true,
                     bytecode: await compileHog(hog),
+                    filters,
                 })
                 await insertHogFunction(hub.postgres, teamId, fn)
                 hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
             }
+
+            beforeEach(async () => {
+                writesBefore = await protectedPropertyWrites()
+            })
 
             it('discards gateway markers a transformation adds', async () => {
                 await insertTransformation(`
@@ -1070,6 +1084,7 @@ describe('HogTransformer', () => {
                 const result = await hogTransformer.transformEventAndProduceMessages(event)
 
                 expect(result.event?.properties).toEqual({ $ai_model: 'claude', touched: true })
+                expect((await protectedPropertyWrites()) - writesBefore).toBe(1)
             })
 
             it('restores gateway markers a transformation changes or removes', async () => {
@@ -1098,6 +1113,7 @@ describe('HogTransformer', () => {
                     $ai_gateway_verified: true,
                     $ai_gateway_request_id: 'req-1',
                 })
+                expect((await protectedPropertyWrites()) - writesBefore).toBe(1)
             })
 
             it('leaves untouched gateway markers alone', async () => {
@@ -1121,6 +1137,68 @@ describe('HogTransformer', () => {
                     $ai_gateway_request_id: 'req-1',
                     touched: true,
                 })
+                expect((await protectedPropertyWrites()) - writesBefore).toBe(0)
+            })
+
+            it('leaves gateway markers alone when every transformation is filtered out', async () => {
+                await insertTransformation(
+                    `
+                    let returnEvent := event
+                    returnEvent.properties['$ai_gateway_verified'] := false
+                    return returnEvent
+                `,
+                    {
+                        bytecode: await compileHog(`return event = 'match-me'`),
+                        events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
+                    }
+                )
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: { $ai_model: 'claude', $ai_gateway_verified: true },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.invocationResults).toHaveLength(0)
+                expect(result.event?.properties).toEqual({ $ai_model: 'claude', $ai_gateway_verified: true })
+                expect((await protectedPropertyWrites()) - writesBefore).toBe(0)
+            })
+
+            it('restores gateway markers a legacy plugin overwrites in place', async () => {
+                const keepPlugin = createHogFunction({
+                    type: 'transformation',
+                    name: posthogFilterOutPlugin.template.name,
+                    template_id: 'plugin-posthog-filter-out-plugin',
+                    inputs: { eventsToDrop: { value: 'drop-me' } },
+                    team_id: teamId,
+                    enabled: true,
+                    hog: posthogFilterOutPlugin.template.code,
+                    inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
+                })
+                await insertHogFunction(hub.postgres, teamId, keepPlugin)
+                hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [keepPlugin.id])
+
+                const pluginExecutor = hogTransformer['pluginExecutor']
+                const execute = pluginExecutor.execute.bind(pluginExecutor)
+                jest.spyOn(pluginExecutor, 'execute').mockImplementationOnce((invocation) => {
+                    invocation.state.globals.event.properties.$ai_gateway_verified = true
+                    return execute(invocation)
+                })
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: { $ai_model: 'claude', $ai_gateway_verified: false },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({ $ai_model: 'claude', $ai_gateway_verified: false })
+                expect((await protectedPropertyWrites()) - writesBefore).toBe(1)
             })
         })
     })
