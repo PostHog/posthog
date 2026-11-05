@@ -14,6 +14,7 @@ import {
     unpinnedCadence,
     speedUpWarning,
     unsatisfiableReason,
+    withPinnedSegment,
 } from './SyncFrequencySelect'
 
 describe('SyncFrequencySelect', () => {
@@ -244,6 +245,36 @@ describe('SyncFrequencySelect', () => {
         const explanation = buildExplanation(bounds({ best_effort_sources: [blocker('hubspot_contacts')] }))
 
         expect(explanation).toContain('hubspot_contacts has no sync schedule')
+    })
+
+    it.each([
+        ['a pin that would hold the cadence', { unpinnedBy: { '1hour': '15min' } }],
+        [
+            'a pin that would strand a downstream view',
+            { unpinnedBy: { '1hour': '15min' }, pinBlockedBy: { '1hour': blocker('maps') } },
+        ],
+    ] as [string, PinOptions][])('keeps a cadence below the plan floor off for %s', (_case, pinOptions) => {
+        const options = buildOptions(
+            bounds({
+                options: [{ cadence: '1hour', allowed: false, blocked_by: 'plan', blocker: null }],
+            } as Partial<SyncFrequencyBoundsApi>),
+            pinning({ canPin: true, ...pinOptions })
+        )
+
+        expect(options[0].disabledReason).toBe('More often than your plan allows')
+    })
+
+    it.each([
+        ['stays clickable when it can unpin', true, undefined],
+        ['stays off while it cannot unpin', false, 'More often than your plan allows'],
+    ])('a pinned cadence below the plan floor %s', (_case, canUnpin, reason) => {
+        const options = withPinnedSegment(
+            [{ value: '1hour', label: '1h', disabledReason: 'More often than your plan allows' }],
+            '1hour',
+            { canUnpin }
+        )
+
+        expect(options[0].disabledReason).toBe(reason)
     })
 
     describe('a blocker outside the caller access grants', () => {

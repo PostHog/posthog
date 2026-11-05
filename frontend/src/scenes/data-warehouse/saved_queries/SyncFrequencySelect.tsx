@@ -380,6 +380,10 @@ export function buildOptions(
 
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
+        // A pin holds a view back from its consumers, and the plan floor applies to it all the same.
+        if (option.blocked_by === 'plan') {
+            return { ...segment(cadence), disabledReason: blockedReason(option, bounds) }
+        }
         const stranded = pinBlockedBy[cadence]
         // A pinned view has no consumer ceiling, so the bounds alone never mark a slower cadence as needing a pin.
         if (canPin && stranded && (pinned || needsPin(unpinnedBy, cadence))) {
@@ -420,6 +424,7 @@ function pinnedSegment(
     const cadence = option.value
     return {
         ...option,
+        disabledReason: canUnpin ? undefined : option.disabledReason,
         label: (
             <span className="inline-flex items-center gap-0.5">
                 {CADENCE_SEGMENTS[cadence]}
@@ -434,7 +439,7 @@ function pinnedSegment(
     }
 }
 
-function withPinnedSegment(
+export function withPinnedSegment(
     options: LemonSegmentedButtonOption<DataModelingSyncInterval>[],
     selected: DataModelingSyncInterval | undefined,
     { canUnpin }: { canUnpin: boolean }
