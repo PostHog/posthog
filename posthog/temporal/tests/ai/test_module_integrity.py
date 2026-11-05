@@ -49,6 +49,7 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "investigate_anomaly_activity",
+            "record_investigation_deliveries_started_activity",
             "select_checkpoint_compaction_batch",
             "compact_checkpoint_conversations",
         ]

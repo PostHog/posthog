@@ -27,15 +27,24 @@ from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
-from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
+    ALERT_ALLOW_PATTERNS_KEY,
+    ALERT_BLOCK_PATTERNS_KEY,
+    ALERT_PATTERN_MAX_LENGTH,
+    ALERT_PATTERNS_MAX_COUNT,
+    ALERT_SCOPE_KEY,
+    ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
+    AlertScope,
+    alert_patterns_problem,
     scope_ids_problem,
 )
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
@@ -45,7 +54,11 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
-from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
+from products.signals.backend.report_check_monitoring_timing import (
+    MonitoringCheckTiming,
+    MonitoringCheckTimingState as MonitoringCheckTimingPhase,
+    MonitoringCheckVerification,
+)
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -61,8 +74,10 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -75,7 +90,13 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    ActionabilityChoice,
+    SourceIssue,
+    SourceSuggestion,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .implementation_repositories import (
@@ -93,6 +114,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportSuppressionSource,
@@ -199,7 +221,20 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
-    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
+    "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
+    "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
+    "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
+    "notifications, and investigations still run with `off`. "
+    "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
+    f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
+    "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
+    "matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, "
+    "an alert must match one of them. An alert that matches a block pattern is dropped, also when it "
+    "matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no "
+    "backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. "
+    "Other sources reject these keys."
 )
 
 
@@ -338,6 +373,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     )
             if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
+            if ALERT_SCOPE_KEY in config:
+                if (source_product, source_type) != ALERT_SCOPE_SOURCE:
+                    raise serializers.ValidationError(
+                        {"config": "alert_scope is only supported on the analytics anomaly_investigation source"}
+                    )
+                # Compared against the members, not a set of values, so an unhashable value is rejected too.
+                if config[ALERT_SCOPE_KEY] not in tuple(AlertScope):
+                    raise serializers.ValidationError(
+                        {"config": f"alert_scope must be one of: {', '.join(AlertScope)}"}
+                    )
+            for patterns_key in (ALERT_ALLOW_PATTERNS_KEY, ALERT_BLOCK_PATTERNS_KEY):
+                if patterns_key not in config:
+                    continue
+                if (source_product, source_type) != ALERT_SCOPE_SOURCE:
+                    raise serializers.ValidationError(
+                        {"config": f"{patterns_key} is only supported on the analytics anomaly_investigation source"}
+                    )
+                problem = alert_patterns_problem(config[patterns_key])
+                if problem is not None:
+                    raise serializers.ValidationError({"config": f"{patterns_key} {problem}"})
             scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
             if scope_key is not None and scope_key in config:
                 problem = scope_ids_problem(config[scope_key])
@@ -531,16 +586,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
-            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
-            "stop new scores; events written before stay. Turning it on does not enroll a project that "
-            "anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
+            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
+            "this project's active trends insights and writes the results as $anomaly_score events, which "
+            "are not billed. True by default. False still stops new scores; events written before stay. "
+            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
         help_text=(
-            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
-            "PostHog decides which projects anomaly scoring covers."
+            "Whether the anomaly scoring rollout covers this project. PostHog decides which projects it "
+            "covers. A covered project is scored only while its Product analytics source is on."
         )
     )
     reports_generated_today = serializers.SerializerMethodField(
@@ -604,7 +660,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
-        return covers_team(parse_config(read_payload()), obj.team)
+        return enrolls_team(parse_config(read_payload()), obj.team)
 
     @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
@@ -1504,6 +1560,16 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
             "the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds."
         ),
     )
+    max_age_minutes = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=10080,
+        help_text=(
+            "The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate "
+            "report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get "
+            "the stored list quickly. A new report then joins the list at the next scheduled build."
+        ),
+    )
 
 
 class PersonalRankingReportSerializer(serializers.Serializer):
@@ -1572,7 +1638,8 @@ class PersonalRankingSerializer(serializers.Serializer):
     stale = serializers.BooleanField(
         help_text=(
             "True when the list does not match your current inbox or focus. When `building` is true, a newer "
-            "list is on the way. Otherwise a build limit was reached, so try again later."
+            "list is on the way. Otherwise a report in the list changed since the build, and the next scheduled "
+            "build updates it. Pass `refresh` for a new list now."
         )
     )
     building = serializers.BooleanField(
@@ -1594,6 +1661,13 @@ class PersonalRankingSerializer(serializers.Serializer):
         ),
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the list was built.")
+    checked_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When a build or a check last compared the list with your full inbox. The list is current as at this "
+            "time. Null when no list is stored."
+        ),
+    )
     latency_ms = serializers.IntegerField(
         allow_null=True,
         help_text="How long the model call of the build took, in ms. Null when there was no model call.",
@@ -1986,6 +2060,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "request. Null when the team tracks no issues, or the issue could not be opened."
         ),
     )
+    source_issues = serializers.SerializerMethodField(
+        help_text=(
+            "URLs of the external issues this report is about, as recorded by the scout or person that "
+            "filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. "
+            "Empty when the report names none. Issues the report learned about from a GitHub issue signal "
+            "are not listed here."
+        ),
+    )
     tracker_issue_reference = serializers.SerializerMethodField(
         help_text=(
             "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null "
@@ -2086,6 +2168,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "tracker_issue_url",
             "tracker_issue_reference",
             "tracker_issue_error",
+            "source_issues",
             "work_state",
             "assignee",
             "refund",
@@ -2440,6 +2523,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if tracker is None or tracker.status != SignalReportTrackerIssue.Status.CREATED:
             return None
         return tracker.issue_url or None
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_source_issues(self, obj: SignalReport) -> list[str]:
+        by_report: dict[str, list[SourceIssue]] | None = self.context.get("source_issues_map")
+        if by_report is None:
+            by_report = source_issues_by_report(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return [issue.url for issue in by_report.get(str(obj.id), [])]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_tracker_issue_reference(self, obj: SignalReport) -> str | None:
@@ -2856,10 +2946,35 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
     return redacted
 
 
+class MonitoringCheckTimingState(TextChoices):
+    SCHEDULED = "scheduled", "Scheduled"
+    DUE = "due", "Due"
+    WINDOW_ENDED = "window_ended", "Window ended"
+    NO_INTERIM_MEASUREMENTS = "no_interim_measurements", "No interim measurements"
+    WAITING = "waiting", "Waiting for scheduling"
+    PAUSED = "paused", "Paused during Monitoring"
+    ARCHIVED = "archived", "Archived"
+    UNAVAILABLE = "unavailable", "Timing unavailable"
+    EXPIRY_REACHED = "expiry_reached", "Expiry reached"
+
+
+class FinalVerificationState(TextChoices):
+    MONITORING = "monitoring", "Monitoring"
+    VERIFYING = "verifying", "Verifying"
+    ASSESSMENT_REQUIRED = "assessment_required", "Assessment required"
+    VERIFICATION_COMPLETE = "verification_complete", "Verification complete"
+
+
 class MonitoringCheckTimingSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringCheckTimingState.choices,
-        help_text="Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.",
+        help_text="Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.",
+    )
+    final_verification_state = serializers.ChoiceField(
+        choices=FinalVerificationState.choices,
+        allow_null=True,
+        read_only=True,
+        help_text="Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.",
     )
     started_at = serializers.DateTimeField(
         allow_null=True, help_text="Original Monitoring start for this check's report."
@@ -2872,6 +2987,24 @@ class MonitoringCheckTimingSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.",
     )
+
+    def to_representation(self, instance: MonitoringCheckTiming) -> dict[str, object]:
+        data = super().to_representation(instance)
+        final_state = instance.state if instance.state in FinalVerificationState.values else None
+        data["state"] = MonitoringCheckTimingState.PAUSED if final_state else instance.state
+        data["final_verification_state"] = final_state
+        return data
+
+
+class MonitoringCheckTimingSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.signals.backend.serializers.MonitoringCheckTimingSerializer"
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            schema["required"] = [name for name in required if name != "final_verification_state"]
+        return schema
 
 
 class SignalReportCheckSerializerExtension(OpenApiSerializerExtension):
@@ -2902,12 +3035,40 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
         return enabled_by_team[instance.team_id]
 
+    def _agent_timing(self, instance: SignalReportCheck, *, now: datetime) -> MonitoringCheckTiming | None:
+        attempts = cast(
+            dict[uuid.UUID, SignalReportMonitoringAttempt | None],
+            self.context.setdefault("report_check_monitoring_attempts", {}),
+        )
+        if instance.report_id not in attempts:
+            attempts[instance.report_id] = current_monitoring_attempt(instance.report)
+        attempt = attempts[instance.report_id]
+        timing = MonitoringCheckTiming.for_check(instance, now=now, attempt=attempt)
+        if timing is None or timing.state != MonitoringCheckTimingPhase.WINDOW_ENDED or attempt is None:
+            return timing
+        verifications_by_report = cast(
+            dict[uuid.UUID, dict[uuid.UUID, MonitoringCheckVerification]],
+            self.context.setdefault("report_check_final_verifications", {}),
+        )
+        if instance.report_id not in verifications_by_report:
+            verifications_by_report[instance.report_id] = MonitoringCheckTiming.final_verifications(
+                instance.report, now=now, attempt=attempt
+            )
+        return MonitoringCheckTiming.for_check(
+            instance,
+            now=now,
+            attempt=attempt,
+            verification=verifications_by_report[instance.report_id].get(instance.id),
+        )
+
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
     def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
         now = cast(datetime, self.context.setdefault("report_check_timing_now", timezone.now()))
         timing = MonitoringCheckTiming.for_check(instance, now=now)
         if timing is None or not self._monitoring_enabled(instance):
             return None
+        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingPhase.PAUSED:
+            timing = self._agent_timing(instance, now=now)
         return dict(MonitoringCheckTimingSerializer(timing).data)
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
@@ -3218,6 +3379,12 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     def get_actor_kind(self, obj: SignalReportArtefact) -> str:
         return obj.actor_kind or SignalActorKind.SYSTEM
 
+    def _report_is_user_authored(self, obj: SignalReportArtefact) -> bool:
+        user_authored = self.context.get("signals_report_user_authored")
+        if isinstance(user_authored, bool):
+            return user_authored
+        return SignalReport.objects.filter(id=obj.report_id, team_id=obj.team_id, user_authored=True).exists()
+
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
             parsed = json.loads(obj.content)
@@ -3245,7 +3412,17 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 uuid_to_user=reviewer_uuid_map,
                 scout_display_names=scout_display_names,
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
+                user_authored=self._report_is_user_authored(obj),
             )
+
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+        } and isinstance(parsed, dict):
+            # Rows written before the write path redacted credentials can still hold one.
+            return {
+                key: redact_credentials(value) if isinstance(value, str) else value for key, value in parsed.items()
+            }
 
         if obj.type in {
             SignalReportArtefact.ArtefactType.CHECK_RESULT,

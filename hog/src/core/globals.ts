@@ -17,7 +17,8 @@ export const GLOBAL_OPTIONS = {
         type: 'string',
         placeholder: 'path',
         env: ['HOG_DOTENV_FILE'],
-        description: 'Read HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST from this file when the environment has none',
+        description:
+            'Read HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST from this file when the environment has none',
     },
     output: {
         type: 'string',

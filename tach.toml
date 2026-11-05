@@ -147,6 +147,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
+    "products.knowledge_writer",
     "products.legal_documents",
     "products.links",
     "products.ai_observability",
@@ -1229,7 +1230,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.
@@ -1806,10 +1807,12 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
     "products.customer_analytics",
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
+    "products.subscriptions",
     "products.tasks",
 ]
 layer = "modules"
@@ -1926,6 +1929,7 @@ path = "products.commands"
 depends_on = [
     "posthog",
     "products.error_tracking",
+    "products.knowledge_writer",
     "products.review_hog",
     "products.security",
     "products.stamphog",
@@ -1999,4 +2003,17 @@ expose = [
 ]
 from = [
     "products.authorization",
+]
+
+[[modules]]
+path = "products.knowledge_writer"
+depends_on = ["posthog", "products.business_knowledge", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.knowledge_writer",
 ]

@@ -277,6 +277,33 @@ class TestMetricCannotCompile(BaseTest):
                 (NOT_CHECKED, "Couldn't check 1 metric"),
             ),
             (
+                "warehouse_native_sources_that_nothing_can_run_yet",
+                {
+                    "metrics": [
+                        _mean(
+                            {
+                                "kind": "ExperimentWarehouseNativeNode",
+                                "connection_id": "00000000-0000-0000-0000-000000000000",
+                                "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                                "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                                "math": "sum",
+                                "math_property": "amount",
+                            }
+                        )
+                    ],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
+                    },
+                },
+                None,
+                (NOT_CHECKED, "Couldn't check 1 metric"),
+            ),
+            (
                 "legacy_metrics_only",
                 {"metrics": [{"kind": "ExperimentTrendsQuery"}]},
                 None,

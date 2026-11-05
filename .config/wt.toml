@@ -1,0 +1,2 @@
+post-start = "bin/devbox-worktree-hook created worktrunk"
+pre-remove = "bin/devbox-worktree-hook removing"

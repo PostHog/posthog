@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
@@ -22,6 +23,7 @@ from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.date_util import start_of_day
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -31,6 +33,21 @@ if TYPE_CHECKING:
 # posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
+
+# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
+# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
+# lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 89
+
+
+def utc_midnight(now: datetime) -> datetime:
+    return start_of_day(now.astimezone(UTC))
+
+
+def flag_evaluations_coverage_start(now: datetime) -> datetime:
+    """The start of the oldest UTC day whose flag calls are all in flag_evaluations at `now`."""
+    return utc_midnight(now) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
+
 
 # Keep it equal to FLAG_EVALUATIONS_TABLE in frontend/src/scenes/feature-flags/flagEvaluationsTable.ts.
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"

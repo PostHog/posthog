@@ -47,6 +47,16 @@ def _clear_session_cache():
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_sandbox_session_bookkeeping():
+    """The mocked runs here have no sandbox session rows, so the claim and activity stamps are stubbed."""
+    with (
+        patch("products.tasks.backend.logic.services.sandbox_usage.claim_task_run_sandbox_sessions"),
+        patch("products.tasks.backend.logic.services.sandbox_usage.record_task_run_user_activity"),
+    ):
+        yield
+
+
 def _run_activity(activity_input: SendFollowupToSandboxInput) -> str | None:
     """The activity opens `HeartbeaterSync`, which needs a Temporal activity context."""
     return ActivityEnvironment().run(send_followup_to_sandbox, activity_input)
@@ -66,6 +76,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.created_by_id = created_by_id
     task.team_id = team_id
     task.internal = False
+    task.stored_profile = None
     task.origin_product = "user_created"
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
@@ -143,6 +154,7 @@ class TestRefreshSandboxMcp:
             task_agent_key="support",
             credential_owner_id=99,
             allowed_gateway_server_ids=["srv-9"],
+            profile=None,
         )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
@@ -527,18 +539,26 @@ class TestSandboxGithubIdentityGate:
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_reconnected"
 
-    def test_bot_authorship_skips(
-        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
+    @pytest.mark.parametrize(
+        "authorship,state",
+        [
+            (PrAuthorshipMode.BOT, None),
+            (PrAuthorshipMode.USER, {"github_read_access": True}),
+            (PrAuthorshipMode.BOT, {"github_read_access": True}),
+        ],
+    )
+    def test_shared_installation_credentials_skip_actor_rebinding(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade, authorship, state
     ):
-        # BOT runs share a single installation token, so every actor is already
-        # the same GitHub identity — nothing to rebind.
-        mock_authorship.return_value = PrAuthorshipMode.BOT
+        mock_authorship.return_value = authorship
         mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), state) is None
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
+        if state:
+            mock_upgrade.assert_not_called()
 
     def test_transition_with_access_rebinds(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade

@@ -62,6 +62,7 @@ class SourceConfigGenerator:
     def __init__(self):
         self.generated_classes: dict[str, str] = {}
         self.imports: set[str] = set()
+        self.is_plugin_vendor = False
         self.typing_import: set[str] = set()
         self.nested_configs: dict[str, str] = {}
 
@@ -122,6 +123,7 @@ class SourceConfigGenerator:
 
     def generate_source_config(self, source_type: SourceKey, source_config: SourceConfig) -> None:
         self.imports.add(self._config_import(source_type))
+        self.is_plugin_vendor = self._config_import(source_type).startswith(f"from {PLUGIN_SOURCES_PACKAGE}.sdk")
 
         class_name = self._get_config_class_name(source_type)
         fields = []
@@ -433,7 +435,10 @@ class SourceConfigGenerator:
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
 
-        self.imports.add("from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig")
+        if self.is_plugin_vendor:
+            self.imports.add(f"from {PLUGIN_SOURCES_PACKAGE}.sdk import SSHTunnelConfig")
+        else:
+            self.imports.add("from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig")
 
         python_field_name, should_alias = self._make_python_identifier(field.name)
 
