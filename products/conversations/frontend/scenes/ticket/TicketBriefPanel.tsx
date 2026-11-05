@@ -39,6 +39,20 @@ function Inline({ text }: { text: string }): JSX.Element {
     )
 }
 
+function BriefText({ label, text }: { label: string; text: string | null | undefined }): JSX.Element | null {
+    if (!text) {
+        return null
+    }
+    return (
+        <div className="min-w-0">
+            <div className="text-muted-alt">{label}</div>
+            <p className="m-0 mt-0.5 break-words">
+                <Inline text={text} />
+            </p>
+        </div>
+    )
+}
+
 function BriefSection({ label, items }: { label: string; items: string[] }): JSX.Element | null {
     if (items.length === 0) {
         return null
@@ -53,6 +67,22 @@ function BriefSection({ label, items }: { label: string; items: string[] }): JSX
                     </li>
                 ))}
             </ul>
+        </div>
+    )
+}
+
+// The error is quoted exactly, so it keeps its own line breaks and never runs through Inline:
+// a stack trace or a JSON body can hold a stray backtick that would swallow half the text.
+function BriefError({ error }: { error: string | null | undefined }): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+    return (
+        <div className="min-w-0">
+            <div className="text-muted-alt">Error</div>
+            <pre className="m-0 mt-0.5 p-1 rounded bg-accent-highlight-secondary text-[11px] whitespace-pre-wrap break-words">
+                {error}
+            </pre>
         </div>
     )
 }
@@ -99,7 +129,15 @@ export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element 
     const facts = brief.facts ?? []
     const tried = brief.tried ?? []
     const links = briefLinks(brief)
-    if (!brief.ask && questions.length === 0 && facts.length === 0 && tried.length === 0 && links.length === 0) {
+    const isEmpty =
+        !brief.ask &&
+        !brief.purpose &&
+        !brief.error_message &&
+        questions.length === 0 &&
+        facts.length === 0 &&
+        tried.length === 0 &&
+        links.length === 0
+    if (isEmpty) {
         return null
     }
 
@@ -122,17 +160,12 @@ export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element 
                     ),
                     content: (
                         <div className="space-y-2 text-xs min-w-0">
-                            {brief.ask ? (
-                                <div className="min-w-0">
-                                    <div className="text-muted-alt">Wants</div>
-                                    <p className="m-0 mt-0.5 break-words">
-                                        <Inline text={brief.ask} />
-                                    </p>
-                                </div>
-                            ) : null}
+                            <BriefText label="Wants" text={brief.ask} />
+                            <BriefText label="So they can" text={brief.purpose} />
                             <BriefSection label="Asking" items={questions} />
-                            <BriefSection label="Facts" items={facts} />
                             <BriefSection label="Tried" items={tried} />
+                            <BriefError error={brief.error_message} />
+                            <BriefSection label="Facts" items={facts} />
                             <BriefLinks brief={brief} />
                         </div>
                     ),
