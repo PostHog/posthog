@@ -3,8 +3,7 @@ import { z } from 'zod'
 import { parser } from '@/core/schema'
 import { capitalize } from '@/core/text'
 
-// The prefixes PostHog puts on the tokens it issues, from posthog/models/utils.py. A token of the
-// wrong kind fails here, before hog sends it anywhere.
+// The prefixes PostHog issues, from posthog/models/utils.py.
 const TOKEN_KINDS = {
     personalApiKey: { prefix: 'phx_', name: 'a personal API key' },
     projectToken: { prefix: 'phc_', name: 'a project token' },
@@ -23,14 +22,12 @@ const PREFIX_NAMES: Record<string, string> = {
     phs_: 'a secret API key',
 }
 
-// New tokens are base57 and older ones URL-safe base64, so both fit. A space, quote or line break
-// means the token was copied with something around it.
+// New tokens are base57 and older ones URL-safe base64, so both fit.
 const TOKEN_BODY = /^[A-Za-z0-9_-]+$/
 
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
-// `name` has its article, like "a personal API key". The problem never contains the value, because
-// a token in an error message ends up in logs and agent transcripts.
+// The problem never contains the value, which would end up in logs and agent transcripts.
 function tokenProblem(value: string, name: string, rule: string): string {
     const other = PREFIX_NAMES[value.slice(0, 4)]
     return other
