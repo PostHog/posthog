@@ -11,7 +11,7 @@ export interface ParseFailure {
 
 // The schemas in hog set their own messages, so the first issue already reads as a sentence. An
 // error inside a document, such as an API answer, starts with the field it is in.
-export function errorMessage(error: z.ZodError): string {
+export function getFirstError(error: z.ZodError): string {
     const issue = error.issues[0]
     if (issue === undefined) {
         return 'The value is not valid.'
@@ -21,7 +21,7 @@ export function errorMessage(error: z.ZodError): string {
 
 export function validationError(schema: z.ZodType, raw: unknown): string | undefined {
     const parsed = schema.safeParse(raw)
-    return parsed.success ? undefined : errorMessage(parsed.error)
+    return parsed.success ? undefined : getFirstError(parsed.error)
 }
 
 export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failure: ParseFailure): z.output<S> {
@@ -29,7 +29,7 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
     if (parsed.success) {
         return parsed.data
     }
-    throw failWith(failure, errorMessage(parsed.error))
+    throw failWith(failure, getFirstError(parsed.error))
 }
 
 export function failWith(failure: ParseFailure, message: string): HogError {
