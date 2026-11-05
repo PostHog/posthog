@@ -47463,7 +47463,7 @@ export namespace Schemas {
          * @nullable
          */
       primary_key_columns?: string[] | null;
-      /** For CDC syncs: consolidated, cdc_only, or both.
+      /** For CDC and incremental syncs: consolidated, cdc_only, or both.
        *
        * * `consolidated` - consolidated
        * * `cdc_only` - cdc_only
@@ -82276,7 +82276,7 @@ export namespace Schemas {
          * @nullable
          */
       primary_key_columns?: string[] | null;
-      /** For CDC syncs: consolidated, cdc_only, or both.
+      /** For CDC and incremental syncs: consolidated, cdc_only, or both.
        *
        * * `consolidated` - consolidated
        * * `cdc_only` - cdc_only
