@@ -209,6 +209,8 @@ actor ChartRefresh {
         case .snapshot(let snapshot):
             ChartStore.save(snapshot, store: store)
         case .failed(let kind):
+            let startedAt = (now.timeIntervalSince1970 * 1000).rounded()
+            if let snapshot = ChartStore.snapshot(pinId: pin.id, store: store), snapshot.fetchedAt > startedAt { return }
             if kind == .auth || kind == .notFound {
                 store?.removeObject(forKey: ChartStore.snapshotKey(pin.id))
             }

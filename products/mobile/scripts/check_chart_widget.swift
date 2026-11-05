@@ -354,6 +354,12 @@ struct CheckChartWidget {
             ChartRefresh.record(.failed(kind), pin: pin, credentials: credentials, at: now, store: store)
             check("store: access failures discard cached values", ChartStore.snapshot(pinId: pin.id, store: store) == nil)
         }
+        for kind in [ChartErrorKind.auth, .notFound, .network] {
+            ChartStore.save(snapshot, store: store)
+            ChartRefresh.record(.failed(kind), pin: pin, credentials: credentials, at: now.addingTimeInterval(-60), store: store)
+            check("store: a delayed failure preserves newer app data", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot
+                  && ChartStore.error(pinId: pin.id, store: store) == nil)
+        }
         let credentialsJSON = #"{"version":1,"host":"https://eu.posthog.com","projectId":7,"projectName":"Shop","accessToken":"pha_example","expiresAt":null,"userUuid":"u"}"#
         check("credentials decode with a null expiry", ChartStore.decodeCredentials(Data(credentialsJSON.utf8))?.isExpired(at: now) == false)
 

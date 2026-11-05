@@ -92,19 +92,23 @@ class ChartWidgetRefreshTest {
 
     @Test
     fun configurationReturnsOnlyTheConfirmedWidgetId() {
-        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
-            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
-        val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
-        val activity = controller.get()
-        assertFalse(activity.isFinishing)
-        assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
-        doneButton(activity).performClick()
-        assertTrue(activity.isFinishing)
-        assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
-        val result = shadowOf(activity).resultIntent
-        assertEquals(setOf(AppWidgetManager.EXTRA_APPWIDGET_ID), result.extras!!.keySet())
-        assertEquals(1, result.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
-        controller.destroy()
+        for (signedIn in listOf(true, false)) {
+            if (!signedIn) ChartStore.clearCredentials(context)
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
+            val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
+            val activity = controller.get()
+            assertFalse(activity.isFinishing)
+            assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
+            doneButton(activity).performClick()
+            assertTrue(activity.isFinishing)
+            assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
+            val result = shadowOf(activity).resultIntent
+            assertEquals(setOf(AppWidgetManager.EXTRA_APPWIDGET_ID), result.extras!!.keySet())
+            assertEquals(1, result.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
+            assertEquals("first", ChartStore.widgetConfig(context, 1)?.pinId)
+            controller.destroy()
+        }
     }
 
     @Test
@@ -167,7 +171,7 @@ class ChartWidgetRefreshTest {
         assertEquals(0, calls)
         ChartStore.setCatalogJson(context, """{"host":"https://example.com","projectId":1,"pins":[]}""")
         assertFalse(ChartStore.commitFetch(context, ChartStore.session(context)!!, catalog, listOf("first"),
-            ChartFetcher.Outcome.Success(snapshot()), { false }))
+            ChartFetcher.Outcome.Success(snapshot()), { false }, 1000L))
         assertNull(ChartStore.snapshot(context, "first"))
     }
 
@@ -180,6 +184,35 @@ class ChartWidgetRefreshTest {
         }
         assertEquals(newer, ChartStore.snapshot(context, "first"))
         assertEquals(snapshot("second"), ChartStore.snapshot(context, "second"))
+    }
+
+    @Test
+    fun delayedFailuresPreserveSnapshotsWrittenAfterTheRequestStarted() {
+        val session = ChartStore.session(context)!!
+        val catalog = ChartStore.catalog(context)!!
+        val newer = snapshot().copy(fetchedAt = 2000L, valueText = "84")
+        for (kind in listOf(ErrorKind.AUTH, ErrorKind.NOT_FOUND, ErrorKind.NETWORK)) {
+            ChartStore.setSnapshot(context, newer)
+            ChartStore.commitFetch(context, session, catalog, listOf("first"),
+                ChartFetcher.Outcome.Failure(kind), { false }, 1000L)
+            assertEquals(newer, ChartStore.snapshot(context, "first"))
+            assertNull(ChartStore.snapshotError(context, "first"))
+        }
+        ChartStore.commitFetch(context, session, catalog, listOf("first"),
+            ChartFetcher.Outcome.Failure(ErrorKind.NOT_FOUND), { false }, 3000L)
+        assertNull(ChartStore.snapshot(context, "first"))
+    }
+
+    @Test
+    fun migratesLegacySelectionsWithoutOverwritingNewSelectionsOrCopyingResults() {
+        val legacy = context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE)
+        val original = WidgetConfig("legacy", listOf("extra"), 1, "Old project", "Old pin").toJson()
+        legacy.edit().putString("chart.widget.1", original).putString("chart.widget.2", original)
+            .putString("chart.snapshot.legacy", "old values").putString("chart.widget.invalid", original).commit()
+        assertEquals("first", ChartStore.widgetConfig(context, 1)?.pinId)
+        assertEquals(WidgetConfig.parse(original), ChartStore.widgetConfig(context, 2))
+        assertNull(ChartStore.snapshot(context, "legacy"))
+        assertTrue(legacy.all.isEmpty())
     }
 
     @Test

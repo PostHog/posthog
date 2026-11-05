@@ -21,7 +21,7 @@ import { track } from '@/lib/analytics'
 import { sleep } from '@/lib/sleep'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { pinsFromShortcuts } from '@/model/adapters/viewPins'
-import type { InsightSnapshot, PinView } from '@/model/views'
+import type { InsightSnapshot, PinDisplay, PinView } from '@/model/views'
 
 // Local Expo modules have no node_modules entry, so they are imported by path.
 import {
@@ -259,6 +259,7 @@ async function readInsight(
     signal: AbortSignal,
     includeSnapshot: boolean
 ): Promise<WidgetPinInsight | null> {
+    let startedAt = 0
     // `projectPath()` reads the project when the request starts, so the session must still be the one the pins are from.
     const response = await listRead('insights', signal, async () => {
         for (
@@ -271,7 +272,8 @@ async function readInsight(
         if (signal.aborted || !isCurrent()) {
             throw abortError()
         }
-        nextMetadataReadAt = Date.now() + 1000
+        startedAt = Date.now()
+        nextMetadataReadAt = startedAt + 1000
         if (!includeSnapshot) return fetchInsightMetadata(shortId, signal)
         return readInsightResponse(
             { shortId, id: pin.display.insightId },
@@ -290,55 +292,45 @@ async function readInsight(
         return null
     }
     // The shared cache entry, so the Views list's previews and later syncs read it without a request.
-    client.setQueryData(viewsKeys.pinMetadata(scope, shortId), response)
+    const metadataKey = viewsKeys.pinMetadata(scope, shortId)
+    if ((client.getQueryState(metadataKey)?.dataUpdatedAt ?? 0) <= startedAt) {
+        client.setQueryData(metadataKey, response, { updatedAt: startedAt })
+    }
     if (!('result' in response)) return insightOf(response)
-    const snapshot = insightSnapshot(response, undefined, { readAt: Date.now(), serverNow: serverNow() })
-    client.setQueryData(
-        viewsKeys.insight(scope, shortId, pin.kind === 'dashboard' ? pin.ref : null, overrideKey(null)),
-        snapshot
-    )
+    const snapshot = insightSnapshot(response, undefined, { readAt: startedAt, serverNow: serverNow() })
+    const snapshotKey = viewsKeys.insight(scope, shortId, pin.kind === 'dashboard' ? pin.ref : null, overrideKey(null))
+    if ((client.getQueryData<InsightSnapshot>(snapshotKey)?.readAt ?? 0) <= startedAt) {
+        client.setQueryData(snapshotKey, snapshot)
+    }
     const insight = insightOf(response)
     return insight ? { ...insight, snapshot } : null
 }
 
-async function pinMetadata(
+async function loadPinMetadata(
     client: QueryClient,
     scope: ProjectScope,
     pins: readonly PinView[],
     isCurrent: () => boolean,
     signal: AbortSignal,
-    readPinIds: ReadonlySet<string>
-): Promise<Map<string, WidgetPinInsight | null>> {
-    const metadata = new Map<string, WidgetPinInsight | null>()
-    const unread = new Map<string, { pin: PinView; shortId: string }>()
-    for (const pin of pins) {
+    selected: ReadonlySet<string>,
+    publish: () => void
+): Promise<void> {
+    // Selected pins go first; a ready chart must not wait behind the rest of the picker.
+    const prioritized = [
+        ...pins.filter((pin) => selected.has(pin.shortcutId)),
+        ...pins.filter((pin) => !selected.has(pin.shortcutId)),
+    ]
+    for (const pin of prioritized) {
         const shortId = pinInsightShortId(pin)
-        if (!shortId || metadata.has(pin.shortcutId)) {
-            continue
-        }
-        const cached = cachedInsight(client, scope, pin, shortId)
-        if (cached === undefined) {
-            unread.set(pin.shortcutId, { pin, shortId })
-        } else {
-            metadata.set(pin.shortcutId, cached)
-        }
-    }
-    // Pace catalog reads and reserve half the shared budget for foreground Views requests.
-    for (const [pinId, { shortId, pin }] of unread) {
+        if (!shortId || cachedInsight(client, scope, pin, shortId) !== undefined) continue
         try {
-            metadata.set(
-                pinId,
-                await readInsight(client, scope, pin, shortId, isCurrent, signal, readPinIds.has(pinId))
-            )
+            await readInsight(client, scope, pin, shortId, isCurrent, signal, selected.has(pin.shortcutId))
+            publish()
         } catch (error) {
-            // A 429, a 503, an empty budget, no connection or a session change holds for every pin, so the rest
-            // stay unread until the next sync. A 403 or 404 concerns this insight only.
-            if (!(error instanceof ApiError) || error.status === 429 || error.status === 503) {
-                break
-            }
+            // A shared pause holds the remaining reads; an inaccessible insight concerns only its own pin.
+            if (!(error instanceof ApiError) || error.status === 429 || error.status === 503) break
         }
     }
-    return metadata
 }
 
 function viewsAccessible(): boolean {
@@ -391,10 +383,75 @@ function readWidgetState(signal: AbortSignal): Promise<WidgetState> {
     })
 }
 
-async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<void> {
-    if (!isAvailable() || dataMode() !== 'live') {
-        return
+function cachedPins(client: QueryClient, session: WidgetSession): PinView[] | null {
+    const page = client.getQueryData<ShortcutPage>(viewsKeys.shortcuts(session.scope))
+    // A partial page cannot replace the complete picker.
+    if (!page || !isCompleteShortcutPage(page)) return null
+    const prefs = usePinPrefs.getState().projects[prefsKey(session.scope)] ?? NO_PIN_PREFS
+    const automatic: Record<string, PinDisplay> = {}
+    const previews = client.getQueryCache().findAll({
+        queryKey: ['views', session.scope.host, session.scope.projectId, 'smart_pin_displays'],
+    })
+    for (const query of previews.sort((a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt)) {
+        Object.assign(automatic, query.state.data)
     }
+    return pinsFromShortcuts(page.results, { ...prefs, display: { ...automatic, ...prefs.display } }).slice(
+        0,
+        CATALOG_PIN_LIMIT
+    )
+}
+
+function selectedPins(
+    client: QueryClient,
+    session: WidgetSession,
+    pins: readonly PinView[],
+    presence: WidgetState
+): Set<string> {
+    const selected = new Set(presence.pinIds)
+    if (presence.installed && presence.usesDefault) {
+        const defaultPin =
+            pins.find((pin) => {
+                const shortId = pinInsightShortId(pin)
+                return shortId && cachedInsight(client, session.scope, pin, shortId)
+            }) ?? pins[0]
+        if (defaultPin) selected.add(defaultPin.shortcutId)
+    }
+    return selected
+}
+
+function publishCachedCatalog(client: QueryClient): PinView[] | null {
+    const session = currentSession()
+    if (!isAvailable() || dataMode() !== 'live' || !session || !widgetState || !viewsAccessible()) return null
+    const pins = cachedPins(client, session)
+    if (!pins) return null
+    const metadata = new Map<string, WidgetPinInsight | null>()
+    for (const pin of pins) {
+        const shortId = pinInsightShortId(pin)
+        const cached = shortId ? cachedInsight(client, session.scope, pin, shortId) : undefined
+        if (cached !== undefined) metadata.set(pin.shortcutId, cached)
+    }
+    const body = buildCatalog(
+        pins,
+        metadata,
+        { ...session.scope, projectName: session.projectName },
+        selectedPins(client, session, pins, widgetState)
+    )
+    const key = JSON.stringify(body)
+    if (key !== writtenCatalog) {
+        setCatalog(catalogJson(body, Date.now()))
+        writtenCatalog = key
+        writtenCatalogProject = prefsKey(session.scope)
+        cleared = false
+        track('mobile_widget_catalog_synced', {
+            pin_count: body.pins.length,
+            eligible_count: body.pins.filter((pin) => pin.eligible).length,
+        })
+    }
+    return pins
+}
+
+async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<void> {
+    if (!isAvailable() || dataMode() !== 'live') return
     const session = currentSession()
     if (!session) return
     if (!viewsAccessible()) {
@@ -410,68 +467,64 @@ async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<v
     } else {
         syncWidgetCredentials('launch')
     }
-    const page = client.getQueryData<ShortcutPage>(viewsKeys.shortcuts(session.scope))
-    if (!page && writtenCatalogProject !== prefsKey(session.scope)) {
-        // A success lands in the query cache, whose subscription runs this sync again.
-        prefetchPinList(client, session)
+    let pins = publishCachedCatalog(client)
+    if (!pins) {
+        if (writtenCatalogProject !== prefsKey(session.scope)) prefetchPinList(client, session)
         return
     }
-    // A list cut at the page size does not hold every pin, and the catalog replaces the widget's list whole.
-    if (!page || !isCompleteShortcutPage(page)) {
-        return
-    }
-    const prefs = usePinPrefs.getState().projects[prefsKey(session.scope)] ?? NO_PIN_PREFS
-    let pins = pinsFromShortcuts(page.results, prefs).slice(0, CATALOG_PIN_LIMIT)
     const epoch = clearEpoch
-    const isCurrent = (): boolean => epoch === clearEpoch && isSameSession(session, currentSession())
-    const selected = new Set(presence.pinIds)
-    if (presence.installed && presence.usesDefault) {
-        const defaultPin =
-            pins.find((pin) => {
-                const shortId = pinInsightShortId(pin)
-                return shortId && cachedInsight(client, session.scope, pin, shortId)
-            }) ?? pins[0]
-        if (defaultPin) selected.add(defaultPin.shortcutId)
+    const isCurrent = (): boolean => !signal.aborted && epoch === clearEpoch && isSameSession(session, currentSession())
+    const publish = (): void => {
+        if (isCurrent()) publishCachedCatalog(client)
     }
-    const dashboards = pins.filter(
-        (pin) => selected.has(pin.shortcutId) && pin.kind === 'dashboard' && !pinInsightShortId(pin)
+    const selected = selectedPins(client, session, pins, presence)
+    await loadPinMetadata(
+        client,
+        session.scope,
+        pins.filter((pin) => selected.has(pin.shortcutId)),
+        isCurrent,
+        signal,
+        selected,
+        publish
     )
-    if (dashboards.length > 0) {
+    // Resolve picker choices even before a widget selects them. Reuse Views previews, and keep manual choices intact.
+    const prefs = usePinPrefs.getState().projects[prefsKey(session.scope)] ?? NO_PIN_PREFS
+    const dashboards = pins.filter(
+        (pin) => pin.kind === 'dashboard' && !pinInsightShortId(pin) && !prefs.display[pin.shortcutId]
+    )
+    dashboards.sort((a, b) => Number(selected.has(b.shortcutId)) - Number(selected.has(a.shortcutId)))
+    for (const pin of dashboards) {
+        if (!isCurrent()) return
         try {
             const displays = await discoverPinDisplays(
                 { client, scope: session.scope, demo: false },
-                dashboards,
+                [pin],
                 signal,
                 `widget-catalog:${prefsKey(session.scope)}`
             )
-            pins = pins.map((pin) => {
-                const display = displays[pin.shortcutId]
-                return display ? { ...pin, display } : pin
-            })
+            if (!isCurrent()) return
+            if (Object.keys(displays).length > 0) {
+                client.setQueryData<Record<string, PinDisplay>>(
+                    viewsKeys.smartPinDisplays(session.scope, 'widget-catalog'),
+                    (previous) => ({ ...previous, ...displays })
+                )
+                publish()
+            }
         } catch {
-            // Keep the remaining pins available when a dashboard cannot be read.
+            // Keep the remaining picker choices available when one dashboard cannot be read.
         }
     }
-    if (signal.aborted || !isCurrent()) {
-        return
-    }
-    const metadata = await pinMetadata(client, session.scope, pins, isCurrent, signal, selected)
-    if (signal.aborted || !isCurrent()) {
-        return
-    }
-    const body = buildCatalog(pins, metadata, { ...session.scope, projectName: session.projectName }, selected)
-    const key = JSON.stringify(body)
-    if (key === writtenCatalog) {
-        return
-    }
-    setCatalog(catalogJson(body, Date.now()))
-    writtenCatalog = key
-    writtenCatalogProject = prefsKey(session.scope)
-    cleared = false
-    track('mobile_widget_catalog_synced', {
-        pin_count: body.pins.length,
-        eligible_count: body.pins.filter((pin) => pin.eligible).length,
-    })
+    if (!isCurrent()) return
+    pins = cachedPins(client, session) ?? []
+    await loadPinMetadata(
+        client,
+        session.scope,
+        pins,
+        isCurrent,
+        signal,
+        selectedPins(client, session, pins, presence),
+        publish
+    )
 }
 
 let catalogRun: Promise<void> | null = null
@@ -491,6 +544,12 @@ async function drainCatalog(client: QueryClient): Promise<void> {
 }
 
 export function syncWidgetCatalog(client: QueryClient): Promise<void> {
+    // Cache successes publish even while an unrelated metadata request is waiting.
+    try {
+        publishCachedCatalog(client)
+    } catch {
+        /* The next sync retries a failed native write. */
+    }
     catalogQueued = true
     if (!catalogRun) {
         // Auth subscribers run before selectProject resets queries. Start after that reset so it cannot cancel our prefetch.
@@ -538,7 +597,10 @@ export function startChartWidgetSync(client: QueryClient): () => void {
         void syncWidgetCatalog(client)
     }
     const foreground = AppState.addEventListener('change', (state) => {
-        if (state === 'active') syncCatalog()
+        if (state === 'active') {
+            catalogController?.abort()
+            syncCatalog()
+        }
     })
     const stops = [
         addSessionEndTask(clearWidgetState),
@@ -576,6 +638,7 @@ export function startChartWidgetSync(client: QueryClient): () => void {
         }),
         usePinPrefs.subscribe((state, previous) => {
             if (state.projects !== previous.projects) {
+                catalogController?.abort()
                 syncCatalog()
             }
         }),

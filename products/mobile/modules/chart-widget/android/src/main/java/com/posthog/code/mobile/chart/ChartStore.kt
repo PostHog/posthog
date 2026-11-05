@@ -27,9 +27,21 @@ object ChartStore {
     private var cachedCatalogJson: String? = null
     private var cachedCatalog: Catalog? = null
 
+    @Synchronized
     private fun prefs(context: Context): SharedPreferences {
         val store = requireNotNull(securePrefs(context)) { "Widget storage unavailable" }
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().clear().commit()
+        val legacy = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        if (legacy.all.isNotEmpty()) {
+            val editor = store.edit()
+            legacy.all.forEach { (key, value) ->
+                if (key.startsWith(WIDGET_PREFIX) && key.removePrefix(WIDGET_PREFIX).toIntOrNull() != null &&
+                    !store.contains(key) && value is String) {
+                    WidgetConfig.parse(value)?.let { editor.putString(key, it.toJson()) }
+                }
+            }
+            check(editor.commit()) { "Could not migrate widget selections" }
+            check(legacy.edit().clear().commit()) { "Could not clear legacy widget storage" }
+        }
         return store
     }
 
@@ -243,6 +255,7 @@ object ChartStore {
         pinIds: List<String>,
         outcome: ChartFetcher.Outcome,
         isStopped: () -> Boolean,
+        startedAt: Long,
     ): Boolean {
         if (isStopped() || expectedSession != session(context) || expectedCatalog != catalog(context) ||
             !selectedPinIds(context).containsAll(pinIds)) return false
@@ -254,8 +267,9 @@ object ChartStore {
             }
             is ChartFetcher.Outcome.Failure -> {
                 val now = System.currentTimeMillis()
-                val error = SnapshotError(now, outcome.kind)
+                val error = SnapshotError(startedAt, outcome.kind)
                 pinIds.forEach {
+                    if ((snapshot(context, it)?.fetchedAt ?: 0L) > startedAt) return@forEach
                     editor.putString("$ERROR_PREFIX$it", error.toJson())
                     if (outcome.kind == ErrorKind.AUTH || outcome.kind == ErrorKind.NOT_FOUND) {
                         editor.remove("$SNAPSHOT_PREFIX$it")

@@ -51,7 +51,7 @@ On each return to the foreground, the app refreshes an OAuth access token with l
 
 The catalog takes each pin's insight from the newest available pin metadata or Number/Chart snapshot.
 Insight, dashboard and automatic preview updates also rebuild the catalog, so opening a pin in Views recovers an earlier metadata failure.
-A dashboard without a manually chosen tile discovers a suitable tile using the Views automatic preview reader, without changing the pin's display preference.
+A dashboard without a manually chosen tile reuses the Views automatic preview cache or discovers a suitable tile before widget selection, without changing the pin's display preference. Ready pins publish immediately; background metadata reads fill in the remaining choices incrementally. Cache updates publish even while another read is pending, and an older response cannot replace newer app data.
 For selected pins without either, the sync reads the full insight with `refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the metadata and Views caches. Dashboard reads include `from_dashboard`, and snapshots are scoped to each pin so two dashboard contexts do not overwrite each other.
 A 429, a 503, an empty budget bucket or no connection stops the reads; those pins say "Open it in Views first" until the next sync.
 The sync never forces a compute.
@@ -74,9 +74,9 @@ The suite is the hedgehog widget's App Group.
 An App Group id is also a keychain access group of every target in the group, so the extension reads the credentials without a keychain-sharing entitlement.
 Credentials stay in the keychain. Every `chart.*` value in the App Group suite is AES-GCM encrypted with a device-only 256-bit key stored alongside the credentials in the shared keychain. Both native targets compile the same storage implementation. Old plaintext entries are discarded, and unreadable encrypted values have no plaintext fallback.
 
-Android stores the catalog, snapshots, errors and configuration in `chart_widget_secure`, alongside credentials. Old `chart_widget` values are cleared.
+Android stores the catalog, snapshots, errors and configuration in `chart_widget_secure`, alongside credentials. Valid saved widget selections migrate from `chart_widget` before its plaintext values are cleared. Existing encrypted selections take precedence; legacy snapshots and credentials are discarded.
 
-`getWidgetState()` checks placed Chart widgets with WidgetKit on iOS and AppWidgetManager on Android. Only their selected pins receive result snapshots. The app checks placement on launch and foreground and before catalog writes; Android also clears credentials when the last widget is deleted. Picker metadata remains encrypted for first-time setup. Unselected pins use basic metadata reads, which exclude result rows. Loss of Views access clears the catalog and snapshots; missing or inaccessible pins lose their cached results. The iOS content boundary is privacy-sensitive so WidgetKit can redact account-derived text.
+`getWidgetState()` checks placed Chart widgets with WidgetKit on iOS and AppWidgetManager on Android. Only their selected pins receive result snapshots. The app checks placement on launch and foreground and before catalog writes; Android also clears credentials when the last widget is deleted. Picker metadata remains encrypted for first-time setup. Android can confirm a selection without widget credentials, then opens the app to synchronize the session after placement. Unselected pins use basic metadata reads, which exclude result rows. Loss of Views access clears the catalog and snapshots; missing or inaccessible pins lose their cached results. The iOS content boundary is privacy-sensitive so WidgetKit can redact account-derived text.
 
 ### Credentials JSON
 
@@ -317,7 +317,7 @@ Catalog changes discard snapshots and errors for removed pins or changed insight
   It queues nothing when no widget is placed or the token is missing or expired; the widget then shows its state.
 - The pass reads each distinct pin of every placed widget once, writes the snapshot (which clears its error) or the error, then renders all widgets.
   A rejected token stops the pass and marks the remaining pins `auth`. A new token from the app clears every `auth` error.
-  Responses are discarded if the session or catalog changed, or if the worker was canceled.
+  Responses are discarded if the session or catalog changed, or if the worker was canceled. A failure from a request older than the current snapshot cannot hide or delete that snapshot.
   A 429 or 503 stops the pass and pauses every pin for at least one minute, or longer when `Retry-After` says so.
 - WorkManager disables its reschedule receiver when no work is pending, and that component change makes the system send `APPWIDGET_UPDATE` again.
   A no-op job 10 years out (`chart-widget-keep-enabled`) stays queued while a widget is placed, so that loop cannot start. `onDisabled` cancels both.

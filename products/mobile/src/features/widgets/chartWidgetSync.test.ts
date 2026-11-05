@@ -324,8 +324,9 @@ describe('chart widget sync', () => {
         expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].eligible).toBe(true)
     })
 
-    it('selects a chart tile for a dashboard pin without requiring a display choice in Views', async () => {
+    it.each([true, false])('selects a dashboard tile before selection, with a placed widget: %s', async (installed) => {
         signIn(KEY)
+        mockWidgetState.mockResolvedValue({ installed, pinIds: [], usesDefault: false })
         const client = testClient()
         const scope = { host: HOST, projectId: 2 }
         client.setQueryData(viewsKeys.shortcuts(scope), {
@@ -366,6 +367,99 @@ describe('chart widget sync', () => {
             eligible: true,
         })
         expect(usePinPrefs.getState().projects).toEqual({})
+    })
+
+    it('uses cached automatic dashboard choices while preserving an explicit choice', async () => {
+        signIn(KEY)
+        mockWidgetState.mockResolvedValue({ installed: false, pinIds: [], usesDefault: false })
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-kpis', '12', 'dashboard')],
+        })
+        for (const [shortId, id] of [
+            ['auto', 456],
+            ['manual', 789],
+        ] as const) {
+            client.setQueryData(viewsKeys.pinMetadata(scope, shortId), {
+                id,
+                short_id: shortId,
+                query: { kind: 'TrendsQuery' },
+            })
+        }
+        client.setQueryData(viewsKeys.smartPinDisplays(scope, 'views-list'), {
+            's-kpis': { mode: 'chart', tileId: 3, insightId: 456, insightShortId: 'auto' },
+        })
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({
+            eligible: true,
+            insightId: 456,
+        })
+        usePinPrefs.getState().setDisplay(`${HOST}|2`, 's-kpis', {
+            mode: 'chart',
+            tileId: 4,
+            insightId: 789,
+            insightShortId: 'manual',
+        })
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].insightId).toBe(789)
+        expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('publishes selected data and cache updates while another metadata read is pending', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 2,
+            next: null,
+            results: [shortcut('s-signups', 'sig1'), shortcut('unread', 'pending')],
+        })
+        const response = {
+            id: 123,
+            short_id: 'sig1',
+            name: 'Signups',
+            query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery' }, display: 'BoldNumber' },
+            result: [[42]],
+            columns: ['value'],
+            types: [['value', 'UInt64']],
+        } as unknown as InsightApi
+        const update = (value: number): void => {
+            client.setQueryData(
+                viewsKeys.insight(scope, 'sig1', null, '-'),
+                insightSnapshot({ ...response, result: [[value]] }, undefined, {
+                    readAt: Date.now(),
+                    serverNow: Date.now(),
+                })
+            )
+        }
+        update(42)
+        let finishRead!: (value: Response) => void
+        fetchMock.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishRead = resolve
+                })
+        )
+        stop = startChartWidgetSync(client)
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({
+            snapshot: expect.objectContaining({ valueText: '42' }),
+        })
+        update(84)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].snapshot.valueText).toBe('84')
+        client.setQueryData(
+            viewsKeys.insight(scope, 'pending', null, '-'),
+            insightSnapshot({ ...response, short_id: 'pending', result: [[88]] }, undefined, {
+                readAt: Date.now() + 1,
+                serverNow: Date.now(),
+            })
+        )
+        finishRead(json(200, { id: 456, short_id: 'pending', query: { kind: 'unsupported' } }))
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[1].eligible).toBe(true)
     })
 
     it('prefetches the new project after the project-switch query reset', async () => {
