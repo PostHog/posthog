@@ -435,28 +435,42 @@ class TestConversionWarming(APIBaseTest):
         }
         assert warm_team_mock.call_count == warmed
 
+    @parameterized.expand(
+        [
+            ("runs_out_mid_backfill", "15", [True, True, True], 2),
+            ("spent_before_warming", "0", [True, True, True], 1),
+            ("spent_before_warming_newest_chunk_ready", "0", [False, True, True], 2),
+        ]
+    )
     @patch(_ENSURE, new_callable=_ready_mock)
-    def test_budget_stops_a_started_team_between_chunks(self, ensure_mock):
-        # A cold team that starts just before the deadline must not run its whole backfill past it.
+    def test_budget_stops_a_started_team_between_chunks(
+        self, _name, budget, freshly_built, expected_calls, ensure_mock
+    ):
+        # A cold team that starts just before the deadline must not run its whole backfill past it, and a
+        # team started after planning spent the budget must still materialize one chunk, or no run progresses.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         clock = MagicMock()
         clock.monotonic.return_value = 0.0
+        built = iter(freshly_built)
 
         def advance_clock(**_kwargs):
             clock.monotonic.return_value += 10.0
-            return MagicMock(ready=True)
+            return MagicMock(ready=True, freshly_built=next(built))
 
         ensure_mock.side_effect = advance_clock
         with (
             patch(_TIME, clock),
             patch(_SINGLE_CHUNK, 7),
             patch(_FF, _flag_fn(conversion=True)),
-            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: "15"}),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: budget}),
             patch(_DB),
         ):
             result = warm_selected_teams(dagster.build_op_context())
 
-        assert ensure_mock.call_count == 2
+        assert ensure_mock.call_count == expected_calls
+        assert _tables(ensure_mock) == [LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED] * expected_calls
+        first_end = ensure_mock.call_args_list[0].kwargs["time_range_end"]
+        assert first_end > datetime.now(UTC)  # the newest chunk, which reads need first
         assert result["deferred"] == 0
 
     @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
