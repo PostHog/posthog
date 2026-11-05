@@ -6,6 +6,7 @@ import { IconChevronDown, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
@@ -16,7 +17,9 @@ import { urls } from 'scenes/urls'
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
-import { accountNotesLogic } from './accountNotesLogic'
+import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
+import { AccountNotesViewSelector } from './AccountNotesViewSelector'
+import { NotesTagsFilter } from './NotesTagsFilter'
 
 export function AccountNotesTabContent(): JSX.Element {
     const {
@@ -28,19 +31,35 @@ export function AccountNotesTabContent(): JSX.Element {
         createdByCurrentUser,
         assignedToCurrentUser,
         accountFilter,
+        tagsFilter,
+        sorting,
         pagination,
     } = useValues(accountNotesLogic)
-    const { setSearch, setCreatedByFilter, setCreatedByCurrentUser, setAssignedToCurrentUser, reportFilterChange } =
-        useActions(accountNotesLogic)
+    const {
+        setSearch,
+        setCreatedByFilter,
+        setCreatedByCurrentUser,
+        setAssignedToCurrentUser,
+        setTagsFilter,
+        setOrdering,
+        reportFilterChange,
+    } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
-    const hasFilters = !!search || createdByFilter.length > 0 || assignedToCurrentUser || accountFilter !== null
+    const hasFilters =
+        !!search ||
+        createdByFilter.length > 0 ||
+        assignedToCurrentUser ||
+        accountFilter !== null ||
+        tagsFilter.length > 0
 
     const columns: LemonTableColumns<AccountNoteApi> = [
         {
             title: 'Title',
+            key: 'title',
             dataIndex: 'title',
             width: '100%',
+            sorter: true,
             render: function Render(_, note) {
                 // Plain click opens the note in the side panel (keeping the list mounted);
                 // the href stays so cmd/ctrl-click opens the full notebook page in a new tab.
@@ -64,7 +83,9 @@ export function AccountNotesTabContent(): JSX.Element {
         },
         {
             title: 'Account',
+            key: 'account_name',
             dataIndex: 'account_name',
+            sorter: true,
             render: function Render(_, note) {
                 return (
                     <Link
@@ -81,12 +102,23 @@ export function AccountNotesTabContent(): JSX.Element {
             },
         },
         {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, note) {
+                return note.tags.length > 0 ? (
+                    <ObjectTags tags={note.tags} staticOnly data-attr="account-note-tags" />
+                ) : (
+                    <span className="text-muted">No tags</span>
+                )
+            },
+        },
+        {
             title: 'Created by',
             key: 'created_by',
             render: function Render(_, note) {
                 const user = note.created_by
                 if (!user) {
-                    return <span className="text-muted">—</span>
+                    return <span className="text-muted">Unknown</span>
                 }
                 return (
                     <div className="flex items-center gap-2">
@@ -99,19 +131,28 @@ export function AccountNotesTabContent(): JSX.Element {
                 )
             },
         },
-        atColumn<AccountNoteApi>('created_at', 'Created') as LemonTableColumn<
-            AccountNoteApi,
-            keyof AccountNoteApi | undefined
-        >,
-        atColumn<AccountNoteApi>('last_modified_at', 'Last modified') as LemonTableColumn<
-            AccountNoteApi,
-            keyof AccountNoteApi | undefined
-        >,
+        {
+            ...(atColumn<AccountNoteApi>('created_at', 'Created') as LemonTableColumn<
+                AccountNoteApi,
+                keyof AccountNoteApi | undefined
+            >),
+            key: 'created_at',
+            sorter: true,
+        },
+        {
+            ...(atColumn<AccountNoteApi>('last_modified_at', 'Last modified') as LemonTableColumn<
+                AccountNoteApi,
+                keyof AccountNoteApi | undefined
+            >),
+            key: 'last_modified_at',
+            sorter: true,
+        },
     ]
 
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
+                <AccountNotesViewSelector />
                 <LemonInput
                     type="search"
                     placeholder="Search notes"
@@ -122,6 +163,14 @@ export function AccountNotesTabContent(): JSX.Element {
                     data-attr="account-notes-search"
                 />
                 <AccountPicker />
+                <NotesTagsFilter
+                    value={tagsFilter}
+                    onChange={(tags) => {
+                        setTagsFilter(tags)
+                        reportFilterChange('tag')
+                    }}
+                    data-attr="account-notes-tags-filter"
+                />
                 <CreatedByPicker
                     value={createdByFilter}
                     onChange={(userIds) => {
@@ -136,7 +185,7 @@ export function AccountNotesTabContent(): JSX.Element {
                         reportFilterChange('my_notes')
                     }}
                     label="My notes"
-                    info="Shortcut for Created by: you — notes you created"
+                    info="Shortcut for Created by: you. Notes you created"
                     data-attr="account-notes-my-notes-filter"
                 />
                 <LemonCheckbox
@@ -162,6 +211,8 @@ export function AccountNotesTabContent(): JSX.Element {
                     columns={columns}
                     loading={accountNotesResponseLoading}
                     pagination={pagination}
+                    sorting={sorting}
+                    onSort={(newSorting) => setOrdering(sortingToOrdering(newSorting))}
                     emptyState={
                         hasFilters
                             ? 'No notes matching your filters'

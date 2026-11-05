@@ -1337,6 +1337,93 @@ class TestAccountNotebookViewSet(APIBaseTest):
         ]
         self.assertEqual(ascending, [older.short_id, newer.short_id])
 
+    def _tag(self, notebook: Notebook, *names: str) -> None:
+        for name in names:
+            tag, _ = Tag.objects.get_or_create(name=name, team=self.team)
+            TaggedItem.for_content_object(tag, notebook).save()
+
+    def test_create_with_tags(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Renewal call", "text_content": "notes", "tags": ["Renewal", "risk"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["tags"], ["renewal", "risk"])
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=data["short_id"])
+        self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), ["renewal", "risk"])
+
+    def test_list_includes_tags(self):
+        notebook = self._link_internal_notebook(title="Tagged")
+        self._tag(notebook, "risk")
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        row = response.json()["results"][0]
+        self.assertEqual(row["tags"], ["risk"])
+
+    def test_list_filters_by_tags(self):
+        risky = self._link_internal_notebook(title="Risky")
+        self._tag(risky, "risk", "renewal")
+        self._link_internal_notebook(title="Plain")
+        other = self._link_internal_notebook(title="Other")
+        self._tag(other, "call")
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["risk","call"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = {n["short_id"] for n in response.json()["results"]}
+        self.assertEqual(short_ids, {risky.short_id, other.short_id})
+        # A tagged notebook matching two filter tags appears once.
+        self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_list_rejects_malformed_tags(self):
+        response = self.client.get(f"{self.endpoint_base}?tags=risk")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_partial_update_sets_tags_and_title(self):
+        notebook = self._link_internal_notebook(title="Before")
+        self._tag(notebook, "old")
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{notebook.short_id}/",
+            {"title": "After", "tags": ["Risk", "risk", "renewal"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["title"], "After")
+        self.assertEqual(data["tags"], ["renewal", "risk"])
+        self.assertFalse(Tag.objects.filter(team=self.team, name="old").exists())
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.last_modified_by, self.user)
+
+    def test_partial_update_leaves_omitted_fields_untouched(self):
+        notebook = self._link_internal_notebook(title="Keep me")
+        self._tag(notebook, "risk")
+
+        response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"title": "Renamed"}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["title"], "Renamed")
+        self.assertEqual(data["tags"], ["risk"])
+
+    def test_partial_update_of_notebook_on_other_account_is_404(self):
+        other_account = Account.objects.unscoped().create(team=self.team, name="Other")
+        notebook = Notebook.objects.create(team=self.team, title="Elsewhere", visibility=Notebook.Visibility.INTERNAL)
+        ResourceNotebook.objects.create(notebook=notebook, account=other_account)
+
+        response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"tags": ["risk"]}, format="json")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        self.assertEqual(notebook.tagged_items.count(), 0)
+
     def test_retrieve_returns_notebook_for_account(self):
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={"foo": "bar"}, visibility=Notebook.Visibility.INTERNAL
@@ -3001,6 +3088,23 @@ class TestAccountNotesViewSet(APIBaseTest):
 
         second_page = self.client.get(f"{self.endpoint_base}?limit=1&offset=1").json()
         self.assertEqual([n["short_id"] for n in second_page["results"]], [older.short_id])
+
+    def test_list_carries_tags_and_filters_and_sorts_by_them(self):
+        risky = self._link_note(title="Risky")
+        tag, _ = Tag.objects.get_or_create(name="risk", team=self.team)
+        TaggedItem.for_content_object(tag, risky).save()
+        plain = self._link_note(title="Plain")
+
+        response = self.client.get(self.endpoint_base)
+        rows = {row["short_id"]: row for row in response.json()["results"]}
+        self.assertEqual(rows[risky.short_id]["tags"], ["risk"])
+        self.assertEqual(rows[plain.short_id]["tags"], [])
+
+        by_tag = self.client.get(f'{self.endpoint_base}?tags=["risk"]').json()["results"]
+        self.assertEqual([row["short_id"] for row in by_tag], [risky.short_id])
+
+        by_title = self.client.get(f"{self.endpoint_base}?ordering=title").json()["results"]
+        self.assertEqual([row["short_id"] for row in by_title], [plain.short_id, risky.short_id])
 
     def test_list_hides_notes_of_accounts_the_caller_cannot_read(self):
         visible = self._link_note(title="Visible")
