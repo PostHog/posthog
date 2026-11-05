@@ -24,15 +24,17 @@ from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.pairs import HISTORY_BUCKETS
 from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN
-from products.signals.dags.inbox_ranking.training.within_team import group_aucs, summarize_groups
+from products.signals.dags.inbox_ranking.training.within_team import (
+    BOOTSTRAP_DRAWS,
+    group_aucs,
+    summarize_groups,
+    team_interval,
+)
 
 # PostHog's own project, where the inbox's builders are its users.
 DOGFOOD_TEAM_ID = LABELS_TEAM_ID
 # Prior views from which a user counts as having history, read as one slice as well as the buckets.
 WITH_HISTORY_MIN_VIEWS = 10
-BOOTSTRAP_DRAWS = 1000
-BOOTSTRAP_SEED = 0
-INTERVAL_PERCENTILES = (2.5, 97.5)
 
 ALL = "all"
 NON_DOGFOOD = "non_dogfood"
@@ -76,42 +78,6 @@ def _delta_summary(experiment: Sequence[float | None], other: Sequence[float | N
         "max_delta_auc": max(deltas) if deltas else None,
         "wins": sum(1 for delta in deltas if delta > 0),
     }
-
-
-def team_interval(
-    experiment: Sequence[pd.DataFrame | None],
-    other: Sequence[pd.DataFrame | None],
-    group_teams: pd.Series,
-    *,
-    draws: int = BOOTSTRAP_DRAWS,
-    seed: int = BOOTSTRAP_SEED,
-) -> dict[str, Any]:
-    """A percentile interval for the macro within-user delta, resampling teams with replacement.
-
-    Each user's delta is its AUC gap averaged over the paired seeds. A resample's macro delta is the
-    mean over every user of the drawn teams, a team drawn twice counting twice, so it is the same
-    statistic as the macro delta itself. Fewer than two teams give no interval.
-    """
-    per_seed = [
-        e["u"] / e["pairs"] - o["u"] / o["pairs"]
-        for e, o in zip(experiment, other)
-        if e is not None and o is not None and not e.empty
-    ]
-    if not per_seed:
-        return {"low": None, "high": None, "teams": 0, "draws": 0}
-    per_user = pd.concat(per_seed, axis=1).mean(axis=1)
-    per_team = (
-        pd.DataFrame({"delta": per_user.to_numpy(), "team": group_teams.loc[per_user.index].to_numpy()})
-        .groupby("team")["delta"]
-        .agg(["sum", "size"])
-    )
-    teams = len(per_team)
-    if teams < 2:
-        return {"low": None, "high": None, "teams": teams, "draws": 0}
-    weights = np.random.default_rng(seed).multinomial(teams, np.full(teams, 1 / teams), size=draws)
-    macro = (weights @ per_team["sum"].to_numpy()) / (weights @ per_team["size"].to_numpy())
-    low, high = np.percentile(macro, INTERVAL_PERCENTILES)
-    return {"low": float(low), "high": float(high), "teams": teams, "draws": draws}
 
 
 def _slice_grade(

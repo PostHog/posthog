@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { MacrosSection } from '../../scenes/settings/MacrosSection'
@@ -44,7 +42,6 @@ const meta: Meta = {
     parameters: {
         layout: 'padded',
         mockDate: '2026-01-15',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS],
     },
 }
 export default meta

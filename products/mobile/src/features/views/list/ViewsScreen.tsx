@@ -1,6 +1,8 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
+import type { ViewInstance } from 'react-native'
+import { type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
+import { GestureDetector } from 'react-native-gesture-handler'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -8,6 +10,7 @@ import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, V
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { ChartSelectionProvider, useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
+import { useDisplayRegions } from '@/ui/displayRegionContext'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -16,11 +19,12 @@ import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
 import { openNavTarget } from '../../tabs/navPinRoutes'
 import { type NavPin, useNavPinStore } from '../../tabs/navPinStore'
+import { useNavToasts } from '../../tabs/navToasts'
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
 import {
@@ -41,7 +45,7 @@ import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
-import { useToasts, ViewsToast } from '../ViewsToast'
+import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
 import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
@@ -49,8 +53,10 @@ import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
 import { PinCard } from './PinCard'
+import { PinDragOverlay, PinDragTile } from './PinDragOverlay'
 import { PinHint } from './PinHint'
 import { PinScrollAnchor, pinAnchorOffset } from './PinScrollAnchor'
+import { usePinDrag } from './usePinDrag'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { PinMenu, RowMenu } from './ViewsMenu'
@@ -122,6 +128,7 @@ export function ViewsScreen(): ReactElement {
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     useTabHeader('views', {
         hint: null,
         status: null,
@@ -132,10 +139,7 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     return (
         <View style={styles.screen} testID="views-screen">
             <View
-                style={[
-                    styles.fill,
-                    { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: bottomOffset(insets, 120) },
-                ]}
+                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
             >
                 <ViewsReauthState access={access} />
             </View>
@@ -149,13 +153,17 @@ function ViewsBody(): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
+    const focused = useIsFocused()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const context = useViewsContext()
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const list = useViewsList()
     const { width } = useSceneDimensions()
-    const grid = width >= 740
+    const regions = useDisplayRegions()
+    const fold = regions.find((region) => region.kind === 'division' && region.frame.height > region.frame.width)?.frame
+    const grid = fold ? fold.x >= 300 && width - fold.x - fold.width >= 300 : width >= 740
     const pinAnchor = useRef({
         grid,
         visible: null as string | null,
@@ -175,7 +183,7 @@ function ViewsBody(): ReactElement {
     const viewport = useCanvasBudgetViewport()
     const sheets = useChartSheets()
     const flows = usePinFlows(actions)
-    const navToasts = useToasts()
+    const navToasts = useNavToasts()
     const { hideToast: hidePinToast } = flows
     const { show: showToast } = navToasts
     const navPins = useNavPinStore((state) => state.pins)
@@ -190,7 +198,7 @@ function ViewsBody(): ReactElement {
     const listRef = useRef<SectionList<ListItem, ListSection>>(null)
     const scrollMetrics = useRef({ offset: 0, contentHeight: 0, viewportHeight: 0 })
     const measuringAnchor = useRef<number | null>(null)
-    const pinRows = useRef(new Map<string, View>())
+    const pinRows = useRef(new Map<string, ViewInstance>())
     const anchorFrame = useRef<number | null>(null)
     const restoreAnchor = useRef<() => void>(noop)
     const cancelAnchorFrame = useCallback((): void => {
@@ -216,7 +224,7 @@ function ViewsBody(): ReactElement {
         })
     }, [])
     useEffect(() => cancelAnchorRestore, [cancelAnchorRestore])
-    const setPinRow = useCallback((shortcutIds: readonly string[], node: View | null): void => {
+    const setPinRow = useCallback((shortcutIds: readonly string[], node: ViewInstance | null): void => {
         for (const id of shortcutIds) {
             if (node) pinRows.current.set(id, node)
             else pinRows.current.delete(id)
@@ -250,14 +258,30 @@ function ViewsBody(): ReactElement {
         explicit: list.displayPrefs,
         enabled: !editing && !search.active,
     })
+    const drag = usePinDrag({
+        pins,
+        enabled: focused && !editing && !search.active && !text && !chooseTile,
+        scope: `${context.identity}|${context.dataScope}`,
+        width,
+        top: contentTop,
+        bottom: bottomOffset(insets, 120),
+        metrics: scrollMetrics,
+        scrollTo: (y) => listRef.current?.getScrollResponder()?.scrollTo({ y, animated: false }),
+        onStart: () => {
+            cancelAnchorRestore()
+            setMenu(null)
+            motion.onScroll()
+        },
+        onReorder: (ids) => actions.reorder(ids),
+    })
     const hintTargetId = hint.target?.shortcutId ?? null
     const { dismiss: dismissHint } = hint
 
     // Both the refresh rules and the canvas budget follow what the list shows, and a list takes one callback.
     const viewable = useRef({ list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged })
     viewable.current = { list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged }
-    const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
-        const expand = (tokens: ViewToken[]): ViewToken[] =>
+    const onViewableItemsChanged = useRef((info: { viewableItems: ListViewToken[]; changed: ListViewToken[] }) => {
+        const expand = (tokens: ListViewToken[]): ListViewToken[] =>
             tokens.flatMap((token) => {
                 const item = token.item as ListItem
                 return item.type === 'pin-pair'
@@ -274,6 +298,7 @@ function ViewsBody(): ReactElement {
         viewable.current.list(expanded)
         viewable.current.budget(expanded)
         scheduleAnchorRestore()
+        drag.measureAll()
     }).current
 
     // Row callbacks read the latest values through a ref, so they stay stable and memoized cards skip re-rendering.
@@ -662,7 +687,7 @@ function ViewsBody(): ReactElement {
                 case 'pin-pair':
                     return (
                         <View
-                            style={{ flexDirection: 'row', gap: 16 }}
+                            style={{ flexDirection: 'row', gap: fold ? fold.width + 16 : 16 }}
                             collapsable={false}
                             ref={(node) =>
                                 setPinRow(
@@ -672,17 +697,31 @@ function ViewsBody(): ReactElement {
                             }
                             onLayout={() => onPinLayout(item.items.map((pin) => pin.shortcutId))}
                         >
-                            {item.items.map((pin) => (
-                                <View key={pin.key} style={[{ flex: 1, minWidth: 0 }, !pin.last && styles.pinGap]}>
-                                    <PinCard
-                                        pin={pin.pin}
-                                        index={pin.index}
-                                        onOpen={openPin}
-                                        onMenu={openPinMenu}
-                                        onChooseTile={chooseTileFromCard}
-                                        onUnpin={unpinFromCard}
-                                        onPressTooltip={openPinPoint}
-                                    />
+                            {item.items.map((pin, column) => (
+                                <View
+                                    key={pin.key}
+                                    style={[
+                                        { flex: 1, minWidth: 0 },
+                                        fold &&
+                                            column === 0 && {
+                                                flexGrow: 0,
+                                                flexShrink: 0,
+                                                flexBasis: fold.x - layout.inboxGutter - 16,
+                                            },
+                                        !pin.last && styles.pinGap,
+                                    ]}
+                                >
+                                    <PinDragTile id={pin.shortcutId} drag={drag}>
+                                        <PinCard
+                                            pin={pin.pin}
+                                            index={pin.index}
+                                            onOpen={openPin}
+                                            onMenu={openPinMenu}
+                                            onChooseTile={chooseTileFromCard}
+                                            onUnpin={unpinFromCard}
+                                            onPressTooltip={openPinPoint}
+                                        />
+                                    </PinDragTile>
                                 </View>
                             ))}
                         </View>
@@ -696,15 +735,17 @@ function ViewsBody(): ReactElement {
                             ref={(node) => setPinRow([item.shortcutId], node)}
                             onLayout={() => onPinLayout([item.shortcutId])}
                         >
-                            <PinCard
-                                pin={item.pin}
-                                index={item.index}
-                                onOpen={openPin}
-                                onMenu={openPinMenu}
-                                onChooseTile={chooseTileFromCard}
-                                onUnpin={unpinFromCard}
-                                onPressTooltip={openPinPoint}
-                            />
+                            <PinDragTile id={item.shortcutId} drag={drag}>
+                                <PinCard
+                                    pin={item.pin}
+                                    index={item.index}
+                                    onOpen={openPin}
+                                    onMenu={openPinMenu}
+                                    onChooseTile={chooseTileFromCard}
+                                    onUnpin={unpinFromCard}
+                                    onPressTooltip={openPinPoint}
+                                />
+                            </PinDragTile>
                         </View>
                     )
                 case 'pin-hint':
@@ -746,6 +787,7 @@ function ViewsBody(): ReactElement {
             }
         },
         [
+            drag,
             setPinRow,
             onPinLayout,
             openPin,
@@ -760,6 +802,7 @@ function ViewsBody(): ReactElement {
             openBrowseMenu,
             context.mode,
             styles,
+            fold,
         ]
     )
 
@@ -783,7 +826,7 @@ function ViewsBody(): ReactElement {
         [startEditing, styles, colors]
     )
 
-    const contentBottom = bottomOffset(insets, 120)
+    const contentBottom = tabBottom
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
@@ -859,73 +902,80 @@ function ViewsBody(): ReactElement {
         )
     } else {
         body = (
-            <SectionList
-                ref={listRef}
-                sections={displaySections}
-                keyExtractor={keyOf}
-                renderItem={renderItem}
-                onScrollToIndexFailed={({ averageItemLength, index }) => {
-                    if (!pinAnchor.current.restoration.target) return
-                    pinAnchor.current.restoration.fail()
-                    listRef.current?.getScrollResponder()?.scrollTo({ y: averageItemLength * index, animated: false })
-                }}
-                onContentSizeChange={(_width, height) => {
-                    scrollMetrics.current.contentHeight = height
-                    scheduleAnchorRestore()
-                }}
-                onLayout={(event) => {
-                    scrollMetrics.current.viewportHeight = event.nativeEvent.layout.height
-                    scheduleAnchorRestore()
-                }}
-                onScrollBeginDrag={cancelAnchorRestore}
-                renderSectionHeader={renderSectionHeader}
-                stickySectionHeadersEnabled={false}
-                ListHeaderComponent={
-                    <View style={styles.search}>
-                        <SearchField
-                            value={text}
-                            onChangeText={setText}
-                            placeholder="Search views"
-                            testID="views-search"
-                        />
-                    </View>
-                }
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                onViewableItemsChanged={onViewableItemsChanged}
-                viewabilityConfig={list.viewabilityConfig}
-                onScroll={(event) => {
-                    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-                    scrollMetrics.current = {
-                        offset: contentOffset.y,
-                        contentHeight: contentSize.height,
-                        viewportHeight: layoutMeasurement.height,
+            <GestureDetector gesture={drag.gesture}>
+                <SectionList
+                    ref={listRef}
+                    scrollEnabled={!drag.dragged}
+                    sections={displaySections}
+                    keyExtractor={keyOf}
+                    renderItem={renderItem}
+                    onScrollToIndexFailed={({ averageItemLength, index }) => {
+                        if (!pinAnchor.current.restoration.target) return
+                        pinAnchor.current.restoration.fail()
+                        listRef.current
+                            ?.getScrollResponder()
+                            ?.scrollTo({ y: averageItemLength * index, animated: false })
+                    }}
+                    onContentSizeChange={(_width, height) => {
+                        scrollMetrics.current.contentHeight = height
+                        scheduleAnchorRestore()
+                    }}
+                    onLayout={(event) => {
+                        scrollMetrics.current.viewportHeight = event.nativeEvent.layout.height
+                        scheduleAnchorRestore()
+                    }}
+                    onScrollBeginDrag={cancelAnchorRestore}
+                    renderSectionHeader={renderSectionHeader}
+                    stickySectionHeadersEnabled={false}
+                    ListHeaderComponent={
+                        <View style={styles.search}>
+                            <SearchField
+                                value={text}
+                                onChangeText={setText}
+                                placeholder="Search views"
+                                testID="views-search"
+                            />
+                        </View>
                     }
-                    motion.onScroll()
-                    scheduleAnchorRestore()
-                }}
-                scrollEventThrottle={16}
-                initialNumToRender={INITIAL_VISIBLE_ROWS}
-                windowSize={5}
-                removeClippedSubviews={Platform.OS === 'android'}
-                contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refresh.pulling}
-                        onRefresh={refresh.onPull}
-                        tintColor={colors.tertiary}
-                        progressBackgroundColor={colors.surface}
-                        colors={[colors.tertiary]}
-                        progressViewOffset={contentTop}
-                    />
-                }
-            />
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={list.viewabilityConfig}
+                    onScroll={(event) => {
+                        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+                        scrollMetrics.current = {
+                            offset: contentOffset.y,
+                            contentHeight: contentSize.height,
+                            viewportHeight: layoutMeasurement.height,
+                        }
+                        motion.onScroll()
+                        scheduleAnchorRestore()
+                    }}
+                    scrollEventThrottle={16}
+                    initialNumToRender={INITIAL_VISIBLE_ROWS}
+                    windowSize={5}
+                    removeClippedSubviews={Platform.OS === 'android' && !drag.dragged}
+                    contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
+                    refreshControl={
+                        <RefreshControl
+                            enabled={!drag.dragged}
+                            refreshing={refresh.pulling}
+                            onRefresh={refresh.onPull}
+                            tintColor={colors.tertiary}
+                            progressBackgroundColor={colors.surface}
+                            colors={[colors.tertiary]}
+                            progressViewOffset={contentTop}
+                        />
+                    }
+                />
+            </GestureDetector>
         )
     }
 
     return (
-        <View style={styles.fill}>
+        <View ref={drag.root} collapsable={false} onLayout={drag.measureAll} style={styles.fill}>
             {body}
+            <PinDragOverlay drag={drag} />
             {menu?.kind === 'pin' && menuPin ? (
                 <PinMenuFor
                     pin={menuPin}
