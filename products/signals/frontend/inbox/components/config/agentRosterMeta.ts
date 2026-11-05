@@ -127,6 +127,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 detail: 'Fires when an anomaly alert goes off, and only for the alerts where you turned the investigation agent on.',
                 docsUrl: 'https://posthog.com/docs/product-analytics',
                 docsLabel: 'Product analytics',
+                steerable: true,
                 alpha: true,
             },
             {

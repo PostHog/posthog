@@ -949,6 +949,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
+        except tasks_facade.ActiveSessionCapRefused as error:
+            return Response({"detail": error.detail, "code": error.code}, status=status.HTTP_400_BAD_REQUEST)
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
         finally:
@@ -1894,6 +1896,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if error.kind == "detail":
             body: dict[str, Any] = {"detail": error.detail}
+            if error.code is not None:
+                body["code"] = error.code
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)

@@ -745,6 +745,25 @@ describe('taskTrackerSceneLogic', () => {
         }
     )
 
+    it('toasts the active-session cap refusal and keeps the draft', async () => {
+        const detail =
+            'You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.'
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/:id/run/': () => [400, { detail, code: 'active_session_cap' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(detail)
+        expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+        toast.mockRestore()
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.

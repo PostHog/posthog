@@ -10,6 +10,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
 } from 'lib/components/Metric/metricSummary'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { ChartDisplayType } from '~/types'
 
@@ -40,6 +41,7 @@ interface SqlDisplayContext
     showsSeriesOptions: boolean
     showsRightYAxis: boolean
     showLegend: boolean
+    legendShownByDefault: boolean
 }
 
 function useSqlDisplayContext(): SqlDisplayContext {
@@ -88,6 +90,7 @@ function useSqlDisplayContext(): SqlDisplayContext {
         showsSeriesOptions: showsAxes && !isSingleAxisChart,
         showsRightYAxis: showsAxes && !isSingleAxisChart && !isHorizontalBarChart,
         showLegend: chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount),
+        legendShownByDefault: showsLegendByDefault(isProportionBar, proportionBarPartCount),
     }
 }
 
@@ -200,10 +203,9 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         onChange: (showLegend, c) => c.updateChartSettings({ showLegend }),
     },
     legendPosition: {
-        showCondition: (c) => !c.isMetric,
+        showCondition: (c) => !c.isMetric && c.showLegend,
         value: (c) => c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top'),
         onChange: (legendPosition, c) => c.updateChartSettings({ legendPosition }),
-        disabledReason: (c) => (c.showLegend ? undefined : 'Turn the legend on to set its position'),
     },
     excludeOutliers: {
         showCondition: (c) => c.isBoxPlot,
@@ -342,9 +344,32 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
 }
 
 // The SQL editor's Display tab and the options menu on a dashboard tile for a SQL chart.
+// SQL charts keep no per-option defaults, so an option counts as changed when it reads differently
+// from the same chart with no saved settings.
+function withChangedCounts(
+    bindings: DisplayOptionBindings<SqlDisplayContext>
+): DisplayOptionBindings<SqlDisplayContext> {
+    const unsaved = (c: SqlDisplayContext): SqlDisplayContext => ({
+        ...c,
+        chartSettings: {},
+        showLegend: c.legendShownByDefault,
+    })
+    return Object.fromEntries(
+        Object.entries(bindings).map(([name, binding]) => {
+            const value = binding.value as ((c: SqlDisplayContext) => unknown) | undefined
+            return [
+                name,
+                value && !binding.changedCount
+                    ? { ...binding, changedCount: (c: SqlDisplayContext) => !objectsEqual(value(c), value(unsaved(c))) }
+                    : binding,
+            ]
+        })
+    ) as DisplayOptionBindings<SqlDisplayContext>
+}
+
 export const sqlDisplayOptions: DisplayOptionsAdapter<SqlDisplayContext> = {
     useDisplayContext: useSqlDisplayContext,
-    bindings: SQL_BINDINGS,
+    bindings: withChangedCounts(SQL_BINDINGS),
     settings: (c) => {
         // The horizontal bar chart swaps its axes, so the category axis is the Y-axis there.
         const categoryAxisName = c.isHorizontalBarChart ? 'Y-axis' : 'X-axis'

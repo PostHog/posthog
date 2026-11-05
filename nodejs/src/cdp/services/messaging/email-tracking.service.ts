@@ -579,10 +579,13 @@ export class EmailTrackingService {
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
-                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
+                    []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
+                            clearGlobal: clearsGlobalHardBounces ?? false,
+                        })
                     }
                 }
                 for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
@@ -595,10 +598,22 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                        if (nonexistentAddresses) {
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp
+                            )
+                        }
                     }
                 }
                 for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.db import connection, connections
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -18,6 +19,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.signals.backend.emission.steering import afetch_source_config
 from products.signals.backend.facade.source_configs import get_analytics_alert_scope
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
@@ -745,6 +747,21 @@ class TestIsSourceEnabledGating(APIBaseTest):
         )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
+
+    @parameterized.expand([("no_row", None, False), ("enabled_row", True, True), ("disabled_row", False, False)])
+    def test_alert_firing_gated_by_product_analytics_row(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.ANALYTICS,
+                source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
+                enabled=existing_enabled,
+                config={"steering": "Skip the staging alerts."},
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "analytics", "alert_firing") is expected
+        steering = async_to_sync(afetch_source_config)(self.team.id, "analytics", "alert_firing").get("steering")
+        assert steering == (None if existing_enabled is None else "Skip the staging alerts.")
 
     def test_pganalyze_issue_requires_own_config(self):
         SignalSourceConfig.objects.create(
