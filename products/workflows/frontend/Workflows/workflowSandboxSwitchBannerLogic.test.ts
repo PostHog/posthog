@@ -333,7 +333,28 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         })
     })
 
-    it('prevents switching while an external edit reloads the workflow', async () => {
+    it.each([
+        {
+            case: 'an external edit reloads the workflow',
+            start: (): void => {
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'HogFlow',
+                    resource_id: WORKFLOW_ID,
+                    updated_at: '2026-06-01T00:00:00.000Z',
+                    actor_user_id: 99,
+                })
+                expect(workflowLogic({ id: WORKFLOW_ID }).values.isSyncingExternalEdit).toBe(true)
+            },
+        },
+        {
+            case: 'a publish request is in flight',
+            start: (): void => {
+                workflowLogic({ id: WORKFLOW_ID }).actions.setDraftActionPending('publish')
+            },
+        },
+    ])('prevents switching while $case', async ({ start }) => {
         await mountWith({
             steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
             integrations: [SANDBOX_SENDER, OWN_SENDER],
@@ -343,16 +364,8 @@ describe('workflowSandboxSwitchBannerLogic', () => {
                 '/api/environments/:team_id/hog_flows/:id/': () => new Promise(() => {}),
             },
         })
-        resourceEditedLogic.actions.resourceEdited({
-            notification_type: 'resource_edited',
-            team_id: 1,
-            resource_type: 'HogFlow',
-            resource_id: WORKFLOW_ID,
-            updated_at: '2026-06-01T00:00:00.000Z',
-            actor_user_id: 99,
-        })
+        start()
         const workflow = workflowLogic({ id: WORKFLOW_ID })
-        expect(workflow.values.isSyncingExternalEdit).toBe(true)
 
         logic.actions.switchToOwnSender(OWN_SENDER_ID)
 
