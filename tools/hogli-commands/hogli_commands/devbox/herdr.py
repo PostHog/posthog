@@ -49,6 +49,9 @@ def _run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedProce
         # Report a timeout as a failed run, so that polling loops retry it and
         # other callers show their own error message instead of a traceback.
         return subprocess.CompletedProcess(args, 124, "", f"`{' '.join(args[:3])}` timed out after {timeout:.0f}s.")
+    except OSError as error:
+        # `hc` can be on PATH and still fail to start, such as a script whose interpreter is gone.
+        return subprocess.CompletedProcess(args, 126, "", f"`{args[0]}` couldn't start: {error}")
 
 
 def _run_json(args: list[str], *, failure: str, cause: str) -> dict[str, Any]:
@@ -127,7 +130,14 @@ def forget_machine(workspace_name: str) -> None:
     if shutil.which("hc") is None:
         return
     targets = _ssh_targets(workspace_name)
-    for machine in _list_machines() or []:
+    machines = _list_machines()
+    if machines is None:
+        click.echo(
+            f"  ⚠️  could not list Herdr machines to remove '{workspace_name}'. "
+            "Check `hc machine ls` and remove its machine with `hc machine rm <name>`."
+        )
+        return
+    for machine in machines:
         name = machine.get("name")
         if machine.get("target") not in targets or not name:
             continue

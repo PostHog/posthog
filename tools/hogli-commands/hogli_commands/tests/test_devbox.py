@@ -2999,6 +2999,33 @@ class TestDevboxOpenHerdr:
             ["hc", "machine", "rm", "added-by-hand"],
         ]
 
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            subprocess.CompletedProcess(["hc"], 1, "", "daemon not running"),
+            subprocess.TimeoutExpired(["hc"], 30),
+            OSError("bad interpreter"),
+        ],
+        ids=["exits-nonzero", "times-out", "cannot-start"],
+    )
+    def test_forgetting_warns_when_herdr_machines_cannot_be_listed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: subprocess.CompletedProcess[str] | Exception,
+    ) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if isinstance(failure, Exception):
+                raise failure
+            return failure
+
+        monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert "could not list Herdr machines to remove 'devbox-test-user'" in capsys.readouterr().out
+
     def test_a_timed_out_hc_call_fails_with_a_message(
         self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
     ) -> None:
