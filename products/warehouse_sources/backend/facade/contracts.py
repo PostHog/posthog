@@ -86,6 +86,7 @@ CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
 STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
     {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
 )
+DEAD_CREDENTIALS_CLEARED_KEY = "dead_credentials_cleared_at"
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 
