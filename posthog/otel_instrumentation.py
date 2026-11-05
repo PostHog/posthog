@@ -392,7 +392,7 @@ def instrument_httpx_client(provider: trace.TracerProvider) -> None:
 
 def instrument_botocore(provider: trace.TracerProvider) -> None:
     try:
-        BotocoreInstrumentor().instrument(tracer_provider=provider)
+        BotocoreInstrumentor().instrument(tracer_provider=_ExceptionTypeOnlyTracerProvider(provider))
         logger.info("otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="success")
     except Exception as e:
         logger.exception(

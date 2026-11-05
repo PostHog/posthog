@@ -12,14 +12,19 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+import boto3
 import httpx
 import httpcore
 import requests
 import responses
+from botocore.config import Config
+from botocore.exceptions import EndpointConnectionError
+from botocore.httpsession import URLLib3Session
 from opentelemetry import trace
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
@@ -31,6 +36,7 @@ from posthog.otel_instrumentation import (
     _otel_django_response_hook,
     _otel_redis_request_hook,
     initialize_otel,
+    instrument_botocore,
     instrument_httpx_client,
     instrument_requests_client,
 )
@@ -72,6 +78,10 @@ def _get_with_async_httpx(url: str, fail: bool) -> None:
         contextlib.suppress(httpx.ConnectError),
     ):
         asyncio.run(get())
+
+
+def _everything_recorded(span: ReadableSpan) -> str:
+    return str((span.attributes, [(event.name, event.attributes) for event in span.events], span.status.description))
 
 
 class TestOtelInstrumentation(SimpleTestCase):
@@ -488,6 +498,8 @@ class TestOutboundCallSpans(SimpleTestCase):
         self.addCleanup(RequestsInstrumentor().uninstrument)
         instrument_httpx_client(provider)
         self.addCleanup(HTTPXClientInstrumentor().uninstrument)
+        instrument_botocore(provider)
+        self.addCleanup(BotocoreInstrumentor().uninstrument)
 
     @parameterized.expand(
         [
@@ -503,7 +515,26 @@ class TestOutboundCallSpans(SimpleTestCase):
         get(URL_WITH_CREDENTIALS, fail)
 
         (span,) = self.exporter.get_finished_spans()
-        recorded = (span.attributes, [(event.name, event.attributes) for event in span.events], span.status.description)
         self.assertEqual(dict(span.attributes or {})["http.url"], "https://api.example.com")
         self.assertEqual(span.status.status_code, StatusCode.ERROR if fail else StatusCode.UNSET)
-        self.assertNotIn("secret", str(recorded))
+        self.assertNotIn("secret", _everything_recorded(span))
+
+    def test_failed_s3_call_records_only_the_exception_type(self) -> None:
+        client = boto3.client(
+            "s3",
+            endpoint_url="https://storage.example.com",
+            region_name="us-east-1",
+            aws_access_key_id="test-key-id",
+            aws_secret_access_key="test-key",
+            config=Config(retries={"total_max_attempts": 1}),
+        )
+        connection_error = EndpointConnectionError(endpoint_url="https://storage.example.com/bucket/secret")
+        with (
+            mock.patch.object(URLLib3Session, "send", side_effect=connection_error),
+            contextlib.suppress(EndpointConnectionError),
+        ):
+            client.get_object(Bucket="bucket", Key="secret")
+
+        (span,) = self.exporter.get_finished_spans()
+        self.assertEqual(span.status.status_code, StatusCode.ERROR)
+        self.assertNotIn("secret", _everything_recorded(span))
