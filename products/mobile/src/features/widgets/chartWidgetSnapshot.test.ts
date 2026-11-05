@@ -16,6 +16,9 @@ describe('widget snapshots use the Views representation', () => {
         }
         expect(snapshot).not.toBeNull()
         expect(snapshot?.display).toBe(expected.display)
+        for (const field of ['chartValueText', 'axisLowText', 'axisHighText'] as const) {
+            if (field in expected) expect(snapshot?.[field]).toBe(expected[field])
+        }
         if ('valueText' in expected) expect(snapshot?.valueText).toBe(expected.valueText)
         if ('firstRowValue' in expected) expect(snapshot?.rows[0]?.value).toBe(expected.firstRowValue)
         if (typeof expected.rowCount === 'number') expect(snapshot?.rows).toHaveLength(expected.rowCount)

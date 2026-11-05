@@ -14,10 +14,10 @@
     android:orientation="horizontal">
 
     <ImageView
-      android:layout_width="12dp"
-      android:layout_height="12dp"
+      android:layout_width="5dp"
+      android:layout_height="5dp"
       android:importantForAccessibility="no"
-      android:src="@drawable/chart_widget_glyph" />
+      android:src="@drawable/chart_widget_dot" />
 
     <TextView
       android:id="@+id/chart_title"
@@ -26,6 +26,8 @@
       android:layout_height="wrap_content"
       android:layout_marginStart="6dp"
       android:layout_weight="1" />
+    <TextView android:id="@+id/chart_age_inline" style="@style/ChartWidgetText.Footer"
+      android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="6dp" />
   </LinearLayout>
 
   <LinearLayout
@@ -70,7 +72,7 @@
     android:id="@+id/chart_frame"
     android:layout_width="match_parent"
     android:layout_height="0dp"
-    android:layout_marginTop="8dp"
+    android:layout_marginTop="6dp"
     android:layout_weight="1">
       <ImageView
         android:id="@+id/chart_image_light"
@@ -82,7 +84,7 @@
         android:visibility="@integer/chart_widget_dark_visibility" />
   </FrameLayout>
 
-  <LinearLayout
+  <LinearLayout android:id="@+id/chart_footer"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="6dp"

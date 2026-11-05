@@ -7,17 +7,24 @@
   <style name="ChartWidgetText.Title">
     <item name="android:textSize">12sp</item>
     <item name="android:fontFamily">sans-serif-medium</item>
-    <item name="android:textColor">@color/chart_widget_ink</item>
+    <item name="android:textColor">@color/chart_widget_secondary</item>
   </style>
   <style name="ChartWidgetText.Value">
-    <item name="android:textSize">26sp</item>
+    <item name="android:textSize">28sp</item>
     <item name="android:autoSizeTextType">uniform</item>
     <item name="android:autoSizeMinTextSize">12sp</item>
-    <item name="android:autoSizeMaxTextSize">26sp</item>
+    <item name="android:autoSizeMaxTextSize">28sp</item>
     <item name="android:autoSizeStepGranularity">1sp</item>
     <item name="android:textStyle">bold</item>
     <item name="android:fontFeatureSettings">tnum</item>
     <item name="android:textColor">@color/chart_widget_ink</item>
+  </style>
+  <style name="ChartWidgetText.Value.Hero">
+    <item name="android:textSize">50sp</item>
+    <item name="android:autoSizeMaxTextSize">50sp</item>
+    <item name="android:autoSizeMinTextSize">22sp</item>
+    <item name="android:letterSpacing">-0.03</item>
+    <item name="android:gravity">center</item>
   </style>
   <style name="ChartWidgetText.Value.Tile">
     <item name="android:textSize">20sp</item>
@@ -27,7 +34,7 @@
     <item name="android:textColor">@color/chart_widget_secondary</item>
   </style>
   <style name="ChartWidgetText.Footer">
-    <item name="android:textSize">10.5sp</item>
+    <item name="android:textSize">9sp</item>
     <item name="android:textColor">@color/chart_widget_tertiary</item>
   </style>
   <style name="ChartWidgetText.Pill">

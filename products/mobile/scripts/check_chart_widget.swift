@@ -579,7 +579,11 @@ struct CheckChartWidget {
             let response = fixture["response"] as! JSONObject
             let expected = fixture["expected"] as! JSONObject
             let snapshot = try InsightParser.snapshot(response: response, pin: pin, now: now)
+            check("format: \(name) round trip", try JSONDecoder().decode(ChartSnapshot.self, from: JSONEncoder().encode(snapshot)) == snapshot)
             check("format: \(name) display", snapshot.display == expected["display"] as? String)
+            for (field, actual) in [("chartValueText", snapshot.chartValueText), ("axisLowText", snapshot.axisLowText), ("axisHighText", snapshot.axisHighText)] where expected[field] != nil {
+                check("format: \(name) \(field)", actual == expected[field] as? String)
+            }
             if let value = expected["valueText"] as? String { check("format: \(name) value", snapshot.valueText == value, snapshot.valueText ?? "nil") }
             if expected["valueText"] is NSNull { check("format: \(name) null value", snapshot.valueText == nil) }
             if let value = expected["firstAt"] as? String { check("format: \(name) date", snapshot.series.first?.points.first?.at == value) }

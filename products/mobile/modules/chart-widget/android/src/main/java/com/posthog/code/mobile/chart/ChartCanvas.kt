@@ -23,6 +23,7 @@ internal class ChartColors(
     val barNeutral: Int,
     val ink: Int,
     val hairline: Int,
+    val surface: Int,
 ) {
     companion object {
         private val SERIES = listOf(
@@ -52,6 +53,7 @@ internal class ChartColors(
                 barNeutral = themed.getColor(R.color.chart_widget_bar_neutral),
                 ink = themed.getColor(R.color.chart_widget_ink),
                 hairline = themed.getColor(R.color.chart_widget_hairline),
+                surface = themed.getColor(R.color.chart_widget_surface),
             )
         }
     }
@@ -64,11 +66,14 @@ internal class ChartSpec(
     val bars: Boolean,
     val inProgress: Boolean,
     val grid: Boolean,
+    val lowLabel: String? = null,
+    val highLabel: String? = null,
+    val startLabel: String? = null,
+    val endLabel: String? = null,
 )
 
 internal object ChartCanvas {
     private const val MAX_BITMAP_BYTES = 1.5 * 1024 * 1024
-    private const val LINE_PADDING_RATIO = 0.1
 
     /** Null when there is nothing to draw or no room. `density` is px per dp at the size the launcher shows. */
     fun draw(spec: ChartSpec, colors: ChartColors, widthPx: Int, heightPx: Int, density: Float): Bitmap? {
@@ -80,7 +85,24 @@ internal object ChartCanvas {
         val dp = density * scale
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        if (spec.bars) drawBars(canvas, spec, colors, width, height, dp) else drawLines(canvas, spec, colors, width, height, dp)
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 9f * dp; color = withAlpha(colors.ink, 0.48f) }
+        val labels = spec.grid && spec.lowLabel != null && spec.highLabel != null
+        val right = if (labels) min(width * 0.25f, max(paint.measureText(spec.lowLabel), paint.measureText(spec.highLabel)) + 10f * dp) else 0f
+        val bottom = if (spec.grid && spec.startLabel != null) 15f * dp else 0f
+        val plotWidth = max(1, (width - right).toInt())
+        val plotHeight = max(1, (height - bottom).toInt())
+        if (spec.bars) drawBars(canvas, spec, colors, plotWidth, plotHeight, dp) else drawLines(canvas, spec, colors, plotWidth, plotHeight, dp)
+        if (labels) {
+            paint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(TextUtils.ellipsize(spec.highLabel, paint, right - 4f * dp, TextUtils.TruncateAt.END).toString(), width.toFloat(), -paint.ascent(), paint)
+            if (spec.lowLabel != spec.highLabel) canvas.drawText(TextUtils.ellipsize(spec.lowLabel, paint, right - 4f * dp, TextUtils.TruncateAt.END).toString(), width.toFloat(), plotHeight.toFloat(), paint)
+        }
+        if (spec.grid && spec.startLabel != null) {
+            paint.textAlign = Paint.Align.LEFT
+            canvas.drawText(spec.startLabel, 0f, height.toFloat(), paint)
+            paint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(spec.endLabel ?: "", plotWidth.toFloat(), height.toFloat(), paint)
+        }
         return bitmap
     }
 
@@ -121,7 +143,7 @@ internal object ChartCanvas {
             hi = max(0.0, finite.max())
         } else {
             val span = finite.max() - finite.min()
-            val pad = if (span > 0) span * LINE_PADDING_RATIO else abs(finite.max()) * 0.1
+            val pad = if (span > 0) 0.0 else abs(finite.max()) * 0.1
             lo = finite.min() - pad
             hi = finite.max() + pad
             if (finite.min() >= 0 && lo < 0) lo = 0.0
@@ -133,16 +155,17 @@ internal object ChartCanvas {
     private fun drawGrid(canvas: Canvas, colors: ChartColors, scale: Scale, width: Int, dp: Float) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colors.hairline
-            strokeWidth = max(1f, dp * 0.75f)
+            strokeWidth = max(1f, dp * 0.65f)
+            pathEffect = DashPathEffect(floatArrayOf(2f * dp, 3f * dp), 0f)
         }
-        for (fraction in listOf(0f, 0.5f, 1f)) {
+        for (fraction in listOf(0f, 1f)) {
             val y = scale.top + (scale.bottom - scale.top) * fraction
             canvas.drawLine(0f, y, width.toFloat(), y, paint)
         }
     }
 
     private fun drawLines(canvas: Canvas, spec: ChartSpec, colors: ChartColors, width: Int, height: Int, dp: Float) {
-        val stroke = if (spec.grid) 2f * dp else 1.75f * dp
+        val stroke = if (spec.grid) 2.3f * dp else 1.75f * dp
         val dot = 2.75f * dp
         val padX = dot + 1f * dp
         val scale = scaleOf(spec.current.flatten() + spec.previous.orEmpty(), false, dot + 1f * dp, height - stroke / 2 - 1f * dp) ?: return
@@ -176,9 +199,9 @@ internal object ChartCanvas {
         closeRun(first.lastIndex)
         val areaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            shader = LinearGradient(0f, scale.top, 0f, scale.bottom, withAlpha(accent, 0.22f), withAlpha(accent, 0.04f), Shader.TileMode.CLAMP)
+            shader = LinearGradient(0f, scale.top, 0f, scale.bottom, withAlpha(accent, 0.16f), withAlpha(accent, 0.01f), Shader.TileMode.CLAMP)
         }
-        canvas.drawPath(area, areaPaint)
+        if (spec.current.size == 1) canvas.drawPath(area, areaPaint)
 
         spec.previous?.let { previous ->
             val paint = linePaint(colors.previous, stroke * 0.7f).apply {
@@ -205,6 +228,9 @@ internal object ChartCanvas {
         val lastIndex = first.indexOfLast { it.isFinite() }
         if (lastIndex >= 0) {
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
+            paint.color = colors.surface
+            canvas.drawCircle(x(lastIndex), scale.y(first[lastIndex]), dot + dp, paint)
+            paint.color = accent
             canvas.drawCircle(x(lastIndex), scale.y(first[lastIndex]), dot, paint)
         }
     }
@@ -253,7 +279,7 @@ internal object ChartCanvas {
                 val bottom = max(y, zero)
                 if (bottom - top < 0.5f) return@forEachIndexed
                 // One series reads like the app's pin: neutral bars and the newest in ink.
-                val base = if (groups == 1) (if (index == count - 1) colors.ink else colors.barNeutral) else colors.series[seriesIndex % colors.series.size]
+                val base = if (groups == 1) (if (index == count - 1) colors.series.first() else withAlpha(colors.series.first(), 0.3f)) else colors.series[seriesIndex % colors.series.size]
                 paint.color = if (spec.inProgress && index == count - 1) withAlpha(base, 0.55f) else base
                 val r = min(radius, bottom - top)
                 val radii = if (value >= 0) floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) else floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)

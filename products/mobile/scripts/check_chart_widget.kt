@@ -12,6 +12,9 @@ fun main(args: Array<String>) {
         val pin = CatalogPin("pin-example", "insight", "Example", "", 101, "example1", null, true, true, true, null)
         val snapshot = InsightParser.parse(fixture.getJSONObject("response"), pin, 1793617200000L)
         val name = fixture.getString("name")
+        for ((field, actual) in listOf("chartValueText" to snapshot.chartValueText, "axisLowText" to snapshot.axisLowText, "axisHighText" to snapshot.axisHighText)) {
+            if (expected.has(field)) check(actual == expected.stringOrNull(field)) { "$name: $field" }
+        }
         check(snapshot.display == expected.getString("display")) { "$name: display ${snapshot.display}" }
         if (expected.has("valueText")) check(snapshot.valueText == expected.stringOrNull("valueText")) { "$name: value ${snapshot.valueText}" }
         if (expected.has("firstAt")) check(snapshot.series.first().points.first().at == expected.getString("firstAt")) { "$name: date" }
@@ -21,7 +24,7 @@ fun main(args: Array<String>) {
         if (expected.has("rowCount")) check(snapshot.rows.size == expected.getInt("rowCount")) { "$name: rows" }
         if (expected.has("seriesCount")) check(snapshot.series.size == expected.getInt("seriesCount")) { "$name: series" }
         if (expected.has("lastValue")) check(snapshot.series.first().points.last().value == expected.getDouble("lastValue")) { "$name: last value" }
-        check(ChartSnapshot.parse(snapshot.toJson())?.valueText == snapshot.valueText) { "$name: round trip" }
+        check(ChartSnapshot.parse(snapshot.toJson()) == snapshot) { "$name: round trip" }
         println("ok $name")
     }
 }

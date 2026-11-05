@@ -115,6 +115,9 @@ struct ChartSnapshot: Codable, Equatable, Sendable {
     /// Up to five current series, then the previous-period series of those. Up to 60 points each.
     var series: [ChartSeries]
     var chartKind: ChartKind
+    var chartValueText: String? = nil
+    var axisLowText: String? = nil
+    var axisHighText: String? = nil
     var display: String? = nil
     var rows: [ChartRow]? = nil
 }

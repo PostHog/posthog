@@ -9,6 +9,7 @@ enum InsightParser {
     let kind = source["kind"] as? String
     if kind == "TrendsQuery" {
       var snapshot = try TrendsParser.snapshot(response: response, pinId: pin.id, now: now)
+      chartLabels(&snapshot) { TrendsParser.formatValue($0, TrendsParser.valueFormat(source: source)) }
       let display = TrendsParser.displayOf(query)
       if pin.displayMode == "number" && pin.number {
         snapshot.display = "number"
@@ -124,6 +125,18 @@ enum InsightParser {
       snapshot.rows = genericRows(response["result"])
     }
     return snapshot
+  }
+
+  private static func chartLabels(_ snapshot: inout ChartSnapshot, format: (Double) -> String) {
+    let current = snapshot.series.filter { !$0.previous }
+    let values = snapshot.series.filter { snapshot.chartKind != .bar || !$0.previous }.flatMap { $0.points.compactMap(\.value) }
+    if current.count == 1, let value = current[0].points.last(where: { $0.value != nil })?.value {
+      snapshot.chartValueText = format(value)
+    }
+    if let low = values.min(), let high = values.max() {
+      snapshot.axisLowText = format(snapshot.chartKind == .bar ? min(0, low) : low)
+      snapshot.axisHighText = format(snapshot.chartKind == .bar ? max(0, high) : high)
+    }
   }
 
   static func number(_ value: Any?) -> Double? {
@@ -313,6 +326,7 @@ enum InsightParser {
             return ChartPoint(at: at, value: value)
           }.suffix(60).map { $0 }, previous: false)
       }
+      chartLabels(&snapshot) { sqlText($0, format: formatting(query, column: columns[y[0]], numberDisplay: false)) }
       snapshot.display = "chart"
       snapshot.chartKind =
         display.contains("Bar")

@@ -16,6 +16,9 @@ export interface WidgetSnapshot {
     lastRefreshAt: string | null
     rangeLabel: string | null
     intervalLabel: string
+    chartValueText: string | null
+    axisLowText: string | null
+    axisHighText: string | null
     valueText: string | null
     deltaPercent: number | null
     deltaText: string | null
@@ -71,7 +74,20 @@ export function widgetSnapshot(
             })
         }
     }
+    const plotted = snapshot.allSeries.slice(0, 10)
+    const current = plotted.filter((series) => series.compare !== 'previous')
+    const values = plotted
+        .filter((series) => snapshot.chartKind !== 'bar' || series.compare !== 'previous')
+        .flatMap((series) => series.points.slice(-60).map((point) => point.value))
+        .filter(Number.isFinite)
+    const latest =
+        current.length === 1 ? current[0]?.points.slice(-60).findLast((point) => Number.isFinite(point.value)) : null
+    const low = values.length ? Math.min(...values, ...(snapshot.chartKind === 'bar' ? [0] : [])) : null
+    const high = values.length ? Math.max(...values, ...(snapshot.chartKind === 'bar' ? [0] : [])) : null
     return {
+        chartValueText: latest ? format(latest.value) : null,
+        axisLowText: low === null ? null : format(low),
+        axisHighText: high === null ? null : format(high),
         version: 1,
         pinId,
         fetchedAt: snapshot.dataReadAt,
@@ -89,7 +105,7 @@ export function widgetSnapshot(
         deltaPercent: snapshot.delta?.unit === 'points' ? snapshot.delta.change : (snapshot.delta?.percent ?? null),
         deltaText: snapshot.delta ? deltaText(snapshot.delta, format) : null,
         deltaBasis: snapshot.delta ? deltaBasisText(snapshot.delta, snapshot.interval) : null,
-        series: snapshot.allSeries.slice(0, 10).map((series) => ({
+        series: plotted.map((series) => ({
             label: series.label,
             points: series.points
                 .slice(-60)

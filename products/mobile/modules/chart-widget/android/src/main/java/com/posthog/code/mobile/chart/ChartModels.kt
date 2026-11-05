@@ -181,6 +181,9 @@ data class ChartSnapshot(
     val series: List<SnapshotSeries>,
     val chartKind: String,
     val display: String? = null,
+    val chartValueText: String? = null,
+    val axisLowText: String? = null,
+    val axisHighText: String? = null,
     val rows: List<SnapshotRow> = emptyList(),
 ) {
     val deltaSign: Int get() = deltaPercent?.let { if (it > 0) 1 else if (it < 0) -1 else 0 } ?: 0
@@ -208,6 +211,9 @@ data class ChartSnapshot(
             .put("inProgress", inProgress)
             .put("series", seriesArray)
             .put("chartKind", chartKind)
+            .put("chartValueText", chartValueText ?: JSONObject.NULL)
+            .put("axisLowText", axisLowText ?: JSONObject.NULL)
+            .put("axisHighText", axisHighText ?: JSONObject.NULL)
             .put("display", display ?: JSONObject.NULL)
             .put("rows", JSONArray(rows.map { JSONObject().put("label", it.label).put("value", it.value) }))
             .toString()
@@ -240,6 +246,9 @@ data class ChartSnapshot(
                 series = series,
                 chartKind = o.optString("chartKind", "line"),
                 display = o.stringOrNull("display"),
+                chartValueText = o.stringOrNull("chartValueText"),
+                axisLowText = o.stringOrNull("axisLowText"),
+                axisHighText = o.stringOrNull("axisHighText"),
                 rows = o.optJSONArray("rows")?.let { rows -> (0 until rows.length()).mapNotNull { index ->
                     rows.optJSONObject(index)?.let { SnapshotRow(it.optString("label"), it.optString("value")) }
                 } } ?: emptyList(),

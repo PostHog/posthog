@@ -3,7 +3,7 @@
 A home-screen widget for iOS and Android that shows a pinned insight from the Views tab and reads PostHog by itself.
 See the sections below for the store contract, the fetch rules and the identifiers.
 
-The widget shows one pin as a number, chart or compact rows (small and medium), or one pin plus up to two extra tiles (large). A dashboard pin shows its selected insight. Numbers preserve saved currency, percentage, prefix, suffix and precision settings; text and boolean SQL values remain text.
+The widget shows one pin as a number, chart or compact rows (small and medium), or one pin plus up to two extra tiles (large). Number widgets center a large value and its change. Charts show a formatted headline, date endpoints and labeled value bounds; a single-series chart without an aggregate labels its headline “Latest”. Medium and large charts keep the full saved series (up to 60 points), rather than silently cropping to the last 14. Refresh age stays secondary to the data. A dashboard pin shows its selected insight. Numbers preserve saved currency, percentage, prefix, suffix and precision settings; text and boolean SQL values remain text.
 An iOS widget with no saved selection shows the first supported pin in Views order, including when the catalog arrives after placement.
 The person can change it in the Edit Widget sheet. Android preselects the first supported pin in its configure screen.
 The app itself shows nothing about widgets.
@@ -195,6 +195,8 @@ The age it shows is from `lastRefreshAt` (when the server computed the numbers),
 ```
 
 The error record is `{ "at": <epoch ms>, "kind": "network" | "auth" | "not_found" | "rate_limited" | "bad_data" | "no_result" }`.
+
+The optional `chartValueText`, `axisLowText` and `axisHighText` preserve the insight’s number formatting for chart headlines and value bounds. An aggregate in `valueText` takes precedence over the latest point; multi-series charts do not invent a single headline.
 
 The optional `display` is `number`, `chart` or `rows`; `rows` contains `{ "label": "...", "value": "..." }` entries. Older snapshots without these fields still render. Snapshots hold at most 12 rows and 60 points per series; a widget shows as many rows as fit. Funnels show step counts and conversion; retention shows available cohort percentages; category charts and tables show compact rows. Other insight result shapes use compact labeled values. `InsightParser.swift` and `InsightParser.kt` mirror the Views adapters for background refreshes. Shared invented fixtures in `fixtures/insights.json` are checked by the TypeScript, Swift and Kotlin checks.
 

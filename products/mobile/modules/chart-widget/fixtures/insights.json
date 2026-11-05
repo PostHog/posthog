@@ -142,7 +142,10 @@
         "expected": {
             "display": "chart",
             "seriesCount": 1,
-            "lastValue": 5
+            "lastValue": 5,
+            "chartValueText": "5",
+            "axisLowText": "3",
+            "axisHighText": "5"
         }
     },
     {
@@ -396,7 +399,8 @@
             "display": "chart",
             "seriesCount": 2,
             "firstValue": 5,
-            "lastIsGap": true
+            "lastIsGap": true,
+            "chartValueText": null
         }
     },
     {
@@ -682,6 +686,54 @@
             "display": "rows",
             "rowCount": 2,
             "firstRowValue": "001"
+        }
+    },
+    {
+        "name": "SQL chart labels preserve units",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "SQL chart labels preserve units",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT value FROM example"
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {
+                    "xAxis": {
+                        "column": "date"
+                    },
+                    "yAxis": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$",
+                                    "decimalPlaces": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "result": [["2026-10-30", 3], ["2026-10-31", "5"]],
+            "last_refresh": "2026-11-01T12:00:00Z",
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null,
+            "columns": ["date", "count"],
+            "types": [["date", "Date"], ["count", "UInt64"]]
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "lastValue": 5,
+            "chartValueText": "$5.00",
+            "axisLowText": "$3.00",
+            "axisHighText": "$5.00"
         }
     }
 ]

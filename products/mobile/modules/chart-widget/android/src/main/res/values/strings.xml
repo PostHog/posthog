@@ -1,4 +1,5 @@
 <resources>
+  <string name="chart_widget_latest">Latest</string>
   <string name="chart_widget_label">Chart</string>
   <string name="chart_widget_description">A pinned view, with its latest value or chart.</string>
 

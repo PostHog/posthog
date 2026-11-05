@@ -10,7 +10,10 @@ object InsightParser {
         val source = query.optJSONObject("source") ?: query
         val kind = source.optString("kind")
         if (kind == "TrendsQuery") {
-            val snapshot = TrendsParser.parse(response, pin.id, now)
+            val snapshot = chartLabels(TrendsParser.parse(response, pin.id, now)) { value ->
+                val filter = source.optJSONObject("trendsFilter")
+                TrendsParser.formatValue(value, TrendsParser.formatOf(filter), false)
+            }
             if (pin.displayMode == "number" && pin.number) return snapshot.copy(display = "number")
             val filter = source.optJSONObject("trendsFilter")
             val display = filter?.stringOrNull("display") ?: query.stringOrNull("display")
@@ -81,6 +84,16 @@ object InsightParser {
             return base.copy(rows = rows, rangeLabel = "${filter?.optString("period", "Day") ?: "Day"} retention")
         }
         return base.copy(rows = genericRows(response.opt("result")))
+    }
+
+    private fun chartLabels(snapshot: ChartSnapshot, format: (Double) -> String): ChartSnapshot {
+        val current = snapshot.series.filter { !it.previous }
+        val values = snapshot.series.filter { snapshot.chartKind != "bar" || !it.previous }.flatMap { it.points.map { p -> p.value } }.filter { it.isFinite() }
+        return snapshot.copy(
+            chartValueText = current.singleOrNull()?.points?.lastOrNull { it.value.isFinite() }?.let { format(it.value) },
+            axisLowText = values.minOrNull()?.let { format(if (snapshot.chartKind == "bar") minOf(0.0, it) else it) },
+            axisHighText = values.maxOrNull()?.let { format(if (snapshot.chartKind == "bar") maxOf(0.0, it) else it) },
+        )
     }
 
     internal fun number(value: Any?): Double? = when (value) {
@@ -173,7 +186,8 @@ object InsightParser {
                 }.takeLast(60)
                 SnapshotSeries(if (group.isEmpty()) columns[column] else "${columns[column]} · $group", points, false)
             } }.take(5).toList()
-            return base.copy(display = "chart", series = series, chartKind = if (display.contains("Bar") || objects(settings.optJSONArray("yAxis")).firstOrNull()?.optJSONObject("settings")?.optJSONObject("display")?.optString("displayType") == "bar") "bar" else "line")
+            val snapshot = base.copy(display = "chart", series = series, chartKind = if (display.contains("Bar") || objects(settings.optJSONArray("yAxis")).firstOrNull()?.optJSONObject("settings")?.optJSONObject("display")?.optString("displayType") == "bar") "bar" else "line")
+            return chartLabels(snapshot) { sqlText(it, formatting(query, columns[y[0]])) }
         }
         return base.copy(rows = rows.take(12).map { row ->
             val label = x?.let { text(row.opt(it)) } ?: "Value"

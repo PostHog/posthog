@@ -96,27 +96,8 @@ private struct SmallChartLayout: View {
 
     var body: some View {
         if let snapshot = slot.snapshot {
-            VStack(alignment: .leading, spacing: 2) {
-                PinTitle(text: slot.title, colors: colors)
-                if let value = snapshot.valueText {
-                    ValueText(text: value, size: 26, colors: colors)
-                    HStack(spacing: 4) {
-                        DeltaPill(snapshot: snapshot, colors: colors)
-                        RangeText(text: snapshot.rangeLabel, colors: colors)
-                    }
-                } else {
-                    RangeText(text: snapshot.rangeLabel, colors: colors)
-                }
-                if let rows = snapshot.rows, !rows.isEmpty {
-                    SnapshotRows(rows: rows, limit: 3, colors: colors)
-                } else if snapshot.hasPoints {
-                    PlotArea(snapshot: snapshot, window: PointWindow.compact, kind: .line, style: .sparkline, colors: colors)
-                        .padding(.top, 4)
-                } else if snapshot.valueText != nil { Spacer(minLength: 0) }
-                else { Text("No data for this range").font(.system(size: 11)).foregroundStyle(colors.secondary) }
-                AgeLabel(dataDate: snapshot.dataDate, now: now, colors: colors)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ChartPanel(title: slot.title, snapshot: snapshot, window: PointWindow.compact,
+                       axisLabels: false, dataDate: snapshot.dataDate, now: now, colors: colors, compact: true)
         } else {
             StateView(slot: slot, colors: colors)
         }
@@ -131,7 +112,7 @@ private struct MediumChartLayout: View {
     var body: some View {
         if let snapshot = content.primary.snapshot {
             ChartPanel(
-                title: content.primary.title, snapshot: snapshot, window: PointWindow.compact, axisLabels: false,
+                title: content.primary.title, snapshot: snapshot, window: PointWindow.large, axisLabels: true,
                 dataDate: content.oldestData, now: now, colors: colors
             )
         } else {
@@ -191,50 +172,101 @@ private struct ChartPanel: View {
     let dataDate: Date?
     let now: Date
     let colors: ChartColors
+    var compact = false
+
+    private var isNumber: Bool {
+        snapshot.display == "number" || (!snapshot.hasPoints && (snapshot.rows ?? []).isEmpty && snapshot.valueText != nil)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: snapshot.chartKind == .bar ? "chart.bar.fill" : "chart.xyaxis.line")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(colors.secondary)
+        VStack(alignment: .leading, spacing: compact ? 5 : 5) {
+            HStack(spacing: 6) {
+                Circle().fill(isNumber ? colors.orange : colors.seriesColor(0)).frame(width: 5, height: 5)
                 PinTitle(text: title, colors: colors)
+                if !isNumber && !compact && snapshot.hasPoints, let dataDate {
+                    Spacer(minLength: 4)
+                    AgeLabel(dataDate: dataDate, now: now, colors: colors, concise: true)
+                }
             }
-            if let value = snapshot.valueText {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    ValueText(text: value, size: 26, colors: colors)
-                        .layoutPriority(1)
-                    DeltaPill(snapshot: snapshot, colors: colors)
-                    if snapshot.pillText != nil, let basis = snapshot.deltaBasis {
-                        Text(basis)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(colors.secondary)
-                            .lineLimit(1)
+            if isNumber {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    ValueText(text: snapshot.valueText ?? "–", size: compact ? 36 : axisLabels ? 48 : 44, colors: colors)
+                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        DeltaPill(snapshot: snapshot, colors: colors)
+                        RangeText(text: snapshot.deltaBasis ?? snapshot.rangeLabel, colors: colors)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+                if snapshot.hasPoints {
+                    PlotArea(snapshot: snapshot, window: window, kind: .line, style: .sparkline, colors: colors)
+                        .frame(height: compact ? 20 : 26)
+                }
+            } else {
+                if let value = snapshot.valueText ?? snapshot.chartValueText {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        ValueText(text: value, size: 28, colors: colors)
+                            .layoutPriority(1)
+                        if snapshot.valueText == nil {
+                            Text("Latest").font(.system(size: 10)).foregroundStyle(colors.secondary)
+                        }
+                        DeltaPill(snapshot: snapshot, colors: colors)
+                        Spacer(minLength: 0)
                     }
                 }
-            }
-            if let rows = snapshot.rows, !rows.isEmpty {
-                SnapshotRows(rows: rows, limit: axisLabels ? 9 : 4, colors: colors)
-            } else if snapshot.hasPoints {
-                PlotArea(snapshot: snapshot, window: window, kind: snapshot.chartKind, style: .chart, colors: colors)
-                    .padding(.top, 2)
-            } else if snapshot.valueText != nil { Spacer(minLength: 0) }
-            else { Text("No data for this range").font(.system(size: 11)).foregroundStyle(colors.secondary) }
-            if axisLabels, let ends = snapshot.axisLabels(limit: window) {
-                HStack {
-                    Text(ends.0)
-                    Spacer(minLength: 8)
-                    Text(ends.1)
+                if let rows = snapshot.rows, !rows.isEmpty {
+                    SnapshotRows(rows: rows, limit: compact ? 3 : axisLabels ? 8 : 4, colors: colors)
+                } else if snapshot.hasPoints {
+                    if !compact && snapshot.series.filter({ !$0.previous }).count > 1 {
+                        HStack(spacing: 10) {
+                            ForEach(Array(snapshot.series.filter { !$0.previous }.prefix(3).enumerated()), id: \.offset) { index, series in
+                                HStack(spacing: 4) {
+                                    Circle().fill(colors.seriesColor(index)).frame(width: 5, height: 5)
+                                    Text(series.label).lineLimit(1)
+                                }
+                            }
+                        }
+                        .font(.system(size: 9.5)).foregroundStyle(colors.secondary)
+                    }
+                    VStack(spacing: 4) {
+                        HStack(spacing: 8) {
+                            PlotArea(snapshot: snapshot, window: window, kind: snapshot.chartKind,
+                                     style: compact ? .sparkline : .chart, colors: colors)
+                            if !compact, let high = snapshot.axisHighText, let low = snapshot.axisLowText {
+                                VStack(alignment: .trailing) {
+                                    Text(high)
+                                    Spacer(minLength: 0)
+                                    if low != high { Text(low) }
+                                }
+                                .font(.system(size: 9, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(colors.tertiary).lineLimit(1).minimumScaleFactor(0.7)
+                                .frame(maxWidth: 62).padding(.vertical, 3)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if !compact, let ends = snapshot.axisLabels(limit: window) {
+                            HStack {
+                                Text(ends.0)
+                                Spacer(minLength: 0)
+                                Text(ends.1)
+                            }
+                            .font(.system(size: 9)).foregroundStyle(colors.tertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Text("No data for this range").font(.system(size: 11)).foregroundStyle(colors.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .font(.system(size: 10.5))
-                .foregroundStyle(colors.tertiary)
-                .lineLimit(1)
             }
-            HStack(spacing: 8) {
-                RangeText(text: snapshot.rangeLabel, colors: colors)
-                Spacer(minLength: 0)
-                if let dataDate {
-                    AgeLabel(dataDate: dataDate, now: now, colors: colors)
+            if isNumber || compact || !snapshot.hasPoints {
+                HStack(spacing: 6) {
+                    if !isNumber { RangeText(text: snapshot.rangeLabel, colors: colors) }
+                    Spacer(minLength: 0)
+                    if let dataDate { AgeLabel(dataDate: dataDate, now: now, colors: colors) }
                 }
             }
         }
@@ -357,7 +389,7 @@ private struct PinTitle: View {
     var body: some View {
         Text(text ?? "")
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(colors.ink)
+            .foregroundStyle(colors.secondary)
             .lineLimit(1)
     }
 }
@@ -369,7 +401,8 @@ private struct ValueText: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: size, weight: .bold))
+            .font(.system(size: size, weight: .bold, design: .rounded))
+            .tracking(-0.7)
             .monospacedDigit()
             .foregroundStyle(colors.ink)
             .lineLimit(1)
@@ -395,10 +428,12 @@ private struct AgeLabel: View {
     let dataDate: Date
     let now: Date
     let colors: ChartColors
+    var concise = false
 
     var body: some View {
-        Text(ChartAge.text(dataDate: dataDate, at: now))
-            .font(.system(size: 10.5))
+        let text = ChartAge.text(dataDate: dataDate, at: now)
+        Text(concise ? text.replacingOccurrences(of: "Updated ", with: "") : text)
+            .font(.system(size: 9))
             .foregroundStyle(ChartAge.isStale(dataDate: dataDate, at: now) ? colors.orange : colors.tertiary)
             .lineLimit(1)
     }
@@ -488,7 +523,7 @@ private struct Plot: View {
             let scale = PlotScale(series: current + previous, kind: kind, style: style, size: proxy.size)
             ZStack {
                 if style == .chart {
-                    scale.gridPath().stroke(colors.hairline, lineWidth: 1)
+                    scale.gridPath().stroke(colors.hairline.opacity(0.7), style: StrokeStyle(lineWidth: 0.65, dash: [2, 3]))
                 }
                 if kind == .bar && style == .chart {
                     bars(scale)
@@ -504,7 +539,7 @@ private struct Plot: View {
         if fillsArea, current.count == 1, let only = current.first {
             scale.areaPath(only.points).fill(
                 LinearGradient(
-                    colors: [colors.seriesColor(0).opacity(0.18), colors.seriesColor(0).opacity(0.02)],
+                    colors: [colors.seriesColor(0).opacity(0.16), colors.seriesColor(0).opacity(0.01)],
                     startPoint: .top, endPoint: .bottom
                 )
             )
@@ -515,7 +550,12 @@ private struct Plot: View {
         }
         ForEach(Array(current.enumerated()), id: \.offset) { index, line in
             scale.linePath(line.points)
-                .stroke(tint ?? colors.seriesColor(index), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(tint ?? colors.seriesColor(index), style: StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
+            if tint == nil, let last = line.points.enumerated().last(where: { $0.element.value != nil }), let value = last.element.value {
+                Circle().fill(colors.surface).frame(width: 8, height: 8)
+                    .overlay(Circle().fill(colors.seriesColor(index)).padding(2))
+                    .position(x: scale.x(last.offset), y: scale.y(value))
+            }
         }
     }
 
@@ -523,8 +563,8 @@ private struct Plot: View {
     private func bars(_ scale: PlotScale) -> some View {
         if current.count == 1, let only = current.first {
             let last = only.points.count - 1
-            scale.barsPath(only.points, series: 0, of: 1) { $0 != last }.fill(colors.barNeutral)
-            scale.barsPath(only.points, series: 0, of: 1) { $0 == last }.fill(colors.ink)
+            scale.barsPath(only.points, series: 0, of: 1) { $0 != last }.fill(colors.seriesColor(0).opacity(0.3))
+            scale.barsPath(only.points, series: 0, of: 1) { $0 == last }.fill(colors.seriesColor(0))
         } else {
             ForEach(Array(current.enumerated()), id: \.offset) { index, bar in
                 scale.barsPath(bar.points, series: index, of: current.count) { _ in true }.fill(colors.seriesColor(index))
@@ -539,7 +579,7 @@ private struct PlotScale {
     let low: Double
     let high: Double
     /// Room above and below, so a 2pt stroke at the extremes is not clipped.
-    let inset: CGFloat = 2
+    let inset: CGFloat = 4
 
     init(series: [ChartSeries], kind: ChartKind, style: PlotStyle, size: CGSize) {
         self.size = size
@@ -561,7 +601,7 @@ private struct PlotScale {
             low = min(0, minimum)
             high = max(0, maximum)
         case (.chart, .line):
-            let pad = span > 0 ? span * 0.05 : (abs(maximum) * 0.1 == 0 ? 1 : abs(maximum) * 0.1)
+            let pad = span > 0 ? 0 : (abs(maximum) * 0.1 == 0 ? 1 : abs(maximum) * 0.1)
             low = minimum - pad
             high = maximum + pad
             if minimum >= 0 && low < 0 {
@@ -587,7 +627,7 @@ private struct PlotScale {
 
     func gridPath() -> Path {
         var path = Path()
-        for fraction in [0.0, 0.5, 1.0] {
+        for fraction in [0.0, 1.0] {
             let y = inset + CGFloat(fraction) * max(0, size.height - inset * 2)
             path.move(to: CGPoint(x: 0, y: y))
             path.addLine(to: CGPoint(x: size.width, y: y))
@@ -615,14 +655,25 @@ private struct PlotScale {
     }
 
     func areaPath(_ points: [ChartPoint]) -> Path {
-        let drawn = points.enumerated().compactMap { index, point in point.value.map { CGPoint(x: x(index), y: y($0)) } }
-        guard let first = drawn.first, let last = drawn.last, drawn.count > 1 else { return Path() }
         var path = Path()
-        path.move(to: first)
-        drawn.dropFirst().forEach { path.addLine(to: $0) }
-        path.addLine(to: CGPoint(x: last.x, y: size.height))
-        path.addLine(to: CGPoint(x: first.x, y: size.height))
-        path.closeSubpath()
+        var first: CGPoint?
+        var last: CGPoint?
+        func closeRun() {
+            guard let start = first, let end = last else { return }
+            path.addLine(to: CGPoint(x: end.x, y: size.height))
+            path.addLine(to: CGPoint(x: start.x, y: size.height))
+            path.closeSubpath()
+            first = nil
+            last = nil
+        }
+        for (index, point) in points.enumerated() {
+            guard let value = point.value else { closeRun(); continue }
+            let location = CGPoint(x: x(index), y: y(value))
+            if first == nil { first = location; path.move(to: location) }
+            else { path.addLine(to: location) }
+            last = location
+        }
+        closeRun()
         return path
     }
 
