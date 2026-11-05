@@ -33,13 +33,15 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import recurrence_dismissal_at
+from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
@@ -861,6 +863,18 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         with transaction.atomic():
             promoted = False
             promotion_suppressed = False
+            monitoring_billing_exemption = None
+            if (
+                input.source_product == SignalSourceProduct.SIGNALS_CHECK
+                and input.source_type == SignalSourceType.MONITORING_UNRESOLVED
+            ):
+                payload = MonitoringUnresolvedSignalExtra.model_validate(input.extra)
+                attempt = current_research_attempt(
+                    team_id=input.team_id, report_id=payload.report_id, attempt_id=payload.attempt_id, lock=True
+                )
+                if attempt is None or input.source_id != str(attempt.id):
+                    raise ValueError("Monitoring research request is no longer current")
+                monitoring_billing_exemption = attempt.report.billing_exempt_reason
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -916,15 +930,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Wrong-repo feedback rejects the repository choice rather than the issue, so new
                 # evidence needs fresh research, just as it does after a fixed verdict.
                 report = signal_target_report(report, lock=True)
-                dismissed_for_recurrence_at = (
-                    recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                )
-                if (
-                    report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
-                    or dismissed_for_recurrence_at is not None
-                ):
+                if forks_recurrence(report):
                     parent_report = report
-                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
+                    # A failed report often holds only the matcher's first guess, so the fork keeps
+                    # its content only when a research pass completed.
+                    inherit_content = (
+                        parent_report.status != SignalReport.Status.FAILED or _has_completed_research(parent_report)
+                    ) and not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
@@ -932,7 +944,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         signal_count=1,
                         title=parent_report.title if inherit_content else "",
                         summary=parent_report.summary if inherit_content else "",
-                        billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                        billing_exempt_reason=monitoring_billing_exemption
+                        or BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
@@ -962,7 +975,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # A report born from a PostHog-system signal (e.g. health checks) must never
                     # bill the customer. Only this founding signal decides: signals that join the
                     # report later (the branch above) leave the exemption unchanged either way.
-                    billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                    billing_exempt_reason=monitoring_billing_exemption
+                    or BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
             # Persist source exemptions before a summary can see and finalize this trigger.
@@ -976,6 +990,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             # Promotion rules by status:
             # - SUPPRESSED: never promoted. Fixed and wrong-repo dismissals spawn a fresh report above.
+            # - FAILED: never promoted. Unless a pull request is open or merged, a new signal spawns a fresh report above.
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.

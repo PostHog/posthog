@@ -219,9 +219,11 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.resolve_hostaddr = resolver_patcher.start()
         self.addCleanup(resolver_patcher.stop)
 
-    @parameterized.expand([(True,), (False,)])
+    @parameterized.expand([(True, False), (False, True)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_managed_source_switches_raw_and_hogql_execution_to_trino(self, raw: bool, _flag: MagicMock) -> None:
+    def test_managed_source_switches_raw_and_hogql_execution_to_trino(
+        self, raw: bool, canary: bool, _flag: MagicMock
+    ) -> None:
         _flag.side_effect = lambda flag, *_args, **_kwargs: flag == "managed-warehouse-trino-query"
         source = self._dynamic_managed_source()
         source.job_inputs = {}
@@ -258,6 +260,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 user=self.user,
                 connection_id=str(source.id),
                 send_raw_query=raw,
+                trino_canary=canary,
             ).execute()
             with self.assertRaisesMessage(ExposedHogQLError, "warehouse engine changed"):
                 HogQLQueryExecutor(
@@ -270,7 +273,9 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 ).execute()
         self.assertEqual(response.results, [("row-uuid",)])
         connect.assert_called_once_with(
-            str(self.team.organization_id), principal=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}"
+            str(self.team.organization_id),
+            principal=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
+            canary=canary,
         )
         duckgres.assert_not_called()
         self.assertIn('"posthog"."events"', cursor.execute.call_args.args[0])

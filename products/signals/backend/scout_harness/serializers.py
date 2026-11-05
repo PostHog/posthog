@@ -23,17 +23,18 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
+from products.signals.backend.activity_summary.search import MAX_MEMBER_ACTIVITY_OBJECTS, MAX_MEMBERS_WITH_ACTIVITY
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_LINK_REASON_LENGTH,
     MAX_REPORT_LINKS_PER_WRITE,
@@ -55,6 +56,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
@@ -1023,13 +1025,20 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
 
 
+# pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
+_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+
+
 class SearchMemoryQuerySerializer(serializers.Serializer):
     """Query parameters for `search-memory`."""
 
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+        help_text=(
+            "ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, "
+            "or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries."
+        ),
     )
     key = serializers.CharField(
         required=False,
@@ -1089,6 +1098,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+    def validate_text(self, value: str) -> str:
+        # The trigram indexes extract nothing from a term without an indexable word, so Postgres
+        # reads and upper-cases every body the team holds to answer it.
+        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+            raise serializers.ValidationError(
+                "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
+                "To read one known entry, pass `key` instead."
+            )
+        return value
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1234,8 +1253,10 @@ class ScoutNoteSerializer(serializers.Serializer):
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
             "not: one reader's rating of the named report, context to weigh rather than a directive. "
             "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
-            "report: evidence about who owns that surface, and a prompt to revisit the routing "
-            "memory it corrects, rather than a directive."
+            "report, or for a report a person or their agent claimed: evidence about who owns that "
+            "surface, and a prompt to revisit the routing memory it corrects or supports, rather "
+            "than a directive. `report_note` for one left from a report through this API with "
+            "`report_id` set: steering written straight for you, about the report its content names."
         ),
     )
 
@@ -1324,6 +1345,17 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
+    report_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional id of the inbox report this note is about. The note then names the report so a "
+            "scout can fetch it, and the report's activity log records that the note was left. "
+            "Requires edit access to inbox reports, and the report must belong to this project. "
+            "The report reference shares the note's character budget, so `content` is capped at "
+            f"{MAX_REPORT_NOTE_TEXT_LENGTH} characters when this is set."
+        ),
+    )
     expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
@@ -1341,6 +1373,18 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         if value is not None and value <= timezone.now():
             return None
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("report_id") and len(attrs.get("content", "")) > MAX_REPORT_NOTE_TEXT_LENGTH:
+            raise serializers.ValidationError(
+                {
+                    "content": (
+                        "A note about a report also stores a reference to it, so content is limited "
+                        f"to {MAX_REPORT_NOTE_TEXT_LENGTH} characters when report_id is set."
+                    )
+                }
+            )
+        return attrs
 
 
 # --- Emit -----------------------------------------------------------------
@@ -1527,7 +1571,8 @@ class ReportLinkWriteSerializer(serializers.Serializer):
 
 
 class EmitReportRequestSerializer(serializers.Serializer):
-    """Request body for `emit-report`. Run attribution is taken from the URL path."""
+    """Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+    taken from the URL path; a person is the authenticated caller."""
 
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
@@ -1571,14 +1616,14 @@ class EmitReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
             "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
-            "task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately."
+            "task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately."
         ),
     )
     repository = serializers.CharField(
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass "
             "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
             "which triggers free-form selection across the team's repos (the slow path on a many-repo "
             "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
@@ -1604,7 +1649,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
             "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
             "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
-            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+            "On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their "
+            "autonomy threshold. A report a person files never autostarts."
         ),
     )
     charts = serializers.ListField(
@@ -1672,7 +1718,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
         help_text=(
-            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "Optional name for this emission, unique within a scout's run or within a person's own reports. "
+            "Reuse it verbatim to retry a call "
             "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
             "report the first call authored, with `idempotent_replay` true, instead of a second report. "
             "Omit it and the report's own content is the key, which covers a retry of the identical "
@@ -1733,6 +1780,15 @@ class EmitReportResponseSerializer(serializers.Serializer):
 class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
+    reviewer_outcome_reason = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text=(
+            "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a "
+            "report that already has suggested reviewers: without it the current reviewers stay and the "
+            "response carries a warning. The reason is recorded in the report's work log."
+        ),
+    )
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     title = serializers.CharField(
         required=False,
@@ -3030,12 +3086,12 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if key_scopes is not None and "*" not in key_scopes:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
-            raise PermissionDenied("API key missing required scope 'integration:read'")
+            raise InsufficientScope(["integration:read"])
         # Delivery pushes report titles/summaries to the channel — content the report API gates
         # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
         if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
-            raise PermissionDenied("API key missing required scope 'inbox:read'")
+            raise InsufficientScope(["inbox:read"])
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 
@@ -4726,6 +4782,34 @@ class ScoutMemberTeamSerializer(serializers.Serializer):
     )
 
 
+class ScoutMemberActivityObjectSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="The object type in snake case, such as `dashboard` or `feature_flag`.")
+    name = serializers.CharField(help_text="The latest name of the object.")
+
+
+class ScoutMemberActivitySerializer(serializers.Serializer):
+    """What one member worked on recently, from their activity summary."""
+
+    headline = serializers.CharField(allow_null=True, help_text="One line about the member's recent work.")
+    themes = serializers.ListField(
+        child=serializers.CharField(), help_text="The labels of the main threads of the member's recent work."
+    )
+    owned = ScoutMemberActivityObjectSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MEMBER_ACTIVITY_OBJECTS} objects the member created or changed, the most edited first.",
+    )
+    watched = ScoutMemberActivityObjectSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MEMBER_ACTIVITY_OBJECTS} objects the member opened on several days, the most opened "
+        "first. A member who only reads the work shows up here. A specific object here can support a reviewer "
+        "pick when the pick's `reason` names it.",
+    )
+    generated_at = serializers.DateTimeField(allow_null=True, help_text="When the summary was written.")
+    stale = serializers.BooleanField(
+        help_text="True when the summary waits for a rebuild in a newer format. Give a stale summary less weight."
+    )
+
+
 class ScoutMemberSerializer(serializers.Serializer):
     """One project member's routing identity, for picking a `suggested_reviewers` entry on a report."""
 
@@ -4753,5 +4837,16 @@ class ScoutMemberSerializer(serializers.Serializer):
             "The teams this member is on, from the project's synced team roster. Empty when no roster is "
             "synced, or when the member has no linked GitHub account, since the roster is keyed on that "
             "login. The roster is a periodic snapshot, so it can lag the live team."
+        ),
+    )
+    activity = ScoutMemberActivitySerializer(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=(
+            "What the member worked on recently. Use it as context to check against the report, not as proof: "
+            "general activity is not evidence that the member owns the affected work. Filled only when the call "
+            f"passes `search` or `team` and returns at most {MAX_MEMBERS_WITH_ACTIVITY} members. Null when the "
+            "member has no ready summary, or when activity summaries are not available for this project."
         ),
     )

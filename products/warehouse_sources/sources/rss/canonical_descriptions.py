@@ -64,4 +64,35 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "localized_label": "The category label localized to your account language.",
         },
     },
+    "collaborators": {
+        "description": "A person invited to work on a podcast hosted on your RSS.com account.",
+        "docs_url": "https://api.rss.com/v4/docs",
+        "columns": {
+            "id": "The unique ID of the collaborator.",
+            "podcast_id": "The ID of the podcast the collaborator works on.",
+            "email": "The email address of the collaborator.",
+            "name": "The name of the collaborator.",
+            "status": "The invitation status of the collaborator: INVITED, ACCEPTED, or REJECTED.",
+            "role_id": "The ID of the role the collaborator has on the podcast.",
+        },
+    },
+    "keywords": {
+        "description": "A keyword assigned to a podcast hosted on your RSS.com account.",
+        "docs_url": "https://api.rss.com/v4/docs",
+        "columns": {
+            "id": "The unique ID of the keyword.",
+            "podcast_id": "The ID of the podcast the keyword is assigned to.",
+            "label": "The keyword label.",
+        },
+    },
+    "midrolls": {
+        "description": "A midroll ad insertion point in a podcast episode.",
+        "docs_url": "https://api.rss.com/v4/docs",
+        "columns": {
+            "id": "The unique ID of the midroll.",
+            "podcast_id": "The ID of the podcast the episode belongs to.",
+            "episode_id": "The ID of the episode the midroll belongs to.",
+            "start_time_ms": "The time (in milliseconds) when the midroll starts.",
+        },
+    },
 }

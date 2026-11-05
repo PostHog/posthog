@@ -35,6 +35,9 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         'elk.spacing.edgeEdge': `${NODE_EDGE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_EDGE_GAP}`,
         'elk.direction': 'DOWN',
+        // Keep each branch's first step in one layer with its siblings, so the fixed port order keeps the
+        // branches left to right. The default layering can move that step down a layer and to the other side.
+        'elk.layered.layering.strategy': 'LONGEST_PATH_SOURCE',
         'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',

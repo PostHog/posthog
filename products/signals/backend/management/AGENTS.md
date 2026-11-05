@@ -281,23 +281,23 @@ uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
 uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
 ```
 
+Every candidate is tied to the person: routed to them, waiting on their input, or claimed by them.
+A person with no such report gets `status: empty` with no model call.
+
 An optional `pools` list in the payload replaces the default candidate pools, in merge order:
 
 ```json
 {
   "pools": [
-    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "assigned", "size": 5 },
     { "source": "for_you_recommended", "size": 10 },
-    { "source": "assigned", "size": 0 },
-    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+    { "source": "for_you_updated", "size": 0 }
   ]
 }
 ```
 
-Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
-`scored` needs a `head` (`open`, `action` or `fixed`) and only joins for a person who can see the ranking model.
-`scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
-The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated` or `assigned`), a `size` (0 turns it off) and an optional `name`.
+The build logs and drops an invalid entry, such as one with the removed `scored` or `priority` source, and uses the default pools when no entry is valid.
 
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
@@ -338,7 +338,7 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 }
 ```
 
-- **Enrollment:** every project of the listed organizations, plus the salted `self_driving_organization_percentage` of the organizations with a project that has an enabled signal source. The percentage enrolls only those projects, and a higher percentage keeps the organizations of a lower one. The organization must approve AI data processing, and the activity summary must be readable for the project. The deny list and `skip_team_ids` win. Enrollment decides who gets scheduled builds. It does not change who can read `for_me`.
+- **Enrollment:** every project of the listed organizations, plus the salted `self_driving_organization_percentage` of the organizations with a project that has an enabled signal source. The percentage enrolls only those projects, and a higher percentage keeps the organizations of a lower one. The organization must approve AI data processing, and the activity summary must be readable for the project. A summary is readable for every project that activity summary generation enrolls, including its own percentage rollout. The deny list and `skip_team_ids` win. Enrollment decides who gets scheduled builds. It does not change who can read `for_me`.
 - **Due pairs:** a member with a ready activity summary, activity in the last `active_days`, and a latest list that was built or checked longer ago than `target_interval_minutes`, or no list.
 - **Order:** paying organizations first, then the most recent activity, then the oldest list. One organization takes at most `max_org_share` of `max_pairs_per_tick`.
 - **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.

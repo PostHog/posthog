@@ -1110,6 +1110,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scout-trials',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
@@ -1125,6 +1126,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
+            'workflows-email-from-code',
             'activity-summary',
             'personal-inbox-ranking',
             'anomalies-search',
@@ -1133,6 +1135,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'investigate-insight',
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
+            'workflows-push-token-import-mcp',
             'support-macros',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

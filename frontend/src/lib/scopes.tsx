@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { RISKY_SCOPE_WARNINGS } from 'lib/oauthScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
@@ -128,6 +129,40 @@ export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string)
     return tokens.every((token) => haystack.includes(token))
 }
 
+/**
+ * The warning a scope picker row shows for a risky scope at the picked level. The backend owns the list of
+ * risky scopes and their wording. Write access includes read, so a write pick also shows the read warning.
+ */
+export const riskyScopeWarning = (
+    scopeObject: string,
+    level: ScopeAccessLevel,
+    riskyScopes: Record<string, string>
+): string | undefined => {
+    const actions: APIScopeAction[] = level === 'write' ? ['write', 'read'] : level === 'read' ? ['read'] : []
+    const warnings = actions.map((action) => riskyScopes[`${scopeObject}:${action}`]).filter(Boolean)
+    return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
+}
+
+/**
+ * What a personal API key or OAuth scope row warns about at the picked level: the scope's own note, such as a
+ * feature flag it also writes, followed by the backend's risky scope warning.
+ */
+export function scopeRowWarning(
+    apiScope: APIScope | undefined,
+    scopeObject: string,
+    level: ScopeAccessLevel
+): string | JSX.Element | undefined {
+    const note = level === 'none' ? undefined : apiScope?.warnings?.[level]
+    const risky = riskyScopeWarning(scopeObject, level, RISKY_SCOPE_WARNINGS)
+    return note && risky ? (
+        <>
+            {note} {risky}
+        </>
+    ) : (
+        (note ?? risky)
+    )
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -151,6 +186,18 @@ export const API_SCOPES: APIScope[] = [
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
+    {
+        key: 'workload_trust_policy',
+        objectName: 'Workload trust policy',
+        objectPlural: 'workload trust policies',
+        disabledActions: ['write'],
+    },
+    {
+        key: 'workload_trust_policy_request',
+        objectName: 'Workload trust policy request',
+        objectPlural: 'workload trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a workload trust policy. A request grants nothing until an admin approves it.',
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -229,6 +276,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
+    { key: 'knowledge_writer', objectName: 'Knowledge writer', objectPlural: 'knowledge writer verdicts' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
@@ -261,15 +309,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Organization member',
         objectPlural: 'organization members',
         disabledWhenProjectScoped: true,
-        warnings: {
-            write: (
-                <>
-                    This scope can be used to invite users to your organization,
-                    <br />
-                    effectively <strong>allowing access to other scopes via the added user</strong>.
-                </>
-            ),
-        },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
@@ -312,6 +351,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    {
+        key: 'transactional_email',
+        objectName: 'Transactional email',
+        objectPlural: 'transactional emails',
+        info: "Write sends transactional email from a template. Read gets a sent email's status and works only with a project secret API key. This scope can't change templates or workflows.",
+    },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
@@ -320,15 +365,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'User',
         objectPlural: 'users',
         disabledActions: ['write'],
-        warnings: {
-            read: (
-                <>
-                    This scope allows you to retrieve your own user object.
-                    <br />
-                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
-                </>
-            ),
-        },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     {
@@ -390,6 +426,9 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'session_recording:read',
     'hog_flow:read',
     'hog_flow:write',
+    'messaging_preference:write',
+    'transactional_email:read',
+    'transactional_email:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -504,6 +543,8 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+    { value: 'recipient_preferences', label: 'Set recipient preferences', scopes: ['messaging_preference:write'] },
+    { value: 'transactional_email', label: 'Send transactional email', scopes: ['transactional_email:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each scope object
@@ -573,7 +614,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Developer experience',
-        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+        objects: ['engineering_analytics', 'knowledge_writer', 'stamphog', 'visual_review'],
     },
     {
         label: 'LLM & MCP analytics',
@@ -609,6 +650,10 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'webhook',
             'plugin',
         ],
+    },
+    {
+        label: 'Messaging',
+        objects: ['transactional_email'],
     },
     {
         label: 'AI & context management tools',
@@ -662,6 +707,8 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization',
             'organization_member',
             'project',
+            'workload_trust_policy',
+            'workload_trust_policy_request',
             'user',
             'billing',
             'access_control',

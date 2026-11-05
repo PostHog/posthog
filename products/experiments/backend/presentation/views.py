@@ -32,12 +32,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-)
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -695,14 +690,8 @@ class EnterpriseExperimentsViewSet(
         only experiment:write. Session and other non-token auth aren't scope-limited (gated by
         access control instead), mirroring APIScopePermission.
         """
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scopes = authenticator.personal_api_key.scopes or []
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scopes = (authenticator.access_token.scope or "").split()
-        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
-            scopes = list(authenticator.scopes or [])
-        else:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is None:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 
@@ -1574,10 +1563,11 @@ class EnterpriseExperimentsViewSet(
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
-                    "each metric in the experiment's metrics array."
+                    "Ignored. The server derives the metric's calculation key from the experiment's current "
+                    "settings. Accepted so that existing clients keep working."
                 ),
-                required=True,
+                required=False,
+                deprecated=True,
             ),
         ],
     )
@@ -1585,30 +1575,26 @@ class EnterpriseExperimentsViewSet(
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
-        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
+        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
 
+        # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
+        # definition and the key from the experiment.
         metric = request.data.get("metric")
-        fingerprint = request.data.get("fingerprint")
 
-        if not metric:
+        if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
+        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:

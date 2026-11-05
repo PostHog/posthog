@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { Platform, TextInput } from 'react-native'
 import { ChatScreen } from './ChatScreen'
 import { queueActions, queueReducer } from './messageQueue'
 import { useSession } from './session/useSession'
@@ -19,6 +20,18 @@ jest.mock(
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
+jest.mock('@/features/status/usePostHogStatus', () => ({
+    usePostHogStatus: () => ({
+        pageUrl: 'https://www.posthogstatus.com/eu',
+        summary: 'Elevated latency',
+        aiIncident: {
+            status: 'monitoring',
+            color: 'yellow',
+            title: 'Elevated latency',
+            url: 'https://www.posthogstatus.com/incidents/example',
+        },
+    }),
+}))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 1 }) }))
 jest.mock('@/demo/demoMode', () => ({ useDataMode: () => 'live' }))
 jest.mock('@/features/chats/hooks', () => ({ useArchiveChat: () => ({ archive: jest.fn() }) }))
@@ -82,7 +95,26 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
     return { session, draft }
 }
 
+test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskId) => {
+    const { session } = mockReadyChat()
+    session.taskId = taskId
+    render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+    expect(screen.getByLabelText('PostHog AI incident (monitoring) · Elevated latency')).toBeTruthy()
+})
+
 describe('chat send preparation', () => {
+    test('focuses the composer only when the route is ready', () => {
+        mockReadyChat()
+        const focus = jest.mocked(TextInput.prototype.focus)
+        const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(focus).not.toHaveBeenCalled()
+
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} autoFocus onBack={jest.fn()} />)
+        expect(focus).toHaveBeenCalledTimes(1)
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} autoFocus onBack={jest.fn()} />)
+        expect(focus).toHaveBeenCalledTimes(1)
+    })
+
     test('keeps an unsaved draft notice visible and disables retry while saving', () => {
         const { session, draft } = mockReadyChat()
         session.notice = 'Connection interrupted. Reconnect to continue.'
@@ -92,6 +124,7 @@ describe('chat send preparation', () => {
         expect(screen.getByDisplayValue('First message')).toBeTruthy()
         expect(screen.getByText(draft.draftError)).toBeTruthy()
         expect(screen.queryByTestId('session-reconnect')).toBeNull()
+        expect(screen.queryByLabelText('Dismiss')).toBeNull()
         fireEvent.press(screen.getByTestId('chat-draft-retry'))
         expect(draft.retrySave).toHaveBeenCalledTimes(1)
         draft.draftSaving = true
@@ -106,6 +139,8 @@ describe('chat send preparation', () => {
         expect(screen.getByText(session.notice)).toBeTruthy()
         fireEvent.press(screen.getByTestId('session-reconnect'))
         expect(session.reconnect).toHaveBeenCalledTimes(1)
+        fireEvent.press(screen.getByLabelText('Dismiss'))
+        expect(session.dismissNotice).toHaveBeenCalledTimes(1)
     })
     test.each(['new', 'close', 'unmount'])('a prepared message does not send after %s', async (transition) => {
         let finishStorage!: (settle: (sent: boolean) => Promise<void>) => void
@@ -333,10 +368,17 @@ describe('chat send preparation', () => {
         draft.draft = { text: '', reportIds: [] }
         draft.queue = { rows: [{ id: 'queued-1', text: 'Keep this question', attachments: [] }], hold: 'cancelled' }
         render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
-        expect(screen.getByTestId('chat-new').props.accessibilityState.disabled).toBe(true)
-        fireEvent.press(screen.getByTestId('chat-new'))
+        expect(screen.queryByTestId('chat-new')).toBeNull()
         expect(session.reset).not.toHaveBeenCalled()
         expect(session.send).not.toHaveBeenCalled()
         expect(screen.getByText('Keep this question')).toBeTruthy()
     })
+})
+
+const originalPlatform = Platform.OS
+beforeAll(() => {
+    Platform.OS = 'android'
+})
+afterAll(() => {
+    Platform.OS = originalPlatform
 })
