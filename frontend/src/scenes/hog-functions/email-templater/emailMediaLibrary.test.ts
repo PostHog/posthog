@@ -104,7 +104,11 @@ describe('registerEmailMediaLibrary', () => {
                 naturalWidth = size === 'unreadable' ? 0 : size.width
                 naturalHeight = size === 'unreadable' ? 0 : size.height
                 set src(_url: string) {
-                    size === 'unreadable' ? this.onerror() : this.onload()
+                    if (size === 'unreadable') {
+                        this.onerror()
+                    } else {
+                        this.onload()
+                    }
                 }
             }
         }
