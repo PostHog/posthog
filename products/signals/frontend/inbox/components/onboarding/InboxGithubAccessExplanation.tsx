@@ -46,11 +46,12 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
                         role="dialog"
                         aria-label="Why do we ask for GitHub access?"
                         tabIndex={-1}
-                        className="w-128 max-w-full space-y-3 p-4 text-sm text-secondary"
+                        className="flex w-128 max-w-full flex-col gap-3 p-4 text-sm text-secondary"
                     >
                         <div className="flex items-start justify-between gap-3">
                             <p className="m-0 font-semibold text-default">
-                                We will never push to GitHub without your permission.
+                                We use GitHub access to research issues and may automatically open pull requests with
+                                proposed fixes.
                             </p>
                             <LemonButton
                                 size="xsmall"
@@ -90,9 +91,7 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
                             </li>
                             <li>
                                 <h4 className="m-0 text-sm font-semibold text-default">Automatic fixes</h4>
-                                <p className="m-0">
-                                    If you enable it, we can open PRs to fix issues we've researched automatically.
-                                </p>
+                                <p className="m-0">We can open PRs to fix issues we've researched automatically.</p>
                             </li>
                         </ul>
                     </div>

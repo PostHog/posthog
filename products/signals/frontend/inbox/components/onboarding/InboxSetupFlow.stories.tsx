@@ -361,10 +361,10 @@ export const QuickEntryWithGithubAccessExplanation: Story = {
         ].filter((element): element is HTMLElement => element !== null)
         const positions = controls.map((element) => element.getBoundingClientRect().y)
         await userEvent.click(explanation)
-        const permissionStatement = await within(document.body).findByText(
-            'We will never push to GitHub without your permission.'
+        const accessSummary = await within(document.body).findByText(
+            'We use GitHub access to research issues and may automatically open pull requests with proposed fixes.'
         )
-        await expect(permissionStatement).toBeVisible()
+        await expect(accessSummary).toBeVisible()
         controls.forEach((element, index) => {
             expect(element.getBoundingClientRect().y).toBe(positions[index])
         })
