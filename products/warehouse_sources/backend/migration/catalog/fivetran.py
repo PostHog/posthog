@@ -170,6 +170,16 @@ _D = ExternalDataDestination.Type
 # Fivetran destination service ids, from
 # https://github.com/fivetran/terraform-provider-fivetran/blob/main/destination-services.txt.
 # The managed data lake is left out because it can sit on ADLS or GCS, which an S3 destination cannot write to.
+# Non-secret destination config keys a migration may carry over, per PostHog destination type. Every other key
+# is dropped, because Fivetran marks secrets per destination and no name rule can find them all.
+DESTINATION_CONFIG_KEYS: dict[ExternalDataDestination.Type, frozenset[str]] = {
+    _D.SNOWFLAKE: frozenset({"host", "port", "database", "user", "role"}),
+    _D.BIGQUERY: frozenset({"project_id", "data_set_location"}),
+    _D.REDSHIFT: frozenset({"host", "port", "database", "user", "cluster_id", "cluster_region"}),
+    _D.POSTGRES: frozenset({"host", "port", "database", "user", "tunnel_host", "tunnel_port", "tunnel_user"}),
+    _D.DATABRICKS: frozenset({"server_host_name", "port", "http_path", "catalog"}),
+}
+
 DESTINATION_TYPES: dict[str, ExternalDataDestination.Type] = {
     "snowflake": _D.SNOWFLAKE,
     "big_query": _D.BIGQUERY,
