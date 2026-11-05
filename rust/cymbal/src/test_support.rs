@@ -51,10 +51,12 @@ pub async fn start_redis() -> (Arc<RedisClient>, RedisContainer) {
     panic!("redis container never became ready");
 }
 
+pub type ScriptRequest = (String, Vec<String>, Vec<String>);
+
 /// A [`ScriptRunner`] that never touches Redis: a canned reply, or an error.
 pub struct FakeRunner {
     reply: Option<Vec<i64>>,
-    calls: std::sync::Mutex<Vec<(String, Vec<String>, Vec<String>)>>,
+    calls: std::sync::Mutex<Vec<ScriptRequest>>,
 }
 
 impl FakeRunner {
@@ -76,7 +78,7 @@ impl FakeRunner {
         self.requests().len()
     }
 
-    pub fn requests(&self) -> Vec<(String, Vec<String>, Vec<String>)> {
+    pub fn requests(&self) -> Vec<ScriptRequest> {
         self.calls.lock().unwrap().clone()
     }
 }

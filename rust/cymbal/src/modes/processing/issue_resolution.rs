@@ -501,8 +501,10 @@ pub async fn send_issue_created_notification(
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
         context.shadow_redis_client.as_ref(),
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_created",
@@ -528,11 +530,15 @@ fn error_tracking_event_properties_key(team_id: i32, event_uuid: Uuid) -> String
     format!("{ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX}:{team_id}:{event_uuid}")
 }
 
+struct EventPropertiesLimits {
+    ttl_seconds: u64,
+    max_bytes: usize,
+}
+
 async fn store_error_tracking_event_properties(
     redis: &(dyn common_redis::Client + Send + Sync),
     shadow: Option<&std::sync::Arc<dyn common_redis::Client + Send + Sync>>,
-    ttl_seconds: u64,
-    max_bytes: usize,
+    limits: EventPropertiesLimits,
     team_id: i32,
     event_uuid: Uuid,
     notification_type: &'static str,
@@ -550,7 +556,7 @@ async fn store_error_tracking_event_properties(
 
     metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES, "notification_type" => notification_type)
         .record(payload.len() as f64);
-    if payload.len() > max_bytes {
+    if payload.len() > limits.max_bytes {
         metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large", "notification_type" => notification_type)
             .increment(1);
         return;
@@ -558,7 +564,7 @@ async fn store_error_tracking_event_properties(
 
     let shadow_payload = shadow.map(|_| payload.clone());
     if let Err(error) = redis
-        .set_bytes(key.clone(), payload, Some(ttl_seconds))
+        .set_bytes(key.clone(), payload, Some(limits.ttl_seconds))
         .await
     {
         metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis", "notification_type" => notification_type)
@@ -568,7 +574,7 @@ async fn store_error_tracking_event_properties(
     }
 
     if let Some(payload) = shadow_payload {
-        crate::modes::shadow_redis::set_bytes(shadow, key, payload, ttl_seconds);
+        crate::modes::shadow_redis::set_bytes(shadow, key, payload, limits.ttl_seconds);
     }
     metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED, "notification_type" => notification_type)
         .increment(1);
@@ -585,8 +591,10 @@ pub async fn send_issue_reopened_notification(
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
         context.shadow_redis_client.as_ref(),
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_reopened",
@@ -618,8 +626,10 @@ pub async fn send_issue_spiking_notification(
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
         context.shadow_redis_client.as_ref(),
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_spiking",
@@ -844,8 +854,10 @@ mod test {
         super::store_error_tracking_event_properties(
             &redis,
             Some(&shadow_client),
-            172_800,
-            1_048_576,
+            super::EventPropertiesLimits {
+                ttl_seconds: 172_800,
+                max_bytes: 1_048_576,
+            },
             42,
             event_uuid,
             "issue_created",
@@ -904,8 +916,10 @@ mod test {
         super::store_error_tracking_event_properties(
             &redis,
             None,
-            172_800,
-            128,
+            super::EventPropertiesLimits {
+                ttl_seconds: 172_800,
+                max_bytes: 128,
+            },
             42,
             Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap(),
             "issue_created",

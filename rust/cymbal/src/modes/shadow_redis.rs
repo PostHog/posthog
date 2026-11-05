@@ -33,10 +33,8 @@ pub async fn connect(
         url.to_string(),
         CompressionConfig::disabled(),
         format,
-        Some(Duration::from_millis(response_timeout_ms.max(1).min(200))),
-        Some(Duration::from_millis(
-            connection_timeout_ms.max(1).min(1000),
-        )),
+        Some(Duration::from_millis(response_timeout_ms.clamp(1, 200))),
+        Some(Duration::from_millis(connection_timeout_ms.clamp(1, 1000))),
     )
     .await
     {
