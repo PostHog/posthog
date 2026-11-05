@@ -768,8 +768,7 @@ def _refresh_name_substitutions(
         engine_subs = engine.refresh_name_substitutions(source=source, source_schemas=source_schemas, team_id=team_id)
         if engine_subs is not None:
             return engine_subs
-    # The config-driven gate goes first, so a source it rules out never reads its stored settings.
-    if is_multi_schema_capable_sql_source(source.source_type) and source_namespace_is_blank(source):
+    if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
 
