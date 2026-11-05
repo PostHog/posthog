@@ -14,14 +14,9 @@ import { ActivityGroup, gapBetween, groupDuration } from './emailActivityGroups'
 import { EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG } from './emailLogStatus'
 
 type Marker = 'event' | 'outcome' | 'email'
+type RailPosition = 'first' | 'middle' | 'last' | 'only'
 
-function RailLine({
-    inSession,
-    position,
-}: {
-    inSession: boolean
-    position: 'first' | 'middle' | 'last' | 'only'
-}): JSX.Element | null {
+function RailLine({ inSession, position }: { inSession: boolean; position: RailPosition }): JSX.Element | null {
     if (position === 'only') {
         return null
     }
@@ -47,7 +42,7 @@ function RailRow({
 }: {
     time?: ReactNode
     inSession?: boolean
-    position: 'first' | 'middle' | 'last' | 'only'
+    position: RailPosition
     marker?: ReactNode
     children: ReactNode
 }): JSX.Element {
@@ -197,6 +192,93 @@ function buildRailItems(
     return items
 }
 
+function railPosition(index: number, count: number): RailPosition {
+    if (count === 1) {
+        return 'only'
+    }
+    return index === 0 ? 'first' : index === count - 1 ? 'last' : 'middle'
+}
+
+function SendRow({
+    position,
+    sentAt,
+    failed,
+    sendLabel,
+    sendDetail,
+}: {
+    position: RailPosition
+    sentAt: string
+    failed: boolean
+    sendLabel: string
+    sendDetail: string | null
+}): JSX.Element {
+    return (
+        <RailRow
+            position={position}
+            time={dayjs(sentAt).format('HH:mm:ss')}
+            marker={
+                <span
+                    className={clsx(
+                        'relative flex items-center justify-center size-5 rounded-full',
+                        failed ? 'bg-danger text-white' : 'bg-accent text-primary-inverse'
+                    )}
+                >
+                    <IconLetter className="size-3" />
+                </span>
+            }
+        >
+            <div
+                className={clsx(
+                    'flex flex-1 flex-wrap items-center gap-x-2 min-w-0 rounded border px-2 py-1 my-1 text-sm font-semibold',
+                    failed
+                        ? 'border-danger bg-danger-highlight text-danger'
+                        : 'border-accent bg-accent-highlight-secondary text-accent'
+                )}
+            >
+                {sendLabel}
+                {sendDetail && <span className="text-xs font-normal text-secondary truncate">{sendDetail}</span>}
+            </div>
+        </RailRow>
+    )
+}
+
+function ActivityRowEntry({
+    row,
+    inSession,
+    position,
+    sentAt,
+}: {
+    row: ActivityRow
+    inSession: boolean
+    position: RailPosition
+    sentAt: string
+}): JSX.Element {
+    const marker: Marker = row.kind === 'otherEmail' ? 'email' : isCustomEvent(row.event) ? 'outcome' : 'event'
+    return (
+        <RailRow
+            position={position}
+            inSession={inSession}
+            time={<Time at={row.at} sentAt={sentAt} />}
+            marker={<Dot marker={marker} />}
+        >
+            <RowContent row={row} />
+        </RailRow>
+    )
+}
+
+export interface TransactionalEmailActivityRailProps {
+    before: ActivityGroup[]
+    after: ActivityGroup[]
+    sentAt: string
+    failed: boolean
+    sendLabel: string
+    sendDetail: string | null
+    comeback: string | null
+    emptyAfter: string | null
+    hiddenBefore: number
+    onShowEarlier: () => void
+}
+
 export function TransactionalEmailActivityRail({
     before,
     after,
@@ -208,122 +290,81 @@ export function TransactionalEmailActivityRail({
     emptyAfter,
     hiddenBefore,
     onShowEarlier,
-}: {
-    before: ActivityGroup[]
-    after: ActivityGroup[]
-    sentAt: string
-    failed: boolean
-    sendLabel: string
-    sendDetail: string | null
-    comeback: string | null
-    emptyAfter: string | null
-    hiddenBefore: number
-    onShowEarlier: () => void
-}): JSX.Element {
+}: TransactionalEmailActivityRailProps): JSX.Element {
     const items = buildRailItems(before, after, sentAt, comeback, emptyAfter, hiddenBefore > 0)
-    return (
-        <ol className="flex flex-col m-0 p-0 list-none" data-attr="transactional-email-activity">
-            {items.map((item, index) => {
-                const position =
-                    items.length === 1 ? 'only' : index === 0 ? 'first' : index === items.length - 1 ? 'last' : 'middle'
-                if (item.kind === 'earlier') {
-                    return (
-                        <RailRow key={item.key} position={position}>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                className="-ml-1.5"
-                                onClick={onShowEarlier}
-                                data-attr="transactional-email-activity-show-earlier"
-                            >
-                                Show {pluralize(hiddenBefore, 'earlier event')}
-                            </LemonButton>
-                        </RailRow>
-                    )
-                }
-                if (item.kind === 'date') {
-                    return (
-                        <RailRow key={item.key} position={position} inSession={item.inSession}>
-                            <span className="text-xs font-semibold text-secondary">{item.label}</span>
-                        </RailRow>
-                    )
-                }
-                if (item.kind === 'session') {
-                    return (
-                        <RailRow key={item.key} position={position} inSession>
-                            <SessionLabel group={item.group} />
-                        </RailRow>
-                    )
-                }
-                if (item.kind === 'gap') {
-                    return (
-                        <RailRow key={item.key} position={position}>
-                            <span
-                                className={clsx(
-                                    'text-xs truncate',
-                                    item.highlighted ? 'font-semibold text-success' : 'text-secondary'
-                                )}
-                            >
-                                {item.text}
-                            </span>
-                        </RailRow>
-                    )
-                }
-                if (item.kind === 'note') {
-                    return (
-                        <RailRow key={item.key} position={position}>
-                            <span className="text-sm text-secondary">{item.text}</span>
-                        </RailRow>
-                    )
-                }
-                if (item.kind === 'send') {
-                    return (
-                        <RailRow
-                            key={item.key}
-                            position={position}
-                            time={dayjs(sentAt).format('HH:mm:ss')}
-                            marker={
-                                <span
-                                    className={clsx(
-                                        'relative flex items-center justify-center size-5 rounded-full',
-                                        failed ? 'bg-danger text-white' : 'bg-accent text-primary-inverse'
-                                    )}
-                                >
-                                    <IconLetter className="size-3" />
-                                </span>
-                            }
-                        >
-                            <div
-                                className={clsx(
-                                    'flex flex-1 flex-wrap items-center gap-x-2 min-w-0 rounded border px-2 py-1 my-1 text-sm font-semibold',
-                                    failed
-                                        ? 'border-danger bg-danger-highlight text-danger'
-                                        : 'border-accent bg-accent-highlight-secondary text-accent'
-                                )}
-                            >
-                                {sendLabel}
-                                {sendDetail && (
-                                    <span className="text-xs font-normal text-secondary truncate">{sendDetail}</span>
-                                )}
-                            </div>
-                        </RailRow>
-                    )
-                }
-                const { row, inSession } = item
-                const marker: Marker =
-                    row.kind === 'otherEmail' ? 'email' : isCustomEvent(row.event) ? 'outcome' : 'event'
+    const renderItem = (item: RailItem, position: RailPosition): JSX.Element => {
+        switch (item.kind) {
+            case 'earlier':
                 return (
-                    <RailRow
-                        key={item.key}
-                        position={position}
-                        inSession={inSession}
-                        time={<Time at={row.at} sentAt={sentAt} />}
-                        marker={<Dot marker={marker} />}
-                    >
-                        <RowContent row={row} />
+                    <RailRow key={item.key} position={position}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            className="-ml-1.5"
+                            onClick={onShowEarlier}
+                            data-attr="transactional-email-activity-show-earlier"
+                        >
+                            Show {pluralize(hiddenBefore, 'earlier event')}
+                        </LemonButton>
                     </RailRow>
                 )
-            })}
+            case 'date':
+                return (
+                    <RailRow key={item.key} position={position} inSession={item.inSession}>
+                        <span className="text-xs font-semibold text-secondary">{item.label}</span>
+                    </RailRow>
+                )
+            case 'session':
+                return (
+                    <RailRow key={item.key} position={position} inSession>
+                        <SessionLabel group={item.group} />
+                    </RailRow>
+                )
+            case 'gap':
+                return (
+                    <RailRow key={item.key} position={position}>
+                        <span
+                            className={clsx(
+                                'text-xs truncate',
+                                item.highlighted ? 'font-semibold text-success' : 'text-secondary'
+                            )}
+                        >
+                            {item.text}
+                        </span>
+                    </RailRow>
+                )
+            case 'note':
+                return (
+                    <RailRow key={item.key} position={position}>
+                        <span className="text-sm text-secondary">{item.text}</span>
+                    </RailRow>
+                )
+            case 'send':
+                return (
+                    <SendRow
+                        key={item.key}
+                        position={position}
+                        sentAt={sentAt}
+                        failed={failed}
+                        sendLabel={sendLabel}
+                        sendDetail={sendDetail}
+                    />
+                )
+            case 'row':
+                return (
+                    <ActivityRowEntry
+                        key={item.key}
+                        row={item.row}
+                        inSession={item.inSession}
+                        position={position}
+                        sentAt={sentAt}
+                    />
+                )
+        }
+    }
+    return (
+        <ol className="flex flex-col m-0 p-0 list-none" data-attr="transactional-email-activity">
+            {items.map((item, index) => renderItem(item, railPosition(index, items.length)))}
         </ol>
     )
 }

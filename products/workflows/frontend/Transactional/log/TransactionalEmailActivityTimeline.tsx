@@ -38,6 +38,19 @@ function sendLabel(email: TransactionalEmailLogDetailApi, sentAt: string): strin
     return 'Email sent'
 }
 
+function emptyAfterText(activity: PersonActivity, sentAt: string): string | null {
+    if (activity.after.length) {
+        return null
+    }
+    const days = pluralize(ACTIVITY_WINDOW_DAYS, 'day')
+    if (!activity.before.length) {
+        return `No events from this person in the ${days} before or after this email.`
+    }
+    return dayjs().isAfter(dayjs(sentAt).add(ACTIVITY_WINDOW_DAYS, 'day'))
+        ? `No activity in your product in the ${days} after this email.`
+        : 'No activity in your product since this email.'
+}
+
 /** The person's loaded activity on one rail, with the email pinned where it went out. */
 export function TransactionalEmailActivityTimeline({
     email,
@@ -61,13 +74,6 @@ export function TransactionalEmailActivityTimeline({
     const groupsBefore = groupActivityRows(timeline.before)
     const groupsAfter = groupActivityRows(timeline.after)
     const nothingAround = !activity.before.length && !activity.after.length
-    const emptyAfter = activity.after.length
-        ? null
-        : nothingAround
-          ? `No events from this person in the ${pluralize(ACTIVITY_WINDOW_DAYS, 'day')} before or after this email.`
-          : dayjs().isAfter(dayjs(sentAt).add(ACTIVITY_WINDOW_DAYS, 'day'))
-            ? `No activity in your product in the ${pluralize(ACTIVITY_WINDOW_DAYS, 'day')} after this email.`
-            : 'No activity in your product since this email.'
     const noSessions = !nothingAround && ![...groupsBefore, ...groupsAfter].some((group) => group.sessionId)
     return (
         <div className="flex flex-col gap-3">
@@ -91,7 +97,7 @@ export function TransactionalEmailActivityTimeline({
                 sendLabel={sendLabel(email, sentAt)}
                 sendDetail={email.template_name || null}
                 comeback={describeComeback(activity.after, email.timeline)}
-                emptyAfter={emptyAfter}
+                emptyAfter={emptyAfterText(activity, sentAt)}
                 hiddenBefore={hiddenBefore}
                 onShowEarlier={showAllBefore}
             />
