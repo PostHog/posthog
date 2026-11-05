@@ -1729,6 +1729,7 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                     .describe('Maximum number of invocations to rerun in this request. Server-side cap is 10000.'),
                 invocation_ids: zod
                     .array(zod.string().regex(hogFunctionsRerunCreateBodyFilterOneInvocationIdsItemRegExp))
+                    .min(1)
                     .max(hogFunctionsRerunCreateBodyFilterOneInvocationIdsMax)
                     .optional()
                     .describe(

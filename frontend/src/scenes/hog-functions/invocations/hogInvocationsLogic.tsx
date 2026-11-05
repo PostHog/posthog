@@ -23,8 +23,7 @@ export const HOG_INVOCATIONS_PAGE_SIZE = 100
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
 export const HOG_INVOCATIONS_RERUN_MAX_COUNT = 10000
 
-/** Display-side mirror of `HOG_INVOCATION_RERUN_MAX_IDS`. Selected rows rerun by ID, which has a lower cap
- * than a rerun that matches on filters. */
+/** Display-side mirror of `HOG_INVOCATION_RERUN_MAX_IDS`, the lower cap for rerunning selected rows by ID. */
 export const HOG_INVOCATIONS_RERUN_MAX_IDS = 2500
 
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
