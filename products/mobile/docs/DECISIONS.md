@@ -237,6 +237,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Screens wait for the session.** `app/_layout.tsx` renders the stack only after `restore()`; until then the native splash stays up (web shows `BootSplash`). Feature hooks never see a missing token at launch.
   The native splash then also waits for the inbox's first load, data or error, so the logo hands over to a filled inbox with no spinner. Any other first screen releases it on mount. An 8 second cap (`SPLASH_TIMEOUT_MS` in `src/auth/bootGate.ts`) releases it if the load hangs.
 - **One redirect to sign in.** `useAuthRedirect()` sends every screen to `/sign-in` when the session ends and demo mode is off, including a refresh failure in the middle of a session.
+  A screen outside the tabs, such as a report a link opened, travels along as `next` and reopens after a successful sign-in. Anything else lands on the start page.
 - **In-place confirmation.** Sign out confirms inside Settings, and inside the inbox menu, instead of `Alert.alert`, which does nothing on react-native-web.
   Both use `SignOutConfirm` and `useSignOutAction`. A demo session without an account leaves the demo with no confirmation.
 - **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. The sign-in screen does not offer personal API keys, including in development builds.
