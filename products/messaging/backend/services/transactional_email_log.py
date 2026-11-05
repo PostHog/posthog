@@ -5,7 +5,7 @@ sending domain, and opens and clicks add rows of their own. The delivery status 
 delivery row, so an open never hides a bounce.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
@@ -36,6 +36,7 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_STATUS_RETENTION_DAYS,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
     fetch_message_assets_for_invocations,
@@ -113,6 +114,20 @@ def _templates_by_workflow(team_id: int, workflow_ids: Sequence[str]) -> dict[st
     return {str(template.transactional_hog_flow_id): template for template in templates}
 
 
+def _access_condition(column: str, access: WorkflowViewAccess, params: dict[str, Any]) -> str:
+    if not access.can_view_deleted:
+        params["viewable_workflows"] = list(access.viewable_ids)
+        return f"{column} IN %(viewable_workflows)s"
+    if not access.blocked_ids:
+        return f"{column} != ''"
+    params["blocked_workflows"] = list(access.blocked_ids)
+    return f"{column} != '' AND {column} NOT IN %(blocked_workflows)s"
+
+
+def _sees_no_sends(access: WorkflowViewAccess | None) -> bool:
+    return access is not None and not access.can_view_deleted and not access.viewable_ids
+
+
 def _is_uuid(value: str) -> bool:
     try:
         UUID(value)
@@ -160,11 +175,11 @@ def list_transactional_emails(
     date_to: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
-    workflow_ids: Collection[str] | None = None,
+    access: WorkflowViewAccess | None = None,
 ) -> tuple[list[TransactionalEmailLogEntry], bool]:
-    """A page of the project's sends, newest first, and whether more follow. `workflow_ids` limits the sends to the
-    workflows the reader may view, and None reads them all."""
-    if workflow_ids is not None and not workflow_ids:
+    """A page of the project's sends, newest first, and whether more follow. `access` limits the sends to the workflows
+    the reader may view, and None reads them all."""
+    if _sees_no_sends(access):
         return [], False
     period = _window(date_from, date_to)
     start, end = period.start, period.end
@@ -195,10 +210,9 @@ def list_transactional_emails(
         queued_filters.append("function_id = %(workflow_id)s")
         having.append("message_function_id = %(workflow_id)s")
         params["workflow_id"] = workflow_id
-    if workflow_ids is not None:
-        queued_filters.append("function_id IN %(workflow_ids)s")
-        having.append("message_function_id IN %(workflow_ids)s")
-        params["workflow_ids"] = list(workflow_ids)
+    if access is not None:
+        queued_filters.append(_access_condition("function_id", access, params))
+        having.append(_access_condition("message_function_id", access, params))
 
     queued = " AND ".join([period_filter, "status = 'queued'", *queued_filters])
     candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
@@ -236,7 +250,7 @@ def list_transactional_emails(
 
 
 def get_transactional_email(
-    team_id: int, message_id: UUID, *, workflow_ids: Collection[str] | None = None
+    team_id: int, message_id: UUID, *, access: WorkflowViewAccess | None = None
 ) -> TransactionalEmailLogDetail | None:
     """One send with every status it went through, or None when the project has no send with this id, or the reader
     may not view its workflow."""
@@ -252,7 +266,7 @@ def get_transactional_email(
         params,
     )
     entries = _build_entries(team_id, rows)
-    if not entries or (workflow_ids is not None and entries[0].workflow_id not in workflow_ids):
+    if not entries or (access is not None and not access.allows(entries[0].workflow_id)):
         return None
     entry = entries[0]
 
@@ -284,7 +298,8 @@ def get_transactional_email(
         timeline=timeline,
         subject=asset.subject if asset else "",
         distinct_id=asset.distinct_id if asset else "",
-        action_id=asset.action_id if asset else "",
+        # The stored copy opens through its workflow, so a deleted workflow's copy can't be shown.
+        action_id=asset.action_id if asset and (access is None or entry.workflow_id in access.viewable_ids) else "",
         sensitive=bool(template and template.sensitive),
     )
 
@@ -295,18 +310,15 @@ def transactional_email_stats(
     *,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    workflow_ids: Collection[str] | None = None,
+    access: WorkflowViewAccess | None = None,
 ) -> list[TransactionalEmailStatsRow]:
     """How many sends reached each status, per template or per sending domain, busiest first."""
-    if workflow_ids is not None and not workflow_ids:
+    if _sees_no_sends(access):
         return []
     period = _window(date_from, date_to)
     start, end = period.start, period.end
     params: dict[str, Any] = {"start": start, "end": end}
-    access = ""
-    if workflow_ids is not None:
-        access = "AND message_function_id IN %(workflow_ids)s"
-        params["workflow_ids"] = list(workflow_ids)
+    access_filter = f"AND {_access_condition('message_function_id', access, params)}" if access is not None else ""
     group_column = "message_function_id" if group_by == EmailStatsGroupBy.TEMPLATE else "message_sending_domain"
     rows = _execute(
         team_id,
@@ -326,7 +338,7 @@ def transactional_email_stats(
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
         )
-        WHERE delivery_status != '' AND group_key != '' {access}
+        WHERE delivery_status != '' AND group_key != '' {access_filter}
         GROUP BY group_key
         ORDER BY sent + failed DESC, group_key
         LIMIT 200
