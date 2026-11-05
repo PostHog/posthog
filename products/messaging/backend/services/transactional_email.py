@@ -54,6 +54,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.services.transactional_email_status import record_accepted_send
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
@@ -657,7 +658,9 @@ def _queue(
         raise error_class(message)
 
     body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    queued = QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    record_accepted_send(team_id, queued.message_id)
+    return queued
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:

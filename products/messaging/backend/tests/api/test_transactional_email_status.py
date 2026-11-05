@@ -10,11 +10,15 @@ from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
+from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.services.transactional_email import make_transactional
+from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
@@ -131,6 +135,46 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "created_at": self.queued_at.isoformat().replace("+00:00", "Z"),
             "status_at": self._at(status_offset).isoformat().replace("+00:00", "Z"),
             "reason": reason,
+        }
+
+    @parameterized.expand(
+        [
+            ("before_its_first_status_arrives", [], "queued", 0),
+            ("once_a_later_status_arrives", [("sent", 2, "")], "sent", 2),
+        ]
+    )
+    def test_a_send_the_pipeline_accepted_reads_as_queued_until_its_first_status(
+        self, _flag, _name, rows, expected_status, status_offset
+    ):
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        template = MessageTemplate.objects.create(
+            team=self.team, name="Welcome", type="email", content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}}
+        )
+        make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+        client = self._psak_client(["transactional_email:write"])
+
+        with patch("posthog.plugins.plugin_server_api.internal_requests.post") as pipeline:
+            pipeline.return_value.status_code = 202
+            pipeline.return_value.json.return_value = {"invocation_id": self.message_id}
+            send = client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/{template.id}/send/",
+                {"to": "user@example.com"},
+                format="json",
+            )
+        self._status_rows(rows)
+        response = client.get(self._url(self.message_id))
+
+        assert send.status_code == status.HTTP_202_ACCEPTED, send.json()
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "id": self.message_id,
+            "status": expected_status,
+            "created_at": self.queued_at.isoformat().replace("+00:00", "Z"),
+            "status_at": self._at(status_offset).isoformat().replace("+00:00", "Z"),
+            "reason": None,
         }
 
     @parameterized.expand(

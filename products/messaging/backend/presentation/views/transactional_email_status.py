@@ -100,10 +100,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             200: EmailStatusSerializer,
             401: OpenApiResponse(description="The request has no project secret API key."),
-            404: OpenApiResponse(
-                description="No email of this project has this ID, or it is older than 30 days. A send can also "
-                "answer 404 for a few seconds right after it was queued."
-            ),
+            404: OpenApiResponse(description="No email of this project has this ID, or it is older than 30 days."),
         },
         summary="Get a transactional email's status",
         description=(
