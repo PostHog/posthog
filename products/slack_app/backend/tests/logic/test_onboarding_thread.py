@@ -186,7 +186,7 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     assert ready["thread_ts"] == "100.1"
     assert "You skipped: Your model" in all_block_text(ready["blocks"])
     assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
-    assert "PostHog is set up" in edits["100.1"] and "2 steps done" in edits["100.1"]
+    assert "Hey, I'm PostHog" in edits["100.1"] and "Setup done" in edits["100.1"]
     capture.assert_called_once_with(
         integration, "slack app onboarding completed", slack_user_id=SLACK_USER_ID, skipped_steps=["model"]
     )
@@ -358,7 +358,7 @@ def test_steps_done_before_the_thread_are_left_out_of_the_numbering(
     assert "No steps done yet" in all_block_text(root["blocks"])
     assert f"<@{SLACK_USER_ID}> Step 1" in all_block_text(link_step["blocks"])
     assert finished is True and ready["thread_ts"] == "100.1"
-    assert "1 step done" in _edits(slack_client)["100.1"]
+    assert "Setup done" in _edits(slack_client)["100.1"]
 
 
 @pytest.mark.django_db

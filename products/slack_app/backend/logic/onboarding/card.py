@@ -24,11 +24,13 @@ SETUP_COMPLETED_EVENT = "slack app onboarding completed"
 
 
 def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
-    title = "*PostHog is set up*\nThe steps are in this thread." if ready else ONBOARDING_INTRO_TEXT
     return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
-        blocks=[section_block(title), context_block(progress)],
+        blocks=[
+            section_block(ONBOARDING_INTRO_TEXT),
+            context_block(":white_check_mark: Setup done" if ready else progress),
+        ],
         ts=ts,
         progress=progress,
     )
