@@ -322,7 +322,8 @@ class _InFlightLimit:
     async def __aexit__(self, *_: object) -> None:
         async with self._changed:
             self._in_flight -= 1
-            self._changed.notify_all()
+            # Waking every queued run at a cap of 1 makes a page's scheduling quadratic.
+            self._changed.notify(max(0, self.limit - self._in_flight))
 
     def record(self, result: BackfillChildOutcome) -> None:
         previous = self.limit
