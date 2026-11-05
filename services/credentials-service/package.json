@@ -29,9 +29,9 @@
         "@types/node": "^22.17.2",
         "esbuild": "^0.25.11",
         "oxfmt": "catalog:",
-        "oxlint": "^1.72.0",
+        "oxlint": "^1.90.0",
         "pino-pretty": "^9.4.1",
-        "tsx": "^4.20.5",
+        "tsx": "^4.23.15",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4"
