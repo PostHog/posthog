@@ -1,9 +1,13 @@
+from dataclasses import replace
+
+import pytest
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration, Organization, Team
@@ -14,7 +18,8 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
+from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
@@ -39,15 +44,19 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_github_integration,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
@@ -419,6 +428,50 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
 
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
+
+    @parameterized.expand(
+        [
+            ("profile_and_run_fill_the_cap", 31, 1, False),
+            ("run_overflows_the_cap", 31, 2, True),
+            ("run_alone_overflows_the_cap", 0, 34, True),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_refuses_a_run_past_the_cap(
+        self, _name: str, profile_count: int, run_count: int, refused: bool
+    ) -> None:
+        profile_tools = tuple(f"profile-{i}" for i in range(profile_count))
+        run_tools = [f"run-{i}" for i in range(run_count)]
+        task = MagicMock()
+        task.stored_profile = replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        labels = {"profile": BUSINESS_KNOWLEDGE.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+
+        if refused:
+            with pytest.raises(ProcessTaskFatalError):
+                mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools})
+        else:
+            assert mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools}) == [*profile_tools, *run_tools]
+
+        after = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+        assert after - before == (1 if refused else 0)
+
 
 class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
@@ -481,22 +534,41 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
-    @parameterized.expand([(None, True), ("account_audit", False)])
+    @parameterized.expand(
+        [
+            ("no_profile", None, None, True),
+            ("account_audit", "account_audit", None, False),
+            ("profile_without_store_servers", None, BUSINESS_KNOWLEDGE, False),
+            (
+                "profile_agent",
+                None,
+                replace(BUSINESS_KNOWLEDGE, key="test.support", mcp_store_servers=True, mcp_agent="support"),
+                True,
+            ),
+        ]
+    )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(
-        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
+        self,
+        _name: str,
+        origin_product: str | None,
+        profile: TaskProfile | None,
+        mounts_store: bool,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product, profile=profile
         ).configs
 
         if not mounts_store:
             assert configs == []
+            mock_facade.assert_not_called()
             return
 
         mock_facade.assert_called_once_with(
@@ -508,6 +580,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=profile is not None,
+            profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
             McpServerConfig(
@@ -638,6 +712,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            has_profile=False,
+            profile_agent_key=None,
         )
         assert configs == [
             McpServerConfig(
@@ -651,6 +727,19 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             ),
         ]
         assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
+
+    @parameterized.expand(
+        [
+            ("internal", True, None, False),
+            ("user_created", False, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+        ]
+    )
+    def test_include_personal_mcp_for_task(
+        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+    ) -> None:
+        task = MagicMock(internal=internal, stored_profile=profile)
+        assert include_personal_mcp_for_task(task) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
@@ -670,6 +759,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=False,
+            profile_agent_key=None,
         )
 
     @patch(MOCK_API_URL)

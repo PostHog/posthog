@@ -1,6 +1,7 @@
 import json
 import importlib
 import threading
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -30,6 +31,7 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
+    Read,
     Repository,
     SourceKind,
     TaskProfileError,
@@ -2053,6 +2055,33 @@ class TestFacadeReadsAndMappers(TestCase):
             assert task.channel is not None
             self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
             self.assertEqual(task.channel.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("with_run_team_readable", True, Read.TEAM, False),
+            ("with_run_creator_readable", True, Read.CREATOR, True),
+            ("without_run_team_readable", False, Read.TEAM, False),
+            ("without_run_creator_readable", False, Read.CREATOR, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_profiled_task_files_a_personal_channel_by_its_profile_read(
+        self, _name, with_run: bool, read: Read, expect_personal: bool, _mock_workflow
+    ):
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.listed", listed=True, read_without_channel=read
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if with_run:
+                task_id = facade.create_and_run_task(
+                    team=self.team, title="Profiled", description="desc", user_id=self.user.id, profile=profile
+                ).task_id
+            else:
+                task_id = facade.create_task_without_run(team=self.team, user_id=self.user.id, profile=profile)
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        self.assertEqual(channel is not None and channel.channel_type == Channel.ChannelType.PERSONAL, expect_personal)
 
     @parameterized.expand(
         [

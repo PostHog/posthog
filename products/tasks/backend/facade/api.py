@@ -213,6 +213,7 @@ from products.tasks.backend.task_sources import apply_task_source
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
+    readable_without_channel,
     scout_trial_visibility_q,
     task_control_q,
     task_run_visibility_q,
@@ -2082,7 +2083,7 @@ def create_and_run_task(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
+    if channel is None and not internal and not readable_without_channel(origin_product, profile):
         channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
@@ -2328,7 +2329,7 @@ def create_task_without_run(
     if channel is None:
         channel = (
             None
-            if origin.origin_product in TEAM_READABLE_ORIGIN_PRODUCTS
+            if readable_without_channel(origin.origin_product, profile)
             else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
@@ -8466,6 +8467,21 @@ def update_task(
                 validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
             else:
                 validated_data.pop("repository")
+        profile = task.stored_profile
+        changes_github_access = not validated_data.keys().isdisjoint(
+            {"repository", "repositories", "github_integration", "github_user_integration"}
+        )
+        if (
+            profile is not None
+            and changes_github_access
+            and not Task.attaches_github(
+                task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+            )
+        ):
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+            task.github_integration = None
+            task.github_user_integration = None
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         if "archived" in validated_data and validated_data["archived"] != task.archived:

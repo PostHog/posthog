@@ -533,6 +533,17 @@ def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
+MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
+    "posthog_tasks_mcp_exclude_tools_over_cap_total",
+    "Profiled runs refused because the profile and the run together hide more MCP tools than the sandbox cap",
+    labelnames=["profile"],
+)
+
+
+def observe_mcp_exclude_tools_over_cap(*, profile: str) -> None:
+    MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL.labels(profile=profile).inc()
+
+
 def _metric_label(value: object | None) -> str:
     if value is None:
         return "unknown"

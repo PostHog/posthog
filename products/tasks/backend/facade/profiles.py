@@ -167,6 +167,7 @@ class TaskProfile:
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
     # servers included.
     mcp_store_servers: bool
+    mcp_exclude_tools: tuple[str, ...]
     # The OAuth application that mints the sandbox's PostHog tokens. The LLM gateway pins billing
     # products per application, so a token from a shared application is valid for every product on
     # it. A product with its own billing needs its own application.
@@ -302,10 +303,14 @@ _ORIGIN_SCOPED_FIELDS = (
     "warm",
 )
 
+MAX_MCP_EXCLUDE_TOOLS = 32
+
 _profiles: dict[str, TaskProfile] = {}
 
 
 def register_task_profile(profile: TaskProfile) -> None:
+    if len(profile.mcp_exclude_tools) > MAX_MCP_EXCLUDE_TOOLS:
+        raise TaskProfileError(f"Task profile {profile.key!r} hides more than {MAX_MCP_EXCLUDE_TOOLS} MCP tools")
     existing = _profiles.get(profile.key)
     if existing is not None and existing != profile:
         raise TaskProfileError(f"Task profile {profile.key!r} is already registered with different values")
