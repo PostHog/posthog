@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -345,7 +346,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         deleted_id = self._send(
             5, "old@example.com", [("sent", 1, "")], workflow_id=deleted_workflow, domain="old.example.com"
         )
-        destroy_workflow(team_id=self.team.id, hog_flow_id=deleted_workflow)
+        destroy_workflow(team_id=self.team.id, hog_flow_id=UUID(deleted_workflow))
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -389,7 +390,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):
         deleted_workflow = create_workflow_for_test(team_id=self.team.id, name="Old").id
         deleted_id = self._send(5, "old@example.com", [("sent", 1, "")], workflow_id=deleted_workflow)
-        destroy_workflow(team_id=self.team.id, hog_flow_id=deleted_workflow)
+        destroy_workflow(team_id=self.team.id, hog_flow_id=UUID(deleted_workflow))
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
