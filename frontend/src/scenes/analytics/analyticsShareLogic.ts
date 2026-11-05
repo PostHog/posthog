@@ -197,7 +197,7 @@ export interface analyticsShareLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pickerSearching: (pickerSearch: string) => boolean
         pickerRows: (
-            pickerSearching: any,
+            pickerSearching: boolean,
             browsePath: string | null,
             searchResults: ShareDestination[],
             spaces: AnalyticsSpace[],
@@ -205,20 +205,20 @@ export interface analyticsShareLogicMeta {
         ) => PickerRow[]
         pickerLoading: (
             entryLoading: boolean,
-            pickerSearching: any,
+            pickerSearching: boolean,
             browsePath: string | null,
             searchResultsLoading: boolean,
             spacesLoading: boolean,
             spaces: AnalyticsSpace[],
             folderContentsLoading: boolean
         ) => boolean
-        pickerFailed: (pickerSearching: any, browsePath: string | null, folderContentsFailed: boolean) => boolean
-        pickerEmptyMessage: (pickerSearching: any, pickerSearch: string, browsePath: string | null) => string
+        pickerFailed: (pickerSearching: boolean, browsePath: string | null, folderContentsFailed: boolean) => boolean
+        pickerEmptyMessage: (pickerSearching: boolean, pickerSearch: string, browsePath: string | null) => string
         currentFolder: (entry: FileSystemEntry | null) => string | null
         moveButtonLabel: (
             currentFolder: string | null,
             browseCrumbs: ShareDestination[],
-            pickerSearching: any
+            pickerSearching: boolean
         ) => string
         browseCrumbs: (browsePath: string | null) => ShareDestination[]
         moveDisabledReason: (
