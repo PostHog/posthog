@@ -38,6 +38,9 @@ export async function findEndpoints(api: PostHogApi, names: readonly string[]): 
     return found
 }
 
+// PostHog can't filter variables by name or ID, so a variable lookup pages further.
+const VARIABLE_MAX_PAGES = 200
+
 // PostHog allows a variable without a code name, which no query can reference, so a lookup skips it.
 const ListedVariable = InsightVariable.extend({ code_name: z.string().nullable() })
 
@@ -52,7 +55,8 @@ export async function findInsightVariables(
         'insight_variables/',
         ListedVariable,
         names,
-        (variable) => variable.code_name
+        (variable) => variable.code_name,
+        VARIABLE_MAX_PAGES
     )
     return { found: new Map([...found].map(([name, variable]) => [name, { ...variable, code_name: name }])), complete }
 }

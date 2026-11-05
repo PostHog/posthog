@@ -184,20 +184,32 @@ describe('hog endpoints', () => {
         expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', 'type: string'))
     })
 
-    test('pull fetches a variable past the page cap by its ID, so its type stays exact', async () => {
+    test.each([
+        ['finds a variable on a late page by paging, without a request per variable', 25, 200, 'String', false],
+        ['fetches a variable past the page cap by its ID', null, 200, 'String', true],
+        ['takes the type from the value when the variable was deleted', null, 404, 'string', true],
+    ])('pull %s', async (_name, foundOnPage, detailStatus, type, fetchesById) => {
         const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
             env: AGENT,
-            respond: server([HOGQL], (url) =>
-                url.startsWith(`${BASE}insight_variables/?`) || url === `${BASE}insight_variables/`
-                    ? { status: 200, body: { results: [], next: `${BASE}insight_variables/?page=2` } }
-                    : url === `${BASE}insight_variables/var-1/`
-                      ? { status: 200, body: VARIABLES[0] }
-                      : undefined
-            ),
+            respond: server([HOGQL], (url) => {
+                if (url === `${BASE}insight_variables/var-1/`) {
+                    return {
+                        status: detailStatus,
+                        body: detailStatus === 200 ? VARIABLES[0] : { detail: 'Not found.' },
+                    }
+                }
+                if (!url.startsWith(`${BASE}insight_variables/`)) {
+                    return undefined
+                }
+                const page = Number(new URL(url).searchParams.get('page') ?? '1')
+                const results = page === foundOnPage ? [VARIABLES[0]] : []
+                return { status: 200, body: { results, next: `${BASE}insight_variables/?page=${page + 1}` } }
+            }),
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE)
+        expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', `type: ${type}`))
+        expect(result.requests.some((request) => request.url.endsWith('/insight_variables/var-1/'))).toBe(fetchesById)
     })
 
     test.each([
