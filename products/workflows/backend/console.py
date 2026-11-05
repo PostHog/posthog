@@ -49,6 +49,7 @@ TIER_HOLD_REASONS = {
 class SetEmailSendingTierForm(forms.Form):
     tier = forms.TypedChoiceField(coerce=int, choices=())
     pinned = forms.BooleanField(required=False, label="Pin the tier, so the daily recompute does not move it")
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -132,8 +133,10 @@ class EmailSendingPanel(Panel):
                 key="set-tier",
                 label="Set sending tier",
                 handler=set_tier,
-                description="Changes the team's daily email limit.",
+                danger=True,
+                description="Changes the team's daily email limit. A lower tier sends less.",
                 form_class=SetEmailSendingTierForm,
+                undo_hint="To undo, set the previous tier again.",
                 form_initial={
                     "tier": state.tier if state is not None else 0,
                     "pinned": state is not None and state.tier_pinned,

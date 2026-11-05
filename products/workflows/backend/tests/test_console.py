@@ -27,9 +27,9 @@ class TestEmailSendingConsolePanel(BaseTest):
 
     @parameterized.expand(
         [
-            ("tier_change", {"tier": "2"}, [("email_sending_tier", 1, 2)]),
-            ("pin_only", {"tier": "1", "pinned": "on"}, [("email_sending_tier_pinned", False, True)]),
-            ("no_change", {"tier": "1"}, None),
+            ("tier_change", {"tier": "2", "reason": "Raise"}, [("email_sending_tier", 1, 2)]),
+            ("pin_only", {"tier": "1", "pinned": "on", "reason": "Hold"}, [("email_sending_tier_pinned", False, True)]),
+            ("no_change", {"tier": "1", "reason": "Check"}, None),
         ]
     )
     def test_set_tier_audits_what_changed(
@@ -65,7 +65,7 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert re.search(r'name="pinned"[^>]*\bchecked\b', content)
 
     def test_set_tier_refuses_a_tier_outside_the_table(self) -> None:
-        response = self.client.post(self._operation_url("set-tier"), {"tier": "99"})
+        response = self.client.post(self._operation_url("set-tier"), {"tier": "99", "reason": "Raise"})
 
         assert response.status_code == 400
         assert not ActivityLog.objects.filter(activity="email_sending_tier_changed", team_id=self.team.id).exists()
