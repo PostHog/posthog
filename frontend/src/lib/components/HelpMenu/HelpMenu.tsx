@@ -14,8 +14,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -33,10 +31,9 @@ import { posthogStatusLogic } from './posthogStatusLogic'
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
-    const { setHelpMenuOpen } = useActions(helpMenuLogic)
+    const { setHelpMenuOpen, copyAccountOwnerEmail } = useActions(helpMenuLogic)
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
-    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
@@ -329,18 +326,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             YOUR POSTHOG HUMAN
                                         </Label>
                                         <Menu.Item
-                                            onClick={() => {
-                                                // It's dumb rechecking this, but TS needs it because of closures
-                                                if (!billing?.account_owner?.email || !billing?.account_owner?.name) {
-                                                    return
-                                                }
-
-                                                void copyToClipboard(billing.account_owner.email, 'email')
-                                                reportAccountOwnerClicked({
-                                                    name: billing.account_owner.name,
-                                                    email: billing.account_owner.email,
-                                                })
-                                            }}
+                                            onClick={() => copyAccountOwnerEmail()}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem

@@ -13,7 +13,9 @@ import {
 } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { openCHQueriesDebugModal } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,6 +24,7 @@ import { todayMenuLinkItem } from './todayMenuLinkItem'
 export function TodayAccountMenu(): JSX.Element {
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
 
@@ -91,6 +94,17 @@ export function TodayAccountMenu(): JSX.Element {
                                 <IconDatabase />
                                 Experiments staff tools
                             </DropdownMenuItem>
+                            {(user.is_impersonated ||
+                                preflight?.is_debug ||
+                                preflight?.instance_preferences?.debug_queries) && (
+                                <DropdownMenuItem
+                                    onClick={() => openCHQueriesDebugModal()}
+                                    data-attr="help-menu-debug-ch-queries-button"
+                                >
+                                    <IconDatabase />
+                                    Debug CH queries
+                                </DropdownMenuItem>
+                            )}
                         </DropdownMenuGroup>
                     </>
                 )}
