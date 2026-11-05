@@ -24,8 +24,8 @@ Days without exceptions count as zero.
 Once a project passes the cap, a stable hash of the team and event ID selects 10% of subsequent exceptions as hypothetical keeps.
 The other exceptions receive a `sample_project` decision.
 The adaptive stage never drops an exception.
-Existing manual limits run afterward; spike alerts and billing keep their current behavior.
-The counters and metrics include linked exceptions before manual limits, even if those limits later drop an event.
+Existing manual limits run first; spike alerts and billing keep their current behavior.
+The counters and metrics include only exceptions admitted by manual limits.
 Replayed exceptions count again, and late events can change the previous-day counts.
 Treat shadow decisions as estimates until the replay behavior is addressed before enforcement.
 
@@ -42,7 +42,7 @@ Decisions, the baseline, the allowance, and the daily count are attached to proc
 Cymbal removes incoming properties with that prefix so only processing supplies these results.
 `cymbal_adaptive_ingestion_decisions_total` counts hypothetical keeps and samples.
 A Redis failure or invalid event timestamp records `$adaptive_ingestion_error` and makes the adaptive rule fail open.
-Manual limits still apply.
+Manual limits have already applied.
 The per-project counters expire after 15 days; starting shadow mode without 14 days of history uses an allowance of 1,500.
 
 ## Issue-created rate limit (notifications mode)

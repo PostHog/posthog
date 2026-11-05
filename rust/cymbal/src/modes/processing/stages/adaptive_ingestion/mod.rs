@@ -5,13 +5,14 @@ use std::{
     sync::Arc,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use common_kafka::{
     kafka_messages::app_metrics2::{AppMetric2, Kind, Source},
     kafka_producer::send_iter_to_kafka,
     APP_METRICS2_TOPIC,
 };
 use common_redis::{CompressionConfig, RedisClient, RedisValueFormat, ScriptRunner};
+use common_types::format::parse_datetime_assuming_utc;
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use serde_json::Value;
@@ -31,7 +32,7 @@ use crate::{
         redis_heal::{self, HealGate},
         rules::rate_limit::RateLimitSettings,
     },
-    stages::pipeline::LinkedPipelineItem,
+    stages::pipeline::RateCheckedPipelineItem,
     types::{
         batch::Batch,
         exception_event::ExceptionEvent,
@@ -161,8 +162,8 @@ impl From<&Arc<AppContext>> for AdaptiveIngestionStage {
 }
 
 impl Stage for AdaptiveIngestionStage {
-    type Input = LinkedPipelineItem;
-    type Output = LinkedPipelineItem;
+    type Input = RateCheckedPipelineItem;
+    type Output = RateCheckedPipelineItem;
 
     fn name(&self) -> &'static str {
         ADAPTIVE_INGESTION_STAGE
@@ -172,7 +173,7 @@ impl Stage for AdaptiveIngestionStage {
         let Some(runtime) = self.ctx.adaptive_ingestion.as_ref() else {
             return Ok(batch);
         };
-        let mut items: Vec<LinkedPipelineItem> = batch.into();
+        let mut items: Vec<RateCheckedPipelineItem> = batch.into();
         let team_ids: HashSet<i32> = items
             .iter()
             .filter_map(|item| item.as_ref().ok().map(ExceptionEvent::team_id))
@@ -195,7 +196,7 @@ impl Stage for AdaptiveIngestionStage {
 async fn apply_shadow(
     runtime: &Arc<AdaptiveIngestionRuntime>,
     settings: &HashMap<i32, RateLimitSettings>,
-    items: &mut [LinkedPipelineItem],
+    items: &mut [RateCheckedPipelineItem],
 ) -> HashMap<(i32, Decision), u32> {
     let mut groups: HashMap<(i32, i64), Vec<(usize, Uuid)>> = HashMap::new();
     let mut invalid_timestamps = Vec::new();
@@ -204,7 +205,7 @@ async fn apply_shadow(
         if !runtime.enabled_for(event.team_id(), settings) {
             continue;
         }
-        let Ok(timestamp) = DateTime::parse_from_rfc3339(event.timestamp()) else {
+        let Ok(timestamp) = parse_datetime_assuming_utc(event.timestamp()) else {
             invalid_timestamps.push((idx, event.team_id()));
             continue;
         };
@@ -305,7 +306,7 @@ async fn apply_shadow(
 }
 
 fn set_decision(
-    event: &mut ExceptionEvent<crate::types::exception_event::Linked>,
+    event: &mut ExceptionEvent<crate::types::exception_event::RateChecked>,
     decision: Decision,
 ) {
     event.props.insert(
@@ -366,7 +367,7 @@ mod tests {
         },
     };
 
-    fn linked_event(team_id: i32, issue_id: Uuid) -> LinkedPipelineItem {
+    fn rate_checked_event(team_id: i32, issue_id: Uuid) -> RateCheckedPipelineItem {
         Ok(ExceptionEvent {
             uuid: Uuid::now_v7(),
             team_id,
@@ -397,7 +398,8 @@ mod tests {
                     created_at: Utc::now(),
                 },
             },
-        })
+        }
+        .into_rate_checked())
     }
 
     #[tokio::test]
@@ -419,14 +421,17 @@ mod tests {
             heal_gate: HealGate::new(),
         });
         let issue = Uuid::now_v7();
-        let mut invalid = linked_event(7, issue);
+        let mut clickhouse_timestamp = rate_checked_event(7, issue);
+        clickhouse_timestamp.as_mut().unwrap().timestamp = "2026-01-01 00:00:00.000".into();
+        let mut invalid = rate_checked_event(7, issue);
         invalid.as_mut().unwrap().timestamp = "invalid".into();
         let mut items = vec![
-            linked_event(7, issue),
-            linked_event(7, issue),
-            linked_event(7, issue),
-            linked_event(8, issue),
+            rate_checked_event(7, issue),
+            clickhouse_timestamp,
+            rate_checked_event(7, issue),
+            rate_checked_event(8, issue),
             invalid,
+            Err(crate::error::EventError::RateLimitedProject(7)),
         ];
         let settings = HashMap::from([
             (
@@ -445,7 +450,11 @@ mod tests {
             ),
         ]);
         let metrics = apply_shadow(&runtime, &settings, &mut items).await;
-        assert!(items.iter().all(Result::is_ok));
+        assert!(items[..5].iter().all(Result::is_ok));
+        assert!(matches!(
+            items[5],
+            Err(crate::error::EventError::RateLimitedProject(7))
+        ));
         assert_eq!(metrics.get(&(7, Decision::Keep)), Some(&1));
         assert_eq!(metrics.get(&(7, Decision::SampleProject)), Some(&2));
         assert_eq!(metrics.get(&(7, Decision::Error)), Some(&1));
@@ -462,7 +471,6 @@ mod tests {
             .as_ref()
             .unwrap()
             .clone()
-            .into_rate_checked()
             .into_finalized()
             .into_clickhouse_properties();
         assert_eq!(stored["$adaptive_ingestion_decision"], "sample_project");
@@ -486,7 +494,7 @@ mod tests {
             .get("$adaptive_ingestion_count")
             .is_none());
 
-        let mut opted_out = vec![linked_event(7, issue)];
+        let mut opted_out = vec![rate_checked_event(7, issue)];
         assert!(apply_shadow(
             &runtime,
             &HashMap::from([(7, RateLimitSettings::default())]),
@@ -511,7 +519,7 @@ mod tests {
             project: ProjectRule::default(),
             heal_gate: HealGate::new(),
         });
-        let mut items = vec![linked_event(7, Uuid::now_v7())];
+        let mut items = vec![rate_checked_event(7, Uuid::now_v7())];
         let settings = HashMap::from([(
             7,
             RateLimitSettings {

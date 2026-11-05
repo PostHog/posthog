@@ -396,24 +396,24 @@ async fn invalid_request_returns_400(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event(vec![]);
+    let mut input = make_event(vec![]);
+    input.properties["$adaptive_ingestion_decision"] = json!("sample_project");
+    input.properties["$adaptive_ingestion_count"] = json!(5_000);
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     // Empty exception list returns success with error embedded in the event
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
-    let event = body.first_event();
-    let errors: Vec<String> = serde_json::from_value(
-        event
-            .as_ref()
-            .unwrap()
-            .properties
-            .get("$cymbal_errors")
-            .unwrap()
-            .clone(),
-    )
-    .unwrap();
+    let event = body.first_event().as_ref().unwrap();
+    assert_eq!(event.properties["$exception_list"], json!([]));
+    assert!(event
+        .properties
+        .get("$adaptive_ingestion_decision")
+        .is_none());
+    assert!(event.properties.get("$adaptive_ingestion_count").is_none());
+    let errors: Vec<String> =
+        serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
 }
 
