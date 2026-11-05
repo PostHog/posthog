@@ -41,6 +41,21 @@ const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "$originalTimestamp";
 /// Attribute values are JSON-encoded strings, so an empty label is `""`.
 const EMPTY_JSON_STRING: &str = "\"\"";
 
+/// Length of `value` as the row builder stores it: a JSON string, quotes and
+/// escapes included. A control character escapes to six bytes, so the raw
+/// length would undercount a crafted label by up to six times.
+fn json_string_len(value: &str) -> usize {
+    let escaped: usize = value
+        .chars()
+        .map(|c| match c {
+            '"' | '\\' | '\u{08}' | '\u{0c}' | '\n' | '\r' | '\t' => 2,
+            c if (c as u32) < 0x20 => 6,
+            c => c.len_utf8(),
+        })
+        .sum();
+    escaped + 2
+}
+
 pub struct K8sResourceAttributes {
     tokens: HashSet<String>,
 }
@@ -80,8 +95,7 @@ impl K8sResourceAttributes {
                     .iter()
                     .filter(|label| !label.value.is_empty())
                     .filter_map(|label| resource_key_for(&label.name).map(|key| (key, label)))
-                    // The key, plus the value with its JSON quotes.
-                    .map(|(key, label)| (key.len() + label.value.len() + 2) as u64)
+                    .map(|(key, label)| (key.len() + json_string_len(&label.value)) as u64)
                     .sum();
                 per_row * series.samples.len() as u64
             })
@@ -260,6 +274,24 @@ mod tests {
         assert_eq!(added, 3 * per_row);
         let other = step(TOKEN).estimate_added_bytes("phc_customer", &request);
         assert_eq!(other, 0);
+    }
+
+    #[test]
+    fn json_string_len_matches_the_encoded_value() {
+        for value in [
+            "capture-abc",
+            "",
+            "a\"b\\c",
+            "\n\t\u{08}\u{0c}\r",
+            "\u{01}\u{1f}",
+            "pod-é-\u{7f}",
+        ] {
+            assert_eq!(
+                json_string_len(value),
+                serde_json::json!(value).to_string().len(),
+                "{value:?}"
+            );
+        }
     }
 
     #[test]
