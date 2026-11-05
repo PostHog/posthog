@@ -100,7 +100,7 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.446.0
+      specifier: 1.446.0
       version: 1.446.0
     query-selector-shadow-dom:
       specifier: ^1.0.0
