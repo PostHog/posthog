@@ -37,7 +37,10 @@ export function IssuePaneSectionHeader({
                 <span className="flex min-w-0 items-center gap-2">
                     <IssuePaneSectionName name={name} />
                     {preview ? (
-                        <span className="min-w-0 truncate text-xs font-normal text-secondary">{preview}</span>
+                        // The preview can quote exception data, so autocapture must not record its text.
+                        <span className="ph-sensitive min-w-0 truncate text-xs font-normal text-secondary">
+                            {preview}
+                        </span>
                     ) : null}
                 </span>
             </LemonButton>
