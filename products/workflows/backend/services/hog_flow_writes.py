@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -41,6 +41,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     rehydrate_flow_secrets,
     strip_content_secrets,
     strip_secrets_from_content,
+    without_bytecode_contracts,
 )
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
@@ -92,24 +93,6 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
 def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime]) -> str:
     draft_stamp = draft_updated_at.isoformat() if draft_updated_at else ""
     return f"{hog_flow_id}:{draft_stamp}"
-
-
-def _without_bytecode_contracts(node: Any) -> Any:
-    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
-    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
-    # nobody changed it, so the revision comparison must not count the stamp as content. A stamp only
-    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
-    # content and still versions the flow.
-    if isinstance(node, dict):
-        derived = "bytecode" in node
-        return {
-            key: _without_bytecode_contracts(value)
-            for key, value in node.items()
-            if not (derived and key == "bytecode_contract")
-        }
-    if isinstance(node, list):
-        return [_without_bytecode_contracts(item) for item in node]
-    return node
 
 
 def _parse_stamp(raw: Optional[str]) -> Optional[datetime]:
@@ -238,8 +221,8 @@ def _stage_revision_bump(
     # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
     if template_cache is None:
         template_cache = {}
-    old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
-    new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
+    old_content = without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
+    new_content = without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
     if new_content == old_content:
         return False
     instance.version = (before.version or 0) + 1

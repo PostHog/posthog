@@ -7401,8 +7401,6 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 None,
                 403,
             ),
-            # The secret is entered again and nothing stays linked, so nothing stored moves.
-            ("unlink", {"connection": {"value": None}}, {}, None, 200),
             # Nothing is linked any more, but the step's own stored secret still moves.
             (
                 "unlink_and_redirect",
@@ -7445,7 +7443,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
     def _reauth_refusals(self) -> float:
         return sum(
             REGISTRY.get_sample_value("posthog_cdp_credential_move_reauth_refused_total", {"surface": surface}) or 0
-            for surface in ("workflow_step", "workflow_variables", "workflow_draft_test")
+            for surface in (
+                "workflow_step",
+                "workflow_content",
+                "workflow_draft_test",
+                "workflow_variable_override",
+            )
         )
 
     def _flow_with_variable_producer(self) -> dict:
@@ -7471,6 +7474,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("variable_default_with_staged_draft", True, 403),
             ("producer_inputs", False, 403),
             ("edges_only", False, 403),
+            # Error handling or a step that writes no variable still decides which steps run.
+            ("producer_on_error", False, 403),
+            ("non_writer_inputs", False, 403),
             ("producer_rename", False, 200),
             # The save carries the producer's own secret recovered, and storage keeps it stripped.
             ("producer_with_secret_rename", False, 200),
@@ -7482,6 +7488,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
         payload = self._flow_with_variable_producer()
         if name == "producer_with_secret_rename":
             payload["actions"][1]["config"]["inputs"]["api_key"] = {"value": "PRODUCER-SECRET"}
+        if name == "non_writer_inputs":
+            del payload["actions"][1]["output_variable"]
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         if staged_draft:
             flow = HogFlow.objects.get(id=flow_id)
@@ -7493,8 +7501,11 @@ class TestHogFlowSecretInputs(APIBaseTest):
         producer = payload["actions"][1]
         if name.startswith("variable_default"):
             body: dict = {"variables": [{**payload["variables"][0], "default": "attacker.example.com"}]}
-        elif name == "producer_inputs":
+        elif name in ("producer_inputs", "non_writer_inputs"):
             producer["config"]["inputs"]["url"] = {"value": "https://attacker.example.com"}
+            body = {"actions": payload["actions"]}
+        elif name == "producer_on_error":
+            producer["on_error"] = "abort"
             body = {"actions": payload["actions"]}
         elif name == "edges_only":
             body = {"edges": [{"from": "trigger_node", "to": "action_1", "type": "continue"}]}
@@ -7562,9 +7573,39 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert response.json()["code"] == "sensitive_action_required_reauth"
         mock_invoke.assert_not_called()
 
-    def test_a_test_run_of_a_step_only_in_the_draft_keeps_its_own_secret_without_a_prompt(self) -> None:
-        # The builder tests the staged draft by sending it as `configuration`. A secret saved only in the
-        # draft was saved with the draft's step, so testing that step moves no live credential.
+    @parameterized.expand(
+        [
+            ("live_run_away_from_default", {"host": "attacker.example.com"}, False, 403),
+            ("live_run_with_the_default", {"host": "example.com"}, False, 200),
+            ("mocked_run_away_from_default", {"host": "attacker.example.com"}, True, 200),
+        ]
+    )
+    def test_a_test_run_that_overrides_a_variable_needs_recent_authentication(
+        self, _name: str, overrides: dict, mock_async_functions: bool, expected_status: int
+    ) -> None:
+        payload = self._linked_flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        self._make_session_stale()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides},
+                    "mock_async_functions": mock_async_functions,
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_invoke.called == (expected_status == 200)
+
+    def test_a_test_run_of_a_step_only_in_the_draft_gets_its_own_secret(self) -> None:
+        # The builder tests the staged draft by sending it as `configuration`, so a secret saved only
+        # in the draft has to reach the draft's step.
         payload = self._flow_payload()
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
         draft_step = {**payload["actions"][1], "id": "action_2", "name": "action_2"}
@@ -7574,7 +7615,6 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow.draft = {"actions": [*flow.actions, draft_step]}
         flow.draft_encrypted_inputs = {**flow.encrypted_inputs, "action_2": {"api_key": {"value": "DRAFT-ONLY"}}}
         flow.save()
-        self._make_session_stale()
         config = {"name": payload["name"], "actions": [*payload["actions"], draft_step]}
         for action in config["actions"][1:]:
             action["config"]["inputs"]["api_key"] = {"secret": True}

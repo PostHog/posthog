@@ -1240,7 +1240,9 @@ CREDENTIAL_MOVE_REAUTH_REFUSED_COUNTER = Counter(
 )
 
 
-CredentialMoveSurface = Literal["destination", "workflow_step", "workflow_variables", "workflow_draft_test"]
+CredentialMoveSurface = Literal[
+    "destination", "workflow_step", "workflow_content", "workflow_draft_test", "workflow_variable_override"
+]
 
 
 def require_recent_login_to_move_credentials(request: object, surface: CredentialMoveSurface) -> None:

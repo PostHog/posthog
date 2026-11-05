@@ -5,7 +5,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
     action_bindings,
     action_credential_move_needs_reauth,
-    draft_test_moves_live_credentials,
+    credential_reach,
     flow_holds_credentials,
     mask_derived_trigger,
     mask_secret_action_inputs,
@@ -21,13 +21,13 @@ from products.workflows.backend.services.hog_flow_secrets import (
     secret_keys_for_action,
     strip_content_secrets,
     strip_secrets_from_content,
-    variable_writes,
+    variables_override_defaults,
 )
 
 __all__ = [
     "action_bindings",
     "action_credential_move_needs_reauth",
-    "draft_test_moves_live_credentials",
+    "credential_reach",
     "flow_holds_credentials",
     "TemplateCache",
     "mask_derived_trigger",
@@ -44,5 +44,5 @@ __all__ = [
     "secret_keys_for_action",
     "strip_content_secrets",
     "strip_secrets_from_content",
-    "variable_writes",
+    "variables_override_defaults",
 ]

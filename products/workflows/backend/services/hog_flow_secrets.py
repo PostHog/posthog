@@ -158,41 +158,50 @@ def flow_holds_credentials(
     return any(linked_integration_input_keys(binding) for binding in action_bindings(actions, template_cache).values())
 
 
-_SET_VARIABLE_TEMPLATE_ID = "template-posthog-set-variable"
+_PRESENTATION_STEP_FIELDS = ("name", "description", "created_at", "updated_at")
 
 
-def variable_writes(
-    variables: Any, actions: Any, edges: Any = None, template_cache: Optional[TemplateCache] = None
-) -> str:
-    """What decides a flow's variables, in a form two configs compare by.
+def without_bytecode_contracts(node: Any) -> Any:
+    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
+    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
+    # nobody changed it, so a content comparison must not count the stamp as content. A stamp only
+    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
+    # content.
+    if isinstance(node, dict):
+        derived = "bytecode" in node
+        return {
+            key: without_bytecode_contracts(value)
+            for key, value in node.items()
+            if not (derived and key == "bytecode_contract")
+        }
+    if isinstance(node, list):
+        return [without_bytecode_contracts(item) for item in node]
+    return node
 
-    That is the variable defaults, the template and inputs of every step that writes a variable,
-    and the edges whenever a step writes one, because the order of the writes picks the value. A
-    step input can template in a variable, so a change to any of these can move a credential that
-    another step keeps. Secret inputs are left out: a save carries them recovered and storage keeps
-    them stripped, and the step's own check covers a secret entered on a writer.
+
+def credential_reach(variables: Any, actions: Any, edges: Any, template_cache: Optional[TemplateCache] = None) -> str:
+    """What decides where a flow's kept credentials go, in a form two configs compare by.
+
+    That is every step, every edge and every variable. A step can write a variable that a
+    credentialed step templates in, and a branch, filter or edge picks which write lands, so any of
+    them can move the credential. Step names and descriptions are left out, so a rename asks for
+    nothing. Secret inputs are left out too: a save carries them recovered and storage keeps them
+    stripped, and each step's own check covers a secret entered on it.
     """
-    writers: dict[str, Any] = {}
-    for action in actions if isinstance(actions, list) else []:
-        if not isinstance(action, dict):
-            continue
-        config = action.get("config")
-        if not isinstance(config, dict):
-            config = {}
-        template_id = config.get("template_id")
-        if not action.get("output_variable") and template_id != _SET_VARIABLE_TEMPLATE_ID:
-            continue
-        inputs = config.get("inputs")
-        secret_keys = secret_keys_for_action(action, template_cache)
-        writers[str(action.get("id"))] = [
-            action.get("output_variable"),
-            template_id,
+    stripped = partition_flow_secrets(actions, template_cache)[0] if isinstance(actions, list) else []
+    steps = sorted(
+        (
+            # Storage writes an unset field as null and a save may leave it out; both mean unset.
             {
-                key: [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
-                for key, item in (inputs if isinstance(inputs, dict) else {}).items()
-                if key not in secret_keys
-            },
-        ]
+                field: value
+                for field, value in step.items()
+                if field not in _PRESENTATION_STEP_FIELDS and value is not None
+            }
+            for step in stripped
+            if isinstance(step, dict)
+        ),
+        key=lambda step: str(step.get("id")),
+    )
     values = [
         {field: value for field, value in variable.items() if field not in ("label", "description")}
         if isinstance(variable, dict)
@@ -200,29 +209,20 @@ def variable_writes(
         for variable in (variables if isinstance(variables, list) else [])
     ]
     # The list order of the edges carries no meaning, so a resave that reorders them changes nothing.
-    order = (
-        sorted(json.dumps(edge, sort_keys=True, default=str) for edge in edges)
-        if writers and isinstance(edges, list)
-        else []
-    )
-    return json.dumps([values, writers, order], sort_keys=True, default=str)
+    order = sorted(json.dumps(edge, sort_keys=True, default=str) for edge in (edges if isinstance(edges, list) else []))
+    return json.dumps(without_bytecode_contracts([values, steps, order]), sort_keys=True, default=str)
 
 
-def draft_test_moves_live_credentials(
-    live_actions: Any,
-    draft_actions: Any,
-    live_secrets: Optional[dict],
-    draft_secrets: Optional[dict],
-    template_cache: Optional[TemplateCache] = None,
-) -> bool:
-    # A draft test run folds the live secrets back into the draft's steps, so a step whose config
-    # differs from live sends a live credential through config it was not saved with.
-    live = action_bindings(live_actions, template_cache)
-    for action_id, current in action_bindings(draft_actions, template_cache).items():
-        inherited = set((live_secrets or {}).get(action_id) or {}) - set((draft_secrets or {}).get(action_id) or {})
-        if credential_move_needs_reauth(live.get(action_id), current, inherited):
-            return True
-    return False
+def variables_override_defaults(overrides: Any, variables: Any) -> bool:
+    """Whether a test run sets a variable to a value other than the flow's default for it."""
+    if not isinstance(overrides, dict) or not overrides:
+        return False
+    defaults = {
+        variable.get("key"): variable.get("default")
+        for variable in (variables if isinstance(variables, list) else [])
+        if isinstance(variable, dict)
+    }
+    return any(key not in defaults or defaults[key] != value for key, value in overrides.items())
 
 
 def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> set[str]:

@@ -276,7 +276,7 @@ from products.workflows.backend.facade.secrets import (
     TemplateCache,
     action_bindings,
     action_credential_move_needs_reauth,
-    draft_test_moves_live_credentials,
+    credential_reach,
     flow_holds_credentials,
     mask_workflow_fields,
     merge_secret_maps,
@@ -288,7 +288,7 @@ from products.workflows.backend.facade.secrets import (
     secret_bindings_for_actions,
     secret_keys_for_action,
     strip_content_secrets,
-    variable_writes,
+    variables_override_defaults,
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
@@ -838,23 +838,24 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
     return cache[scanner_id]
 
 
-def _require_recent_authentication_for_variable_edits(
+def _require_recent_authentication_for_flow_edits(
     context: dict[str, Any], instance: WorkflowEditState, data: dict
 ) -> None:
-    # A step input can template in a variable, for example `https://{variables.host}`, so a variable
-    # edit moves every credential the flow keeps, as any step edit does.
+    # A step input can template in a variable that another step writes, and a branch or an edge picks
+    # which write lands, so any change to the steps, edges or variables can move every credential the
+    # flow keeps.
     draft = instance.draft or {}
     baseline = draft if context.get("credential_baseline_is_draft") else {}
     stored_variables = baseline.get("variables", instance.variables)
     stored_actions = baseline.get("actions", instance.actions)
     stored_edges = baseline.get("edges", instance.edges)
     template_cache = context.setdefault("_hogflow_template_cache", {})
-    if variable_writes(
+    if credential_reach(
         data.get("variables", stored_variables),
         data.get("actions", stored_actions),
         data.get("edges", stored_edges),
         template_cache,
-    ) == variable_writes(stored_variables, stored_actions, stored_edges, template_cache):
+    ) == credential_reach(stored_variables, stored_actions, stored_edges, template_cache):
         return
     holds_credentials = any(
         flow_holds_credentials(actions, secrets, template_cache)
@@ -864,7 +865,7 @@ def _require_recent_authentication_for_variable_edits(
         )
     )
     if holds_credentials and secret_binding_enforced(context["get_team"]()):
-        require_recent_login_to_move_credentials(context.get("request"), surface="workflow_variables")
+        require_recent_login_to_move_credentials(context.get("request"), surface="workflow_content")
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -3936,8 +3937,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for stored_steps in (instance.actions, draft_actions):
                 _require_replay_vision_editor_access(self.context.get("request"), self.context, stored_steps)
 
-        if stored and ("variables" in data or "actions" in data or "edges" in data):
-            _require_recent_authentication_for_variable_edits(self.context, stored, data)
+        # The UTM rewrite only sets the team's link parameters on email steps, so it moves no credential.
+        if (
+            stored
+            and not self.context.get("utm_defaults_apply")
+            and ("variables" in data or "actions" in data or "edges" in data)
+        ):
+            _require_recent_authentication_for_flow_edits(self.context, stored, data)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
@@ -6745,23 +6751,41 @@ class HogFlowViewSet(
     def _require_recent_authentication_for_draft_test(self, hog_flow: WorkflowEditState) -> None:
         if not secret_binding_enforced(self.team):
             return
+        # A draft test folds the live secrets into the draft's steps, so any draft change sends a live
+        # credential through config it was not saved with.
         draft = hog_flow.draft or {}
         template_cache: TemplateCache = {}
-        variables_changed = variable_writes(
+        if credential_reach(
             draft.get("variables", hog_flow.variables),
             draft.get("actions", hog_flow.actions),
             draft.get("edges", hog_flow.edges),
             template_cache,
-        ) != variable_writes(hog_flow.variables, hog_flow.actions, hog_flow.edges, template_cache)
-        moves = draft_test_moves_live_credentials(
-            hog_flow.actions,
-            draft.get("actions"),
-            hog_flow.encrypted_inputs,
-            hog_flow.draft_encrypted_inputs,
-            template_cache,
-        ) or (variables_changed and flow_holds_credentials(hog_flow.actions, hog_flow.encrypted_inputs, template_cache))
-        if moves:
+        ) != credential_reach(
+            hog_flow.variables, hog_flow.actions, hog_flow.edges, template_cache
+        ) and flow_holds_credentials(hog_flow.actions, hog_flow.encrypted_inputs, template_cache):
             require_recent_login_to_move_credentials(self.request, surface="workflow_draft_test")
+
+    def _require_recent_authentication_for_variable_overrides(
+        self, hog_flow: Optional[WorkflowEditState], payload: dict
+    ) -> None:
+        # A step input can template in a variable, so a live run that sets a variable away from its
+        # default can send a kept credential to an address the flow was not saved with.
+        if hog_flow is None or not secret_binding_enforced(self.team):
+            return
+        configuration = payload.get("configuration") or {}
+        variables = configuration.get("variables", hog_flow.variables) if configuration else hog_flow.variables
+        if not variables_override_defaults((payload.get("globals") or {}).get("variables"), variables):
+            return
+        draft = hog_flow.draft or {}
+        template_cache: TemplateCache = {}
+        if any(
+            flow_holds_credentials(actions, secrets, template_cache)
+            for actions, secrets in (
+                (hog_flow.actions, hog_flow.encrypted_inputs),
+                (draft.get("actions"), hog_flow.draft_encrypted_inputs),
+            )
+        ):
+            require_recent_login_to_move_credentials(self.request, surface="workflow_variable_override")
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
@@ -6808,6 +6832,7 @@ class HogFlowViewSet(
             payload["configuration"] = draft
 
         if not payload.get("mock_async_functions", True):
+            self._require_recent_authentication_for_variable_overrides(hog_flow, payload)
             configuration = payload.get("configuration") or {}
             self._require_replay_vision_caller_access(
                 request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
