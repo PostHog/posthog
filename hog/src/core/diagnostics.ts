@@ -5,20 +5,20 @@ import { plural } from './text'
 
 // One problem the server found in a piece of source text. The offsets count Unicode code points,
 // as Python strings do, and are null when the problem has no location.
-const Diagnostic = z.looseObject({ message: z.string(), start: z.number().nullish(), end: z.number().nullish() })
+const DiagnosticMessage = z.looseObject({ message: z.string(), start: z.number().nullish(), end: z.number().nullish() })
 
-type Diagnostic = z.infer<typeof Diagnostic>
+type DiagnosticMessage = z.infer<typeof DiagnosticMessage>
 
-export const Diagnostics = z.looseObject({
-    errors: z.array(Diagnostic).nullish(),
-    warnings: z.array(Diagnostic).nullish(),
-    notices: z.array(Diagnostic).nullish(),
+export const DiagnosticsReport = z.looseObject({
+    errors: z.array(DiagnosticMessage).nullish(),
+    warnings: z.array(DiagnosticMessage).nullish(),
+    notices: z.array(DiagnosticMessage).nullish(),
 })
 
-export type Diagnostics = z.infer<typeof Diagnostics>
+export type DiagnosticsReport = z.infer<typeof DiagnosticsReport>
 
-export function printDiagnostics(out: Output, source: string, diagnostics: Diagnostics): void {
-    const groups: { label: string; style: Style; items: Diagnostic[] }[] = [
+export function printDiagnostics(out: Output, source: string, diagnostics: DiagnosticsReport): void {
+    const groups: { label: string; style: Style; items: DiagnosticMessage[] }[] = [
         { label: 'error', style: 'red', items: diagnostics.errors ?? [] },
         { label: 'warning', style: 'yellow', items: diagnostics.warnings ?? [] },
         { label: 'notice', style: 'cyan', items: diagnostics.notices ?? [] },

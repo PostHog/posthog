@@ -25,7 +25,7 @@ export type OrganizationId = z.output<typeof OrganizationIdSchema>
 
 export const parseProjectId = parser(ProjectIdSchema, {
     code: 'invalid_project_id',
-    hint: 'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2.',
+    hint: 'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2, or copy it from https://app.posthog.com/settings/project-details',
 })
 
 export const parseOrganizationId = parser(OrganizationIdSchema, {

@@ -63,7 +63,7 @@ export interface AccessKey {
 
 const KEY_CHECK_TIMEOUT_MS = 30_000
 
-// A scope hog doesn't recognize is dropped rather than failing the login.
+// If hog doesn't recognize a scope, it drops it instead of failing the login
 const KeyScopes = z.looseObject({
     scopes: z
         .array(z.unknown())

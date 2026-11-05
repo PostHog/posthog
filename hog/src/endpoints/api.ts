@@ -4,7 +4,7 @@ import type { PostHogApi } from '@/posthog/api'
 
 import { Endpoint, InsightVariable } from './model'
 
-// Follows `next` links, so a project with more endpoints than one page holds still gets all of them.
+// Follows `next` links
 async function all<S extends z.ZodType>(api: PostHogApi, path: string, item: S): Promise<z.output<S>[]> {
     const page = z.looseObject({ results: z.array(item), next: z.string().nullish() })
     const results: z.output<S>[] = []
