@@ -266,11 +266,38 @@ class TestPushAllAndEnqueue(_MemberTeamsTest):
         inactive = User.objects.create_and_join(self.organization, "inactive@posthog.com", "testtest")
         inactive.is_active = False
         inactive.save()
-        with patch.object(member_teams, "enqueue_member_push") as member_push:
+        with (
+            patch(REQUEST, return_value=_http(404, {"error": "not found"})),
+            patch.object(member_teams, "enqueue_member_push") as member_push,
+        ):
             count = member_teams.push_organization(str(self.organization.id))
         pushed = {call.args[1] for call in member_push.call_args_list}
         assert count == 2
         assert pushed == {str(self.user.uuid), str(self.member.uuid)}
+
+    def test_push_organization_also_pushes_members_hogtower_holds_who_left(self) -> None:
+        leaver = str(uuid4())
+        listed = {"members": [{"user_uuid": str(self.member.uuid)}, {"user_uuid": leaver}]}
+        with (
+            patch(REQUEST, return_value=_http(200, listed)) as request,
+            patch.object(member_teams, "enqueue_member_push") as member_push,
+        ):
+            count = member_teams.push_organization(str(self.organization.id))
+        assert request.call_args.args == ("GET", f"{BASE}/api/v2/warehouses/{self.organization.id}/members")
+        assert count == 3
+        assert {call.args[1] for call in member_push.call_args_list} == {
+            str(self.user.uuid),
+            str(self.member.uuid),
+            leaver,
+        }
+
+    def test_push_organization_still_runs_when_hogtower_cannot_list(self) -> None:
+        with (
+            patch(REQUEST, side_effect=requests.ConnectionError("refused")),
+            patch.object(member_teams, "enqueue_member_push") as member_push,
+        ):
+            assert member_teams.push_organization(str(self.organization.id)) == 2
+        assert member_push.call_count == 2
 
     def test_a_waiting_push_is_not_enqueued_twice(self) -> None:
         from products.managed_warehouse.backend.tasks import tasks  # noqa: PLC0415

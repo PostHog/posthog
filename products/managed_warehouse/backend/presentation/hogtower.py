@@ -489,6 +489,11 @@ def list_warehouses(*, timeout: int | float = 30) -> TranslatedResponse:
     return _send("GET", "/warehouses", timeout=timeout)
 
 
+def list_members(organization_id: object, *, timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/members: the members hogtower holds who are not removed."""
+    return _send("GET", f"/warehouses/{quote(str(organization_id), safe='')}/members", timeout=timeout)
+
+
 def put_member_teams(
     organization_id: object,
     user_uuid: object,

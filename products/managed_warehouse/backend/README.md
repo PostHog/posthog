@@ -82,7 +82,7 @@ hogtower mints team-scoped hoglake tokens from its own copy of which projects ea
 - Each visible project goes in at the member's level on warehouse objects. `viewer` becomes `read`, and `editor` or above becomes `write`. A project where the level is `none` is left out.
 - A member who leaves the organization, or whose user is deactivated, is removed. hogtower then revokes every team credential they own.
 - `signals.py` enqueues a push after a membership, role membership, project, or project or warehouse-objects access rule changes. The push runs as a Celery task that retries for about ten hours.
-- `push managed warehouse member teams to hogtower` runs every hour and pushes every member of every Trino warehouse that hogtower lists. It catches changes that no signal reports, such as a user's reactivation.
+- `push managed warehouse member teams to hogtower` runs every hour and pushes every member of every Trino warehouse that hogtower lists. It catches changes that no signal reports, such as a user's reactivation. It also removes the members that hogtower still holds who have left, so a removal whose own push gave up is still reconciled.
 
 Each push sends the member's whole team set, versioned by the database clock. hogtower keeps the highest version, so pushes may finish in any order.
 

@@ -13,7 +13,8 @@ Each push carries the member's whole team set and a version: the database clock,
 the state is. hogtower keeps the highest version and answers 409 for an older one, which here
 means a newer push already landed. Every change enqueues a push after it commits, so the last
 push to run reads the change, and hogtower settles on it whatever order the pushes finish in.
-A full push runs on a schedule as well, for anything a signal missed.
+A full push runs on a schedule as well, for anything a signal missed. It also removes the
+members hogtower still holds who have left, for a removal whose own push gave up.
 """
 
 from __future__ import annotations
@@ -153,11 +154,35 @@ def organization_member_uuids(organization_id: str) -> list[str]:
     ]
 
 
+def hogtower_member_uuids(organization_id: str) -> set[str]:
+    """The members hogtower holds who are not removed, or an empty set when it cannot say."""
+    try:
+        response = hogtower.list_members(organization_id)
+    except Exception:
+        logger.warning("managed_warehouse_member_teams_list_failed", organization_id=organization_id, exc_info=True)
+        return set()
+    if not 200 <= response.status_code < 300:
+        # 404 also comes from a hogtower without the list route: skip the reconcile.
+        return set()
+    body = response.json()
+    members = body.get("members") if isinstance(body, dict) else None
+    return {
+        str(member["user_uuid"])
+        for member in members or []
+        if isinstance(member, dict) and isinstance(member.get("user_uuid"), str)
+    }
+
+
 def push_organization(organization_id: str) -> int:
-    """Enqueue a push for every member of ``organization_id``; returns how many."""
+    """Enqueue a push for every member of ``organization_id``, and for every member hogtower
+    still holds who has left; returns how many.
+
+    A leaver's push finds no membership and removes them, so a removal whose own push gave up
+    is still reconciled here.
+    """
     _clear_pending(_organization_key(organization_id))
-    user_uuids = organization_member_uuids(organization_id)
-    for user_uuid in user_uuids:
+    user_uuids = set(organization_member_uuids(organization_id)) | hogtower_member_uuids(organization_id)
+    for user_uuid in sorted(user_uuids):
         enqueue_member_push(organization_id, user_uuid, countdown=0)
     return len(user_uuids)
 
