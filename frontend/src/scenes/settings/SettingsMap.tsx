@@ -1686,7 +1686,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
                 component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
             },
