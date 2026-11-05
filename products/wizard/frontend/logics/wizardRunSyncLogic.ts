@@ -216,12 +216,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
         checkRuns: async ({ recentOnly }) => {
             // Focus, stream updates and user reloads all call this, so only a shared cooldown keeps
             // them from retrying a throttled list request back to back.
-            if (
-                cache.checking ||
-                !logicProps.projectId ||
-                !values.user ||
-                Date.now() < (cache.checkRunsBlockedUntil ?? 0)
-            ) {
+            if (cache.checking || !logicProps.projectId || !values.user || Date.now() < cache.checkRunsBlockedUntil) {
                 return
             }
             cache.checking = true
@@ -393,6 +388,8 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             cache.runDataVersions = {}
             cache.runDataRequests = {}
             cache.runDataFailures = {}
+            cache.checkRunsBlockedUntil = 0
+            cache.lastCheckStartedAt = 0
             actions.checkRuns()
             cache.disposables.add(() => {
                 const timer = window.setInterval(() => actions.refreshWatchedRun(), RUN_POLL_MS)
@@ -400,7 +397,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             }, 'active-run-poll')
             cache.disposables.add(() => {
                 const discoverRuns = (): void => {
-                    if (Date.now() - (cache.lastCheckStartedAt ?? 0) >= RUN_DISCOVERY_MIN_GAP_MS) {
+                    if (Date.now() - cache.lastCheckStartedAt >= RUN_DISCOVERY_MIN_GAP_MS) {
                         actions.checkRuns(true)
                     }
                 }
