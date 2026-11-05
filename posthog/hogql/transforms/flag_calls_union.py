@@ -97,7 +97,6 @@ def refuse_union_table_by_name(node: ast.AST, context: HogQLContext) -> None:
 
 @frozen
 class UnionRefusal:
-    # The scan's join in the tree that the rename ran on.
     join: ast.JoinExpr
     reason: str
 
@@ -465,7 +464,6 @@ class _Aliases(CloningVisitor):
 
     @cached_property
     def aliases(self) -> dict[str, tuple[int, ast.Expr]]:
-        # Most SELECTs read no events scan, so the aliases are collected only when a scan needs them.
         declared: dict[str, tuple[int, ast.Expr]] = {}
         for position, (name, expr) in enumerate(select_aliases(self.node, in_scope_only=True)):
             declared.setdefault(name, (position, expr))
@@ -693,7 +691,6 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
             return self.aliases.target(read, self.lambda_args)
 
         values = compared_values(expr, lambda read: self.reader.column(resolve(read)) == ["event"])
-        # `event IN names` reads the list that the alias `names` holds.
         items = [
             item
             for value in map(resolve, values or [])

@@ -237,7 +237,6 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [UNION],
                 [],
             ),
-            # swap_scans_found_by_type cannot read a pin through an alias of a comparison, so the union reads it.
             (
                 "alias_of_a_comparison_with_flag_calls",
                 "SELECT event = '$feature_flag_called' AS is_flag_call, count() FROM events "
