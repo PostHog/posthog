@@ -337,7 +337,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         # A handler can fail after its state change committed, for example when a notification fails.
         # The operation is then no longer offered, and staff belong on the record page, not on a dead form.
         if form is not None and _is_offered(panel, obj, operation.key):
-            return render(request, "admin_console/operation.html", context, status=400)
+            return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
             messages.error(
                 request,
@@ -470,7 +470,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         return render(request, "admin_console/result.html", {**context, "page": result})
     if result.status_code >= 400:
         if form is not None:
-            return render(request, "admin_console/operation.html", context, status=400)
+            return render(request, "admin_console/operation.html", context, status=result.status_code)
         if QueuedMessages.error_count(request) == 0:
             messages.error(request, f"{operation.label} failed with status {result.status_code}.")
         return redirect(tool_url)

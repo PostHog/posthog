@@ -9,6 +9,8 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 
 import structlog
+from temporalio.client import Client
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.console.panels import Tone
@@ -86,9 +88,9 @@ class HealthCheckRuns:
         prefix = f"health-check-{check.name}"
         query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" ORDER BY StartTime DESC'
 
-        async def fetch() -> list[HealthCheckRun]:
+        async def fetch(client: Client) -> list[HealthCheckRun]:
             runs: list[HealthCheckRun] = []
-            async for workflow in sync_connect().list_workflows(query=query):
+            async for workflow in client.list_workflows(query=query):
                 runs.append(
                     HealthCheckRun(
                         workflow_id=workflow.id,
@@ -103,7 +105,8 @@ class HealthCheckRuns:
             return runs
 
         try:
-            return asyncio.run(fetch())
+            # Connect before the event loop starts: sync_connect refuses to run inside one.
+            return asyncio.run(fetch(sync_connect()))
         except Exception:
             logger.warning("admin_console_health_check_runs_unavailable", check=check.name, exc_info=True)
             return None
@@ -128,6 +131,8 @@ class HealthCheckRuns:
                 id=workflow_id,
                 task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
                 execution_timeout=check.execution_timeout,
+                # Temporal reuses a closed workflow's ID by default, so a resubmit after the run ended would start again.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             )
         )
         return workflow_id

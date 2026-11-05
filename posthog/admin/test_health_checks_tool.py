@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.contrib.messages import get_messages
 
 from parameterized import parameterized
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.console.health_checks_tool import HealthCheckRun, HealthCheckRuns
@@ -49,6 +50,23 @@ class TestHealthChecksTool(BaseTest):
         assert "health-check-example-manual-1" in content
         assert ("data-refresh-seconds" in content) == refreshes
 
+    # Mocks the connection one level down, so the real sync_connect wrapper runs: it refuses to run inside an
+    # event loop, which a mock of sync_connect itself would hide.
+    @patch("posthog.temporal.common.client.connect")
+    def test_the_runs_come_from_temporal(self, connect: AsyncMock) -> None:
+        workflow = MagicMock(id="health-check-example-manual-1", run_id="run-1", start_time=None, close_time=None)
+        workflow.status.name = "RUNNING"
+
+        async def list_workflows(query: str):
+            yield workflow
+
+        connect.return_value = MagicMock(list_workflows=list_workflows)
+
+        content = self.client.get(f"{TOOL_URL}live/runs/?check={self.check.kind}").content.decode()
+
+        assert "health-check-example-manual-1" in content
+        assert "data-refresh-seconds" in content
+
     @patch("posthog.admin.console.health_checks_tool.sync_connect")
     def test_a_double_submitted_run_form_starts_one_workflow(self, sync_connect: MagicMock) -> None:
         start_workflow = AsyncMock(side_effect=[None, WorkflowAlreadyStartedError("id", "health-check-workflow")])
@@ -64,6 +82,9 @@ class TestHealthChecksTool(BaseTest):
         assert responses[0]["Location"] == self.check_url
         workflow_ids = {call.kwargs["id"] for call in start_workflow.call_args_list}
         assert workflow_ids == {f"health-check-{self.check.name}-manual-{nonce.group(1)}"}
+        assert {call.kwargs["id_reuse_policy"] for call in start_workflow.call_args_list} == {
+            WorkflowIDReusePolicy.REJECT_DUPLICATE
+        }
         levels = [message.level_tag for message in get_messages(responses[1].wsgi_request)]
         assert "info" in levels
 
