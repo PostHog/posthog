@@ -351,3 +351,16 @@
         transition: none;
     }
 }
+
+// While a tile is dragged or resized the pointer sweeps across charts, so keep them from reacting to hover.
+body.dashboard-tile-interacting {
+    .react-grid-item .InsightCard__viz {
+        pointer-events: none;
+    }
+
+    // Pinned tooltips stay: the user opened them on purpose.
+    #InsightTooltipWrapper-hover,
+    [data-hog-charts-tooltip]:not(.hog-charts-tooltip--pinned) {
+        visibility: hidden;
+    }
+}

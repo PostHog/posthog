@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import { cloneLayoutItem } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
@@ -15,6 +15,9 @@ import type { DashboardLayoutSize } from '~/types'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 
 type InteractionKind = 'drag' | 'resize'
+
+/** Chart tooltips portal to <body>, outside the grid, so the gesture flag has to live there to reach them. */
+const TILE_INTERACTION_BODY_CLASS = 'dashboard-tile-interacting'
 
 interface UseDashboardLayoutInteractionProps {
     layoutEditMode: boolean
@@ -42,6 +45,8 @@ export function useDashboardLayoutInteraction({
     const resizeNeighbors = useRef<ResizeNeighbors>({})
     const activeItemId = useRef<string | null>(null)
     const interactionKind = useRef<InteractionKind | null>(null)
+
+    useEffect(() => () => document.body.classList.remove(TILE_INTERACTION_BODY_CLASS), [])
 
     const gridCompactor = useMemo<Compactor>(() => {
         const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
@@ -93,6 +98,7 @@ export function useDashboardLayoutInteraction({
 
     const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
         interactionInProgress.current = true
+        document.body.classList.add(TILE_INTERACTION_BODY_CLASS)
         baselineLayout.current = layout.map((layoutItem) => cloneLayoutItem(layoutItem))
         baselineById.current = new Map(baselineLayout.current.map((layoutItem) => [layoutItem.i, layoutItem]))
         activeItemId.current = item.i
@@ -102,6 +108,7 @@ export function useDashboardLayoutInteraction({
 
     const finishInteraction = useCallback((): void => {
         interactionInProgress.current = false
+        document.body.classList.remove(TILE_INTERACTION_BODY_CLASS)
         if (pendingLayouts.current) {
             updateLayouts(pendingLayouts.current)
             pendingLayouts.current = null
