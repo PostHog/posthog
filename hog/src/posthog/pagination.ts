@@ -26,7 +26,8 @@ export async function getPage<S extends z.ZodType>(api: PostHogApi, path: string
     }
 }
 
-// False when it stops at MAX_PAGES first. Keeping only a link's path lets PostHogApi refuse another host.
+// False when it stops at MAX_PAGES first. Keeping only a link's path and query sends every page to
+// the configured host, whatever host the link names.
 async function eachPage<S extends z.ZodType>(
     api: PostHogApi,
     path: string,
