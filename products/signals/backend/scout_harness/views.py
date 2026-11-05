@@ -575,6 +575,13 @@ def _to_report_links(entries: list[dict] | None) -> list[ReportLinkInput] | None
     ]
 
 
+def _to_source_issue_urls(entries: list[dict] | None) -> list[str] | None:
+    """Map validated `source_issues` entries to the issue URLs the report tools take."""
+    if not entries:
+        return None
+    return [entry["url"] for entry in entries]
+
+
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
     """Convert serializer UUIDs to tool inputs, keeping an empty selection distinct from an omitted field."""
     if entries is None:
@@ -612,6 +619,7 @@ def emit_report_from_validated_data(*, team: Team, author: ReportAuthor, data: d
             links=_to_report_links(data.get("links")),
             idempotency_key=data.get("idempotency_key"),
             tags=data.get("tags"),
+            source_issues=_to_source_issue_urls(data.get("source_issues")),
         )
     except InvalidScoutReportError as exc:
         raise exceptions.ValidationError({"detail": str(exc)})
@@ -1432,6 +1440,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
                 tags=data.get("tags"),
+                source_issues=_to_source_issue_urls(data.get("source_issues")),
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1443,6 +1452,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "note_appended": result.note_appended,
                     "evidence_appended": result.evidence_appended,
                     "links_appended": result.links_appended,
+                    "source_issues_appended": result.source_issues_appended,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
