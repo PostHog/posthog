@@ -4,6 +4,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+import redis
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -13,6 +14,7 @@ from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.redis import get_client
 from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
@@ -139,12 +141,13 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("before_its_first_status_arrives", [], "queued", 0),
-            ("once_a_later_status_arrives", [("sent", 2, "")], "sent", 2),
+            ("before_its_first_status_arrives", [], "queued", 0, False),
+            ("once_a_later_status_arrives", [("sent", 2, "")], "sent", 2, False),
+            ("unless_redis_is_down", [], None, 0, True),
         ]
     )
     def test_a_send_the_pipeline_accepted_reads_as_queued_until_its_first_status(
-        self, _flag, _name, rows, expected_status, status_offset
+        self, _flag, _name, rows, expected_status, status_offset, redis_down
     ):
         sender = Integration.objects.create(
             team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
@@ -156,7 +159,11 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
         client = self._psak_client(["transactional_email:write"])
 
-        with patch("posthog.plugins.plugin_server_api.internal_requests.post") as pipeline:
+        redis_patch = patch(
+            "products.messaging.backend.services.transactional_email_status.get_client",
+            side_effect=redis.ConnectionError if redis_down else get_client,
+        )
+        with redis_patch, patch("posthog.plugins.plugin_server_api.internal_requests.post") as pipeline:
             pipeline.return_value.status_code = 202
             pipeline.return_value.json.return_value = {"invocation_id": self.message_id}
             send = client.post(
@@ -164,10 +171,13 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
                 {"to": "user@example.com"},
                 format="json",
             )
-        self._status_rows(rows)
-        response = client.get(self._url(self.message_id))
+            self._status_rows(rows)
+            response = client.get(self._url(self.message_id))
 
         assert send.status_code == status.HTTP_202_ACCEPTED, send.json()
+        if redis_down:
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            return
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {
             "id": self.message_id,
