@@ -110,6 +110,20 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
 )
 
 
+# ── Issue filters ───────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a compiled error tracking filter. The same filter is saved
+# on every error tracking row, and emission drops a signal it excludes before the steering gate.
+# The error tracking facade compiles the bytecode on the server, so a client cannot store its own.
+ISSUE_FILTERS_KEY = "issue_filters"
+ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+    }
+)
+
+
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
     # rejected rather than silently written to signal metadata (parity with the generated schema.py

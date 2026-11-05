@@ -92,7 +92,7 @@ def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalSourceConfig.SourceType.choices)
 
 
-class SignalSourceConfig(UUIDModel):
+class SignalSourceConfig(ModelActivityMixin, UUIDModel):
     # Source-product taxonomy is owned by products.signals.backend.enums (the same StrEnum the payload
     # contracts and frontend codegen use). Aliased here so `SignalSourceConfig.SourceProduct.X` keeps
     # working; choices are frozen-equivalent to the prior nested TextChoices, so no migration is needed.

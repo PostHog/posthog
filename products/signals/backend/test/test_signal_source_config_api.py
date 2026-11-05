@@ -15,11 +15,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.emission.steering import afetch_source_config
+from products.signals.backend.facade.api import set_signal_source_types_enabled
 from products.signals.backend.facade.source_configs import (
     AlertFilterOutcome,
     AlertNamePatterns,
@@ -30,6 +32,8 @@ from products.signals.backend.facade.source_configs import (
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+from common.hogvm.python.execute import execute_bytecode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -421,6 +425,88 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         response = self.client.patch(self._url(str(config.id)), {"config_remove": ["linear_team_ids"]}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["config"] == {"default_not_actionable": True}
+
+    def test_issue_filters_are_compiled_on_the_server(self) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="error_tracking",
+            source_type="issue_spiking",
+            enabled=False,
+            config={"steering": "Skip errors from bots"},
+        )
+        production = {"key": "$environment", "value": ["production"], "operator": "exact", "type": "event"}
+
+        response = self.client.patch(
+            self._url(str(config.id)),
+            # Client bytecode that matches everything must not reach emission.
+            {"config_set": {"issue_filters": {"properties": [production], "bytecode": ["_H", 1, 29]}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled is False
+        assert config.config["steering"] == "Skip errors from bots"
+        bytecode = config.config["issue_filters"]["bytecode"]
+        assert execute_bytecode(bytecode, {"properties": {"$environment": "production"}}).result is True
+        assert execute_bytecode(bytecode, {"properties": {"$environment": "staging"}}).result is False
+        log = ActivityLog.objects.get(scope="SignalSourceConfig", item_id=str(config.id), activity="updated")
+        assert log.detail is not None
+        assert [change["field"] for change in log.detail["changes"]] == ["config"]
+
+    @parameterized.expand(
+        [
+            ("not_error_tracking", "linear", "issue", {"properties": []}),
+            ("not_an_object", "error_tracking", "issue_created", []),
+            (
+                "event_branch",
+                "error_tracking",
+                "issue_created",
+                {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            ),
+            (
+                "person_property",
+                "error_tracking",
+                "issue_created",
+                {"properties": [{"key": "email", "value": ["a@example.com"], "type": "person"}]},
+            ),
+            # A leaf without a value compiles to a match-all branch.
+            ("leaf_without_value", "error_tracking", "issue_created", {"properties": [{"key": "$environment"}]}),
+        ]
+    )
+    def test_invalid_issue_filters_are_rejected(
+        self, _name: str, source_product: str, source_type: str, filters: object
+    ) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team, source_product=source_product, source_type=source_type, config={}
+        )
+
+        response = self.client.patch(
+            self._url(str(config.id)), {"config_set": {"issue_filters": filters}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.config == {}
+
+    def test_bulk_disable_is_logged(self) -> None:
+        enabled = SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_reopened", enabled=False
+        )
+
+        set_signal_source_types_enabled(
+            team_id=self.team.id,
+            source_product="error_tracking",
+            source_types=("issue_created", "issue_reopened"),
+            enabled=False,
+            created_by_id=self.user.id,
+        )
+
+        logs = ActivityLog.objects.filter(scope="SignalSourceConfig", activity="updated")
+        assert [log.item_id for log in logs] == [str(enabled.id)]
 
     def test_config_keys_require_write_scope(self) -> None:
         config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
