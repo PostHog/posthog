@@ -9,6 +9,7 @@ import type {
     OrganizationEventsRetentionApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { OrganizationEventsRetentionSetting } from './OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from './ProjectEventsRetentionSetting'
 
@@ -63,6 +64,7 @@ const retentionMocks = ({
         get: {
             '/api/projects/:team_id/events_retention/': project,
             '/api/organizations/:organization_id/events_retention_setting/': organization,
+            '/api/projects/:team_id/events_retention/deletion_count/': { retention_months: 3, events_deleted: 1234567 },
             '/api/billing/': { ...billingJson, billing_plan: billingPlan },
         },
     })
@@ -107,5 +109,20 @@ export const ProjectWithOwnPeriodAbovePlan: Story = {
 export const ProjectWithSupportPeriod: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({ organizationMonths: 24, projectMonths: 18 })],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
+export const ChangeNoteWithDeletionCount: Story = {
+    render: () => (
+        <div className="max-w-120">
+            <EventsRetentionChangeNote
+                level="project"
+                months={3}
+                scope="Events in this project"
+                deletion={{ monthly: true, deletesOn: '2026-12-03' }}
+            />
+        </div>
+    ),
+    decorators: [retentionMocks({})],
     parameters: { testOptions: { snapshotBrowsers: [] } },
 }
