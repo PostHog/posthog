@@ -6,9 +6,9 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import { Output } from '@/core/output'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
-import { findEndpoints, findInsightVariables, readAllEndpoints } from '@/endpoints/api'
+import { findEndpoints, findInsightVariables, getInsightVariable, readAllEndpoints } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
-import { fileFromEndpoint, remoteVariableNames, type Endpoint } from '@/endpoints/model'
+import { fileFromEndpoint, remoteVariableIds, type Endpoint } from '@/endpoints/model'
 import { planPull, type PullItem } from '@/endpoints/plan'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
@@ -36,11 +36,19 @@ function pullPlanLines(plan: PlannedItem[], style: Styler): string[] {
 
 // posthog-cli pulls with only endpoint:read. A key that can't read the project's variables gets
 // each type from the variable's value instead, as posthog-cli does.
-async function variableTypes(api: PostHogApi, names: readonly string[]): Promise<Map<string, string>> {
+// A variable past the lookup's page cap is fetched by the ID the endpoint's query holds.
+async function variableTypes(api: PostHogApi, ids: ReadonlyMap<string, string>): Promise<Map<string, string>> {
     try {
-        return new Map(
-            [...(await findInsightVariables(api, names)).found].map(([name, variable]) => [name, variable.type])
-        )
+        const { found, complete } = await findInsightVariables(api, [...ids.keys()])
+        const types = new Map([...found].map(([name, variable]) => [name, variable.type]))
+        if (!complete) {
+            for (const [name, id] of ids) {
+                if (!types.has(name)) {
+                    types.set(name, (await getInsightVariable(api, id)).type)
+                }
+            }
+        }
+        return types
     } catch (error) {
         if (error instanceof ApiError && error.status === 403) {
             return new Map()
@@ -167,10 +175,7 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pullPlanLines(plan, style), `Write ${plural(pending.length, 'file')}?`))) {
             return { status: 'cancelled', plan, written: [], problems }
         }
-        const types = await variableTypes(
-            api,
-            pending.flatMap((item) => remoteVariableNames(item.endpoint))
-        )
+        const types = await variableTypes(api, new Map(pending.flatMap((item) => remoteVariableIds(item.endpoint))))
         for (const item of pending) {
             await ctx.runtime.writeFile(item.path, endpointYaml(item.path, item, types))
         }
