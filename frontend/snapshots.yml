@@ -1160,10 +1160,14 @@ snapshots:
         hash: v1.k794b7964.0f7ca12d746131e726f6881382a7d391a7214a88e39d8e135087449bb0b4ed69.ZEImHZD3E7-mSQxPwxjG1O_4UWkDTqblU_3lQvy-E5E
     components-hogcharts-defaulttooltip--per-series-formatter-with-total--light:
         hash: v1.k794b7964.2e9fecca7aa1311448b8afd3567711cb15fc33248dacc6289fbcc72cf1989c46.FfrOaN6SSHXMj7QCPCbkxNQmNnAf_183hbcdD9EE9RA
+    components-hogcharts-defaulttooltip--single-series-mode--dark:
+        hash: v1.k794b7964.a5e070d178ecf524a3deb9c2c4e3152fdb606ebe1664700b6fa0833893636a37.iH_9iTrRUowrkCdZpnnRVmEhriDNId1Mp9lxQ_dIRy4
+    components-hogcharts-defaulttooltip--single-series-mode--light:
+        hash: v1.k794b7964.4ac04589238aeb129c6e5d2aad800486c4d8b93b281f57fa7c2e1b229291293e.G2QIXhB7KIxLFlrQgbQtm635POAPyAaqF1OxGHM4rJM
     components-hogcharts-defaulttooltip--total-excludes-overlay--dark:
-        hash: v1.k794b7964.78dba2ce9675adb353e1e02d08852fae239ee216226147366a463c8f5b3674ea.knCuOE2QwspGcEHABBanNA1tvAqrm2uXVM1yPD5A1G0
+        hash: v1.k794b7964.067ff310ca166b654eea4576ed04dbe33ba6717e267bd2adefb652b743c17796.Dtffg1E4NJewWCpUJjawx-SbmlqinegRoLp_q980pnw
     components-hogcharts-defaulttooltip--total-excludes-overlay--light:
-        hash: v1.k794b7964.e021d56bfc9c1aabc8d7bc66574af9014cd609a8eff91c6229e90e9269d7bf30.CwqmkYC7eS-QlnU3JQ6TQu3y9Ce4xeQKj5ybiJTl3is
+        hash: v1.k794b7964.4b857c2cbf30a4f4b5cdb85ccfe0e9e244201ca9c43c612c15dc1ec0243bd6b6.asECa3fYimu_F85yECEVIO57qvrRVe2jXvyj90sBB2s
     components-hogcharts-funnelchart--few-steps-clustered--dark:
         hash: v1.k794b7964.482c407ebd0ccaf1aae8aff3034c90582e9bb549bb55c3e991f48cc3162f2d60.hjzAcq7YylD5DwBQkLr4PP1T0h_pMgduQYTOSQTxjwg
     components-hogcharts-funnelchart--few-steps-clustered--light:
