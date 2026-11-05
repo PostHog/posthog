@@ -716,12 +716,12 @@ tools:
             plans from the raw response. Send the account info and every destination first, then the connections, each
             with its connection details and its schema config. You write each call out in full, so keep it to a few
             connections and under about 50 KB of JSON. Returns the planned items for the batch, without their full
-            plans; read those with 'warehouse-migration-items-list'. A 400 names the connections PostHog could not
-            read; the rest of the batch is saved.
+            plans; read those with 'warehouse-migration-items-list'. A 400 names the connections PostHog could not read;
+            the rest of the batch is saved.
         feature_flag: warehouse-migration-import
         response:
             exclude:
-                - 'items.*.proposal'
+                - items.*.proposal
     warehouse-migrations-list:
         operation: warehouse_migrations_list
         enabled: true
