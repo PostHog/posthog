@@ -236,6 +236,22 @@
         },
         "feature_entitlement": "role_based_access"
     },
+    "account-notes-list": {
+        "description": "Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notes across accounts",
+        "title": "List account notes across accounts",
+        "required_scopes": ["account:read"],
+        "api_operations": ["GET /api/projects/{project_id}/account_notes/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
         "category": "Customer analytics",
@@ -413,7 +429,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; the server converts it into the same markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of tag names, shared with account tags) to tag the note at creation time.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account notebook",
@@ -428,24 +444,8 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
-    "accounts-notebooks-destroy": {
-        "description": "Permanently delete an account notebook by its `short_id`.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Delete account notebook",
-        "title": "Delete account notebook",
-        "required_scopes": ["account:write"],
-        "api_operations": ["DELETE /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
     "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account notebooks",
@@ -457,6 +457,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-partial-update": {
+        "description": "Update an account notebook's `title` or `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. Fields left out are untouched. Content is not edited here, use `notebooks-partial-update` for that.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account notebook tags or title",
+        "title": "Update account notebook tags or title",
+        "required_scopes": ["account:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "customer-analytics-csp"
     },

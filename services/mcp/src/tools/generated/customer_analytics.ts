@@ -402,6 +402,9 @@ const accountsNotebooksCreate = (): ToolBase<
         if (params.text_content !== undefined) {
             body['text_content'] = params.text_content
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
@@ -411,19 +414,33 @@ const accountsNotebooksCreate = (): ToolBase<
     },
 })
 
-const AccountsNotebooksDestroySchema = () => {
-    const AccountsNotebooksDestroyParams = orvalSchemas.AccountsNotebooksDestroyParams()
-    return AccountsNotebooksDestroyParams.omit({ project_id: true })
+const AccountsNotebooksPartialUpdateSchema = () => {
+    const AccountsNotebooksPartialUpdateBody = orvalSchemas.AccountsNotebooksPartialUpdateBody()
+    const AccountsNotebooksPartialUpdateParams = orvalSchemas.AccountsNotebooksPartialUpdateParams()
+    return AccountsNotebooksPartialUpdateParams.omit({ project_id: true }).extend(
+        AccountsNotebooksPartialUpdateBody.shape
+    )
 }
 
-const accountsNotebooksDestroy = (): ToolBase<ReturnType<typeof AccountsNotebooksDestroySchema>, unknown> => ({
-    name: 'accounts-notebooks-destroy',
-    schema: AccountsNotebooksDestroySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksDestroySchema>>) => {
+const accountsNotebooksPartialUpdate = (): ToolBase<
+    ReturnType<typeof AccountsNotebooksPartialUpdateSchema>,
+    Schemas.AccountNotebook
+> => ({
+    name: 'accounts-notebooks-partial-update',
+    schema: AccountsNotebooksPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+            body,
         })
         return result
     },
@@ -451,6 +468,7 @@ const accountsNotebooksList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer_analytics')
@@ -848,6 +866,37 @@ const customPropertyDefinitionsDestroy = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const AccountNotesListSchema = () => {
+    const AccountNotesListQueryParams = orvalSchemas.AccountNotesListQueryParams()
+    return AccountNotesListQueryParams
+}
+
+const accountNotesList = (): ToolBase<
+    ReturnType<typeof AccountNotesListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAccountNoteList>
+> => ({
+    name: 'account-notes-list',
+    schema: AccountNotesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountNotesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNoteList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/account_notes/`,
+            query: {
+                account_id: params.account_id,
+                assigned_to: params.assigned_to,
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
     },
 })
 
@@ -2315,7 +2364,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-list': accountsList,
     'accounts-meetings-list': accountsMeetingsList,
     'accounts-notebooks-create': accountsNotebooksCreate,
-    'accounts-notebooks-destroy': accountsNotebooksDestroy,
+    'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-list': accountsNotebooksList,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
@@ -2331,6 +2380,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
+    'account-notes-list': accountNotesList,
     'custom-property-definitions-list': customPropertyDefinitionsList,
     'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
     'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
