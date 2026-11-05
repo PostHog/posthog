@@ -491,6 +491,7 @@ An operator command strips each source after its `credentials_integration_id` co
 - The sync maps this error to a non-retryable error that tells the user to enter the credentials again or reconnect the account. Do not catch it in source code, and do not retry it.
 - `save`, `asave`, `assign` and `create` write the connection fields of a stripped source only to the row, and its OAuth pointer only to the column. If the row write fails, the call raises before `job_inputs` changes. A change to a shared row raises `SharedCredentialsError` unless the API request confirms it, because a skipped write would lose the change.
 - `update_runtime` keeps the marker. Write runtime keys only with `update_runtime`.
+- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the strip also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
 - A stripped source in async code must use `aload`. A call to `load` in an event loop thread raises, because it cannot read the row and `job_inputs` has no copy.
 - `list_sources_using_integration` and the integrations SDK usages find a stripped source by its column. The inputs search also sees a stripped OAuth source, because `load_many` puts its pointer back.
 
@@ -510,22 +511,7 @@ A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) ca
 A source opts in with two hooks on its class: `has_legacy_oauth_tokens(job_inputs)` (no network) and `adopt_legacy_oauth(job_inputs)` (can call the provider). HubSpot is the only source that uses them.
 
 - `hubspot_legacy_adopted`: the source has `hubspot_secret_key` and `hubspot_refresh_token` and no `hubspot_integration_id`. With `--execute`, the command exchanges the refresh token, reads the hub id from HubSpot, and reuses the `hubspot` row of the team for that hub id or creates one. It then sets `hubspot_integration_id` and the column, and removes the two legacy keys. Preview only counts. `reconcile_warehouse_source_credentials --verify` reports it as `legacy_oauth_tokens_in_job_inputs`.
-- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, or the inputs changed during the run. The command writes nothing. A later run tries again. A network error, a 429 or a 5xx from HubSpot is a retryable error, not an unusable grant: the backfill counts it as `failed`, and the cleanup command counts it as `skipped_transient`.
-
-#### Cleanup of dead credentials
-
-`cleanup_dead_warehouse_source_credentials` clears credentials that no sync can use. Some sources hold legacy OAuth tokens that HubSpot no longer accepts, or an integration pointer whose row is gone. These sources block a clean `reconcile_warehouse_source_credentials --verify`.
-
-A source is dead only when both rules hold:
-
-- Its credentials are dead. Either it holds legacy OAuth tokens (`has_legacy_oauth_tokens`) and `adopt_legacy_oauth` raises `LegacyOAuthGrantUnusable`, or its column or its in-use OAuth pointer names no integration row of the team. A source that still has a live reference is left alone.
-- No schema with `should_sync` synced in the last `--idle-days` days (default 30), and no schema is running.
-
-Preview is the default and makes no network call. With `--execute`, the command takes the source lock, writes a backup with the model of the strip command, removes the legacy token keys (`legacy_oauth_keys()` of the source class) and the dangling pointers at their real paths, clears a dangling column, and sets the marker `dead_credentials_cleared_at`. It never deletes a source, a schema or a row. Output is counts only. Stripped sources are skipped.
-
-- The backfill skips a marked source (`skipped_cleaned`), and `reconcile --verify` treats it as clean.
-- `restore_warehouse_source_connection_fields` puts the backed-up `job_inputs` back and removes the marker.
-- Do not write the marker key from source code. `SourceInputsStore` hides it from readers and keeps it on save.
+- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, failed after the retries, or the inputs changed during the run. The command writes nothing. A later run tries again.
 
 ## Implementing `source_for_pipeline`
 

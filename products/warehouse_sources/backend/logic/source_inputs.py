@@ -17,7 +17,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import (
     CONNECTION_FIELDS_STRIPPED_KEY,
-    DEAD_CREDENTIALS_CLEARED_KEY,
+    STRIPPED_STORE_KEYS,
     SharedCredentialsEdit,
     UnreadableSourceInputsError,
 )
@@ -59,8 +59,7 @@ class SourceInputsStore:
         the row and the column, and raises `SourceCredentialsMissingError` (an `UnreadableSourceInputsError`)
         when one is missing or unreadable.
         """
-        inputs = read_connection_fields(source, _decode(source.job_inputs))
-        return {key: value for key, value in inputs.items() if key != DEAD_CREDENTIALS_CLEARED_KEY}
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -77,10 +76,7 @@ class SourceInputsStore:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        return {
-            source_id: {key: value for key, value in inputs.items() if key != DEAD_CREDENTIALS_CLEARED_KEY}
-            for source_id, inputs in read_connection_fields_many(sources, loaded).items()
-        }
+        return read_connection_fields_many(sources, loaded)
 
     @staticmethod
     def preload(sources: Iterable[ExternalDataSource]) -> None:
@@ -134,11 +130,7 @@ class SourceInputsStore:
             # An unknown source type declares no settings. Every key except the runtime prefixes is then a
             # connection field, which is the safe side for a reader that must not see credentials.
             return {key: value for key, value in inputs.items() if _has_runtime_prefix(key)}
-        runtime = {
-            key: value
-            for key, value in split.runtime.items()
-            if key not in (CONNECTION_FIELDS_STRIPPED_KEY, DEAD_CREDENTIALS_CLEARED_KEY)
-        }
+        runtime = {key: value for key, value in split.runtime.items() if key not in STRIPPED_STORE_KEYS}
         return {**split.settings, **runtime}
 
     @staticmethod
@@ -171,13 +163,6 @@ class SourceInputsStore:
         For a stripped source the connection fields go only to the credentials row and the OAuth pointer only to
         the column, and the write raises when that fails. `job_inputs` then keeps neither.
         """
-        inputs = {key: value for key, value in inputs.items() if key != DEAD_CREDENTIALS_CLEARED_KEY}
-        try:
-            stored = _decode(source.job_inputs)
-        except UnreadableSourceInputsError:
-            stored = {}
-        if DEAD_CREDENTIALS_CLEARED_KEY in stored:
-            inputs[DEAD_CREDENTIALS_CLEARED_KEY] = stored[DEAD_CREDENTIALS_CLEARED_KEY]
         stripped_at = _stored_stripped_at(source)
         if stripped_at is not None:
             _assign_stripped(source, inputs, stripped_at, shared_credentials, credentials_reference)
@@ -299,31 +284,12 @@ class SourceInputsStore:
         source.save(update_fields=["job_inputs"])
 
     @staticmethod
-    def write_cleaned(
-        source: ExternalDataSource, inputs: Mapping[str, Any], *, cleared_at: str, clear_column: bool
-    ) -> None:
-        """The caller holds the source lock and has saved a backup. Skip credential mirroring to avoid new rows."""
-        _stage(source, {**inputs, DEAD_CREDENTIALS_CLEARED_KEY: cleared_at})
-        update_fields = ["job_inputs"]
-        if clear_column:
-            source.credentials_integration_id = None
-            update_fields.append("credentials_integration_id")
-        source.save(update_fields=update_fields)
-
-    @staticmethod
     def write_restored(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
         """Store full inputs again on a stripped source, with its reference column, and remove the marker.
 
         Only the restore command calls it. It skips `assign`, which would strip the inputs again.
         """
-        _stage(
-            source,
-            {
-                key: value
-                for key, value in inputs.items()
-                if key not in (CONNECTION_FIELDS_STRIPPED_KEY, DEAD_CREDENTIALS_CLEARED_KEY)
-            },
-        )
+        _stage(source, {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS})
         source.save(update_fields=list(INPUTS_UPDATE_FIELDS))
 
     @staticmethod
@@ -406,8 +372,6 @@ def _has_runtime_prefix(key: str) -> bool:
 
 def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
     keys = list(keys)
-    if DEAD_CREDENTIALS_CLEARED_KEY in keys:
-        raise ValueError("The cleanup marker is managed by the credentials commands")
     if not keys:
         return
     try:
