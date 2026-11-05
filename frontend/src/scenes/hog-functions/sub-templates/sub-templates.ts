@@ -2,6 +2,7 @@ import { FEATURE_FLAGS, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constan
 
 import {
     CyclotronJobFilterEvents,
+    CyclotronJobFiltersType,
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
     HogFunctionSubTemplateType,
@@ -128,21 +129,22 @@ const MCP_ALERT_MASKING_HASH =
     `{concat(${MCP_EFFECTIVE_TOOL_EXPR}) != '' ` + `? concat(${MCP_EFFECTIVE_TOOL_EXPR}) : 'unknown-tool'}`
 
 // Every MCP failure notification triggers on a failed $mcp_tool_call, using the same predicate as the
-// MCP analytics failure counts so an expected error never alerts. Passing `errorType` narrows to one of the semantic buckets the SDK sets on
-// $mcp_error_type — see products/mcp_analytics/backend/hogql_queries/tool_tables.py for the list.
-function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
-    const properties: CyclotronJobFilterEvents['properties'] = [
-        { key: MCP_IS_FAILURE_HOGQL, type: PropertyFilterType.HogQL },
-    ]
+// MCP analytics failure counts so an expected error never alerts. Passing `errorType` narrows to one
+// of the semantic buckets the SDK sets on $mcp_error_type — see
+// products/mcp_analytics/backend/hogql_queries/tool_tables.py for the list.
+function mcpFailedToolCallFilters(errorType?: string): CyclotronJobFiltersType {
+    const event: CyclotronJobFilterEvents = { id: '$mcp_tool_call', type: 'events' }
     if (errorType) {
-        properties.push({
-            key: '$mcp_error_type',
-            type: PropertyFilterType.Event,
-            value: [errorType],
-            operator: PropertyOperator.Exact,
-        })
+        event.properties = [
+            {
+                key: '$mcp_error_type',
+                type: PropertyFilterType.Event,
+                value: [errorType],
+                operator: PropertyOperator.Exact,
+            },
+        ]
     }
-    return { id: '$mcp_tool_call', type: 'events', properties }
+    return { events: [event], properties: [{ key: MCP_IS_FAILURE_HOGQL, type: PropertyFilterType.HogQL }] }
 }
 
 // A permanently broken batch export fails every run (as often as every 5 minutes), so dedupe
@@ -199,7 +201,7 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'mcp-tool-error',
         type: 'destination',
         context_id: 'standard',
-        filters: { events: [mcpFailedToolCallEvent()] },
+        filters: mcpFailedToolCallFilters(),
         // Deduped per failing tool, not per call. A broken tool fails on every invocation and
         // agents retry in loops, so an undeduped alert would post a message per event — enough to
         // bury a channel, and amplifiable by anyone holding the (public) project token. One message
