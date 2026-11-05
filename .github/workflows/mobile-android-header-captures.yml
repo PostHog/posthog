@@ -1,11 +1,7 @@
 name: Android report header captures
 
 on:
-    push:
-        branches: [posthog/android-report-blur-captures]
-        paths:
-            - 'products/mobile/**'
-            - '.github/workflows/mobile-android-header-captures.yml'
+    workflow_dispatch:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}

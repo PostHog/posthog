@@ -58,7 +58,7 @@ import sys
 root = Path(sys.argv[1])
 report = (root / 'report-header.yaml').read_text()
 suffix = report[report.index('    - await: { idle: true }'):]
-details = 'steps:\n    - await: { visible: { id: report-details-scroll } }\n' + suffix.replace('report-', 'details-')
+details = 'steps:\n    - tap: { id: report-read-full }\n    - await: { visible: { id: report-details-scroll } }\n' + suffix.replace('report-', 'details-')
 (root / 'details-header.yaml').write_text(details)
 PY
 
@@ -77,6 +77,7 @@ PY
 )
     bash scripts/ci-argent-build.sh /tmp/mobile-header-build "$capture_dir/build"
     binary=/tmp/mobile-header-build/Build/Products/Release-iphonesimulator/PostHog.app
+    tar -czf "$capture_dir/PostHog-before.app.tar.gz" -C "$(dirname "$binary")" PostHog.app
     device=$(xcrun simctl create 'Report header comparison' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro "$runtime")
     xcrun simctl boot "$device"
     xcrun simctl bootstatus "$device" -b
@@ -116,6 +117,9 @@ for phase in before after; do
         fi
     fi
     if [[ "$platform" == ios ]]; then
+        if [[ "$phase" == after ]]; then
+            tar -czf "$capture_dir/PostHog-after.app.tar.gz" -C "$(dirname "$binary")" PostHog.app
+        fi
         xcrun simctl terminate "$device" com.posthog.code.mobile >/dev/null 2>&1 || true
         xcrun simctl uninstall "$device" com.posthog.code.mobile >/dev/null 2>&1 || true
         xcrun simctl install "$device" "$binary"
@@ -130,11 +134,17 @@ for phase in before after; do
         continue
     fi
     argent e2e run "$capture_dir/report-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/report.json"
-    if [[ "$platform" == ios ]]; then
-        xcrun simctl openurl "$device" posthog://report/demo-report-load-time/details
-    else
-        adb shell am start -W -a android.intent.action.VIEW -d posthog://report/demo-report-load-time/details com.posthog.mobile
-    fi
+    python3 - "$phase_dir" <<'PY_COPY'
+from pathlib import Path
+import json, shutil, sys
+root = Path(sys.argv[1])
+report = json.loads((root / 'report.json').read_text())
+for step in report['steps']:
+    if step['kind'] == 'echo':
+        name = step['message']
+    if step.get('tool') == 'screenshot':
+        shutil.copyfile(step['result']['image']['hostPath'], root / f'{name}.png')
+PY_COPY
     argent e2e run "$capture_dir/details-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/details.json"
     python3 - "$phase_dir" <<'PY'
 from pathlib import Path

@@ -1,0 +1,45 @@
+name: iPhone report header captures
+
+on:
+    push:
+        branches: [posthog/android-report-blur-captures]
+        paths: ['.github/workflows/mobile-ios-header-captures.yml']
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    ios:
+        runs-on: macos-26
+        timeout-minutes: 60
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  fetch-depth: 10
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+              with:
+                  package_json_file: products/mobile/package.json
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+              with:
+                  node-version-file: products/mobile/.node-version
+            - run: pnpm install --frozen-lockfile
+            - run: DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+            - run: sed -i '' 's/before_revision=.*/before_revision=e642e42745550be81a1ee5cec151076f6af7e646/' scripts/capture-report-header.sh
+            - run: bash scripts/capture-report-header.sh ios
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              if: ${{ !cancelled() }}
+              with:
+                  name: report-header-ios
+                  path: /tmp/report-header-captures
+                  retention-days: 7
+
