@@ -2,7 +2,7 @@
 
 Read the section for the backend's language. Each SDK sends both forms with one `send` call: a code send names a `template_key` with a subject and an HTML or text body, and a template send names a `template_id` with its data. A send names one of the two, never both. Each section gives the minimum version that sends content from code. Install the latest release, and never one below that version.
 
-Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and `capture_engagement` on a code send. Every SDK also takes an idempotency key, retries network errors, rate limits and a `503` with that key, and doesn't retry a `not_found` from a status read.
+Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and `capture_engagement` on a code send, and none of them on a template send, whose template carries its own sender and reply-to address. Every SDK also takes an idempotency key, retries network errors, rate limits and a `503` with that key, and doesn't retry a `not_found` from a status read.
 
 ## Node.js
 
