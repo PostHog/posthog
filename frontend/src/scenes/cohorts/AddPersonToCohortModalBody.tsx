@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { PersonSelectList } from './PersonSelectList'
+import { SelectedPeopleList } from './SelectedPeopleList'
 
 export function AddPersonToCohortModalBody(): JSX.Element {
     const { query, cohortPersons, personsToAddToCohort } = useValues(addPersonToCohortModalLogic)
@@ -13,15 +14,18 @@ export function AddPersonToCohortModalBody(): JSX.Element {
     }, [cohortPersons])
 
     return (
-        <PersonSelectList
-            query={query}
-            setQuery={setQuery}
-            selectedPersons={personsToAddToCohort}
-            onAddPerson={addPerson}
-            onRemovePerson={removePerson}
-            existingPersonsSet={cohortPersonsSet}
-            dataNodeKey="addPersonToCohortModal"
-            autoFocus
-        />
+        <div className="flex flex-col gap-y-2">
+            <PersonSelectList
+                query={query}
+                setQuery={setQuery}
+                selectedPersons={personsToAddToCohort}
+                onAddPerson={addPerson}
+                onRemovePerson={removePerson}
+                existingPersonsSet={cohortPersonsSet}
+                dataNodeKey="addPersonToCohortModal"
+                autoFocus
+            />
+            <SelectedPeopleList people={personsToAddToCohort} onRemove={removePerson} />
+        </div>
     )
 }

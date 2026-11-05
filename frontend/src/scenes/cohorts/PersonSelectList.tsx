@@ -136,8 +136,16 @@ export function PersonSelectList({
     )
 
     const logic = dataNodeLogic(dataNodeLogicProps)
-    const { response, responseLoading, responseError, responseErrorObject, queryId, canLoadNextData, nextDataLoading } =
-        useValues(logic)
+    const {
+        response,
+        responseLoading,
+        responseError,
+        responseErrorObject,
+        queryCancelled,
+        queryId,
+        canLoadNextData,
+        nextDataLoading,
+    } = useValues(logic)
     const { loadNextData, loadData } = useActions(logic)
 
     const persons = useMemo(() => parseResults((response as Record<string, any> | null)?.results), [response])
@@ -180,8 +188,15 @@ export function PersonSelectList({
                                 query={query}
                                 queryId={responseErrorObject?.queryId ?? queryId}
                                 titleStatus={responseErrorObject?.status}
+                                excludeDetail={queryCancelled}
                                 onRetry={() => loadData('force_blocking')}
-                                title={responseError}
+                                title={
+                                    queryCancelled
+                                        ? 'The search was cancelled'
+                                        : response && 'error' in response
+                                          ? response.error
+                                          : responseError
+                                }
                             />
                         </div>
                     ) : responseLoading && persons.length === 0 ? (

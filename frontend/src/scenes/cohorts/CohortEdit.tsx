@@ -15,7 +15,7 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonMenu, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -86,6 +86,7 @@ import {
 import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { SelectedPeopleList } from './SelectedPeopleList'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -777,34 +778,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 onRemovePerson={removePersonFromCreateStaticCohort}
                                                 dataNodeKey="createStaticCohort"
                                             />
-                                            {Object.keys(personsToCreateStaticCohort).length > 0 && (
-                                                <div
-                                                    className="flex flex-col gap-y-1"
-                                                    data-attr="cohort-selected-persons"
-                                                >
-                                                    <h4 className="text-xs font-semibold uppercase opacity-60 mb-0">
-                                                        Selected people (
-                                                        <span translate="no">
-                                                            {Object.keys(personsToCreateStaticCohort).length}
-                                                        </span>
-                                                        )
-                                                    </h4>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {Object.entries(personsToCreateStaticCohort).map(
-                                                            ([personId, displayName]) => (
-                                                                <LemonSnack
-                                                                    key={personId}
-                                                                    onClose={() =>
-                                                                        removePersonFromCreateStaticCohort(personId)
-                                                                    }
-                                                                >
-                                                                    {displayName || personId}
-                                                                </LemonSnack>
-                                                            )
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
+                                            <SelectedPeopleList
+                                                people={personsToCreateStaticCohort}
+                                                onRemove={removePersonFromCreateStaticCohort}
+                                            />
                                         </>
                                     )}
                                     {!isNewCohort && (
