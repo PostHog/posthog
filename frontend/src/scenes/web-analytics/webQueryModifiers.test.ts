@@ -1,8 +1,8 @@
 import { NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { TileId, WebAnalyticsTile } from './common'
-import { getNewInsightUrlFactory } from './insightsUtils'
-import { applyWebQueryModifiers } from './webQueryModifiers'
+import { getNewInsightUrlFactory, getNewInsightUrlForQuery } from './insightsUtils'
+import { applyWebQueryModifiers, withWebQueryModifiers } from './webQueryModifiers'
 
 const overview: QuerySchema = {
     kind: NodeKind.WebOverviewQuery,
@@ -85,4 +85,16 @@ describe('webQueryModifiers', () => {
             expect(url).not.toContain('webQueryModifiers')
         }
     )
+
+    it.each([
+        ['overview', overview],
+        ['stats table', statsTable],
+    ])('leaves the modifiers out of the modal new insight url for the %s', (_, query) => {
+        const url = decodeURIComponent(
+            getNewInsightUrlForQuery(withWebQueryModifiers(query, { useDimensionalTables: true }))
+        )
+
+        expect(url).toContain('/insights/new')
+        expect(url).not.toContain('webQueryModifiers')
+    })
 })

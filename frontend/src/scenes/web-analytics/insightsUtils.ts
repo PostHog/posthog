@@ -10,9 +10,12 @@ export const getDashboardItemId = (section: TileId, tab: string | undefined, isM
     return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
 }
 
+// A saved insight runs for every viewer, so it must not keep this browser's web query modifiers.
+export const getNewInsightUrlForQuery = (query: QuerySchema): string =>
+    urls.insightNew({ query: withoutWebQueryModifiers(query), sceneSource: 'web-analytics' })
+
 export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
     return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
-        // A saved insight runs for every viewer, so it must not keep this browser's web query modifiers.
         const formatQueryForNewInsight = (tileQuery: QuerySchema): QuerySchema => {
             const query = withoutWebQueryModifiers(tileQuery)
             if (query.kind === NodeKind.InsightVizNode) {
