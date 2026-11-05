@@ -1,10 +1,15 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia, User
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestObjectMediaPreviewAPI(APIBaseTest):
@@ -40,3 +45,32 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
         # Tied rows need a total order, or a page boundary can skip or repeat a preview
         assert seen == sorted((str(preview.id) for preview in previews), reverse=True)
+
+    def test_create_does_not_accept_an_exported_asset(self):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/object_media_previews/",
+            {"event_definition_id": str(event_definition.pk), "exported_asset_id": str(uuid.UUID(int=asset.pk))},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ObjectMediaPreview.objects.filter(exported_asset=asset).exists()
+
+    @parameterized.expand([("author", True, True), ("other_member", False, False)])
+    def test_exported_asset_media_url_is_only_returned_to_its_author(self, _name, is_author, expects_url):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        author = self.user if is_author else User.objects.create_and_join(self.organization, "a@example.com", "pw")
+        asset = ExportedAsset.objects.create(team=self.team, export_format="image/png", created_by=author)
+        ObjectMediaPreview.objects.create(team=self.team, event_definition=event_definition, exported_asset=asset)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/object_media_previews/?event_definition={event_definition.pk}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        media_url = response.json()["results"][0]["media_url"]
+        assert ("token=" in media_url) is expects_url

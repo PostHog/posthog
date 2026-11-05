@@ -15,7 +15,6 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
     media_url = serializers.SerializerMethodField()
     media_type = serializers.SerializerMethodField()
     uploaded_media_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
-    exported_asset_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     event_definition_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
 
     class Meta:
@@ -28,12 +27,18 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
             "media_type",
             "metadata",
             "uploaded_media_id",
-            "exported_asset_id",
             "event_definition_id",
         )
         read_only_fields = ("id", "created_at", "updated_at", "media_url", "media_type")
 
     def get_media_url(self, obj: ObjectMediaPreview) -> str:
+        if obj.exported_asset_id and not obj.uploaded_media_id:
+            # An exported asset's URL is a long-lived bearer token for its content, while the exports API
+            # only serves an export to its author, so only the author gets the URL here.
+            request = self.context.get("request")
+            user_id = getattr(getattr(request, "user", None), "id", None)
+            if user_id is None or obj.exported_asset.created_by_id != user_id:
+                return ""
         return obj.media_url
 
     def get_media_type(self, obj: ObjectMediaPreview) -> str:
@@ -48,31 +53,18 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         uploaded_media_id = validated_data.pop("uploaded_media_id", None)
-        exported_asset_id = validated_data.pop("exported_asset_id", None)
         event_definition_id = validated_data.pop("event_definition_id", None)
 
-        if bool(uploaded_media_id) + bool(exported_asset_id) != 1:
-            raise ValidationError("Exactly one of uploaded_media_id or exported_asset_id must be provided")
+        if not uploaded_media_id:
+            raise ValidationError("uploaded_media_id must be provided")
 
         if not event_definition_id:
             raise ValidationError("event_definition_id must be provided")
 
-        uploaded_media = None
-        exported_asset = None
-
-        if uploaded_media_id:
-            try:
-                uploaded_media = UploadedMedia.objects.get(id=uploaded_media_id, team=team)
-            except UploadedMedia.DoesNotExist:
-                raise ValidationError("Uploaded media not found or does not belong to this team")
-
-        if exported_asset_id:
-            from products.exports.backend.models.exported_asset import ExportedAsset
-
-            try:
-                exported_asset = ExportedAsset.objects.get(id=exported_asset_id, team=team)
-            except ExportedAsset.DoesNotExist:
-                raise ValidationError("Exported asset not found or does not belong to this team")
+        try:
+            uploaded_media = UploadedMedia.objects.get(id=uploaded_media_id, team=team)
+        except UploadedMedia.DoesNotExist:
+            raise ValidationError("Uploaded media not found or does not belong to this team")
 
         try:
             event_definition = EventDefinition.objects.get(id=event_definition_id, team=team)
@@ -82,7 +74,6 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
         preview = ObjectMediaPreview.objects.create(
             team=team,
             uploaded_media=uploaded_media,
-            exported_asset=exported_asset,
             event_definition=event_definition,
             **validated_data,
         )
