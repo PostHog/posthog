@@ -271,6 +271,10 @@ export function ExperimentMetricForm({
     }
 
     const handleDataSourceChange = (dataSource: 'posthog' | 'warehouse_native'): void => {
+        // The segmented button also reports a click on the selected option, which must not reset the metric
+        if ((dataSource === 'warehouse_native') === usesWarehouseNative) {
+            return
+        }
         if (dataSource === 'warehouse_native') {
             handleSetMetric(toWarehouseNativeMetric(metric, warehouseExposure ?? EMPTY_WAREHOUSE_NATIVE_BINDING))
         } else {

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -20,13 +21,14 @@ export function WarehouseNativeConnectionFields({
     onChange,
 }: WarehouseNativeConnectionFieldsProps): JSX.Element {
     const { connectionOptions, connectionOptionsLoading } = useValues(connectionSelectorLogic)
-    const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic)
+    const { maybeLoadConnectionOptions, loadConnectionOptions } = useActions(connectionSelectorLogic)
 
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
     })
 
-    const loading = connectionOptions === null || connectionOptionsLoading
+    // A reload keeps the loaded options, so the select only waits for the first load
+    const loading = connectionOptions === null
     // A warehouse-native query needs a direct BigQuery connection. A synced source cannot run it.
     const options = (connectionOptions ?? [])
         .filter((source) => source.source_type === 'BigQuery' && source.access_method === 'direct')
@@ -39,28 +41,42 @@ export function WarehouseNativeConnectionFields({
         <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
                 <LemonLabel>Connection</LemonLabel>
-                {!loading && options.length === 0 ? (
-                    <div className="text-secondary text-sm">
-                        This project has no direct BigQuery connection yet.{' '}
-                        <Link
-                            to={urls.dataWarehouseSourceNew('BigQuery', undefined, undefined, 'direct')}
-                            target="_blank"
-                            data-attr="experiment-warehouse-native-add-connection"
-                        >
-                            Add a BigQuery connection
-                        </Link>
+                <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                        {!loading && options.length === 0 ? (
+                            <div className="text-secondary text-sm">
+                                This project has no direct BigQuery connection yet.{' '}
+                                <Link
+                                    to={urls.dataWarehouseSourceNew('BigQuery', undefined, undefined, 'direct')}
+                                    target="_blank"
+                                    data-attr="experiment-warehouse-native-add-connection"
+                                >
+                                    Add a BigQuery connection
+                                </Link>
+                            </div>
+                        ) : (
+                            <LemonSelect
+                                fullWidth
+                                loading={loading}
+                                value={loading ? null : binding.connection_id || null}
+                                onChange={(connectionId) => onChange({ ...binding, connection_id: connectionId ?? '' })}
+                                options={options}
+                                placeholder="Select a BigQuery connection"
+                                data-attr="experiment-warehouse-native-connection"
+                            />
+                        )}
                     </div>
-                ) : (
-                    <LemonSelect
-                        fullWidth
-                        loading={loading}
-                        value={loading ? null : binding.connection_id || null}
-                        onChange={(connectionId) => onChange({ ...binding, connection_id: connectionId ?? '' })}
-                        options={options}
-                        placeholder="Select a BigQuery connection"
-                        data-attr="experiment-warehouse-native-connection"
+                    {/* A connection added in another tab only shows after a reload */}
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        type="secondary"
+                        onClick={() => loadConnectionOptions()}
+                        loading={connectionOptionsLoading}
+                        tooltip="Reload connections"
+                        aria-label="Reload connections"
+                        data-attr="experiment-warehouse-native-reload-connections"
                     />
-                )}
+                </div>
             </div>
             <div className="flex flex-wrap gap-3">
                 <div className="flex min-w-48 flex-1 flex-col gap-1">

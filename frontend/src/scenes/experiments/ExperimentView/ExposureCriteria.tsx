@@ -20,6 +20,7 @@ import { WarehouseNativeConnectionFields } from 'products/experiments/frontend/w
 import { WarehouseNativeQueryEditor } from 'products/experiments/frontend/warehouseNative/WarehouseNativeQueryEditor'
 import {
     EMPTY_WAREHOUSE_NATIVE_BINDING,
+    getExperimentMetricDataSources,
     getWarehouseNativeExposure,
     getWarehouseNativeExposureError,
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
@@ -55,6 +56,16 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
     // Keep an existing warehouse-native exposure editable even if the team is no longer flagged in
     const showWarehouseNativeCard = warehouseNativeEnabled || !!warehouseExposure
+    // The API rejects an exposure that reads another data source than the metrics, so the metrics must go first
+    const metricDataSources = getExperimentMetricDataSources(experiment)
+    const warehouseNativeBlockedReason =
+        !warehouseExposure && metricDataSources.posthog
+            ? "Remove this experiment's metrics first. A warehouse-native exposure only works with warehouse-native metrics."
+            : undefined
+    const posthogBlockedReason =
+        warehouseExposure && metricDataSources.warehouseNative
+            ? "Remove this experiment's metrics first. Warehouse-native metrics only work with a warehouse-native exposure."
+            : undefined
 
     return (
         <LemonModal
@@ -104,6 +115,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         </>
                     }
                     selected={!isCustom && !isActivation && !warehouseExposure}
+                    disabled={!!posthogBlockedReason}
+                    disabledReason={posthogBlockedReason ?? ''}
                     onClick={() => {
                         setExposureCriteria({
                             ...exposureCriteria,
@@ -123,6 +136,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             </>
                         }
                         selected={isActivation}
+                        disabled={!!posthogBlockedReason}
+                        disabledReason={posthogBlockedReason ?? ''}
                         onClick={() => {
                             // Re-clicking the selected card must not reset a configured event
                             if (isActivation) {
@@ -150,6 +165,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         </>
                     }
                     selected={isCustom}
+                    disabled={!!posthogBlockedReason}
+                    disabledReason={posthogBlockedReason ?? ''}
                     onClick={() => {
                         // Re-clicking the selected card must not reset a configured event
                         if (isCustom) {
@@ -176,6 +193,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             </>
                         }
                         selected={!!warehouseExposure}
+                        disabled={!!warehouseNativeBlockedReason}
+                        disabledReason={warehouseNativeBlockedReason ?? ''}
                         data-attr="experiment-exposure-warehouse-native"
                         onClick={() => {
                             // Re-clicking the selected card must not reset a configured query

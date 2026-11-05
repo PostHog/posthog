@@ -183,6 +183,12 @@ describe('ExperimentMetricForm', () => {
         expect(screen.getByText(source.query)).toBeInTheDocument()
         expect(container.querySelector('[data-attr="experiment-metric-type-funnel"]')).toBeDisabled()
 
+        // a click on the selected data source must not reset the metric
+        await userEvent.click(
+            container.querySelector('[data-attr="experiment-metric-data-source-warehouse-native"]') as HTMLElement
+        )
+        expect(handleSetMetric).not.toHaveBeenCalled()
+
         await userEvent.click(container.querySelector('[data-attr="experiment-metric-type-ratio"]') as HTMLElement)
 
         expect(handleSetMetric).toHaveBeenCalledWith(

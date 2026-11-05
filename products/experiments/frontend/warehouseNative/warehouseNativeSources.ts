@@ -58,20 +58,31 @@ export function getWarehouseNativeBinding(metric: ExperimentMetric): WarehouseNa
     return source ? { connection_id: source.connection_id, unit: source.unit } : EMPTY_WAREHOUSE_NATIVE_BINDING
 }
 
-export function experimentUsesWarehouseNativeSources(
-    experiment: Pick<Experiment, 'exposure_criteria' | 'metrics' | 'metrics_secondary' | 'saved_metrics'>
-): boolean {
-    if (getWarehouseNativeExposure(experiment.exposure_criteria)) {
-        return true
-    }
+/**
+ * Which data sources the metrics of the experiment read, shared metrics included. The API accepts
+ * warehouse-native metrics only under a warehouse-native exposure, and no other metric under one.
+ */
+export function getExperimentMetricDataSources(
+    experiment: Pick<Experiment, 'metrics' | 'metrics_secondary' | 'saved_metrics'>
+): { warehouseNative: boolean; posthog: boolean } {
     const queries = [
         ...(experiment.metrics ?? []),
         ...(experiment.metrics_secondary ?? []),
         ...(experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query),
-    ]
-    return queries.some(
+    ].filter(Boolean)
+    const warehouseNative = queries.filter(
         (query) =>
-            query?.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
+            query.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
+    )
+    return { warehouseNative: warehouseNative.length > 0, posthog: warehouseNative.length < queries.length }
+}
+
+export function experimentUsesWarehouseNativeSources(
+    experiment: Pick<Experiment, 'exposure_criteria' | 'metrics' | 'metrics_secondary' | 'saved_metrics'>
+): boolean {
+    return (
+        !!getWarehouseNativeExposure(experiment.exposure_criteria) ||
+        getExperimentMetricDataSources(experiment).warehouseNative
     )
 }
 

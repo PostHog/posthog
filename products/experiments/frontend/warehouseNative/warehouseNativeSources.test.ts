@@ -10,6 +10,7 @@ import {
     type WarehouseNativeBinding,
     alignMetricsWithExposure,
     experimentUsesWarehouseNativeSources,
+    getExperimentMetricDataSources,
     getWarehouseNativeMetricError,
     toWarehouseNativeMetric,
 } from './warehouseNativeSources'
@@ -111,7 +112,7 @@ describe('warehouseNativeSources', () => {
 
     it.each([
         [
-            'a warehouse-native exposure',
+            'a warehouse-native exposure and no metrics',
             {
                 exposure_criteria: {
                     exposure_config: {
@@ -121,17 +122,19 @@ describe('warehouseNativeSources', () => {
                 },
             },
             true,
+            { warehouseNative: false, posthog: false },
         ],
-        ['a warehouse-native shared metric', { saved_metrics: [{ query: meanMetric(warehouseSource()) }] }, true],
-        ['event metrics only', { metrics: [EVENTS_METRIC] }, false],
-    ])('knows that an experiment with %s reads the warehouse', (_, experiment, expected) => {
-        expect(
-            experimentUsesWarehouseNativeSources({
-                metrics: [],
-                metrics_secondary: [],
-                saved_metrics: [],
-                ...experiment,
-            })
-        ).toBe(expected)
+        [
+            'a warehouse-native shared metric',
+            { saved_metrics: [{ query: meanMetric(warehouseSource()) }] },
+            true,
+            { warehouseNative: true, posthog: false },
+        ],
+        ['event metrics only', { metrics: [EVENTS_METRIC] }, false, { warehouseNative: false, posthog: true }],
+    ])('knows which data sources an experiment with %s reads', (_, experiment, usesWarehouse, metricDataSources) => {
+        const full = { metrics: [], metrics_secondary: [], saved_metrics: [], ...experiment }
+
+        expect(experimentUsesWarehouseNativeSources(full)).toBe(usesWarehouse)
+        expect(getExperimentMetricDataSources(full)).toEqual(metricDataSources)
     })
 })

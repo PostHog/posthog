@@ -9,7 +9,11 @@ import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experim
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { getWarehouseNativeMetricError } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+    getWarehouseNativeMetricError,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
@@ -31,6 +35,10 @@ export function ExperimentMetricModal({
     if (!isModalOpen || !metric) {
         return null
     }
+
+    // The exposure can change while this modal is open, and the API rejects a metric on another connection or unit
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const metricToSave = warehouseExposure ? alignMetricsWithExposure([metric], warehouseExposure)[0] : metric
 
     return (
         <LemonModal
@@ -74,10 +82,10 @@ export function ExperimentMetricModal({
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => onSave(metric, context)}
+                            onClick={() => onSave(metricToSave, context)}
                             type="primary"
                             data-attr="save-experiment-metric"
-                            disabledReason={getWarehouseNativeMetricError(metric) ?? undefined}
+                            disabledReason={getWarehouseNativeMetricError(metricToSave) ?? undefined}
                         >
                             {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>
