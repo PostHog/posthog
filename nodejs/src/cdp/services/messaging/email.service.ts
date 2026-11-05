@@ -176,8 +176,9 @@ function pickAttachmentLoadRetryDelayMs(tries: number): number {
 
 export const EMAIL_ATTACHMENTS_UNAVAILABLE = 'attachments_unavailable'
 
-// About 7.5 minutes of retries with the delays above, which outlasts a database failover. An error
-// that lasts longer while jobs still dequeue from the same database belongs to this job.
+// About 7.5 minutes of retries with the delays above, which outlasts a database failover. Workflow
+// pacing makes it longer, because each try waits for its own pacing slot. An error that lasts longer
+// while jobs still dequeue from the same database belongs to this job.
 export const EMAIL_ATTACHMENT_LOAD_MAX_TRIES = 30
 
 class UnverifiedEmailDomainError extends Error {
