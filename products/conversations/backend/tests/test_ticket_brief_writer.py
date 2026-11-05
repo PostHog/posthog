@@ -93,7 +93,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=False),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
+            patch(f"{MODULE}.build_conversations_client") as client,
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
@@ -106,7 +106,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", side_effect=RuntimeError("connection reset")),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
+            patch(f"{MODULE}.build_conversations_client") as client,
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
@@ -119,7 +119,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=True),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client"),
+            patch(f"{MODULE}.build_conversations_client"),
             patch(f"{MODULE}.create_message", new_callable=AsyncMock),
             patch(f"{MODULE}.anthropic_text", return_value=json.dumps(BASE)),
             patch(f"{MODULE}._store_brief", side_effect=RuntimeError("deadlock detected")),
@@ -134,7 +134,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=True),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client", side_effect=RuntimeError("gateway down")),
+            patch(f"{MODULE}.build_conversations_client", side_effect=RuntimeError("gateway down")),
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
@@ -150,7 +150,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=False),
             patch(f"{MODULE}.brief_enabled", return_value=True),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
+            patch(f"{MODULE}.build_conversations_client") as client,
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx", respect_gate=respect_gate)
         assert output.written is False
@@ -164,7 +164,7 @@ class TestWriteBrief(SimpleTestCase):
         with (
             patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=True),
-            patch(f"{MODULE}.get_async_anthropic_gateway_client"),
+            patch(f"{MODULE}.build_conversations_client"),
             patch(f"{MODULE}.create_message", new_callable=AsyncMock, return_value=message),
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
