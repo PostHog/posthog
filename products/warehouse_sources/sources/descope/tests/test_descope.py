@@ -3,14 +3,21 @@ from typing import Any
 import pytest
 
 from products.warehouse_sources.sources.descope._config import DescopeSourceConfig
-from products.warehouse_sources.sources.descope.descope import DescopeResumeConfig, _audit_body, validate_credentials
+from products.warehouse_sources.sources.descope.descope import (
+    DescopeResumeConfig,
+    _audit_body,
+    base_url,
+    validate_credentials,
+)
 from products.warehouse_sources.sources.descope.settings import ENDPOINTS, PARTITION_KEYS, PRIMARY_KEYS
 from products.warehouse_sources.sources.descope.source import DescopeSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(DescopeSource(), DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key"))
+def _driver(region: str = "us") -> SourceDriver:
+    return SourceDriver(
+        DescopeSource(), DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key", region=region)
+    )
 
 
 def _response(payload: dict[str, Any]) -> ScriptedResponse:
@@ -23,11 +30,25 @@ class TestAuditBody:
         assert body == {"from": 1700000000000}
 
 
-class TestValidateCredentials:
-    def test_sends_bearer_token(self) -> None:
-        with scripted_network([_response({})]) as network:
-            assert validate_credentials("P2abc", "mgmt-key")
+class TestBaseUrl:
+    def test_unknown_region_raises_instead_of_falling_back_to_us(self) -> None:
+        with pytest.raises(ValueError, match="supported Descope region"):
+            base_url("apac")
 
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "region, expected_host",
+        [
+            ("us", "https://api.descope.com"),
+            ("eu", "https://api.euc1.descope.com"),
+        ],
+    )
+    def test_sends_bearer_token_to_regional_host(self, region: str, expected_host: str) -> None:
+        with scripted_network([_response({})]) as network:
+            assert validate_credentials("P2abc", "mgmt-key", region)
+
+        assert network.requests_log[0].headers["host"] == expected_host.removeprefix("https://")
         assert network.requests_log[0].path == "/v1/mgmt/projects/list"
         assert network.requests_log[0].headers["authorization"] == "Bearer P2abc:mgmt-key"
 
@@ -158,6 +179,26 @@ class TestUserHistoryFanOut:
 
         assert result.raised is None
         assert result.requests[0].json()["page"] == 4
+
+
+class TestSyncRegionalHost:
+    @pytest.mark.parametrize("region, expected_host", [("us", "api.descope.com"), ("eu", "api.euc1.descope.com")])
+    @pytest.mark.parametrize(
+        "endpoint, responses",
+        [
+            ("Users", [{"users": []}]),
+            ("Groups", [{"tenants": [{"id": "T1"}]}, {"groups": []}]),
+            ("UserHistory", [{"users": [{"userId": "u1"}]}, {"usersAuthHistory": []}, {"users": []}]),
+        ],
+    )
+    def test_every_request_goes_to_the_regional_host(
+        self, endpoint: str, responses: list[dict[str, Any]], region: str, expected_host: str
+    ) -> None:
+        result = _driver(region).run(endpoint, [_response(r) for r in responses])
+
+        assert result.raised is None
+        assert len(result.requests) == len(responses)
+        assert {request.headers["host"] for request in result.requests} == {expected_host}
 
 
 class TestAnalyticsFetch:

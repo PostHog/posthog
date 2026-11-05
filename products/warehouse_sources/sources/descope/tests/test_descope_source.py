@@ -14,6 +14,7 @@ class TestDescopeSource:
     )
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
         config = DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key")
+        assert config.region == "us"
         with scripted_network([ScriptedResponse(status=status_code, json={})]) as network:
             is_valid, error_message = DescopeSource().validate_credentials(config, team_id=123)
 
