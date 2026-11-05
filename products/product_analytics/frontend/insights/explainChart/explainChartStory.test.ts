@@ -1,6 +1,9 @@
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
-import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import type {
+    ExplainChartData,
+    TimeSeriesExplainChartData,
+} from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 
 import { explainChartStoryFor, storyOnChart, withEvidenceLinks } from './explainChartStory'
 
@@ -13,6 +16,19 @@ const STORY = {
     insightName: 'Pageviews',
     lastPointInProgress: false,
     headline: 'A peak on **October 2**.',
+    chapters: [],
+}
+const FUNNEL_STORY = {
+    shape: 'funnel_steps',
+    query: { kind: 'FunnelsQuery' },
+    steps: [
+        { name: 'Pageview', count: 100 },
+        { name: 'Signed up', count: 20 },
+    ],
+    breakdowns: [],
+    seriesIndex: 0,
+    insightName: 'Signups',
+    headline: 'Most people leave before **Signed up**.',
     chapters: [],
 }
 
@@ -29,10 +45,11 @@ describe('explainChartStory', () => {
             { ...STORY, shape: undefined },
             STORY,
         ],
+        ['a funnel story', { insightId: 'aBc12345' }, FUNNEL_STORY, FUNNEL_STORY],
         [
             'a story of a shape this page cannot draw',
             { insightId: 'aBc12345' },
-            { ...STORY, shape: 'funnel_steps' },
+            { ...STORY, shape: 'retention_grid' },
             null,
         ],
     ])('takes a story for %s only when it explains this insight', (_, input, output, expected) => {
@@ -64,7 +81,7 @@ describe('explainChartStory', () => {
                 { title: 'A peak', range: [1, 1] },
                 { title: 'A dip', range: [2, 2] },
             ],
-        } as unknown as ExplainChartData
+        } as unknown as TimeSeriesExplainChartData
         const chart = [{ label: 'Pageviews', data: [2, 3, 9], days }]
 
         const shown = storyOnChart(story, chart, false)

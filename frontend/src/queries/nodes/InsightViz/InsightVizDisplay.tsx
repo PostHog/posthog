@@ -440,7 +440,7 @@ export function InsightVizDisplay({
             case InsightType.FUNNELS:
                 return (
                     <Funnel
-                        context={context}
+                        context={viewContext}
                         inCardView={embedded}
                         inSharedMode={inSharedMode}
                         showPersonsModal={!inSharedMode}

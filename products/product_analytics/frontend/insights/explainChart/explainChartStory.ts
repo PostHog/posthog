@@ -8,7 +8,9 @@ import type { InsightShortId } from '~/types'
 
 import type {
     ExplainChartData,
+    FunnelStepsExplainChartData,
     StorySeriesResult,
+    TimeSeriesExplainChartData,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
@@ -24,7 +26,10 @@ export function explainChartStoryFor(
     if (requested === undefined || !insightIds.includes(String(requested))) {
         return null
     }
-    return isExplainChartData(output) ? { ...output, shape: 'time_series' } : null
+    if (isFunnelStepsData(output)) {
+        return output
+    }
+    return isTimeSeriesData(output) ? { ...output, shape: 'time_series' } : null
 }
 
 export function withEvidenceLinks(story: ExplainChartData): ExplainChartData {
@@ -56,10 +61,10 @@ function evidenceInsightUrl(query: Record<string, unknown>): string {
 }
 
 export function storyOnChart(
-    story: ExplainChartData,
+    story: TimeSeriesExplainChartData,
     results: StorySeriesResult[],
     lastPointInProgress: boolean
-): ExplainChartData {
+): TimeSeriesExplainChartData {
     const savedDays = story.results[story.seriesIndex]?.days ?? []
     const chartDays = results[story.seriesIndex]?.days
     if (!chartDays || (chartDays.length === savedDays.length && chartDays.every((day, i) => day === savedDays[i]))) {
@@ -97,17 +102,34 @@ export function followUpContextFor(
     }
 }
 
-function isExplainChartData(
-    output: Record<string, unknown> | null
-): output is ExplainChartData & Record<string, unknown> {
+function hasStoryBase(output: Record<string, unknown> | null): output is Record<string, unknown> {
     return (
         !!output &&
-        (output.shape === undefined || output.shape === 'time_series') &&
         typeof output.headline === 'string' &&
         Array.isArray(output.chapters) &&
-        Array.isArray(output.results) &&
         typeof output.seriesIndex === 'number' &&
         typeof output.query === 'object' &&
         output.query !== null
+    )
+}
+
+function isTimeSeriesData(
+    output: Record<string, unknown> | null
+): output is TimeSeriesExplainChartData & Record<string, unknown> {
+    return (
+        hasStoryBase(output) &&
+        (output.shape === undefined || output.shape === 'time_series') &&
+        Array.isArray(output.results)
+    )
+}
+
+function isFunnelStepsData(
+    output: Record<string, unknown> | null
+): output is FunnelStepsExplainChartData & Record<string, unknown> {
+    return (
+        hasStoryBase(output) &&
+        output.shape === 'funnel_steps' &&
+        Array.isArray(output.steps) &&
+        Array.isArray(output.breakdowns)
     )
 }

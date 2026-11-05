@@ -14,6 +14,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,7 +28,7 @@ import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { compareQuery } from '~/queries/nodes/InsightViz/queryUtils'
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import type { FunnelsFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
 import type { InsightLogicProps, TrendResult } from '~/types'
 
@@ -39,10 +40,14 @@ import {
 } from 'products/posthog_ai/frontend/api/logics'
 import { insightsExplanationsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import type { ChartExplanationAuthorApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import { FUNNEL_STEPS_SERIES_KEY_PREFIX } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsBarChart/funnelStepsBarTransforms'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
-import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import {
+    insightPageShowsFunnelStory,
+    insightPageShowsStory,
+} from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
 import type { CurrencyCode, Node } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -64,6 +69,8 @@ export interface explainChartLogicValues {
     isTrends: boolean // trendsDataLogic
     results: TrendResult[] // trendsDataLogic
     trendsFilter: TrendsFilter | null | undefined // trendsDataLogic
+    funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
+    isFunnels: boolean // insightVizDataLogic
     chartStory: ExplainChartData | null
     consentRequested: boolean
     explainAvailable: boolean
@@ -182,6 +189,8 @@ export interface explainChartLogicMeta {
             featureFlags: FeatureFlagsSet,
             isTrends: boolean,
             display: ChartDisplayType | null | undefined,
+            isFunnels: boolean,
+            funnelsFilter: FunnelsFilter | null | undefined,
             insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => boolean
         explainAvailable: (storyAvailable: boolean, effectivePhaiView: PhaiViewMode) => boolean
@@ -241,6 +250,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             ['baseCurrency'],
             trendsDataLogic(props),
             ['display', 'indexedResults', 'isTrends', 'trendsFilter', 'results', 'incompletenessOffsetFromEnd'],
+            insightVizDataLogic(props),
+            ['funnelsFilter', 'isFunnels'],
         ],
         actions: [
             sidePanelStateLogic,
@@ -353,16 +364,18 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     selectors(({ props }) => ({
         insightId: [(s) => [s.insight], (insight: insightLogicValues['insight']): number | null => insight.id ?? null],
         storyAvailable: [
-            (s) => [s.featureFlags, s.isTrends, s.display, s.insight],
+            (s) => [s.featureFlags, s.isTrends, s.display, s.isFunnels, s.funnelsFilter, s.insight],
             (
                 featureFlags: FeatureFlagsSet,
                 isTrends: boolean,
                 display: ChartDisplayType | null | undefined,
+                isFunnels: boolean,
+                funnelsFilter: FunnelsFilter | null | undefined,
                 insight: insightLogicValues['insight']
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.EXPLAIN_CHART] &&
-                isTrends &&
-                insightPageShowsStory(display) &&
+                ((isTrends && insightPageShowsStory(display)) ||
+                    (isFunnels && insightPageShowsFunnelStory(funnelsFilter))) &&
                 !!insight.short_id &&
                 !props.filtersOverride &&
                 !props.variablesOverride,
@@ -404,13 +417,17 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 story: ExplainChartData | null,
                 results: TrendResult[],
                 incompletenessOffsetFromEnd: number
-            ): ExplainChartData | null => story && storyOnChart(story, results, incompletenessOffsetFromEnd < 0),
+            ): ExplainChartData | null =>
+                story?.shape === 'time_series' ? storyOnChart(story, results, incompletenessOffsetFromEnd < 0) : story,
         ],
         storySeriesKey: [
             (s) => [s.story, s.indexedResults],
             (story: ExplainChartData | null, indexedResults: IndexedTrendResult[]): string | null => {
                 if (!story) {
                     return null
+                }
+                if (story.shape === 'funnel_steps') {
+                    return `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${story.seriesIndex}`
                 }
                 const rendered = indexedResults.find((result) => result.seriesIndex === story.seriesIndex)
                 return String(rendered?.id ?? story.seriesIndex)
@@ -441,7 +458,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 if (values.linkedExplanationId !== explanationId) {
                     return
                 }
-                if (explanation.data.shape !== 'time_series') {
+                if (explanation.data.shape !== 'time_series' && explanation.data.shape !== 'funnel_steps') {
                     lemonToast.error(
                         'This chart explanation needs a newer version of PostHog. Refresh the page to see it.'
                     )
