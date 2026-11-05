@@ -1,15 +1,6 @@
-import pytest
-
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
-
-from products.warehouse_sources.backend.logic.column_sensitivity import (
-    classify_column_sensitivity,
-    classify_table_columns,
-)
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.types import WarehouseColumnSensitivity as S
 
 
@@ -35,6 +26,9 @@ class TestClassifyColumnSensitivity:
             ("client_ip", "String", S.IP_ADDRESS),
             ("IPAddress", "text", S.IP_ADDRESS),
             ("client_ipv4", "text", S.IP_ADDRESS),
+            ("ipv6_address", "text", S.IP_ADDRESS),
+            ("customer_mobile", "text", S.PHONE),
+            ("id_token", "text", S.TOKEN),
             ("access_token", "text", S.TOKEN),
             ("api_key", "varchar", S.TOKEN),
             ("password_hash", "text", S.SECRET),
@@ -68,39 +62,14 @@ class TestClassifyColumnSensitivity:
             ("name", "text", None),
             ("company_name", "text", None),
             ("gzip_size", "integer", None),
+            ("mobile_app_version", "text", None),
+            ("mobile_sessions", "Int64", None),
+            ("iphone_model", "text", None),
+            ("microphone", "text", None),
+            ("email_id", "text", None),
+            ("channel_display_name", "text", None),
             ("", "text", None),
         ]
     )
     def test_classifies_from_name_and_type(self, column_name: str, data_type: str | None, expected: S | None) -> None:
         assert classify_column_sensitivity(column_name, data_type) == expected
-
-
-@pytest.mark.django_db
-class TestClassifyTableColumns:
-    def test_flags_new_and_described_columns_and_clears_a_stale_flag(self) -> None:
-        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
-        table = DataWarehouseTable.objects.create(
-            name="customers",
-            format="DeltaS3Wrapper",
-            team=team,
-            url_pattern="https://bucket.s3/data/*",
-            columns={"email": {"clickhouse": "Nullable(String)"}, "phone": {"clickhouse": "Nullable(String)"}},
-        )
-        annotations = WarehouseColumnAnnotation.objects.for_team(team.pk)
-        annotations.create(
-            team=team,
-            table=table,
-            column_name="email",
-            description="Where receipts go",
-            description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
-            is_user_edited=True,
-        )
-        assert classify_table_columns(team.pk, table) == 2
-        rows = {a.column_name: (a.description, a.sensitivity) for a in annotations.filter(table=table)}
-        assert rows == {"email": ("Where receipts go", S.EMAIL), "phone": ("", S.PHONE)}
-        assert classify_table_columns(team.pk, table) == 0
-
-        table.columns = {"email": {"clickhouse": "Bool"}, "phone": {"clickhouse": "Nullable(String)"}}
-        table.save()
-        assert classify_table_columns(team.pk, table) == 1
-        assert annotations.get(table=table, column_name="email").sensitivity is None

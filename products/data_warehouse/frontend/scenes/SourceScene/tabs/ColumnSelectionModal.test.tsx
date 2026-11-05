@@ -71,6 +71,24 @@ describe('ColumnSelectionPicker', () => {
         expect(onMaskedChange).toHaveBeenLastCalledWith([])
     })
 
+    test.each([
+        ['on', true, ['Phone', 'Name', 'Address']],
+        ['off', false, []],
+    ])('with the flag %s, only maskable flagged columns get a chip', (_name, enabled, chips) => {
+        const flag = FEATURE_FLAGS.WAREHOUSE_COLUMN_SENSITIVITY
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: enabled })
+        renderPicker({
+            primary_key_columns: ['email'],
+            incremental_field: 'last_login_ip',
+            available_columns: SENSITIVE_COLUMNS,
+        })
+
+        for (const label of ['Email', 'IP address', 'Phone', 'Name', 'Address']) {
+            expect(screen.queryByText(label) !== null).toBe(chips.includes(label))
+        }
+        expect(screen.queryByText('Mask suggested columns') !== null).toBe(enabled)
+    })
+
     test.each<[string, Partial<ColumnSelectionTarget>, string[]]>([
         ['a stored key', { primary_key_columns: ['email'] }, ['phone', 'first_name', 'billing_address']],
         ['a detected key', { detected_primary_keys: ['email'] }, ['phone', 'first_name', 'billing_address']],

@@ -112,6 +112,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
@@ -6557,12 +6558,7 @@ export interface SimpleExternalDataSourceSchema {
 export type ColumnSensitivity = NonNullable<ExternalDataSchemaApiAvailableColumnsItemSensitivity>
 
 /** A column offered by the column picker. */
-export interface SchemaAvailableColumn {
-    name: string
-    data_type?: string
-    is_nullable?: boolean
-    sensitivity?: ColumnSensitivity | null
-}
+export type SchemaAvailableColumn = ExternalDataSchemaApiAvailableColumnsItem
 
 export interface AvailableColumn {
     label: string

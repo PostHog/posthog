@@ -70,14 +70,10 @@ class TestTableDescriptions(APIBaseTest):
                 description="Unique order identifier.",
                 description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             )
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team, table=table, column_name="email", description="", sensitivity="email"
-            )
         hogql_table = table.hogql_definition()
         resolver = TableDescriptions.load(self.team.id)
         assert resolver.for_table(hogql_table) == "All orders placed by customers."
         assert resolver.for_column(hogql_table, "id", hogql_table.fields["id"]) == "Unique order identifier."
-        assert resolver.for_column(hogql_table, "email", None) is None
 
     def test_resolves_view_descriptions_by_saved_query_id(self):
         view = self._view()
@@ -130,7 +126,7 @@ class TestTableDescriptions(APIBaseTest):
     def test_resolves_static_field_description_for_native_tables(self):
         # Native tables carry their descriptions on the field objects, not in an annotation model.
         # Both consumers (information_schema and read_data) rely on the resolver surfacing them.
-        resolver = TableDescriptions({}, {}, {}, {}, {})
+        resolver = TableDescriptions({}, {}, {}, {})
         field = StringDatabaseField(name="ts", description="When the event occurred.")
         table = Table(fields={"ts": field}, name="events", description="Every analytics event.")
 

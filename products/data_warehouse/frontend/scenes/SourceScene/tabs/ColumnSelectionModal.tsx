@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -235,7 +236,7 @@ function SensitivityChip({ sensitivity }: { sensitivity: ColumnSensitivity | nul
         return null
     }
     return (
-        <Tooltip title="This column's name suggests personal or secret data. Consider masking it.">
+        <Tooltip title="This column's name suggests personal or secret data.">
             <LemonTag size="small" type="caution">
                 {SENSITIVITY_LABELS[sensitivity]}
             </LemonTag>
@@ -298,11 +299,26 @@ export function ColumnSelectionPicker({
     const suggestSensitive = useFeatureFlag('WAREHOUSE_COLUMN_SENSITIVITY') && !!enableMasking
     const chipFor = (column: SchemaAvailableColumn): ColumnSensitivity | null =>
         suggestSensitive && isMaskable(column.name) ? (column.sensitivity ?? null) : null
+    const suggestedCount = suggestSensitive ? suggestedColumns.length : 0
+
+    // Once per schema: later edits change the count but are not a new suggestion.
+    const reportedSchemaId = useRef<string | null>(null)
+    useEffect(() => {
+        if (suggestedCount > 0 && schema && reportedSchemaId.current !== schema.id) {
+            reportedSchemaId.current = schema.id
+            posthog.capture('warehouse column sensitivity suggested', { suggested_count: suggestedCount })
+        }
+    }, [schema, suggestedCount])
+
+    const onMaskSuggested = (): void => {
+        posthog.capture('warehouse suggested columns masked', { masked_count: suggestedColumns.length })
+        maskSuggested()
+    }
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
-            <MaskSuggestedColumnsBar count={suggestSensitive ? suggestedColumns.length : 0} onMask={maskSuggested} />
+            <MaskSuggestedColumnsBar count={suggestedCount} onMask={onMaskSuggested} />
             <div className="max-h-96 overflow-y-auto border rounded">
                 {available.length === 0 && (
                     <div className="text-center text-muted-alt py-6 text-sm">
@@ -317,7 +333,7 @@ export function ColumnSelectionPicker({
                             disabled={retained}
                             onChange={(checked) => toggleColumn(column.name, checked)}
                             label={
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                     <code>{column.name}</code>
                                     {column.data_type && (
                                         <span className="text-xs text-muted-alt">{column.data_type}</span>
