@@ -10,9 +10,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRun = vi.hoisted(() => vi.fn());
 const mockTakeOver = vi.hoisted(() => vi.fn());
+const mockCheckPrerequisites = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner", () => ({
-  useInboxCloudTaskRunner: () => ({ run: mockRun, isRunning: false }),
+  useInboxCloudTaskRunner: () => ({
+    run: mockRun,
+    isRunning: false,
+    checkPrerequisites: mockCheckPrerequisites,
+  }),
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useTakeOverReportClaim", () => ({
   useTakeOverReportClaim: () => ({
@@ -60,6 +65,7 @@ describe("useCreatePrReport", () => {
   beforeEach(() => {
     mockRun.mockReset().mockResolvedValue(true);
     mockTakeOver.mockReset();
+    mockCheckPrerequisites.mockReset().mockReturnValue(true);
   });
 
   // Starting on a teammate's claim without the takeover fails the run, or moves
@@ -94,4 +100,17 @@ describe("useCreatePrReport", () => {
       expect(mockRun).toHaveBeenCalledTimes(takeOverFails ? 0 : 1);
     },
   );
+
+  // A takeover for a run that cannot start would move the claim and notify the
+  // holder for nothing.
+  it("does not offer the takeover when the run would fail its own checks", async () => {
+    mockCheckPrerequisites.mockReturnValue(false);
+    const { result } = setup();
+
+    await act(() => result.current.createPrReport());
+
+    expect(result.current.claimDialog).toBeNull();
+    expect(mockTakeOver).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+  });
 });

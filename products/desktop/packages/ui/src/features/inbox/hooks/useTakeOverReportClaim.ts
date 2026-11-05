@@ -9,8 +9,10 @@ export function useTakeOverReportClaim() {
     (client, input: { reportId: string; claimId: string | null }) =>
       client.takeOverSignalReportClaim(input.reportId, input.claimId),
     {
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({
+      // Not awaited: the run that follows needs only the report id, and every
+      // report list and chart refetching would hold it up.
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
           queryKey: reportKeys.all,
           exact: false,
         });

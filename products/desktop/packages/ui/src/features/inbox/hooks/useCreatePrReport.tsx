@@ -144,7 +144,7 @@ export function useCreatePrReport({
     [baseBranchOverrides, cloudRepository],
   );
 
-  const { run, isRunning } = useInboxCloudTaskRunner({
+  const { run, isRunning, checkPrerequisites } = useInboxCloudTaskRunner({
     reportId,
     reportTitle,
     reportAction: {
@@ -191,9 +191,12 @@ export function useCreatePrReport({
         await start(feedback);
         return;
       }
+      // A takeover moves the claim and notifies the holder, so it must not
+      // happen for a run that would then fail its own checks.
+      if (!checkPrerequisites()) return;
       setPending({ step, feedback });
     },
-    [claim, currentUser?.uuid, start],
+    [claim, currentUser?.uuid, start, checkPrerequisites],
   );
 
   const confirmPending = useCallback(async () => {
