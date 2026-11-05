@@ -64,6 +64,14 @@ class TestMeasureViewCost(ClickhouseTestMixin, BaseTest):
                 False,
             ),
             (
+                "clickhouse_storage_failure",
+                wrap_clickhouse_query_error(ServerException("S3 error", code=499)),
+                True,
+                MeasurementOutcome.FAILED,
+                FAILED_MEASUREMENT,
+                True,
+            ),
+            (
                 "hogql_rejects_view_sql",
                 QueryError("Unknown table"),
                 True,

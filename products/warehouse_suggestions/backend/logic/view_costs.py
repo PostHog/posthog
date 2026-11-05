@@ -8,13 +8,17 @@ from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.errors import ClickHouseQueryTimeOut
+from posthog.errors import (
+    ClickHouseQueryTimeOut,
+    QueryErrorCategory,
+    classify_query_error,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
@@ -27,7 +31,7 @@ from .rules import MeasurementRules
 MEASUREMENT_QUERY_NAME = "warehouse_suggestions_view_cost"
 UNFINISHED_KEY_PREFIX = "warehouse_suggestions:unfinished_view_cost"
 FAILED_MEASUREMENT = 0
-VIEW_QUERY_ERRORS = (ServerException, ExposedHogQLError)
+VIEW_SQL_REJECTED_BY_CLICKHOUSE = "NOT_IMPLEMENTED"
 
 
 class MeasurementOutcome(StrEnum):
@@ -79,7 +83,7 @@ def measure_view_cost(team_id: int, saved_query_id: UUID, rules: MeasurementRule
         _remember_unfinished(team_id, saved_query_id, rules, seconds=rules.max_seconds, fingerprint=fingerprint)
         return MeasurementOutcome.CAPPED
     except Exception as error:
-        if not isinstance(error, VIEW_QUERY_ERRORS):
+        if not _is_rejected_view_sql(error):
             capture_exception(error)
         _remember_unfinished(team_id, saved_query_id, rules, seconds=FAILED_MEASUREMENT, fingerprint=fingerprint)
         return MeasurementOutcome.FAILED
@@ -92,6 +96,15 @@ def full_read_query(view_name: str, column_names: list[str]) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=[ast.Call(name="count", args=[]), ast.Call(name="sum", args=[row_hash])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
+    )
+
+
+def _is_rejected_view_sql(error: Exception) -> bool:
+    if classify_query_error(error) == QueryErrorCategory.USER_ERROR:
+        return True
+    return (
+        isinstance(error, ServerException)
+        and look_up_clickhouse_error_code_meta(error).name == VIEW_SQL_REJECTED_BY_CLICKHOUSE
     )
 
 
