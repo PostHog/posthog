@@ -13,6 +13,18 @@ const ROWS = {
 }
 
 describe('hog query', () => {
+    test('run fails on an answer of the wrong shape, and names every field that is wrong', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: TEST_CREDENTIALS,
+            respond: () => ({ status: 200, body: { columns: 5, results: 'not rows' } }),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'unexpected_response' })
+        expect(result.error().message).toContain('columns:')
+        expect(result.error().message).toContain('results:')
+    })
+
     test.each([
         ['a pipe gets one JSON array per row', false, [], '["$pageview",70]\n["signup",null]\n'],
         [
@@ -140,6 +152,12 @@ describe('hog query', () => {
                 message: 'Unable to resolve field: nope',
                 hint: expect.stringContaining('hog query check'),
             },
+        ],
+        [
+            'a field of another type keeps the rest of the error',
+            400,
+            { type: 'validation_error', code: null, detail: 'Unable to resolve field: nope' },
+            { message: 'Unable to resolve field: nope', hint: expect.stringContaining('hog query check') },
         ],
         [
             'a 403 names the scope the command needs',
