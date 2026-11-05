@@ -315,6 +315,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -2861,6 +2862,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
 
     @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
@@ -3285,6 +3287,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

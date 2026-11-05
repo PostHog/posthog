@@ -2498,6 +2498,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly tracker_issue_error: string | null
+    /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+    readonly source_issues: readonly string[]
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -2718,6 +2720,17 @@ export interface ReportLinkWriteApi {
 }
 
 /**
+ * One external issue the report is about.
+ */
+export interface SourceIssueWriteApi {
+    /**
+     * The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.
+     * @maxLength 500
+     */
+    url: string
+}
+
+/**
  * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
  * taken from the URL path; a person is the authenticated caller.
  */
@@ -2788,6 +2801,11 @@ export interface EmitReportRequestApi {
      * @maxItems 10
      */
     links?: ReportLinkWriteApi[]
+    /**
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.
+     * @maxItems 5
+     */
+    source_issues?: SourceIssueWriteApi[]
     /**
      * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
      * @maxItems 10
@@ -3045,6 +3063,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly tracker_issue_error: string | null
+    /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+    readonly source_issues: readonly string[]
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -5719,6 +5739,7 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  * * `report_link` - Report Link
+ * * `source_issue` - Source Issue
  * * `autostart_skip` - Autostart Skip
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
@@ -5762,6 +5783,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
     ReportLink: 'report_link',
+    SourceIssue: 'source_issue',
     AutostartSkip: 'autostart_skip',
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
@@ -10083,6 +10105,11 @@ export interface EditReportRequestApi {
      */
     links?: ReportLinkWriteApi[]
     /**
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+     * @maxItems 5
+     */
+    source_issues?: SourceIssueWriteApi[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
@@ -10139,6 +10166,8 @@ export interface EditReportResponseApi {
     evidence_appended: number
     /** How many typed report-to-report links this edit wrote; 0 if none. */
     links_appended: number
+    /** How many source issues this edit added that the report did not name yet; 0 if none. */
+    source_issues_appended: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
