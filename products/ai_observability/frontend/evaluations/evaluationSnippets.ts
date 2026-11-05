@@ -47,11 +47,17 @@ export function hogAdaptContext(evaluation: EvaluationConfig, source: string): A
             value: `It runs on each ${evaluation.target} and must return ${RETURN_SHAPES[evaluation.output_type] ?? 'a result'}${keys}${naNote}.`,
             hidden: true,
         },
-        // The agent cannot read an unsaved draft, so its own tests need the bounds and category rules from here.
+        // The agent cannot read an unsaved draft, so its own tests need the result rules and the traffic from here.
         {
             type: 'text',
-            label: 'Hog evaluation output settings',
-            value: JSON.stringify({ output_type: evaluation.output_type, output_config: evaluation.output_config }),
+            label: 'Hog evaluation test settings',
+            value: JSON.stringify({
+                output_type: evaluation.output_type,
+                output_config: evaluation.output_config,
+                target: evaluation.target,
+                target_config: evaluation.target_config,
+                conditions: evaluation.conditions,
+            }),
             hidden: true,
         },
     ]
