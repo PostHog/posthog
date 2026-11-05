@@ -250,7 +250,7 @@ export interface accountNotesLogicActions {
     updateNoteTagsSuccess: (
         updatedNoteTags: {
             short_id: string
-            tags: any[]
+            tags: string[]
         },
         payload?: {
             note: AccountNoteApi
@@ -259,7 +259,7 @@ export interface accountNotesLogicActions {
     ) => {
         updatedNoteTags: {
             short_id: string
-            tags: any[]
+            tags: string[]
         }
         payload?: {
             note: AccountNoteApi
