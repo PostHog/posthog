@@ -44,7 +44,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_prope
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rate_limit import (
-    AIObservabilityEvaluationJudgeTestSustainedThrottle,
+    AIObservabilityEvaluationJudgeTestTeamThrottle,
     AIObservabilityEvaluationJudgeTestThrottle,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
@@ -1851,7 +1851,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             return [
                 *super().get_throttles(),
                 AIObservabilityEvaluationJudgeTestThrottle(),
-                AIObservabilityEvaluationJudgeTestSustainedThrottle(),
+                AIObservabilityEvaluationJudgeTestTeamThrottle(),
             ]
         return super().get_throttles()
 
