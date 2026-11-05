@@ -649,9 +649,20 @@ describe('signalSourcesLogic', () => {
     })
 
     it.each([
-        { outcome: 'saves', fails: false, expectedScope: SignalAlertScope.AllFiringAlerts },
-        { outcome: 'reverts', fails: true, expectedScope: SignalAlertScope.InvestigatedOnly },
-    ])('$outcome the product analytics alert scope', async ({ fails, expectedScope }) => {
+        {
+            outcome: 'saves all firing alerts as',
+            scope: SignalAlertScope.AllFiringAlerts,
+            fails: false,
+            expectedScope: SignalAlertScope.AllFiringAlerts,
+        },
+        { outcome: 'saves off as', scope: SignalAlertScope.Off, fails: false, expectedScope: SignalAlertScope.Off },
+        {
+            outcome: 'reverts',
+            scope: SignalAlertScope.AllFiringAlerts,
+            fails: true,
+            expectedScope: SignalAlertScope.InvestigatedOnly,
+        },
+    ])('$outcome the product analytics alert scope', async ({ scope, fails, expectedScope }) => {
         const analyticsConfig = {
             ...githubIssuesConfig,
             id: 'config-analytics',
@@ -667,16 +678,16 @@ describe('signalSourcesLogic', () => {
                 }
                 return {
                     ...analyticsConfig,
-                    config: { ...analyticsConfig.config, alert_scope: SignalAlertScope.AllFiringAlerts },
+                    config: { ...analyticsConfig.config, alert_scope: scope },
                 } as SignalSourceConfigApi
             })
         logic.actions.loadSourceConfigsSuccess([analyticsConfig])
 
-        logic.actions.setAnalyticsAlertScope(SignalAlertScope.AllFiringAlerts)
+        logic.actions.setAnalyticsAlertScope(scope)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(updateSourceConfig).toHaveBeenCalledWith(expect.any(String), 'config-analytics', {
-            config_set: { alert_scope: SignalAlertScope.AllFiringAlerts },
+            config_set: { alert_scope: scope },
         })
         expect(logic.values.analyticsAlertScope).toBe(expectedScope)
         expect(logic.values.savingAnalyticsAlertScope).toBeNull()
