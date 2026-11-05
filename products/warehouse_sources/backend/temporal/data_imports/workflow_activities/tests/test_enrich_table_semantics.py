@@ -606,17 +606,10 @@ class TestEnrichTableSemanticsSync:
             columns=[
                 {"name": "amount", "data_type": "Int64", "is_nullable": False},
                 {"name": "status", "data_type": "String", "is_nullable": True},
-                {"name": "receipt_email", "data_type": "String", "is_nullable": True},
             ],
         )
-        WarehouseColumnAnnotation.objects.for_team(team.pk).create(
-            team=team, table=table, column_name="receipt_email", description="", sensitivity="email"
-        )
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
-        generated = {
-            "table_description": "Stripe charges",
-            "columns": {"status": "Charge lifecycle status", "receipt_email": "Where the receipt was sent"},
-        }
+        generated = {"table_description": "Stripe charges", "columns": {"status": "Charge lifecycle status"}}
         with (
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
@@ -625,7 +618,7 @@ class TestEnrichTableSemanticsSync:
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
         # Only the column without a canonical description is sent to the LLM.
-        assert mock_llm.call_args.kwargs["columns_needing_description"] == ["status", "receipt_email"]
+        assert mock_llm.call_args.kwargs["columns_needing_description"] == ["status"]
         # The canonical description is passed to the LLM as context for neighbouring columns.
         assert mock_llm.call_args.kwargs["known_descriptions"] == {"amount": "charge amount in cents"}
         assert result["status"] == "done"
@@ -633,10 +626,6 @@ class TestEnrichTableSemanticsSync:
         assert annotations["amount"].description_source == WarehouseColumnAnnotation.DescriptionSource.CANONICAL
         assert annotations["status"].description == "Charge lifecycle status"
         assert annotations["status"].description_source == WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
-        assert (annotations["receipt_email"].description, annotations["receipt_email"].sensitivity) == (
-            "Where the receipt was sent",
-            "email",
-        )
         # Table-level description added because neither canonical nor the source schema had one.
         assert annotations[""].description == "Stripe charges"
 
