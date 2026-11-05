@@ -28,6 +28,7 @@ from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
@@ -68,7 +69,10 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     parse_check_config,
 )
-from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_content_gates import (
+    organization_inbox_claim_to_close_enabled,
+    team_report_monitoring_enabled,
+)
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
@@ -2035,6 +2039,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "cannot start until it settles."
         ),
     )
+    viewer_can_close = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the requesting user may dismiss or resolve this report. When the claim rule is on, a "
+            "report that can be claimed needs the user, or their agent, to hold its claim first."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -2120,6 +2130,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "work_state",
             "assignee",
             "implementation_in_flight",
+            "viewer_can_close",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -2520,6 +2531,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "claimed_at": assignment.claimed_at,
             "responsible_user": _UserSerializer(responsible).data if responsible else None,
         }
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_viewer_can_close(self, obj: SignalReport) -> bool:
+        from products.signals.backend.report_assignments import CLAIMABLE_REPORT_STATUSES
+        from products.signals.backend.report_claims import close_denial
+
+        request = self.context.get("request")
+        if request is None or obj.status not in CLAIMABLE_REPORT_STATUSES or request.user.id is None:
+            return True
+        if "inbox_claim_to_close" not in self.context:
+            self.context["inbox_claim_to_close"] = organization_inbox_claim_to_close_enabled(obj.team.organization_id)
+        if not self.context["inbox_claim_to_close"]:
+            return True
+        return close_denial(self._get_assignment(obj), ArtefactAttribution.from_user(request.user.id)) is None
 
     def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
         from products.signals.backend.report_claims import responsible_user

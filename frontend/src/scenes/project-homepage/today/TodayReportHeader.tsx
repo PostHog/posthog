@@ -13,7 +13,7 @@ import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
+import { canCloseReport, hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayMarkedText } from './TodayMarkedText'
@@ -67,7 +67,7 @@ function PhoneActions({
                         Open the full report
                     </Item>
                 )}
-                {!stateBadge && (
+                {!stateBadge && canCloseReport(report) && (
                     <>
                         <Item
                             onClick={() => giveVerdict('resolve')}
@@ -171,32 +171,33 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                                 Full report
                             </Button>
                         )}
-                        {stateBadge ?? (
-                            <>
-                                <Button
-                                    size="sm"
-                                    variant="link-muted"
-                                    onClick={() => giveVerdict('resolve')}
-                                    disabledReason={resolveDisabledReason(report, sampleReason)}
-                                    tooltip="Mark this report as done"
-                                    data-attr="today-report-resolve"
-                                >
-                                    <IconCheckCircle />
-                                    Resolve
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="link-muted"
-                                    onClick={() => giveVerdict('dismiss')}
-                                    disabledReason={sampleReason}
-                                    tooltip="Dismiss this report from your inbox"
-                                    data-attr="today-report-dismiss"
-                                >
-                                    <IconHide />
-                                    Dismiss
-                                </Button>
-                            </>
-                        )}
+                        {stateBadge ??
+                            (canCloseReport(report) && (
+                                <>
+                                    <Button
+                                        size="sm"
+                                        variant="link-muted"
+                                        onClick={() => giveVerdict('resolve')}
+                                        disabledReason={resolveDisabledReason(report, sampleReason)}
+                                        tooltip="Mark this report as done"
+                                        data-attr="today-report-resolve"
+                                    >
+                                        <IconCheckCircle />
+                                        Resolve
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="link-muted"
+                                        onClick={() => giveVerdict('dismiss')}
+                                        disabledReason={sampleReason}
+                                        tooltip="Dismiss this report from your inbox"
+                                        data-attr="today-report-dismiss"
+                                    >
+                                        <IconHide />
+                                        Dismiss
+                                    </Button>
+                                </>
+                            ))}
                     </div>
                 )}
             </div>

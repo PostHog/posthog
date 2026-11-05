@@ -12,6 +12,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../types'
 import {
+    canCloseReport,
     canCreateImplementationPr,
     canUnassignMe,
     hasOpenImplementationPr,
@@ -438,7 +439,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             dismissCurrent: () => {
                 const report = values.currentReport
-                if (!report) {
+                if (!report || !canCloseReport(report)) {
                     return
                 }
                 openDismissReportDialog({
@@ -467,7 +468,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             resolveCurrent: () => {
                 const report = values.currentReport
-                if (!report) {
+                if (!report || !canCloseReport(report)) {
                     return
                 }
                 openResolveReportDialog({

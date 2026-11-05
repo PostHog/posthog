@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
+import { canCloseReport, hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 import { todayLogic, type TodayReportOpenSource } from './todayLogic'
 import { priorityTone } from './todayPriority'
@@ -37,6 +37,7 @@ export function TodayReportRow({
         title: reportTitle(report),
         hasOpenPullRequest: hasOpenImplementationPr(report),
     }
+    const canClose = canCloseReport(report)
     return (
         <TodayRow
             tone={priorityTone(report.priority)}
@@ -67,14 +68,14 @@ export function TodayReportRow({
                                   preview={preview}
                                   to={to}
                                   onOpen={() => reportOpened(report, source)}
-                                  actions={done ? null : <TodayVerdictButtons target={target} labelled />}
+                                  actions={done || !canClose ? null : <TodayVerdictButtons target={target} labelled />}
                                   dataAttr="today-list-report"
                               />
                           ),
                       }
                     : undefined
             }
-            actions={<TodayVerdictButtons target={target} />}
+            actions={canClose ? <TodayVerdictButtons target={target} /> : null}
             done={done}
             reportId={report.id}
             dataAttr="today-list-report"
