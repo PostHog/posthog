@@ -43,6 +43,7 @@ export interface onboardingWizardRunLogicActions {
     acceptCreatedRun: (run: WizardRunApi) => { run: WizardRunApi }
     loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
+    awaitRuns: (source: string, waiting: boolean) => { source: string; waiting: boolean }
     clickArtifact: (
         artifact: WizardRunArtifactApi,
         clickSource: WizardOnboardingArtifactClickSource
