@@ -19,7 +19,6 @@ const valueFromLabel =
     (typed: string): string =>
         Object.keys(labels).find((value) => labels[value].toLowerCase() === typed.toLowerCase()) ?? typed
 
-/** Every word of the text must appear in the name or description. */
 /** The folder view lists everything under Unfiled in one place, so its subfolders are not scopes of their own. */
 export function displayedFolder(folder: string): string {
     return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
@@ -34,6 +33,7 @@ export function folderScopes(parent: string, includeDescendants: boolean): strin
     return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
+/** Every word of the text must appear in the name or description. */
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
     return text
         .toLowerCase()
