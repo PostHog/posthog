@@ -362,6 +362,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             organization_member_id=self.organization_membership.id,
         )
 
+        denied_then_deleted = create_workflow_for_test(team_id=self.team.id, name="Secret").id
+        denied_then_deleted_id = self._send(
+            2, "secret@example.com", [("sent", 1, "")], workflow_id=denied_then_deleted, domain="secret.example.com"
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=denied_then_deleted,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+        destroy_workflow(team_id=self.team.id, hog_flow_id=UUID(denied_then_deleted))
+
         listed = self.client.get(self._url()).json()["results"]
         detail = self.client.get(self._url(f"{hidden_id}/"))
         results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
@@ -373,6 +386,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert results.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
+        assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
     def test_names_a_send_from_code_by_its_template_key(self, _flag):
         workflow_id = create_workflow_for_test(team_id=self.team.id, name="order-shipped").id
