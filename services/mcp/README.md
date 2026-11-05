@@ -244,7 +244,7 @@ Available features:
 | `health_issues`          | Health                                                                                          |
 | `hog_function_templates` | CDP function template browsing                                                                  |
 | `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
-| `insights`               | Run insight queries. Saved insights are in `product_analytics`                                  |
+| `insights`               | [Run insight queries](https://posthog.com/docs/product-analytics/insights)                      |
 | `integrations`           | Integrations                                                                                    |
 | `links`                  | PostHog app URL generation                                                                      |
 | `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
