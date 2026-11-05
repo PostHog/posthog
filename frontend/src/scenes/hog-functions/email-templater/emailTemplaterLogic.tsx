@@ -172,8 +172,10 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
 /**
  * The design the canvas should load for a stored email. An untouched html wrap is derived from
  * html alone, so when a programmatic edit rewrote the html but resent the old wrap, the wrap is
- * rebuilt from the current html instead of opening the previous version. A design edited in the
- * canvas comes back normalized by Unlayer, never equals a fresh wrap, and loads as stored.
+ * rebuilt from the current html instead of opening the previous version. Loaded as stored: a
+ * design edited in the canvas (Unlayer normalizes it, so it never equals a fresh wrap), and a wrap
+ * whose html contains its block, such as the server render after a design operation, which would
+ * nest a whole email layout in one block if rewrapped.
  * Mirrors html_wrap_design_needs_refresh in products/cdp/backend/validation.py.
  */
 export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {
@@ -185,7 +187,7 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
     if (
         html &&
         typeof wrappedHtml === 'string' &&
-        wrappedHtml !== html &&
+        !html.includes(wrappedHtml) &&
         objectsEqual(design, buildHtmlWrapDesign(wrappedHtml))
     ) {
         return buildHtmlWrapDesign(html)

@@ -342,6 +342,22 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
         })
 
+        it('loads the stored wrap when the html is its server render', () => {
+            // A design operation stores Unlayer's render of the wrap, which contains the block verbatim.
+            const loadDesign = jest.fn()
+            const html = '<html><body class="clean-body u_body"><div class="u-row"><p>block</p></div></body></html>'
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: buildHtmlWrapDesign('<p>block</p>'), html } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>block</p>'))
+        })
+
         it('does not load anything when there is neither design nor html', () => {
             const loadDesign = jest.fn()
             logic = emailTemplaterLogic(makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: null, html: '' } }))
