@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -292,3 +292,14 @@ class TestProductPushService(BaseTest):
         assert active.ended_at == self.now
         assert scheduled.status == ProductPushCampaign.Status.CANCELLED
         assert adopted.status == ProductPushCampaign.Status.ADOPTED
+
+    def test_cancel_succeeds_when_event_org_lookup_fails(self) -> None:
+        active = self._active_campaign("product_analytics")
+
+        with patch("products.growth.backend.product_push.service.Organization.objects.filter") as mock_filter:
+            mock_filter.side_effect = DatabaseError("connection lost")
+            cancelled_count = cancel_campaigns([str(active.id)], self.now)
+
+        assert cancelled_count == 1
+        active.refresh_from_db()
+        assert active.status == ProductPushCampaign.Status.CANCELLED

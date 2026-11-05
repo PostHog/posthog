@@ -560,10 +560,17 @@ def _capture_campaign_events(campaign_events: list[tuple[ProductPushCampaign, st
         if not ProductPushCampaign.organization.is_cached(campaign)
     }
     if missing_org_ids:
-        organizations_by_id = {
-            organization.id: organization
-            for organization in Organization.objects.filter(id__in=missing_org_ids).only("id", "customer_id")
-        }
+        # The transitions already committed, so a failed lookup must not fail the caller; a campaign
+        # left without its org falls back to the per-row guard below.
+        try:
+            organizations_by_id = {
+                organization.id: organization
+                for organization in Organization.objects.filter(id__in=missing_org_ids).only("id", "customer_id")
+            }
+        except Exception as e:
+            capture_exception(e, {"team": "team-growth"})
+            logger.exception("product_push_campaign_org_lookup_failed", organization_count=len(missing_org_ids))
+            organizations_by_id = {}
         for campaign, _ in campaign_events:
             if campaign.organization_id in organizations_by_id:
                 campaign.organization = organizations_by_id[campaign.organization_id]
