@@ -61,6 +61,11 @@ const grpcAdmissionExpired = new Counter({
     help: 'Sub-batches whose soft deadline passed while they waited for an admission slot',
 })
 
+const grpcStuckBatches = new Counter({
+    name: 'ingestion_api_grpc_stuck_batches_total',
+    help: 'Times a sub-batch stayed in flight past the stuck-batch deadline and failed the server',
+})
+
 const grpcConnectionsRejected = new Counter({
     name: 'ingestion_api_grpc_connections_rejected_total',
     help: 'Sessions or streams refused because a concurrency cap was hit',
@@ -142,6 +147,13 @@ export interface WorkerIngestServerOptions {
      * makes consumers replay work the pipeline already processed.
      */
     drainTimeoutMs?: number
+    /**
+     * How long a fed sub-batch may stay in flight before the server fails as
+     * fatal. The consumer re-routes a stuck sub-batch after its ack timeout,
+     * but the pipeline await behind it cannot be cancelled and `/_ready` keeps
+     * passing, so only a restart recovers the worker. `0` disables the check.
+     */
+    stuckBatchTimeoutMs?: number
 }
 
 /** Thrown from `FifoSlots.acquire` when the waiting stream is cancelled. */
@@ -378,6 +390,8 @@ export class WorkerIngestServer {
     private readonly sessionIdleTimeoutMs: number
     private readonly readMaxBytes: number
     private readonly drainTimeoutMs: number
+    private readonly stuckBatchTimeoutMs: number
+    private stuckBatchTimer: NodeJS.Timeout | null = null
     private sessionCount = 0
     private readonly slots: FifoSlots
     /**
@@ -400,11 +414,16 @@ export class WorkerIngestServer {
         this.sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 300_000
         this.readMaxBytes = options.readMaxBytes ?? 32 * 1024 * 1024
         this.drainTimeoutMs = options.drainTimeoutMs ?? 15_000
+        this.stuckBatchTimeoutMs = options.stuckBatchTimeoutMs ?? 0
         this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
     async start(): Promise<void> {
         this.pumpTask = this.runPump()
+        if (this.stuckBatchTimeoutMs > 0) {
+            this.stuckBatchTimer = setInterval(() => this.failIfStuck(), Math.min(this.stuckBatchTimeoutMs / 4, 10_000))
+            this.stuckBatchTimer.unref()
+        }
         this.server = http2.createServer(
             {
                 // Cap per-session streams (advertised via SETTINGS, enforced by
@@ -463,6 +482,10 @@ export class WorkerIngestServer {
      * so a scale-down does not make consumers replay already-processed work.
      */
     async stop(): Promise<void> {
+        if (this.stuckBatchTimer) {
+            clearInterval(this.stuckBatchTimer)
+            this.stuckBatchTimer = null
+        }
         this.draining = true
         this.drainAbort.abort()
         // A poisoned pipeline never settles, so skip straight to teardown.
@@ -652,6 +675,26 @@ export class WorkerIngestServer {
         }
         stream.readerDone = true
         this.maybeFinish(stream)
+    }
+
+    private failIfStuck(): void {
+        if (this.fatalError) {
+            return
+        }
+        let oldestAcceptedAt = Infinity
+        for (const batch of this.acceptedBatches.values()) {
+            oldestAcceptedAt = Math.min(oldestAcceptedAt, batch.acceptedAt)
+        }
+        const inFlightMs = Date.now() - oldestAcceptedAt
+        if (inFlightMs <= this.stuckBatchTimeoutMs) {
+            return
+        }
+        grpcStuckBatches.inc()
+        this.fatal(
+            new Error(
+                `sub-batch in flight for ${inFlightMs}ms, past the ${this.stuckBatchTimeoutMs}ms stuck-batch deadline`
+            )
+        )
     }
 
     /**
