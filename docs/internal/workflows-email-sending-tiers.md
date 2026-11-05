@@ -42,7 +42,7 @@ The managed integration is excluded from project SES tenant migration, identity 
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
 Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
-A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling and connection errors and `error` otherwise.
+A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, connection errors, timeouts, and SES server errors, and `error` for everything else, such as missing credentials or denied access.
 The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, floored at zero per day and per workflow.
 While `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, or `SES_SANDBOX_TENANT_NAME` is empty, both read only `email_sent`, as before.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
