@@ -1,15 +1,20 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, Realm, Region } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
@@ -432,6 +437,56 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.secondaryProductKeys).toEqual([ProductKey.WEB_ANALYTICS])
             expect(logic.values.visitedStepIds).toContain('session_replay:product_analytics')
         })
+
+        it.each(['success', 'upgraded'])(
+            'consumes %s callbacks once and preserves Back/Forward history',
+            async (flag) => {
+                preflightLogic.actions.loadPreflightSuccess({
+                    ...preflightJson,
+                    cloud: true,
+                    realm: Realm.Cloud,
+                    region: Region.US,
+                    slack_service: { available: false },
+                    data_warehouse_integrations: { hubspot: {}, salesforce: {} },
+                    wizard_cloud_run_available: false,
+                })
+                billingLogic.actions.loadBillingSuccess(billingUnsubscribedJson)
+                router.actions.push('/onboarding/product_analytics?step=plans:product_analytics&with=web_analytics')
+                await expectLogic(logic).toMatchValues({ stepId: 'plans:product_analytics' })
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+                router.actions.push(
+                    `/onboarding/product_analytics?step=plans:product_analytics&with=web_analytics&${flag}=true`
+                )
+                await expectLogic(logic).toMatchValues({ subscribedDuringOnboarding: true })
+                expect(router.values.searchParams).toEqual({ step: 'plans:product_analytics', with: 'web_analytics' })
+                expect(router.values.lastMethod).toBe('REPLACE')
+
+                logic.actions.goToNextStep()
+                await expectLogic(logic).toMatchValues({ stepId: 'invite_teammates:product_analytics' })
+                expect(router.values.lastMethod).toBe('PUSH')
+
+                const push = jest.spyOn(router.actions, 'push')
+                for (const step of ['plans', 'invite_teammates']) {
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname: '/onboarding/product_analytics',
+                        search: `?step=${step}:product_analytics&with=web_analytics,web_analytics`,
+                        searchParams: { step: `${step}:product_analytics`, with: 'web_analytics,web_analytics' },
+                        hash: '',
+                        hashParams: {},
+                        url: `/onboarding/product_analytics?step=${step}:product_analytics&with=web_analytics,web_analytics`,
+                    })
+                    await expectLogic(logic).toMatchValues({ stepId: `${step}:product_analytics` })
+                    expect(router.values.searchParams).toEqual({
+                        step: `${step}:product_analytics`,
+                        with: 'web_analytics',
+                    })
+                }
+                expect(push).not.toHaveBeenCalled()
+                expect(capture.mock.calls.filter(([event]) => event === 'subscribed during onboarding')).toHaveLength(1)
+            }
+        )
 
         it('goToNextStep advances to the next descriptor by id', async () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)

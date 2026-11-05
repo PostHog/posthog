@@ -60,11 +60,11 @@ describe('OnboardingStep', () => {
         )
 
         if (!previousStepId) {
-            expect(screen.queryByText('Back')).not.toBeInTheDocument()
+            expect(screen.queryByLabelText('Back')).not.toBeInTheDocument()
             return
         }
 
-        fireEvent.click(screen.getByText('Back'))
+        fireEvent.click(screen.getByLabelText('Back'))
 
         expect(logic.values.stepId).toBe(previousStepId)
         expect(logic.values.secondaryProductKeys).toEqual([ProductKey.WEB_ANALYTICS])
@@ -90,8 +90,8 @@ describe('OnboardingStep', () => {
             </OnboardingStep>
         )
 
-        expect(screen.getByText('Back').closest('button')).toHaveAttribute('aria-disabled', 'true')
-        fireEvent.click(screen.getByText('Back'))
+        expect(screen.getByLabelText('Back').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByLabelText('Back'))
         expect(logic.values.stepId).toBe('invite_teammates:product_analytics')
     })
 })

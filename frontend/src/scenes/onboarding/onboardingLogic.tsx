@@ -986,8 +986,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 ...(stepResolves && stepId ? { step: stepId } : {}),
                 ...(values.secondaryProductKeys.length ? { with: values.secondaryProductKeys.join(',') } : {}),
             }
-            // Keep valid steps in history for browser Back, but do not keep invalid URLs there.
-            return [url, searchParams, undefined, { replace: !stepId || !stepResolves }]
+            // Normalizing the current URL must replace it, so Back/Forward keeps its forward entries.
+            return [
+                url,
+                searchParams,
+                undefined,
+                { replace: !stepId || !stepResolves || stepId === existingParams.step },
+            ]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
@@ -1039,7 +1044,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setWaitForBilling(true)
             }
 
-            if (stepValue !== values.stepId) {
+            // Consume billing callbacks even when payment returns to the step already open.
+            if (stepValue !== values.stepId || success || upgraded) {
                 actions.setStepId(stepValue)
             }
         }

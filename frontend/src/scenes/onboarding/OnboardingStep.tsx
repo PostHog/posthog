@@ -86,6 +86,18 @@ export const OnboardingStep = ({
 
     return (
         <>
+            {hasPreviousStep && (
+                <div className="mb-2 px-4 sm:px-0">
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        onClick={goToPreviousStep}
+                        disabledReason={pendingAdvance || isCompleting ? 'Completing…' : undefined}
+                        data-attr="onboarding-back"
+                        aria-label="Back"
+                        tooltip="Back"
+                    />
+                </div>
+            )}
             <div className="pb-2">
                 <div
                     className={clsx('text-secondary mx-auto', !fullWidth && 'max-w-screen-md', hideHeader && 'hidden')}
@@ -111,17 +123,6 @@ export const OnboardingStep = ({
                 {children}
                 <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
                     {footerStart && <div className="mr-auto">{footerStart}</div>}
-                    {hasPreviousStep && (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconArrowLeft />}
-                            onClick={goToPreviousStep}
-                            disabledReason={pendingAdvance || isCompleting ? 'Completing…' : undefined}
-                            data-attr="onboarding-back"
-                        >
-                            Back
-                        </LemonButton>
-                    )}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?
