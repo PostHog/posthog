@@ -1809,7 +1809,7 @@ tools:
             reports, custom filters, or finer breakdowns, use execute-sql with system.signal_spend, system.scout_runs
             and system.inbox_reports. Report detail can show associated scout costs shared with other reports; do not
             add those shared amounts to this summary or across reports.
-        feature_flag: self-driving-usage-mcp
+        feature_flag: self-driving-usage-display
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
