@@ -1,16 +1,9 @@
-import { IconCheck, IconMinus, IconQuestion } from '@posthog/icons'
-
 import { HealthCheckPlainRow } from './HealthCheckPlainRow'
 import { HealthCheckRow } from './HealthCheckRow'
+import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
 import type { ListedHealthCheck } from './healthPanelChecks'
 
 type ListedStatus = ListedHealthCheck['status']
-
-const STATUS_DISPLAY: Record<ListedStatus, { icon: JSX.Element; label: string }> = {
-    not_checked: { icon: <IconQuestion className="text-secondary" />, label: "Couldn't check" },
-    passed: { icon: <IconCheck className="text-success" />, label: 'No issue found' },
-    not_applicable: { icon: <IconMinus className="text-tertiary" />, label: "Doesn't apply" },
-}
 
 interface CheckGroup {
     label: string
@@ -22,7 +15,7 @@ interface CheckGroup {
 function groupByOutcome(checks: ListedHealthCheck[]): CheckGroup[] {
     const groups = new Map<string, CheckGroup>()
     for (const check of checks) {
-        const label = check.reason ?? STATUS_DISPLAY[check.status].label
+        const label = check.reason ?? HEALTH_CHECK_STATUS_DISPLAY[check.status].label
         const key = `${check.status}:${label}`
         const group = groups.get(key) ?? { label, status: check.status, checks: [] }
         group.checks.push(check)
@@ -34,9 +27,13 @@ function groupByOutcome(checks: ListedHealthCheck[]): CheckGroup[] {
 export function HealthCheckList({
     checks,
     exposureChecksMissing,
+    selectedKey,
+    onSelect,
 }: {
     checks: ListedHealthCheck[]
     exposureChecksMissing: boolean
+    selectedKey: ListedHealthCheck['key'] | null
+    onSelect: (check: ListedHealthCheck) => void
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-4 px-3 py-2" data-attr="experiment-health-check-list">
@@ -46,8 +43,8 @@ export function HealthCheckList({
                     <span className="text-xs font-semibold text-secondary">
                         Couldn't check. Refresh the results to run these checks.
                     </span>
-                    <ul className="m-0 p-0 list-none flex flex-col">
-                        <HealthCheckPlainRow icon={STATUS_DISPLAY.not_checked.icon}>
+                    <ul className="-mx-2 m-0 p-0 list-none flex flex-col">
+                        <HealthCheckPlainRow icon={HEALTH_CHECK_STATUS_DISPLAY.not_checked.icon}>
                             <span>Exposure checks</span>
                         </HealthCheckPlainRow>
                     </ul>
@@ -56,9 +53,15 @@ export function HealthCheckList({
             {groupByOutcome(checks).map((group) => (
                 <div key={`${group.status}:${group.label}`} className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-secondary">{group.label}</span>
-                    <ul className="m-0 p-0 list-none flex flex-col">
+                    <ul className="-mx-2 m-0 p-0 list-none flex flex-col">
                         {group.checks.map((check) => (
-                            <HealthCheckRow key={check.key} check={check} icon={STATUS_DISPLAY[group.status].icon} />
+                            <HealthCheckRow
+                                key={check.key}
+                                check={check}
+                                icon={HEALTH_CHECK_STATUS_DISPLAY[group.status].icon}
+                                isSelected={check.key === selectedKey}
+                                onSelect={() => onSelect(check)}
+                            />
                         ))}
                     </ul>
                 </div>
