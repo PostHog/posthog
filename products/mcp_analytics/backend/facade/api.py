@@ -184,7 +184,7 @@ def get_activity_overview(
 
     Bounded to the last 30 days. Cached by the filters and the caller's property restrictions:
     for 5 minutes without restrictions, for less than one poll interval with them.
-    ``refresh`` skips the cached entry and stores the fresh result in its place.
+    ``refresh`` skips a cached entry older than a few seconds and stores the fresh result in its place.
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """

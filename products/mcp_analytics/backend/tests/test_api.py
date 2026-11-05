@@ -916,7 +916,8 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             ("other_property_restrictions_query_again", 1, False, "between_requests", 0, False, 2),
             ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, False, 1),
             ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, False, 2),
-            ("refresh_skips_the_cache", 1, False, "never", 0, True, 2),
+            ("refresh_within_the_cooldown_is_served_from_cache", 1, False, "never", 0, True, 1),
+            ("refresh_after_the_cooldown_skips_the_cache", 1, False, "never", 6, True, 2),
         ]
     )
     def test_caches_overview_per_filters_and_property_restrictions(

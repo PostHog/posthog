@@ -123,6 +123,9 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # empty overviews skip the cache, so a new team still sees its first call on the next poll.
 ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 20
 UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS = 5 * 60
+# Setup mode polls with a refresh, and anyone signed in can send one, so a cached entry recomputes
+# at most once in this window. A concurrent refresh gets the cached entry instead of a second run.
+ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS = 5
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
@@ -741,8 +744,11 @@ def get_activity_overview(
     """
     restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
     cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, restrictions, user)
-    cached = None if refresh else cache.get(cache_key)
-    if cached is not None:
+    refresh_cooldown_key = f"{cache_key}_refresh_cooldown"
+    cached = cache.get(cache_key)
+    if cached is not None and not (
+        refresh and cache.add(refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)
+    ):
         return cached
 
     overview = _query_activity_overview(team, properties, filter_test_accounts, user)
@@ -750,6 +756,7 @@ def get_activity_overview(
     if overview.stats.total_calls:
         ttl = ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS if restrictions else UNRESTRICTED_ACTIVITY_OVERVIEW_CACHE_TTL_SECONDS
         cache.set(cache_key, overview, ttl)
+        cache.set(refresh_cooldown_key, True, ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS)
     return overview
 
 

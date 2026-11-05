@@ -773,7 +773,7 @@ export type McpAnalyticsSessionsActivityOverviewParams = {
      */
     properties?: string
     /**
-     * Compute the overview again instead of serving the cached result. The fresh result replaces the cached one.
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
      */
     refresh?: boolean
 }
