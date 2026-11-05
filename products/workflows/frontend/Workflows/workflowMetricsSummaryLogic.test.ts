@@ -337,6 +337,7 @@ describe('workflowMetricsSummaryLogic', () => {
     const WORKFLOW_ID = 'wf-metrics'
     const LOGIC_KEY = `hog-flow-metrics-${WORKFLOW_ID}`
     const LABELS = ['2026-11-01', '2026-11-02']
+    const NEW_RANGE = { dateFrom: '2026-09-01T00:00:00.000Z', dateTo: '2026-09-08T00:00:00.000Z' }
 
     type MetricRow = { instanceId: string; metricName: string; count: number }
 
@@ -498,14 +499,14 @@ describe('workflowMetricsSummaryLogic', () => {
             { instanceId: 'email-1', metricName: 'email_sent', count: 3 },
             { instanceId: 'push-1', metricName: 'push_sent', count: 4 },
         ])
-        appMetricsLogic({ logicKey: LOGIC_KEY }).actions.setParams({ dateFrom: '-30d' })
+        appMetricsLogic({ logicKey: LOGIC_KEY }).actions.setParams(NEW_RANGE)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values[flag]).toBe(false)
         expect([logic.values.emailMetricsRows[0].sent, logic.values.pushMetricsRows[0].sent]).toEqual([3, 4])
     })
 
     it.each([
-        { tab: 'Metrics tab', overview: false, pushSteps: ['push-1'], linkLoads: 2, completedFrom: '-30d' },
+        { tab: 'Metrics tab', overview: false, pushSteps: ['push-1'], linkLoads: 2, completedFrom: NEW_RANGE.dateFrom },
         { tab: 'overview', overview: true, pushSteps: [], linkLoads: 0, completedFrom: '-7d' },
     ])(
         'the $tab reads its own workflow version and range',
@@ -515,11 +516,17 @@ describe('workflowMetricsSummaryLogic', () => {
                 draft: { actions: [step('email-1', 'function_email'), step('push-1', 'function_push')] },
             })
             const logic = await mountMetrics(live, { overview })
-            appMetricsLogic({ logicKey: LOGIC_KEY }).actions.setParams({ dateFrom: '-30d' })
+            appMetricsLogic({ logicKey: LOGIC_KEY }).actions.setParams(NEW_RANGE)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.pushActions.map((a) => a.id)).toEqual(pushSteps)
             expect(queries.filter((q) => q.includes('email_link_clicked_by_link'))).toHaveLength(linkLoads)
+            const reloadedTotals = ["'email_sent'", "'push_sent'", "['conversion']", 'email_link_clicked_by_link']
+                .map((marker) => queries.filter((q) => q.includes(marker) && q.includes('sum(count) AS total,')))
+                .filter((sent) => sent.length > 0)
+                .map((sent) => sent[sent.length - 1])
+            expect(reloadedTotals).toHaveLength(overview ? 3 : 4)
+            reloadedTotals.forEach((q) => expect(q).toContain(`toDateTime('${NEW_RANGE.dateFrom}'`))
             const completedKey = `workflow-completed-${overview ? 'overview-' : ''}${WORKFLOW_ID}`
             const completedLogic = appMetricsLogic({ logicKey: completedKey })
             expect(completedLogic.values.params.dateFrom).toBe(completedFrom)
