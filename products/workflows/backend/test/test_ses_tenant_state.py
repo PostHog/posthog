@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
-from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError, SSLError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -306,6 +306,11 @@ class TestSandboxTenantStateSync(BaseTest):
                 "error",
             ),
             ("no_credentials", NoCredentialsError(), "error"),
+            (
+                "bad_ca_bundle",
+                SSLError(endpoint_url="https://email.example.com", error="certificate verify failed"),
+                "error",
+            ),
         ]
     )
     def test_a_failed_sandbox_sync_does_not_stop_the_team_sweep(self, _name: str, error: Exception, kind: str) -> None:
