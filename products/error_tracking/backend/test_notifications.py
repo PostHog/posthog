@@ -181,22 +181,38 @@ class TestSendIssueAssignedEmail(_AssignmentTestBase):
     def test_skips_members_without_error_tracking_access(self, MockEmailMessage: MagicMock):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         assignment, _ = self._create_assignment("role")
-        restricted_email = self.assignee.email
+        restricted_user_id = self.assignee.id
 
         class FakeUserAccessControl:
             access_controls_supported = True
 
-            def __init__(self, user: User, team: object) -> None:
-                self.user = user
+            def __init__(self, user_id: int) -> None:
+                self.user_id = user_id
+
+            @classmethod
+            def for_user_ids(cls, *, user_ids: list[int], team: object) -> dict[int, "FakeUserAccessControl"]:
+                return {user_id: cls(user_id) for user_id in user_ids}
 
             def check_access_level_for_resource(self, resource: str, level: str) -> bool:
                 assert (resource, level) == ("error_tracking", "viewer")
-                return self.user.email != restricted_email
+                return self.user_id != restricted_user_id
 
         with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
             send_error_tracking_issue_assigned(assignment.id, None, assigned_by="An assignment rule")
 
         assert [to["raw_email"] for to in mocked_email_messages[0].to] == [self.assigner.email]
+
+    def test_failed_access_check_sends_nothing(self, MockEmailMessage: MagicMock):
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        assignment, _ = self._create_assignment("user")
+
+        with (
+            patch("posthog.tasks.email.UserAccessControl.for_user_ids", side_effect=RuntimeError("database down")),
+            pytest.raises(RuntimeError),
+        ):
+            send_error_tracking_issue_assigned(assignment.id, None, assigned_by="An assignment rule")
+
+        assert mocked_email_messages == []
 
     def test_rejects_missing_assigner_and_label(self, MockEmailMessage: MagicMock):
         assignment, _ = self._create_assignment("user")
