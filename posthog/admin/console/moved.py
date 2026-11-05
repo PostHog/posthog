@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from urllib.parse import quote
 
 from django.contrib import admin, messages
 from django.db.models import Model
@@ -17,13 +18,16 @@ class MovedToConsole:
     """
 
     @staticmethod
-    def page_redirect(title: str, url: str) -> Callable[[HttpRequest], HttpResponse]:
+    def page_redirect(title: str, url: str) -> Callable[..., HttpResponse]:
         """A view for the old URL of a page that moved. It says so once, so a bookmark does not move silently."""
 
-        def view(request: HttpRequest) -> HttpResponse:
+        def view(request: HttpRequest, **url_kwargs: object) -> HttpResponse:
             messages.info(request, f"{title} moved to PostHog Admin. Update your bookmark to this page.")
+            # Old URLs with a path parameter, such as a health check kind, name it in `url` as {kind}.
+            target = url.format(**{name: quote(str(value), safe="") for name, value in url_kwargs.items()})
             query = request.META.get("QUERY_STRING", "")
-            return HttpResponseRedirect(url + (f"?{query}" if query else ""))
+            separator = "&" if "?" in target else "?"
+            return HttpResponseRedirect(target + (f"{separator}{query}" if query else ""))
 
         # Like every console route, an old URL answers only to signed-in staff.
         return admin.site.admin_view(view)

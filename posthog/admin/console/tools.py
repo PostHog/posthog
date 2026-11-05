@@ -1,3 +1,4 @@
+import re
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
@@ -44,6 +45,13 @@ class Table:
 class Notice:
     kind: ClassVar[str] = "notice"
     text: str
+    # An optional link after the text, for example back to the list a sub-page came from.
+    link_text: str = ""
+    href: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.href is not None and (not self.href.startswith("/") or self.href.startswith("//")):
+            raise ValueError(f"Notice links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
 @frozen
@@ -64,7 +72,34 @@ class Paging:
     next_url: str | None
 
 
-Block = Notice | Table | Paging | Output
+@frozen
+class Live:
+    """A block that the page refreshes from the server while `refresh_seconds` is set, for example the runs of a
+    job that is still going. Set it to None when nothing is running, and the page stops asking.
+
+    The tool builds it in `ConsoleTool.live`, and `page` embeds the same call, so the first render and every
+    refresh come from one place.
+    """
+
+    kind: ClassVar[str] = "live"
+    # Stable across requests: the page asks for the block by this key, not by its position.
+    key: str
+    block: "Notice | Table | Output"
+    refresh_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", self.key):
+            raise ValueError(f"Live block key {self.key!r} must be lowercase and dash-separated, like a URL slug")
+
+
+Block = Notice | Table | Paging | Output | Live
+INNER_BLOCKS = Notice | Table | Output
+
+
+def _check_table(table: Table) -> None:
+    for row in table.rows:
+        if isinstance(row, Row) and len(row.cells) != len(table.columns):
+            raise ValueError(f"A table row has {len(row.cells)} cells for {len(table.columns)} columns")
 
 
 @frozen
@@ -74,12 +109,15 @@ class Page:
     def __post_init__(self) -> None:
         # tool.html renders only the block kinds it knows, so an unknown block would vanish without an error.
         for block in self.blocks:
-            if not isinstance(block, Notice | Table | Paging | Output):
+            if not isinstance(block, Notice | Table | Paging | Output | Live):
                 raise ValueError(f"{type(block).__name__} is not a console block. Add new blocks to the shell.")
-            if isinstance(block, Table):
-                for row in block.rows:
-                    if isinstance(row, Row) and len(row.cells) != len(block.columns):
-                        raise ValueError(f"A table row has {len(row.cells)} cells for {len(block.columns)} columns")
+            if isinstance(block, Live) and not isinstance(block.block, INNER_BLOCKS):
+                raise ValueError(
+                    f"Live block {block.key!r} holds a {type(block.block).__name__}, not a table, notice or output"
+                )
+            inner = block.block if isinstance(block, Live) else block
+            if isinstance(inner, Table):
+                _check_table(inner)
 
 
 class ToolOperationHandler(Protocol):
@@ -146,3 +184,7 @@ class ConsoleTool:
     def operations(self, request: "HttpRequest") -> list[ToolOperation]:
         """The actions the tool page offers. The console runs them; `page` stays read-only."""
         return []
+
+    def live(self, request: "HttpRequest", key: str) -> Live | None:
+        """The live block with this key, for the page's refreshes. None when the tool has no such block."""
+        return None

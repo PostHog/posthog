@@ -51,6 +51,11 @@ urlpatterns = [
         name="admin_console_tool",
     ),
     path(
+        "admin/console/tools/<slug:tool_key>/live/<slug:live_key>/",
+        admin.site.admin_view(views.tool_live),
+        name="admin_console_tool_live",
+    ),
+    path(
         "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
         admin.site.admin_view(views.run_tool_operation),
         name="admin_console_tool_operation",

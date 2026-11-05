@@ -1,14 +1,11 @@
 {# The blocks of a console Page. `page` is a Page from posthog/admin/console/tools.py. #}
 <div class="flex flex-col gap-4">
     {% for block in page.blocks %}
-        {% if block.kind == "notice" %}
-            <p class="m-0 max-w-3xl text-muted-foreground">{{ block.text }}</p>
-        {% elif block.kind == "table" %}
-            {% include "admin_console/_table.html" with table=block %}
-        {% elif block.kind == "output" %}
-            <pre class="m-0 p-3 max-h-[480px] overflow-auto rounded border border-border bg-chrome font-mono text-xs whitespace-pre-wrap break-words">{{ block.text }}</pre>
-        {% elif block.kind == "paging" %}
-            {% include "admin_console/_paging.html" with paging=block %}
+        {% if block.kind == "live" %}
+            {% url 'admin_console_tool_live' tool_key=tool.key live_key=block.key as live_path %}
+            {% include "admin_console/_live.html" with live=block live_url=live_path|add:query_suffix %}
+        {% else %}
+            {% include "admin_console/_block.html" %}
         {% endif %}
     {% endfor %}
 </div>

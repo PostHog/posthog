@@ -355,10 +355,14 @@ def _get_tool(tool_key: str) -> ConsoleTool:
     return tool
 
 
-def _with_query(url: str, request: HttpRequest) -> str:
-    # A tool can have sub-pages picked by query parameters, so its operations and the way back keep them.
+def _query_suffix(request: HttpRequest) -> str:
     query = request.META.get("QUERY_STRING", "")
-    return url + (f"?{query}" if query else "")
+    return f"?{query}" if query else ""
+
+
+def _with_query(url: str, request: HttpRequest) -> str:
+    # A tool can have sub-pages picked by query parameters, so its operations, live blocks and the way back keep them.
+    return url + _query_suffix(request)
 
 
 @require_safe
@@ -378,8 +382,31 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     return render(
         request,
         "admin_console/tool.html",
-        {**ConsoleEnvironment.context(), "tool": tool, "page": tool.page(request), "operations": operations},
+        {
+            **ConsoleEnvironment.context(),
+            "tool": tool,
+            "page": tool.page(request),
+            "operations": operations,
+            "query_suffix": _query_suffix(request),
+        },
     )
+
+
+@require_safe
+def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpResponse:
+    """One live block of a tool page, for console.js to swap in. It reads only, like the page itself."""
+    tool = _get_tool(tool_key)
+    live = tool.live(request, live_key)
+    if live is None:
+        raise Http404("Unknown live block")
+    live_url = _with_query(
+        reverse("admin_console_tool_live", kwargs={"tool_key": tool.key, "live_key": live.key}), request
+    )
+    response = render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
+    # console.js swaps in only a response that carries this header, never a login page or an error page.
+    response["X-Console-Live"] = "1"
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) -> HttpResponse:
