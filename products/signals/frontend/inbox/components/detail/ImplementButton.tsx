@@ -137,6 +137,7 @@ export function ImplementButton({
                                     Add instructions for the PostHog agent
                                 </span>
                                 <LemonTextArea
+                                    data-1p-ignore="true"
                                     value={instructions}
                                     onChange={setInstructions}
                                     onPressEnter={submit}
