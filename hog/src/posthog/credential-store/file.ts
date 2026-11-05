@@ -6,7 +6,7 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrUndefined } from '@/core/schema'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
-import { parseSecret } from './helpers'
+import { StoredSecretSchema } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -37,7 +37,8 @@ export class FileStore implements CredentialStore {
     }
 
     async read(host: Host): Promise<StoredSecret | undefined> {
-        return parseSecret((await this.readAll())[hostKey(host)])
+        // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
+        return parseOrUndefined(StoredSecretSchema, (await this.readAll())[hostKey(host)])
     }
 
     async write(host: Host, secret: StoredSecret): Promise<void> {

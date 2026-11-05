@@ -29,13 +29,12 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
     if (parsed.success) {
         return parsed.data
     }
-    const problem = firstProblem(parsed.error)
-    throw new HogError(
-        failure.code,
-        failure.context ? `${failure.context} ${problem}` : problem,
-        failure.hint,
-        failure.exitCode
-    )
+    throw failWith(failure, firstProblem(parsed.error))
+}
+
+export function failWith(failure: ParseFailure, problem: string): HogError {
+    const message = failure.context ? `${failure.context} ${problem}` : problem
+    return new HogError(failure.code, message, failure.hint, failure.exitCode)
 }
 
 // For stored data, where a value hog doesn't recognize reads as missing instead of failing the command.

@@ -1,15 +1,14 @@
 import type { z } from 'zod'
 
-import { HogError } from './errors'
-import { firstProblem, type ParseFailure } from './schema'
+import { failWith, firstProblem, type ParseFailure } from './schema'
 
 // The only module that calls JSON.parse. Its result is `unknown` until a schema checks it, so no
 // caller casts JSON to the type it hopes for.
 
 export type JsonResult<T> =
     | { ok: true; value: T }
-    // `issues` is empty when the text isn't JSON at all.
-    | { ok: false; problem: string; issues: z.core.$ZodIssue[] }
+    | { ok: false; reason: 'syntax'; problem: string }
+    | { ok: false; reason: 'schema'; problem: string; issues: z.core.$ZodIssue[] }
 
 interface JsonOptions {
     // Keeps integers beyond JavaScript's safe range as their source text, so a ClickHouse UInt64
@@ -32,16 +31,13 @@ export function decodeJson<S extends z.ZodType>(
     try {
         raw = options.lossless ? JSON.parse(text, losslessReviver) : JSON.parse(text)
     } catch (error) {
-        return {
-            ok: false,
-            problem: `Not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-            issues: [],
-        }
+        const problem = `Not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+        return { ok: false, reason: 'syntax', problem }
     }
     const parsed = schema.safeParse(raw)
     return parsed.success
         ? { ok: true, value: parsed.data }
-        : { ok: false, problem: firstProblem(parsed.error), issues: parsed.error.issues }
+        : { ok: false, reason: 'schema', problem: firstProblem(parsed.error), issues: parsed.error.issues }
 }
 
 export function parseJson<S extends z.ZodType>(text: string, schema: S, failure: ParseFailure): z.output<S> {
@@ -49,8 +45,18 @@ export function parseJson<S extends z.ZodType>(text: string, schema: S, failure:
     if (decoded.ok) {
         return decoded.value
     }
-    const message = failure.context ? `${failure.context} ${decoded.problem}` : decoded.problem
-    throw new HogError(failure.code, message, failure.hint, failure.exitCode)
+    throw failWith(failure, decoded.problem)
+}
+
+// Decodes one escaped JSON string literal, quotes included. Undefined when it isn't one. A JSON
+// reader that keeps key order calls this for every escaped string, so it skips zod.
+export function decodeJsonString(literal: string): string | undefined {
+    try {
+        const value: unknown = JSON.parse(literal)
+        return typeof value === 'string' ? value : undefined
+    } catch {
+        return undefined
+    }
 }
 
 // For files hog wrote itself and data it can do without: anything it can't read counts as missing.
