@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -60,6 +63,19 @@ describe('featureFlagRolloutAgentLogic', () => {
 
         await expectLogic(logic).toMatchValues({ isAgentRolloutAvailable: false, activePlan: null })
         expect(listed).not.toHaveBeenCalled()
+    })
+
+    it('still shows existing plans but offers no new rollout without AI data processing approval', async () => {
+        organizationLogic.mount()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        const logic = mountLogic(true)
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadPlansSuccess'])
+            .toMatchValues({ isAgentRolloutAvailable: false, activePlan: PLAN })
     })
 
     it('shows the active plan and drops it after a stop', async () => {
