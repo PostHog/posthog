@@ -654,8 +654,27 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
 
 
+# These columns hold `$set` and `$set_once` only when a client sends them as strings, so a value can
+# be any text. PARSE_JSON fails the whole COPY on one malformed value, and every retry fails the same
+# way. COPY transformations do not support TRY_PARSE_JSON, so CHECK_JSON guards PARSE_JSON instead.
+# Other JSON columns do not use this guard: CHECK_JSON has no option to allow duplicate keys, so it
+# may reject a value that PARSE_JSON accepts with 'd', and the column would load as NULL.
+COLUMNS_WITH_UNVALIDATED_JSON = frozenset({"people_set", "people_set_once"})
+
+
 def _quote_snowflake_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _build_copy_select_expression(field: Field) -> str:
+    """Return the expression that a COPY INTO uses to load `field` from a staged Parquet file."""
+    column = f"$1:{_quote_snowflake_identifier(field.name)}"
+    name = field.name.lower()
+    if field.data_type != JsonType() or name == "elements":
+        return column
+    if name in COLUMNS_WITH_UNVALIDATED_JSON:
+        return f"IFF(CHECK_JSON({column}) IS NULL, PARSE_JSON({column}, 'd'), NULL)"
+    return f"PARSE_JSON({column}, 'd')"
 
 
 class SnowflakeClient:
@@ -1192,13 +1211,7 @@ class SnowflakeClient:
             SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
                 perform this operation.
         """
-        # use TRY_PARSE_JSON to prevent the whole COPY failing on one malformed value
-        select_fields = ", ".join(
-            f"TRY_PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
-            if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f"$1:{_quote_snowflake_identifier(field.name)}"
-            for field in table
-        )
+        select_fields = ", ".join(_build_copy_select_expression(field) for field in table)
         query = f"""
         COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
