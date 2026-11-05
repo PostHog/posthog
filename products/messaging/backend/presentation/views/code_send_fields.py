@@ -14,6 +14,7 @@ from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRE
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
+MAX_FILENAME_LENGTH = 255
 SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
 BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
     {
@@ -76,7 +77,7 @@ class AddressListField(serializers.ListField):
 
 class EmailAttachmentSerializer(serializers.Serializer):
     filename = serializers.CharField(
-        max_length=255,
+        max_length=MAX_FILENAME_LENGTH,
         help_text="File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type "
         "mailbox providers block, such as `.exe`, is refused.",
     )
@@ -186,6 +187,17 @@ _COPY_LIMIT_REASON = _Reason(
     fix=f"Send at most {MAX_ADDRESSES_PER_FIELD} addresses in each of `cc` and `bcc`. To reach more people, send "
     "each one their own email.",
 )
+_HEADER_LENGTH_REASONS = {
+    field: _Reason(
+        why=f"PostHog puts `{field}` into the email's headers, which take at most {limit} characters for it.",
+        fix=f"Shorten `{field}` to {limit} characters or fewer.",
+    )
+    for field, limit in (
+        ("filename", MAX_FILENAME_LENGTH),
+        ("content_type", SES_ATTACHMENT_HEADER_MAX_LENGTH),
+        ("content_id", SES_ATTACHMENT_HEADER_MAX_LENGTH),
+    )
+}
 _LIST_LIMIT_REASONS = {"cc": _COPY_LIMIT_REASON, "bcc": _COPY_LIMIT_REASON, "attachments": _ATTACHMENT_LIMIT_REASON}
 _REASONS_BY_CODE = {
     "not_base64": _Reason(
@@ -200,11 +212,6 @@ _REASONS_BY_CODE = {
         fix="Send a different file type, or link to the file from the email body.",
     ),
     "attachments_too_large": _ATTACHMENT_LIMIT_REASON,
-    "max_length": _Reason(
-        why="PostHog puts the file name, MIME type and content ID into the email's headers, and takes at most 255 "
-        "characters for each.",
-        fix="Shorten the value to 255 characters or fewer.",
-    ),
     "unsafe_filename": _Reason(
         why="The file name goes into the email's headers, where a path or a line break could change the email.",
         fix="Send only the file name, such as `invoice.pdf`.",
@@ -252,6 +259,8 @@ def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
         path.pop()
     if code == "max_length" and len(path) == 1:
         reason = _LIST_LIMIT_REASONS[path[0]]
+    elif code == "max_length" and path[-1] in _HEADER_LENGTH_REASONS:
+        reason = _HEADER_LENGTH_REASONS[path[-1]]
     else:
         reason = _REASONS_BY_CODE.get(code, _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON)
     attr = "__".join(path)

@@ -80,18 +80,8 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 "attachments__0__content_type",
             ),
             (
-                "content_type_longer_than_ses_accepts",
-                {"attachments": [_attachment(content_type=f"application/{'x' * 67}")]},
-                "attachments__0__content_type",
-            ),
-            (
                 "content_id_with_brackets",
                 {"attachments": [_attachment(content_id="<logo>")]},
-                "attachments__0__content_id",
-            ),
-            (
-                "content_id_longer_than_ses_accepts",
-                {"attachments": [_attachment(content_id="x" * 79)]},
                 "attachments__0__content_id",
             ),
             ("attachment_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, "attachments__0"),
@@ -127,6 +117,18 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 {"attachments": [_attachment(filename="a" * 252 + ".pdf")]},
                 "attachments__0__filename",
                 "255 characters",
+            ),
+            (
+                "content_type_too_long",
+                {"attachments": [_attachment(content_type=f"application/{'x' * 67}")]},
+                "attachments__0__content_type",
+                "78 characters",
+            ),
+            (
+                "content_id_too_long",
+                {"attachments": [_attachment(content_id="x" * 79)]},
+                "attachments__0__content_id",
+                "78 characters",
             ),
         ]
     )
