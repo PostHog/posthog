@@ -3472,6 +3472,10 @@ snapshots:
         hash: v1.k794b7964.47d21cdf33f368b06633d317125603fc69b5675d9389c038b40c824e73f1a405.0ufZrtGmQpexxX1aaLjAVmf3-YVGmHd7p8-HB9cbQjk
     experiments-varianttimeseriestooltip--significant-day--light:
         hash: v1.k794b7964.6e850075cec396cda57b4d44acd24b1fb4deb1e00c640db0049d172e8d99f2bb.Im0tdmWO-QcJ_sukw7HEC5eSF0ZBsTJgYvKKf-KxnLA
+    experiments-warehousenativemetricfields--shared-ratio-metric--dark:
+        hash: v1.k794b7964.725376bdb2387961defbc6e14cb786936236c46383110b60684b0d34bb8810a5.ecVYEPkV-p8nvLY497gnhBIaCyiN8b8QiYtDswjYsr4
+    experiments-warehousenativemetricfields--shared-ratio-metric--light:
+        hash: v1.k794b7964.1dad4255c61b319bf1b34dbf62dcd94d8b56aaee7c7f402d0ead4cf8aa975c39.N-G_KGAYFb2uWzCK3TB-QLepx-lHc3N_x3ghDRvwm2c
     exporter-funnels--funnel-time-to-convert-insight--dark:
         hash: v1.k794b7964.32e0fdd763e52aa74a859cc74be91c34aa9bc415f698cd276a1cbf5165e07e96.83HRBJWS8NFTguzPf-6KQ58qPcfF8byzAZ6DrhaMS4M
     exporter-funnels--funnel-time-to-convert-insight--light:
