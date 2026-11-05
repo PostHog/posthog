@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -5,11 +7,24 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, Team
 from posthog.models.health_issue import HealthIssue
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 
 from products.web_analytics.backend.temporal.health_checks.authorized_urls import AuthorizedUrlsCheck
+
+
+def _set_app_urls(team: Team) -> None:
+    team.app_urls = ["https://example.com"]
+    team.save()
+
+
+def _become_server_only(team: Team) -> None:
+    team.ingested_event = True
+    team.save()
+    EventDefinition.objects.create(
+        team=team, project_id=team.project_id, name="$mcp_tool_call", last_seen_at=timezone.now()
+    )
 
 
 class TestAuthorizedUrlsEvaluation(BaseTest):
@@ -43,7 +58,8 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
         if expected_issues:
             self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
 
-    def test_resolves_active_issue_when_team_has_app_urls(self):
+    @parameterized.expand([("team_sets_app_urls", _set_app_urls), ("team_is_server_only", _become_server_only)])
+    def test_resolves_active_issue(self, _name: str, make_healthy: Callable[[Team], None]):
         self.team.app_urls = []
         self.team.save()
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
@@ -54,8 +70,7 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
             1,
         )
 
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
+        make_healthy(self.team)
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
         self.assertEqual(
