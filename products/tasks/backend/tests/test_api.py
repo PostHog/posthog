@@ -572,6 +572,12 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
             == status.HTTP_403_FORBIDDEN
         )
+        TaskRun.update_state_atomic(run.id, updates={"pending_user_message": "Synthetic prompt"})
+        response = client.patch(base, {"state_remove_keys": ["pending_user_message"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.state is not None
+        assert "pending_user_message" not in run.state
         with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
             response = client.patch(
                 base,
@@ -605,6 +611,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("state_type", {"status": "failed", "state": ["agent_version"]}),
             ("state_null", {"status": "failed", "state": None}),
             ("remove", {"state_remove_keys": ["model"]}),
+            ("remove_prompt_and_other", {"state_remove_keys": ["pending_user_message", "model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
             ("report_with_other_output", {"status": "completed", "output": {"final_message": "x", "url": "x"}}),

@@ -6,10 +6,15 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from posthog.models import OAuthAccessToken, Organization, Team
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.temporal.oauth import RESEARCH_WITHHELD_SCOPES, PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import (
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    RESEARCH_WITHHELD_SCOPES,
+    PosthogMcpScopes,
+    resolve_scopes,
+)
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.facade.profiles import OAuthApp, get_task_profile
@@ -597,17 +602,39 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("requested", [None, "signals_assessment"])
-def test_assessment_runtime_token_cannot_regain_general_writes(
-    test_task: Task, requested: PosthogMcpScopes | None
+@pytest.mark.parametrize(
+    ("preset", "origin_product", "internal", "requested"),
+    [
+        ("signals_assessment", Task.OriginProduct.SIGNAL_REPORT, True, None),
+        ("signals_assessment", Task.OriginProduct.SIGNAL_REPORT, True, "signals_assessment"),
+        ("feature_flag_rollout", Task.OriginProduct.POSTHOG_AI, False, None),
+        ("feature_flag_rollout", Task.OriginProduct.POSTHOG_AI, False, "feature_flag_rollout"),
+    ],
+)
+def test_runtime_token_cannot_regain_general_writes(
+    test_task: Task,
+    preset: PosthogMcpScopes,
+    origin_product: Task.OriginProduct,
+    internal: bool,
+    requested: PosthogMcpScopes | None,
 ) -> None:
-    test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
-    test_task.internal = True
+    test_task.origin_product = origin_product
+    test_task.internal = internal
     test_task.save(update_fields=["origin_product", "internal"])
+    OAuthApplication.objects.create(
+        name="PostHog AI",
+        client_id=POSTHOG_AI_APP_CLIENT_ID_DEV,
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://example.com/callback",
+        algorithm="RS256",
+        organization=test_task.team.organization,
+        user=test_task.created_by,
+    )
     run = TaskRun.objects.create(
         task=test_task,
         team=test_task.team,
-        state={"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+        state={"pending_dispatch": {"posthog_mcp_scopes": preset}},
     )
 
     raw = create_oauth_access_token_for_run(test_task, run.state, scopes=requested, run_id=run.id)
@@ -674,7 +701,7 @@ def test_assessment_runtime_token_cannot_regain_general_writes(
             Task.OriginProduct.POSTHOG_AI,
             {"pending_dispatch": {"posthog_mcp_scopes": "feature_flag_rollout"}},
             None,
-            [*resolve_scopes("feature_flag_rollout"), *RESEARCH_WITHHELD_SCOPES],
+            [*resolve_scopes("feature_flag_rollout"), "internal_run:write"],
         ),
         (
             Task.OriginProduct.POSTHOG_AI,

@@ -2008,19 +2008,35 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _RUNTIME_REMOVABLE_STATE_KEYS = frozenset(
+        {
+            "pending_user_message",
+            "pending_user_artifact_ids",
+            "pending_user_message_id",
+            "pending_user_message_ts",
+        }
+    )
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         self._authorized_task_id = self._ensure_task_accessible()
 
-    @staticmethod
-    def _is_runtime_lifecycle_update(payload: object) -> bool:
+    @classmethod
+    def _is_runtime_lifecycle_update(cls, payload: object) -> bool:
         if (
             not isinstance(payload, dict)
             or not payload
-            or set(payload) - {"status", "error_message", "error_type", "output", "state"}
+            or set(payload) - {"status", "error_message", "error_type", "output", "state", "state_remove_keys"}
         ):
             return False
+        if "state_remove_keys" in payload:
+            keys = payload["state_remove_keys"]
+            if (
+                not isinstance(keys, list)
+                or not all(isinstance(key, str) for key in keys)
+                or set(keys) - cls._RUNTIME_REMOVABLE_STATE_KEYS
+            ):
+                return False
         if "status" in payload and (
             not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
         ):
