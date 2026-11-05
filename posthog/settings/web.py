@@ -210,7 +210,7 @@ MIDDLEWARE = [
     # resolution so the /api/environments → /api/projects rewrite is in place before the
     # request is routed and authenticated.
     "posthog.middleware.EnvironmentsRewriteMiddleware",
-    "posthog.middleware.CsrfOrKeyViewMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "posthog.middleware.AuthenticationMiddleware",
     # Must run immediately after AuthenticationMiddleware so downstream middleware

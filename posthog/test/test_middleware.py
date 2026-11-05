@@ -293,6 +293,24 @@ class TestAccessMiddleware(APIBaseTest):
     USE_X_FORWARDED_HOST=True,
     TRUST_ALL_PROXIES=True,
 )
+class TestCsrfWithPersonalApiKeyParameter(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("two_factor_disable", "/account/two_factor/disable/"),
+            ("admin_add_organization", "/admin/posthog/organization/add/"),
+        ]
+    )
+    def test_session_post_needs_a_csrf_token_even_with_an_api_key_parameter(self, _name: str, path: str) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        client = DjangoClient(enforce_csrf_checks=True)
+        client.force_login(self.user)
+
+        response = client.post(f"{path}?personal_api_key=phx_example", {})
+
+        assert response.status_code == 403
+
+
 class TestManagedProxyClientIPMiddleware(SimpleTestCase):
     def _verification_counts(self) -> dict[str, float]:
         return {

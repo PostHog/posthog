@@ -24,7 +24,6 @@ from django.db import (
 )
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
@@ -77,8 +76,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.mcp_intents import buffer_mcp_intent
-
-from .auth import PersonalAPIKeyAuthentication
 
 logger = structlog.get_logger(__name__)
 
@@ -350,24 +347,6 @@ class OAuthCorsPreflightMiddleware:
             return response
 
         return self.get_response(request)
-
-
-class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
-    """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
-
-    def process_view(self, request, callback, callback_args, callback_kwargs):
-        result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
-        # Admin pages authenticate by session only, so a personal API key never stands in for their CSRF token.
-        if request.path.startswith("/admin/"):
-            return result
-        # if super().process_view did not find a valid CSRF token, try looking for a personal API key
-        if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
-            return self._accept(request)
-        return result
-
-    def _accept(self, request):
-        request.csrf_processing_done = True
-        return None
 
 
 # Work around cloudflare by default caching csv files
