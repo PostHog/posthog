@@ -12,7 +12,6 @@ from botocore.exceptions import (
     ConnectTimeoutError,
     EndpointConnectionError,
     ReadTimeoutError,
-    ResponseStreamingError,
 )
 from prometheus_client import Counter
 
@@ -39,13 +38,7 @@ SANDBOX_TENANT_SYNC_FAILURES = Counter(
     labelnames=["kind"],
 )
 _TRANSIENT_SES_ERRORS = frozenset({"Throttling", "ThrottlingException", "TooManyRequestsException"})
-_TRANSIENT_TRANSPORT_ERRORS = (
-    EndpointConnectionError,
-    ConnectTimeoutError,
-    ConnectionClosedError,
-    ReadTimeoutError,
-    ResponseStreamingError,
-)
+_TRANSIENT_TRANSPORT_ERRORS = (EndpointConnectionError, ConnectTimeoutError, ConnectionClosedError, ReadTimeoutError)
 
 PROVIDER_PAUSE_REASON = "Our email provider paused sending for this project because of high-impact reputation findings"
 # A tenant can also be paused without high-impact findings: someone pausing it directly in the

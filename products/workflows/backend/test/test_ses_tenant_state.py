@@ -9,9 +9,9 @@ from django.utils import timezone
 
 from botocore.exceptions import (
     ClientError,
+    ConnectionClosedError,
     EndpointConnectionError,
     NoCredentialsError,
-    ResponseStreamingError,
     SSLError,
 )
 from parameterized import parameterized
@@ -296,7 +296,11 @@ class TestSandboxTenantStateSync(BaseTest):
         [
             ("throttled", ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant"), "transient"),
             ("connection_lost", EndpointConnectionError(endpoint_url="https://email.example.com"), "transient"),
-            ("reset_mid_response", ResponseStreamingError(error="connection reset"), "transient"),
+            (
+                "reset_mid_response",
+                ConnectionClosedError(endpoint_url="https://email.example.com", error="connection reset"),
+                "transient",
+            ),
             (
                 "ses_outage",
                 ClientError(
