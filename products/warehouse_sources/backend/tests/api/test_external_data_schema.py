@@ -4988,6 +4988,17 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 {"sync_type": "incremental"},
                 True,
             ),
+            # The same request stops writing history, so nothing reseeds the history table.
+            (
+                "cdc_turning_history_off",
+                ExternalDataSchema.SyncType.CDC,
+                "both",
+                False,
+                [],
+                ["email"],
+                {"cdc_table_mode": "consolidated"},
+                True,
+            ),
             # The past versions stay masked, so removing a mask leaks nothing.
             ("removing_a_mask", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, ["email"], [], {}, False),
         ]
