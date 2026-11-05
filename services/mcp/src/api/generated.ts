@@ -47624,10 +47624,10 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
+    export type SettableSyncFrequencyEnum = typeof SettableSyncFrequencyEnum[keyof typeof SettableSyncFrequencyEnum];
 
 
-    export const ExternalDataSchemaSyncFrequencyEnum = {
+    export const SettableSyncFrequencyEnum = {
       Never: 'never',
       '5min': '5min',
       '15min': '15min',
@@ -47744,7 +47744,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
+      sync_frequency?: SettableSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -82802,7 +82802,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
+      sync_frequency?: SettableSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable

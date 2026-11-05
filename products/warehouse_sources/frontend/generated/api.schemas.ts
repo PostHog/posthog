@@ -365,10 +365,10 @@ export const IncrementalFieldTypeEnumApi = {
  * * `7day` - 7day
  * * `30day` - 30day
  */
-export type ExternalDataSchemaSyncFrequencyEnumApi =
-    (typeof ExternalDataSchemaSyncFrequencyEnumApi)[keyof typeof ExternalDataSchemaSyncFrequencyEnumApi]
+export type SettableSyncFrequencyEnumApi =
+    (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
-export const ExternalDataSchemaSyncFrequencyEnumApi = {
+export const SettableSyncFrequencyEnumApi = {
     Never: 'never',
     '5min': '5min',
     '15min': '15min',
@@ -537,7 +537,7 @@ export interface ExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
+    sync_frequency?: SettableSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -748,7 +748,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
+    sync_frequency?: SettableSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
