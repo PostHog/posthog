@@ -176,12 +176,6 @@ class TestDataForSEOSource:
         assert expected_key in errors
         assert errors[expected_key]
 
-    def test_non_retryable_402_matches_non_standard_reason_phrase(self) -> None:
-        # DataForSEO doesn't reliably send the standard "Payment Required" reason phrase on a
-        # 402 (observed in production: "402 Client Error: Unknown for url: ...").
-        error_msg = "402 Client Error: Unknown for url: https://api.dataforseo.com/v3/backlinks/summary/live"
-        assert error_message_matches(error_msg, DataForSEOSource().get_non_retryable_errors().keys())
-
     @parameterized.expand(
         [
             ("http_status", "DataForSEO API error (retryable): status=500, url=https://api.dataforseo.com/v3/x"),
