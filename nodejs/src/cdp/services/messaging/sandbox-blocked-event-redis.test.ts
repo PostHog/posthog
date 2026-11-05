@@ -2,6 +2,7 @@ import { Socket, createServer } from 'net'
 
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { createRedisFromConfig } from '~/common/utils/db/redis'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 import { killGracefully } from '~/common/utils/utils'
 
@@ -10,6 +11,10 @@ import { MAX_OPEN_STORE_CALLS, SandboxEmailSender, sandboxBlockedEventRedisConfi
 jest.mock('~/common/utils/utils', () => ({
     ...jest.requireActual('~/common/utils/utils'),
     killGracefully: jest.fn(),
+}))
+jest.mock('~/common/utils/posthog', () => ({
+    ...jest.requireActual('~/common/utils/posthog'),
+    captureTeamEvent: jest.fn(),
 }))
 
 type FakeStore = { port: number; setCommands: () => number; answer: () => void; stop: () => void }
@@ -121,13 +126,16 @@ describe('sandboxBlockedEventRedisConfig', () => {
     it('captures every event of a burst larger than the pool while the store answers', async () => {
         const store = await startStore({ answering: true })
         try {
-            const getTeam = jest.fn(() => Promise.resolve(null))
+            const getTeam = jest.fn((id: number) => Promise.resolve({ id }))
             const sender = senderOn(store, getTeam)
 
             await blockProjects(sender, 1, 2 * MAX_OPEN_STORE_CALLS)
 
             expect(store.setCommands()).toBe(2 * MAX_OPEN_STORE_CALLS)
-            expect(getTeam).toHaveBeenCalledTimes(2 * MAX_OPEN_STORE_CALLS)
+            const capturedTeamIds = jest.mocked(captureTeamEvent).mock.calls.map(([team]) => team.id)
+            expect(capturedTeamIds.sort((a, b) => a - b)).toEqual(
+                Array.from({ length: 2 * MAX_OPEN_STORE_CALLS }, (_, index) => index + 1)
+            )
         } finally {
             store.stop()
         }
