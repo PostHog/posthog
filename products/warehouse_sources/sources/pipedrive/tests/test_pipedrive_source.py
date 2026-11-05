@@ -188,3 +188,16 @@ class TestPipedriveSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert isinstance(mock_pipedrive_source.call_args.kwargs["webhook_source_manager"], WebhookSourceManager)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # The subdomain in "for url: https://<company>.pipedrive.com/..." is per-customer, so
+            # the match must not depend on it.
+            "402 Client Error: Payment Required for url: https://acme.pipedrive.com/api/v1/projects/boards | api error: code=402",
+            "401 Client Error: Unauthorized for url: https://acme.pipedrive.com/api/v1/users/me",
+            "403 Client Error: Forbidden for url: https://acme.pipedrive.com/api/v2/deals",
+        ],
+    )
+    def test_non_retryable_errors_match_client_error_status_regardless_of_subdomain(self, observed_error: str) -> None:
+        assert any(pattern in observed_error for pattern in self.source.get_non_retryable_errors())
