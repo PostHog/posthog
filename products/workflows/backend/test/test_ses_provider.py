@@ -341,6 +341,7 @@ class TestSESProvider(TestCase):
             ("nested", {TEST_DOMAIN: {"MailFromDomain": f"mail.out.{TEST_DOMAIN}"}}, "mail.out"),
             ("identity_without_mail_from", {TEST_DOMAIN: {}}, None),
             ("unknown_identity", {}, None),
+            ("outside_domain", {TEST_DOMAIN: {"MailFromDomain": "bounces.other.example.com"}}, None),
         ]
     )
     def test_get_mail_from_subdomain(self, _name, attributes, expected):
