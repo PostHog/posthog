@@ -1414,6 +1414,15 @@ def _test_hog_over_traces(
     return Response({"results": results})
 
 
+def _config_length(instance: Evaluation) -> int:
+    """Get the relevant config content length for tracking."""
+    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+        content_key = get_evaluation_config_content_key(instance.evaluation_type)
+        content = instance.evaluation_config.get(content_key, "") if content_key else ""
+        return len(content) if isinstance(content, str) else 0
+    return 0
+
+
 def create_evaluation(
     serializer: EvaluationSerializer,
     *,
@@ -1449,15 +1458,6 @@ def create_evaluation(
         request=request,
     )
     return instance
-
-
-def _config_length(instance: Evaluation) -> int:
-    """Get the relevant config content length for tracking."""
-    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-        content_key = get_evaluation_config_content_key(instance.evaluation_type)
-        content = instance.evaluation_config.get(content_key, "") if content_key else ""
-        return len(content) if isinstance(content, str) else 0
-    return 0
 
 
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
