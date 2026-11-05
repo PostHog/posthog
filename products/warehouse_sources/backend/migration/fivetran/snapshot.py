@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from products.warehouse_sources.backend.migration import catalog
@@ -23,7 +23,11 @@ _PLANNED_CONFIG_KEYS = frozenset({"update_method"})
 _WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
 
 
-def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
+class SnapshotStoppedError(Exception):
+    """`keep_going` returned false, so the read stopped before the next connection."""
+
+
+def fetch_snapshot(client: FivetranClient, *, keep_going: Callable[[], bool] | None = None) -> VendorSnapshot:
     account = client.get_account_info()
 
     destinations: list[VendorDestination] = []
@@ -40,6 +44,9 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
 
     connections: list[VendorConnection] = []
     for listed in client.list_connections():
+        # A large account takes many requests, so a caller that no longer wants the result can stop it here.
+        if keep_going is not None and not keep_going():
+            raise SnapshotStoppedError()
         raw_connection = client.get_connection(listed["id"])
         schema_config: dict[str, Any] | None
         try:
