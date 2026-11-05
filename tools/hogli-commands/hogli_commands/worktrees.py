@@ -544,6 +544,83 @@ def _boxes_of_removed_worktrees(
     return boxes
 
 
+def prune_boxes_of_removed_worktrees(
+    repo_root: Path, box_action: str, worktree_path: Path | None, dry_run: bool
+) -> list[WorktreeBox]:
+    """Act on the boxes of this repo's worktrees that another tool already removed, or only the one at *worktree_path*.
+
+    `worktrees:clean` covers worktrees it removes itself. t3code and herdr remove
+    their own, so their boxes are found here by the same rule.
+    """
+    boxes = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, _git_common_dir(repo_root), None)
+    if worktree_path is not None:
+        boxes = [box for box in boxes if _resolve(box.worktree_path) == _resolve(worktree_path)]
+    if not boxes:
+        return []
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.")
+    else:
+        _clean_worktree_boxes(boxes, box_action)
+    return boxes
+
+
+def teardown_worktree_box(
+    worktree_path: Path,
+    git_dir: Path,
+    box_action: str,
+    dry_run: bool,
+    keep_record: bool = False,
+    act_on_box: Callable[[WorktreeBox, str], None] | None = None,
+) -> WorktreeBox | None:
+    """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
+
+    The mirror stops first, while the files still exist, for the reason in
+    `_stop_worktree_mirrors`. The record is found by the ID in *git_dir*, so a
+    moved worktree still finds its box, and a record saved for an earlier
+    worktree at the same path does not match. *keep_record* keeps the record
+    of a stopped box, for a tool that keeps the worktree and can restore it.
+    *act_on_box* replaces the box action, so a caller can move it out of a
+    tool's hook time limit.
+    """
+    worktree_id = read_worktree_id(git_dir)
+    match = next(
+        (
+            (Path(path), record)
+            for path, record in load_worktree_boxes().items()
+            if worktree_id is not None and record.worktree_id == worktree_id
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    box = WorktreeBox(worktree_path=match[0], record=match[1], current_path=worktree_path)
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would stop the sync mirror and {box_action} {box.workspace}.")
+        return box
+    _stop_worktree_mirrors([box])
+    if act_on_box is None:
+        _clean_worktree_boxes([box], box_action, keep_stopped_records=keep_record)
+    else:
+        act_on_box(box, box_action)
+    return box
+
+
+def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str, keep_record: bool) -> None:
+    """Act on the box registered for *worktree_path*, if the worktree with *worktree_id* still holds it.
+
+    A worktree recreated at the same path can take the box over before this
+    runs, and its record then carries its own ID.
+    """
+    record = load_worktree_boxes().get(str(worktree_path))
+    if record is not None and record.worktree_id == worktree_id:
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=keep_record
+        )
+
+
 def _clean_boxes_of_removed_worktrees(
     boxes: list[WorktreeBox], box_action: str, cutoff: float, dry_run: bool, yes: bool
 ) -> None:
@@ -610,16 +687,28 @@ def _box_last_used(workspace: Mapping[str, object]) -> float | None:
         return None
 
 
-def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
+def _clean_worktree_boxes(
+    boxes: list[WorktreeBox],
+    box_action: str,
+    idle_before: float = float("inf"),
+    keep_stopped_records: bool = False,
+) -> None:
+    """Stop or delete *boxes* and forget their records.
+
+    With *keep_stopped_records*, a box that ends up stopped keeps its record, so
+    the worktree can start it again when a tool restores it.
+    """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
 
 
-def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_hogland_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         hogland.ensure_cli()
         devboxes = hogland.fetch_devboxes()
@@ -663,11 +752,14 @@ def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before:
             command = "delete" if box_action == "delete" else "hibernate"
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 
-def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_coder_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:
@@ -715,7 +807,8 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
             label = extract_workspace_label(box.workspace) or ""
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 
