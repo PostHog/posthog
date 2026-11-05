@@ -37,6 +37,20 @@ KLAVIYO_NEWER_VERSION_REQUIRED = (
     "Needs a newer Klaviyo API version than your source uses. Contact PostHog support to upgrade the source."
 )
 
+# `_fetch_page` (klaviyo.py) already retries a read timeout, a dropped connection, or a mid-stream
+# truncation via tenacity; requests/urllib3 report all three in this wording, with Klaviyo's fixed
+# API host rather than anything the customer configured. A failure that outlives that retry budget
+# still gets a full Temporal retry of the activity, so it must stay retryable.
+KLAVIYO_TRANSIENT_CONNECTION_MARKERS = (
+    "HTTPSConnectionPool(host='a.klaviyo.com'",
+    "Connection broken:",
+)
+
+KLAVIYO_TRANSIENT_CONNECTION_MESSAGE = (
+    "Klaviyo's API was slow to respond, so this sync run did not finish. This usually clears on "
+    "its own and the next sync runs on schedule."
+)
+
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
@@ -181,6 +195,12 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
             # source to a newer revision is a support-run migration, so that is the next step.
             "requires Klaviyo API version": "This table needs a newer Klaviyo API version than your source uses. Contact PostHog support to upgrade the source, then re-enable this table.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        return set(KLAVIYO_TRANSIENT_CONNECTION_MARKERS)
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(KLAVIYO_TRANSIENT_CONNECTION_MARKERS, KLAVIYO_TRANSIENT_CONNECTION_MESSAGE)
 
     def get_schemas(
         self,

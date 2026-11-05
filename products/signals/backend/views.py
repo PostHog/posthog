@@ -247,6 +247,7 @@ from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWrite
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
 from products.signals.backend.scout_harness.tools.report_author import (
+    AI_PROCESSING_NOT_APPROVED_REASON,
     USER_REPORT_DAILY_LIMIT,
     USER_REPORT_DAILY_LIMIT_REASON,
     UserReportAuthor,
@@ -1346,10 +1347,9 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        if request.query_params.get("search"):
-            page, window_count = self._search_page(queryset, self.offset, self.limit)
-        else:
-            page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
+        page, window_count = self._page_by_ids(
+            queryset, self.offset, self.limit, with_window_count=bool(request.query_params.get("search"))
+        )
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
         elif window_count is not None:
@@ -1360,17 +1360,27 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             self.display_page_controls = True
         return page
 
-    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
-        # Ids only, because COUNT(*) OVER () buffers every match and full report rows spill to disk.
-        rows = list(
-            queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                offset : offset + limit
-            ]
-        )
-        if not rows:
+    def _page_by_ids(
+        self, queryset, offset: int, limit: int, *, with_window_count: bool
+    ) -> tuple[list[SignalReport], int | None]:
+        # The sort covers every matching report in the team, so it selects ids only. Full rows would
+        # carry the wide report columns and the refund and tracker issue joins through that sort, and
+        # COUNT(*) OVER () would buffer them and spill to disk. The full rows load for the page alone.
+        if with_window_count:
+            rows = list(
+                queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
+                    offset : offset + limit
+                ]
+            )
+            page_ids = [pk for pk, _ in rows]
+            window_count = rows[0][1] if rows else None
+        else:
+            page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
+            window_count = None
+        if not page_ids:
             return [], None
-        reports = {report.pk: report for report in queryset.filter(pk__in=[pk for pk, _ in rows]).order_by()}
-        return [reports[pk] for pk, _ in rows if pk in reports], rows[0][1]
+        reports = {report.pk: report for report in queryset.filter(pk__in=page_ids).order_by()}
+        return [reports[pk] for pk in page_ids if pk in reports], window_count
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
@@ -2886,14 +2896,14 @@ class SignalReportViewSet(
             ),
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description=(
-                    "Nothing new was filed: a retry returned the first report (`idempotent_replay` true), "
-                    "or a preflight gate skipped the call (`skipped_reason` set)."
-                ),
+                description="Nothing new was filed: a retry returned the first report (`idempotent_replay` true).",
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
             403: OpenApiResponse(
-                description="The caller is not a person, is a task sandbox, or report filing is not enabled."
+                description=(
+                    "The caller is not a person, is a task sandbox, report filing is not enabled, or the "
+                    "organization has not approved AI data processing."
+                )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
         },
@@ -2922,6 +2932,12 @@ class SignalReportViewSet(
             client_name=resolve_external_agent_name(request),
         )
         result = emit_report_from_validated_data(team=self.team, author=author, data=request.validated_data)
+        if result.skipped_reason == AI_PROCESSING_NOT_APPROVED_REASON:
+            raise exceptions.PermissionDenied(
+                "This organization has not approved AI data processing, so no report was filed. An organization "
+                "admin must turn on 'Enable PostHog features that use third-party AI services' in "
+                "Organization settings → AI service providers."
+            )
         if result.skipped_reason == USER_REPORT_DAILY_LIMIT_REASON:
             resets_at = user_report_limit_resets_at(self.team)
             raise exceptions.Throttled(
@@ -6327,7 +6343,7 @@ class SignalReportCheckViewSet(
         return report
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report")
+        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report__team")
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
@@ -6559,6 +6575,9 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_report_user_authored": SignalReport.objects.filter(
+                    id=self._validated_report_id(), team_id=self.team.id, user_authored=True
+                ).exists(),
                 "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact

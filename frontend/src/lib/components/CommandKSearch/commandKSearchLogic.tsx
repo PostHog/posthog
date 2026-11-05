@@ -80,11 +80,14 @@ import {
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
-
-const REMOTE_DEBOUNCE_MS = 150
-const OBJECTS_DEBOUNCE_MS = 50
-const FAST_REQUESTS = ['objects', 'persons']
+import {
+    REMOTE_REQUESTS,
+    RemoteContext,
+    RemoteResults,
+    RemoteSource,
+    requestDebounceMs,
+    settleRequest,
+} from './commandKSources'
 
 const INPUT_HIGHLIGHT_KEY = 'input'
 
@@ -936,7 +939,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     )
                     continue
                 }
-                const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                const debounceMs = requestDebounceMs(request, query)
                 // One disposable per request covers the debounce and the fetch, so a newer query
                 // cancels both, and unmounting cancels everything.
                 cache.disposables.add(

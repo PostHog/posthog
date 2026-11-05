@@ -218,7 +218,11 @@ def _pulse_content(
             status=PulseSlotStatus.READY,
         )
     pin_order = {pin.key: index for index, pin in enumerate(content.pins)}
-    selected = [slot for slot in slots.values() if slot.key not in offered or slot.key in metrics]
+    selected = [
+        slot
+        for slot in slots.values()
+        if slot.status != PulseSlotStatus.EMPTY and (slot.key not in offered or slot.key in metrics)
+    ]
     selected.sort(
         key=lambda slot: (
             slot.key not in pin_order,

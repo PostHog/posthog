@@ -77,6 +77,11 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_W
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.activity_summary.search import (
+    MAX_MEMBERS_WITH_ACTIVITY,
+    MemberActivity,
+    member_activities,
+)
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
@@ -2610,8 +2615,10 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             "and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner "
             "by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / "
             "`edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass "
-            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly "
-            "team-scoped."
+            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. When `search` or "
+            f"`team` narrows the result to {MAX_MEMBERS_WITH_ACTIVITY} members or fewer, each row also carries "
+            "`activity`: the member's recent work, so you can check they are close to the affected area. "
+            "Strictly team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
@@ -2626,9 +2633,24 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
         if team_slug is not None and not roster.team_is_covered:
             raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
-        return Response(
-            ScoutMemberSerializer([dataclasses.asdict(member) for member in roster.members], many=True).data
-        )
+        rows = [dataclasses.asdict(member) for member in roster.members]
+        if (validated.get("search") or team_slug) and len(rows) <= MAX_MEMBERS_WITH_ACTIVITY:
+            activities = _member_activities(canonical_team, [row["user_uuid"] for row in rows])
+            for row in rows:
+                activity = activities.get(row["user_uuid"])
+                row["activity"] = dataclasses.asdict(activity) if activity is not None else None
+        return Response(ScoutMemberSerializer(rows, many=True).data)
+
+
+def _member_activities(team: Team, user_uuids: list[str]) -> dict[str, MemberActivity]:
+    """Best effort: the roster is the routing source, so a failed activity read leaves every row without one."""
+    if not user_uuids:
+        return {}
+    try:
+        return member_activities(team, user_uuids) or {}
+    except Exception:
+        logger.exception("scout_members_activity_read_failed", team_id=team.id)
+        return {}
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str, *, cap: int) -> None:

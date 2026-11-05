@@ -244,6 +244,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -431,6 +432,7 @@ rules:
 
                               |AnomalyScoringState
                               |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -488,6 +490,7 @@ rules:
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
                               |UserInterview
@@ -750,6 +753,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -930,6 +934,7 @@ rules:
 
                         |AnomalyScoringState
                         |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -986,6 +991,7 @@ rules:
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
                         |UserInterview
@@ -1316,6 +1322,7 @@ rules:
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
+                        |TransactionalEmailKey
                         |User
                         |UserGroup
                         |UserInterview

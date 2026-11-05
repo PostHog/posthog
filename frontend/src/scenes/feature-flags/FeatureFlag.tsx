@@ -397,14 +397,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 content: <ExperimentsTab featureFlag={featureFlag} />,
             },
             {
-                label: (
-                    <div className="flex flex-row">
-                        <div>Testing</div>
-                        <LemonTag className="ml-2 float-right uppercase" type="primary">
-                            New
-                        </LemonTag>
-                    </div>
-                ),
+                label: 'Testing',
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
             },

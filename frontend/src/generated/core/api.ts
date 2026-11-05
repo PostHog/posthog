@@ -196,7 +196,7 @@ export const getOauthDeviceApproveCreateUrl = () => {
 }
 
 /**
- * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
  */
 export const oauthDeviceApproveCreate = async (
     deviceApprovalApi: DeviceApprovalApi,

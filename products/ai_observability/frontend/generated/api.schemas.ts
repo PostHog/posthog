@@ -1789,6 +1789,42 @@ export interface TracePullRequestLookupApi {
     pullRequest: TracePullRequestApi | null
 }
 
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
+}
+
 export interface TraceSearchMatchApi {
     /** A step whose stored data contains the query. The root's id is the trace id. */
     nodeId: string
@@ -2076,6 +2112,13 @@ export interface DatasetReadApi {
     readonly tags: readonly string[]
     readonly archived: boolean
     /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
+    /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
      */
@@ -2201,6 +2244,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {

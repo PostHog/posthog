@@ -1,6 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { apiConnection, findTool, grantedScopes, missingScopesError, toHogError } from '@/posthog/api-tools'
+import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
 
 function parseInput(text: string | undefined): Record<string, unknown> {
     if (text === undefined) {
@@ -74,8 +74,9 @@ export default defineCommand({
             )
         }
 
-        const connection = await apiConnection(ctx, options)
-        const result = await library.call(tool.name, validation.input, connection, options.confirm === true)
+        const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
+            library.call(tool.name, validation.input, connection, options.confirm === true)
+        )
         await library.flush()
         if (result.ok) {
             return result.value

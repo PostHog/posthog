@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
@@ -229,6 +230,10 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised before extraction, and again before the table changes, when a migration source must not
+    # adopt a self-managed table because the access rules changed. Only a person can fix the rules,
+    # and the message names the table and the next step, so keep it.
+    ADOPTION_ACCESS_ERROR: None,
     # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
     # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
     # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is

@@ -1522,9 +1522,9 @@ async def _resolve_report_repository(
     one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
-        return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
+        return RepoSelectionResult(repository=None, reason="No repository selected, so this report has no draft PR.")
     if repository is not None:
-        return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+        return RepoSelectionResult(repository=repository, reason="Repository named in the report.")
 
     if not wants_full_selection:
         connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
