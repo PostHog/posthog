@@ -294,10 +294,11 @@ def doctor_disk(
             id="cargo_units",
             title="🦀 Cargo build units that no recent build needs",
             description=[
-                f"Removes the units of a Cargo target dir that no build in the last {STALE_RUST_TARGET_DAYS} days reached,",
-                "directly or through the units it depends on, and incremental caches not written since then.",
+                f"Removes the units of a Cargo target dir that no unit compiled in the last {STALE_RUST_TARGET_DAYS} days needs,",
+                "directly or through other units, and incremental caches not written since then.",
                 "Covers CARGO_TARGET_DIR, build.target-dir in ~/.cargo/config.toml, ~/.cargo/target and this checkout.",
-                "A project built in that time keeps every unit it uses, so its next build starts warm.",
+                "Cargo writes nothing when a build finds every unit fresh, so a project that only ran such",
+                "builds in that time looks unused, and its next build recompiles what was removed.",
             ],
             estimate=_estimate_unused_cargo_units,
             cleanup=_cleanup_unused_cargo_units,
@@ -1452,37 +1453,62 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
 
 
 def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
-    targets: dict[Path, Path] = {}
+    """Resolved shared Cargo targets, then the target dirs beside this checkout's tracked Cargo.toml files."""
+
     candidates = [shared.path for shared in shared_cargo_targets()]
-    candidates += [item.path for item in _collect_rust_target_dirs(repo_root)]
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--", "Cargo.toml", ":(glob)**/Cargo.toml"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+            timeout=60,
+            check=False,
+        )
+        manifests = listed.stdout.split("\0") if listed.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        manifests = []
+    candidates += [(repo_root / manifest).parent / "target" for manifest in manifests if manifest]
+
+    targets: dict[Path, None] = {}
     for target in candidates:
         try:
-            resolved = target.resolve()
+            resolved = target.resolve(strict=True)
         except (OSError, RuntimeError):
             continue
         if looks_like_cargo_target(resolved):
-            targets.setdefault(resolved, target)
-    return list(targets.values())
+            targets.setdefault(resolved, None)
+    return list(targets)
 
 
-def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
+def _unused_units_by_target(repo_root: Path) -> tuple[dict[Path, list[Path]], list[str]]:
     built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
-    items: list[CleanupItem] = []
-    details: list[str] = []
+    unused_by_target: dict[Path, list[Path]] = {}
+    skipped: list[str] = []
     for target in _sweepable_cargo_targets(repo_root):
         if not idle_cargo_target(target):
-            details.append(f"   {target}: skipped, because cargo or rustc is running.")
+            skipped.append(f"   {target}: skipped, because a cargo, rustc or cargo-nextest process may be using it.")
             continue
         unused = unused_cargo_units(target, built_before_epoch)
         if unused is None:
-            details.append(f"   {target}: skipped, because a Cargo fingerprint could not be read.")
-            continue
+            skipped.append(f"   {target}: skipped, because a Cargo fingerprint could not be read.")
+        elif unused:
+            unused_by_target[target] = unused
+    return unused_by_target, skipped
+
+
+def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
+    unused_by_target, details = _unused_units_by_target(repo_root)
+    items: list[CleanupItem] = []
+    for target, unused in unused_by_target.items():
         target_items = [
             CleanupItem(path, float(measure_disk_usage([path]).freeable_bytes), is_dir=path.is_dir()) for path in unused
         ]
-        size = sum(item.size for item in target_items)
-        if target_items:
-            details.append(f"   {target}: {len(target_items)} unit file(s) and cache(s), {_format_size(size)}")
+        details.append(
+            f"   {target}: {len(target_items)} unit file(s) and cache(s), "
+            f"{_format_size(sum(item.size for item in target_items))}"
+        )
         items.extend(target_items)
     if not items and not details:
         details.append("   Nothing to remove.")
@@ -1490,10 +1516,16 @@ def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
 
 
 def _cleanup_unused_cargo_units(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    if not all(idle_cargo_target(target) for target in _sweepable_cargo_targets(repo_root)):
-        click.echo("   A build started while the prompt waited, so every target is kept.")
-        return CleanupStats()
-    return _cleanup_items(estimate, repo_root)
+    # A build can run while the prompt waits, so only paths that a fresh pass still finds unused go.
+    unused_by_target, _ = _unused_units_by_target(repo_root)
+    still_unused = {path for unused in unused_by_target.values() for path in unused}
+    kept = [item for item in estimate.items if item.path in still_unused]
+    if len(kept) < len(estimate.items):
+        click.echo(
+            f"   {len(estimate.items) - len(kept)} path(s) are in use again or could not be checked, so they stay."
+        )
+    freed = _delete_items(kept)
+    return CleanupStats(freed=freed, deleted_anything=freed > 0)
 
 
 def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:

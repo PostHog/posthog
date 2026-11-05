@@ -297,7 +297,8 @@ class WorktreeBox:
     default=None,
     help="What to do with orphaned worktrees (admin entry pruned, not in `git worktree list`; "
     "committed work is safe in branch refs). yes=include, no=skip, ask=prompt when any are found. "
-    "Default: yes for --mode deps and build, ask for --mode full.",
+    "Default: yes for --mode deps and build, ask for --mode full. deps and build still remove nothing from an "
+    "orphan, because git cannot check what its branch tracks.",
 )
 @click.option(
     "--stop-boxes",
@@ -323,6 +324,7 @@ class WorktreeBox:
     help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps and build output from worktrees "
     "idle for 7 days. Implies --yes and --keep-boxes.",
 )
+@click.option("--skip-hand-made", is_flag=True, hidden=True)
 @click.pass_context
 def worktrees_clean(
     ctx: click.Context,
@@ -338,6 +340,7 @@ def worktrees_clean(
     dry_run: bool,
     yes: bool,
     unattended: bool,
+    skip_hand_made: bool = False,
 ) -> None:
     """Find and clean up stale agent worktrees by age and deletion mode."""
 
@@ -359,8 +362,9 @@ def worktrees_clean(
                 before=age,
                 mode=tier,
                 repo=repo,
+                sources=sources,
                 # A worktree outside every tool folder is often a long-lived checkout that a person made by hand.
-                sources=sources or tuple(source for source in WORKTREE_SOURCES if source != "other"),
+                skip_hand_made=True,
                 orphans=orphans,
                 dry_run=dry_run,
                 yes=True,
@@ -415,7 +419,7 @@ def worktrees_clean(
     _clean_leftover_worktree_dirs(leftovers, dry_run, yes)
     in_use: list[Path] = []
     candidates: list[Worktree] = []
-    for source, path in _discover_candidate_worktrees(repo_root, registry, selected_sources, mode):
+    for source, path in _discover_candidate_worktrees(repo_root, registry, selected_sources, mode, skip_hand_made):
         resolved = _resolve(path)
         if resolved in protected:
             continue
@@ -980,12 +984,16 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
 
 
 def _discover_candidate_worktrees(
-    repo_root: Path, registry: dict[Path, dict], selected_sources: set[str] | None, mode: str
+    repo_root: Path,
+    registry: dict[Path, dict],
+    selected_sources: set[str] | None,
+    mode: str,
+    skip_hand_made: bool = False,
 ) -> list[tuple[str, Path]]:
     """Worktrees under the known tool roots, then the ones that `git worktree list` registers anywhere else.
 
     A worktree outside every tool root is one a person made by hand, so --mode
-    full removes it only when --source other asks for it.
+    full and the unattended run act on it only when --source other asks for it.
     """
 
     discovered: list[tuple[str, Path]] = []
@@ -993,7 +1001,9 @@ def _discover_candidate_worktrees(
     for source, root in _worktree_roots(repo_root):
         if selected_sources is None or source in selected_sources:
             discovered.extend((source, path) for path in _discover_root_worktrees(root, registry))
-    include_other = "other" in selected_sources if selected_sources is not None else mode != "full"
+    include_other = (
+        "other" in selected_sources if selected_sources is not None else not (mode == "full" or skip_hand_made)
+    )
     if include_other:
         for path in registry:
             if path.is_dir() and not any(_is_under(path, root) for root in resolved_roots):
@@ -1441,6 +1451,9 @@ def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]
     def add(candidate: Path, rule_kinds: frozenset[str]) -> None:
         selected = rule_kinds & kinds
         if not selected:
+            return
+        # A symlinked artifact name points at another folder, which may be someone's work, so only real folders count.
+        if candidate.is_symlink():
             return
         resolved = _resolve(candidate)
         if _is_under(resolved, worktree_resolved) and resolved.exists():

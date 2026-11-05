@@ -129,24 +129,36 @@ class TestUnattendedLock:
         lock.close()
         return True
 
-    def test_unattended_tiers_never_select_hand_made_worktrees(self, monkeypatch) -> None:
-        selections: list[set[str] | None] = []
+    def test_unattended_tiers_skip_hand_made_worktrees_and_still_clean_the_old_cargo_target(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        hand_made = tmp_path / "projects" / "repo-wt-feature"
+        hand_made.mkdir(parents=True)
+        discovered_sources: list[str] = []
+        real_discover = worktrees._discover_candidate_worktrees
 
-        def record(repo_root, registry, selected_sources, mode):
-            selections.append(selected_sources)
+        def discover(*args, **kwargs):
+            found = real_discover(*args, **kwargs)
+            discovered_sources.extend(source for source, _ in found)
             return []
 
-        monkeypatch.setattr(worktrees, "_discover_candidate_worktrees", record)
-        monkeypatch.setattr(worktrees, "_registered_worktrees", lambda repo_root: {})
+        legacy_cleanups: list[float] = []
+        monkeypatch.setattr(worktrees, "_discover_candidate_worktrees", discover)
+        monkeypatch.setattr(
+            worktrees, "_registered_worktrees", lambda repo_root: {hand_made.resolve(): {"locked": False, "branch": ""}}
+        )
+        monkeypatch.setattr(worktrees, "_claude_scratchpad_root", lambda: tmp_path / "scratchpads")
         monkeypatch.setattr(worktrees, "_process_cwds", lambda: {Path("/nowhere")})
-        monkeypatch.setattr(worktrees, "_clean_legacy_cargo_target", lambda *args: None)
+        monkeypatch.setattr(
+            worktrees, "_clean_legacy_cargo_target", lambda cutoff, *args: legacy_cleanups.append(cutoff)
+        )
         monkeypatch.setattr(worktrees, "_leftover_worktree_dirs", lambda *args: [])
 
         result = CliRunner().invoke(worktrees.worktrees_clean, ["--unattended", "--dry-run"])
 
         assert result.exit_code == 0, result.output
-        assert len(selections) == 2
-        assert all(selected is not None and "other" not in selected for selected in selections)
+        assert "other" not in discovered_sources
+        assert len(legacy_cleanups) == 1
 
     def test_second_run_same_day_is_refused(self) -> None:
         assert self._take(dry_run=False)
@@ -394,6 +406,11 @@ class TestCollectDepsItems:
             shutil.rmtree(worktree / ".git")
             (worktree / ".git").write_text(f"gitdir: {tmp_path / 'pruned-admin-dir'}\n")
 
+        (worktree / "notes" / "draft.md").parent.mkdir()
+        (worktree / "notes" / "draft.md").write_text("")
+        (worktree / "linked").mkdir()
+        (worktree / "linked" / "node_modules").symlink_to(worktree / "notes", target_is_directory=True)
+
         artifacts = _collect_artifacts(worktree, frozenset({mode}))
         removed = _git_approved_artifacts(worktree, artifacts)
 
@@ -545,30 +562,51 @@ class TestCargoTargets:
             [target] if expected_offered else []
         )
 
-    @pytest.mark.parametrize("unreadable_fingerprint", [False, True], ids=["graph", "unreadable_fingerprint"])
-    def test_sweep_keeps_every_unit_a_recent_build_reaches(self, tmp_path, unreadable_fingerprint: bool) -> None:
+    @pytest.mark.parametrize(
+        "case", ["graph", "unreadable_fingerprint", "locked_without_compiling", "symlinked_target"]
+    )
+    def test_sweep_keeps_every_unit_a_recent_build_reaches(self, tmp_path, case: str) -> None:
         now = time.time()
         month_ago = now - 30 * 86400
-        profile = tmp_path / "target" / "debug"
-        _write_cargo_unit(profile, "app", "a" * 16, fingerprint=1, depends_on=[2], built_epoch=now)
+        target = tmp_path / "target"
+        profile = target / "debug"
+        app_built = month_ago if case == "locked_without_compiling" else now
+        _write_cargo_unit(profile, "app", "a" * 16, fingerprint=1, depends_on=[2], built_epoch=app_built)
         _write_cargo_unit(profile, "serde", "b" * 16, fingerprint=2, depends_on=[], built_epoch=month_ago)
         left_pad = _write_cargo_unit(profile, "left-pad", "c" * 16, fingerprint=3, depends_on=[], built_epoch=month_ago)
         stale_incremental = profile / "incremental" / "left_pad-0k1rn5ce8ga0p"
         recent_incremental = profile / "incremental" / "app-2k0klfowy1csk"
-        for incremental, epoch in ((stale_incremental, month_ago), (recent_incremental, now)):
+        for incremental, epoch in ((stale_incremental, month_ago), (recent_incremental, app_built)):
             (incremental / "s-session").mkdir(parents=True)
             os.utime(incremental / "s-session", (epoch, epoch))
-        if unreadable_fingerprint:
+        (profile / ".cargo-lock").write_text("")
+        source_checkout = tmp_path / "src" / "old-module"
+        (source_checkout / "lib.rs").parent.mkdir(parents=True)
+        (source_checkout / "lib.rs").write_text("")
+        os.utime(source_checkout / "lib.rs", (month_ago, month_ago))
+        _write_cargo_unit(target / "release", "app", "d" * 16, fingerprint=4, depends_on=[], built_epoch=now)
+        (target / "release" / "incremental").symlink_to(tmp_path / "src", target_is_directory=True)
+        if case == "unreadable_fingerprint":
             (profile / ".fingerprint" / f"serde-{'b' * 16}" / "lib-serde.json").write_text("{not json")
+        swept = target
+        if case == "symlinked_target":
+            swept = tmp_path / "linked-target"
+            swept.symlink_to(target, target_is_directory=True)
 
-        unused = unused_cargo_units(tmp_path / "target", now - 7 * 86400)
+        unused = unused_cargo_units(swept, now - 7 * 86400)
 
-        expected = (
-            None
-            if unreadable_fingerprint
-            else {left_pad.parent.parent / ".fingerprint" / f"left-pad-{'c' * 16}", left_pad, stale_incremental}
-        )
-        assert (set(unused) if unused is not None else None) == expected
+        resolved_profile = profile.resolve()
+        expected = {
+            "graph": {
+                resolved_profile / ".fingerprint" / f"left-pad-{'c' * 16}",
+                resolved_profile / "deps" / left_pad.name,
+                resolved_profile / "incremental" / stale_incremental.name,
+            },
+            "unreadable_fingerprint": None,
+            "locked_without_compiling": set(),
+        }
+        expected["symlinked_target"] = expected["graph"]
+        assert (set(unused) if unused is not None else None) == expected[case]
 
     @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
     def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(

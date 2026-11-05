@@ -135,7 +135,9 @@ def _apfs_blocks_reader() -> Callable[[str], _FileBlocks | None]:
         buffer = ctypes.create_string_buffer(layout.size)
         if getattrlist(os.fsencode(path), ctypes.byref(request), buffer, layout.size, options) != 0:
             return _blocks_from_lstat(path)
-        _, inode, link_count, allocated, unshared = layout.unpack(buffer.raw)
+        returned_length, inode, link_count, allocated, unshared = layout.unpack(buffer.raw)
+        if returned_length != layout.size:
+            return _blocks_from_lstat(path)
         return _FileBlocks(inode=inode, link_count=link_count, allocated_bytes=allocated, unshared_bytes=unshared)
 
     return read

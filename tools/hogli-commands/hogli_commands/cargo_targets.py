@@ -30,7 +30,9 @@ def inode_key(path: Path) -> InodeKey | None:
 
 def _cargo_pids() -> list[int] | None:
     try:
-        result = subprocess.run(["pgrep", "-x", "cargo|rustc"], capture_output=True, text=True, timeout=5, check=False)
+        result = subprocess.run(
+            ["pgrep", "-x", "cargo|rustc|cargo-nextest"], capture_output=True, text=True, timeout=5, check=False
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode not in (0, 1):
@@ -190,31 +192,46 @@ class _CargoUnit:
 
 
 def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | None:
-    """The paths of the units in *target* that no unit built after *built_before_epoch* needs, and the incremental caches not written since then.
+    """The paths of the units in *target* that no unit compiled after *built_before_epoch* needs, and the incremental caches not written since then.
 
     Cargo does not touch the fingerprint of a unit it reuses, and the file
     systems this runs on do not record reads, so a unit's own age cannot show
     that a build still uses it. Its dependents can: every unit's fingerprint
     JSON names the fingerprints of the units it depends on. A unit stays when
-    any unit built in the window reaches it through that graph. Deleting a
-    unit only costs a rebuild, because Cargo rebuilds a unit whose files are
+    any unit compiled in the window reaches it through that graph. A build in
+    which every unit was fresh compiles nothing, so a profile that Cargo
+    locked in the window without compiling a unit there is kept whole. Deleting
+    a unit only costs a rebuild, because Cargo rebuilds a unit whose files are
     missing. Returns None, and nothing should be removed, when a fingerprint
     cannot be read, because a dependency edge could be missing.
     """
 
+    try:
+        target = target.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
     units: dict[Path, _CargoUnit] = {}
     unit_by_fingerprint: dict[str, Path] = {}
+    # Tools such as rust-analyzer and cargo-llvm-cov build into <target>/<tool>/<triple>/<profile>.
     profiles = [
-        fingerprints.parent for fingerprints in (*target.glob("*/.fingerprint"), *target.glob("*/*/.fingerprint"))
+        fingerprints.parent
+        for pattern in ("*/.fingerprint", "*/*/.fingerprint", "*/*/*/.fingerprint")
+        for fingerprints in target.glob(pattern)
     ]
-    for profile in profiles:
-        for unit_dir in (profile / ".fingerprint").iterdir():
-            if not unit_dir.is_dir() or unit_dir.is_symlink():
-                continue
-            unit = _read_cargo_unit(unit_dir, unit_by_fingerprint)
-            if unit is None:
-                return None
-            units[unit_dir] = unit
+    unit_dirs_by_profile: dict[Path, list[Path]] = {}
+    try:
+        for profile in profiles:
+            unit_dirs = [
+                entry for entry in (profile / ".fingerprint").iterdir() if entry.is_dir() and not entry.is_symlink()
+            ]
+            unit_dirs_by_profile[profile] = unit_dirs
+            for unit_dir in unit_dirs:
+                unit = _read_cargo_unit(unit_dir, unit_by_fingerprint)
+                if unit is None:
+                    return None
+                units[unit_dir] = unit
+    except OSError:
+        return None
 
     live: set[Path] = set()
     pending = [unit_dir for unit_dir, unit in units.items() if unit.built_epoch >= built_before_epoch]
@@ -228,7 +245,12 @@ def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | 
                 pending.append(dependency)
 
     unused: list[Path] = []
-    for profile in profiles:
+    for profile, unit_dirs in unit_dirs_by_profile.items():
+        locked_without_compiling = _mtime(profile / ".cargo-lock") >= built_before_epoch and not any(
+            units[unit_dir].built_epoch >= built_before_epoch for unit_dir in unit_dirs
+        )
+        if locked_without_compiling:
+            continue
         outputs_by_hash: dict[str, list[Path]] = {}
         for output_dir in _UNIT_OUTPUT_DIRS:
             try:
@@ -238,8 +260,8 @@ def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | 
             for entry in entries:
                 if match := _METADATA_HASH.search(entry.name):
                     outputs_by_hash.setdefault(match.group(1), []).append(entry)
-        for unit_dir in (profile / ".fingerprint").iterdir():
-            if unit_dir in units and unit_dir not in live:
+        for unit_dir in unit_dirs:
+            if unit_dir not in live:
                 unused.append(unit_dir)
                 unused.extend(outputs_by_hash.get(unit_dir.name.rpartition("-")[2], []))
         try:
@@ -248,7 +270,17 @@ def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | 
             incremental = []
         # An incremental cache only speeds up recompiling its crate, and a compile writes a new session into it.
         unused.extend(entry for entry in incremental if _newest_child_mtime(entry) < built_before_epoch)
-    return unused
+    # A symlinked folder inside the target, such as an incremental dir, would make a removal follow it out of the target.
+    return [
+        path for path in unused if os.path.realpath(path.parent) == str(path.parent) and path.is_relative_to(target)
+    ]
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def _read_cargo_unit(unit_dir: Path, unit_by_fingerprint: dict[str, Path]) -> _CargoUnit | None:
