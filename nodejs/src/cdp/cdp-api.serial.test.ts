@@ -2,8 +2,10 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
+import { createHash } from 'crypto'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -41,6 +43,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { decodeInvocationGlobals } from './services/monitoring/hog-invocation-results.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2220,6 +2223,26 @@ describe('CDP API', () => {
             tracking: { captureEngagement: true },
         }
 
+        const FILE_CONTENT = 'c2VjcmV0LWZpbGU='
+        const attachment = (overrides: Record<string, unknown> = {}) => ({
+            filename: 'report.pdf',
+            content: FILE_CONTENT,
+            contentType: 'application/pdf',
+            ...overrides,
+        })
+        const storedAttachments = async (filename: string): Promise<{ job_id: string; content: Buffer }[]> => {
+            const pool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            try {
+                return (
+                    await pool.query('SELECT job_id, content FROM cyclotron_email_attachments WHERE filename = $1', [
+                        filename,
+                    ])
+                ).rows
+            } finally {
+                await pool.end()
+            }
+        }
+
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
@@ -2399,6 +2422,14 @@ describe('CDP API', () => {
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
                 ],
+                [
+                    'a changed file under the same name',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [attachment()] } }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, attachments: [attachment({ content: 'b3RoZXI=' })] } },
+                    ],
+                ],
             ] as const)(
                 'rejects the key for a request with %s',
                 async (_desc, [firstRoute, first], [route, payload]) => {
@@ -2518,12 +2549,58 @@ describe('CDP API', () => {
                 'more than 10 cc addresses',
                 { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
             ],
+            ['a file that is not base64', { ...codeSend, attachments: [attachment({ content: `${FILE_CONTENT}!` })] }],
+            ['an empty file', { ...codeSend, attachments: [attachment({ content: '' })] }],
+            [
+                'a file too long to check as base64',
+                { ...codeSend, attachments: [attachment({ content: 'A'.repeat(4_500_000) })] },
+            ],
+            [
+                'a file type mailbox providers block',
+                { ...codeSend, attachments: [attachment({ filename: 'setup.EXE' })] },
+            ],
+            ['a file type only SES refuses', { ...codeSend, attachments: [attachment({ filename: 'settings.reg' })] }],
+            ['a file type only Gmail blocks', { ...codeSend, attachments: [attachment({ filename: 'disk.iso' })] }],
+            [
+                'a filename with a path separator',
+                { ...codeSend, attachments: [attachment({ filename: '../report.pdf' })] },
+            ],
+            [
+                'a filename with a line break',
+                { ...codeSend, attachments: [attachment({ filename: 'report\r\n.pdf' })] },
+            ],
+            [
+                'a content type that is not a MIME type',
+                { ...codeSend, attachments: [attachment({ contentType: 'pdf' })] },
+            ],
+            ['a content id in angle brackets', { ...codeSend, attachments: [attachment({ contentId: '<logo>' })] }],
+            [
+                'a content id longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentId: 'x'.repeat(79) })] },
+            ],
+            [
+                'a content type longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentType: `application/${'x'.repeat(67)}` })] },
+            ],
+            ['a file field this version does not know', { ...codeSend, attachments: [attachment({ size: 11 })] }],
+            ['more than 10 files', { ...codeSend, attachments: Array.from({ length: 11 }, () => attachment()) }],
+            [
+                'files over 512 KB in total',
+                {
+                    ...codeSend,
+                    attachments: [
+                        attachment({ content: Buffer.alloc(300 * 1024).toString('base64') }),
+                        attachment({ content: `${Buffer.alloc(213 * 1024).toString('base64')}${FILE_CONTENT}` }),
+                    ],
+                },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
             expect(res.status).toEqual(400)
+            expect(JSON.stringify(res.body)).not.toContain(FILE_CONTENT.slice(0, 12))
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
@@ -2558,6 +2635,65 @@ describe('CDP API', () => {
             expect(res.status).toEqual(422)
             expect(res.body).toEqual({ error: code })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('stores the files of a code send outside the queued run and its snapshot, and a replay stores none', async () => {
+            const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+            const produceResultRow = jest.spyOn(resultsOutputs, 'produce')
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const filename = `report-${new UUIDT().toString()}.pdf`
+            const keyed = {
+                ...body,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                send: { ...codeSend, attachments: [attachment({ filename })] },
+            }
+
+            try {
+                const first = await sendAccepted(hogFlow.id, keyed)
+                const replay = await sendAccepted(hogFlow.id, keyed)
+
+                expect(first.status).toEqual(202)
+                expect(replay.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                expect(await storedAttachments(filename)).toEqual([
+                    { job_id: first.body.invocation_id, content: Buffer.from('secret-file') },
+                ])
+                const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                expect(invocation.state.send.attachments).toEqual([
+                    {
+                        filename,
+                        contentType: 'application/pdf',
+                        sizeBytes: 11,
+                        sha256: createHash('sha256').update('secret-file').digest('hex'),
+                    },
+                ])
+                expect(JSON.stringify(invocation)).not.toContain(FILE_CONTENT)
+                const snapshots = produceResultRow.mock.calls.filter(([output]) => output === 'hog_invocation_results')
+                expect(snapshots).not.toHaveLength(0)
+                for (const [, message] of snapshots) {
+                    const row = parseJSON(String(message.value))
+                    const globals = JSON.stringify(await decodeInvocationGlobals(row.invocation_globals))
+                    expect(globals).toContain(filename)
+                    expect(globals).not.toContain(FILE_CONTENT)
+                }
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('keeps the stored files when the queue insert fails, as the job may be queued already', async () => {
+            mockQueueInvocations.mockRejectedValueOnce(new Error('queue down'))
+            const filename = `report-${new UUIDT().toString()}.pdf`
+
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, attachments: [attachment({ filename })] },
+            })
+
+            expect(res.status).toEqual(500)
+            expect(await storedAttachments(filename)).toEqual([
+                { job_id: expect.any(String), content: Buffer.from('secret-file') },
+            ])
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
