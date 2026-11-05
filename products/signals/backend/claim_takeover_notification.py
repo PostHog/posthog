@@ -1,5 +1,3 @@
-from django.utils.text import Truncator
-
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +21,14 @@ _TITLE_SUFFIX = " took over a report you were working on"
 _DISPLAY_NAME_LIMIT = 255 - len(_TITLE_SUFFIX)
 
 
+def _takeover_title(display_name: str) -> str:
+    # Cut by raw length: Django's Truncator skips combining marks when it counts, so a name built from them
+    # could still overflow the column and fail every delivery attempt.
+    if len(display_name) > _DISPLAY_NAME_LIMIT:
+        display_name = display_name[: _DISPLAY_NAME_LIMIT - 1] + "…"
+    return f"{display_name}{_TITLE_SUFFIX}"
+
+
 def notify_claim_taken_over(*, report: SignalReport, previous: ReportClaim, actor: ArtefactAttribution) -> None:
     """Queue the notification for the person whose claim was taken over. Call after the takeover commits."""
     if previous.actor_user_id is None:
@@ -34,7 +40,7 @@ def notify_claim_taken_over(*, report: SignalReport, previous: ReportClaim, acto
             report_id=str(report.id),
             recipient_id=previous.actor_user_id,
             previous_claim_id=str(previous.claim_id),
-            title=f"{Truncator(claim_display_name(report, actor)).chars(_DISPLAY_NAME_LIMIT)}{_TITLE_SUFFIX}",
+            title=_takeover_title(claim_display_name(report, actor)),
         )
     except Exception as error:
         capture_exception(error)

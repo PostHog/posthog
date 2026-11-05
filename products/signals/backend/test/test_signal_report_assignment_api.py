@@ -615,6 +615,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
             ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
             ("agent_with_overlong_client_name", "c" * 200, True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            # Combining marks hide most of the length from a character count, so the cap must use the raw length.
+            ("agent_with_combining_marks", "q\u0301" * 100, True, status.HTTP_200_OK, SignalActorKind.AGENT),
             ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
             # The notification carries the report title, so someone who lost Inbox access gets none.
             ("holder_without_inbox_access", None, True, status.HTTP_200_OK, SignalActorKind.USER),
@@ -634,6 +636,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         teammate = User.objects.create_and_join(self.organization, "dana@example.com", None, first_name="Dana")
         self.client.force_login(teammate)
         teammate_claim = self.client.post(self._claim_url(report), data={}, format="json").json()["assignee"]
+        if name == "agent_with_combining_marks":
+            self.user.first_name = "F" * 60
+            self.user.save(update_fields=["first_name"])
         self.client.force_login(self.user)
 
         data: dict[str, object] = {"takeover": True}
