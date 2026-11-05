@@ -84,7 +84,6 @@ def _gate(
         pytest.param(
             {"restarts_from_scratch": True}, 6300.0, (True, "deadline"), id="from_scratch_leaves_before_grace_ends"
         ),
-        # A drain that kills the pod sooner than the grace, such as a node pool's termination limit.
         pytest.param(
             {"pod_kill": 600.0}, 0.0, (True, "pod_deadline"), id="pod_killed_within_the_margin_leaves_at_once"
         ),

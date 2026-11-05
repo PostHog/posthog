@@ -36,7 +36,6 @@ def test_the_pod_deadline_comes_from_the_deletion_timestamp(
     with requests_mock.Mocker() as mocker:
         mocker.get(POD_URL, **response)
         assert deadline.seconds_until_kill() == expected
-        # The answer is kept for the process: a second question reads nothing.
         assert deadline.seconds_until_kill() == expected
         assert mocker.call_count == 1
 

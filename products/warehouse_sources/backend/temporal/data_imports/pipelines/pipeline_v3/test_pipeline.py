@@ -3504,7 +3504,6 @@ class TestSourcePreemption:
         pipeline = _runnable_pipeline(manager, items)
         switch = _with_ride_out(pipeline, clock, quiet_period_seconds=300.0)
 
-        # The node pool kills the pod 10 minutes into the drain, well inside the quiet period.
         with (
             patch(f"{_PREEMPTION}.RIDE_OUT_WAIT_SLICE_SECONDS", 0.01),
             patch.object(POD_DELETION_DEADLINE, "seconds_until_kill", return_value=600.0),
