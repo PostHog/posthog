@@ -1,3 +1,5 @@
+"""Link Redshift credentials to Integrations while keeping inline connection values."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -13,8 +15,6 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationConflict, IntegrationManager
-from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
-from posthog.models.integration.snowflake import SnowflakeIntegration, SnowflakeIntegrationError
 
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -27,14 +27,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-DESTINATION_TYPES = (
-    BatchExportDestinationType.POSTGRES,
-    BatchExportDestinationType.BIGQUERY,
-    BatchExportDestinationType.REDSHIFT,
-    BatchExportDestinationType.AWS_S3,
-    BatchExportDestinationType.SNOWFLAKE,
-)
-NEEDS_WORK = frozenset({"needs_integration", "needs_copy_move", "needs_stale_strip"})
+DESTINATION_TYPES = (BatchExportDestinationType.REDSHIFT,)
+NEEDS_WORK = frozenset({"needs_integration", "needs_copy_move"})
 UNRESOLVED_SKIPS = frozenset(
     {"skipped_incomplete", "skipped_unreadable", "skipped_conflict", "copy_skipped_incomplete"}
 )
@@ -104,82 +98,29 @@ def _aws_credentials(config: Mapping[str, object], name: str) -> _Credentials | 
     )
 
 
-def _connection_credentials(
-    destination: BatchExportDestination, export: BatchExport, config: Mapping[str, object]
-) -> _Credentials | None:
-    name = f"{export.name} ({str(destination.id)[:8]})"
-    if destination.type in (BatchExportDestinationType.POSTGRES, BatchExportDestinationType.REDSHIFT):
-        values = _required(config, "host", "user", "password")
-        if values is None:
-            return None
-        is_postgres = destination.type == BatchExportDestinationType.POSTGRES
-        port_value = config.get("port", 5432 if is_postgres else 5439)
-        if not isinstance(port_value, (str, int)) or isinstance(port_value, bool):
-            return None
-        try:
-            port = int(port_value)
-        except ValueError:
-            return None
-        return _Credentials(
-            accessor=(
-                IntegrationManager.postgresql.credentials
-                if is_postgres
-                else IntegrationManager.aws_redshift.credentials
-            ),
-            external_id=f"{export.team_id}-{values['host']}-{port}-{values['user']}",
-            config={
-                "host": values["host"],
-                "port": port,
-                "user": values["user"],
-                "ssl_mode": "require",
-                "ssl_root_cert": None,
-            },
-            sensitive_config={"password": values["password"]},
-        )
-    if destination.type == BatchExportDestinationType.BIGQUERY:
-        values = _required(config, "private_key", "private_key_id", "token_uri", "client_email", "project_id")
-        if values is None:
-            return None
-        try:
-            token_uri = require_google_token_uri(values["token_uri"])
-        except InvalidGoogleTokenUriError:
-            return None
-        return _Credentials(
-            accessor=IntegrationManager.google_cloud_service_account.credentials,
-            external_id=f"{values['client_email']}-{export.team_id}-key-file",
-            config={"project_id": values["project_id"], "service_account_email": values["client_email"]},
-            sensitive_config={
-                "private_key": values["private_key"],
-                "private_key_id": values["private_key_id"],
-                "token_uri": token_uri,
-            },
-        )
-    if destination.type == BatchExportDestinationType.AWS_S3:
-        return _aws_credentials(config, name)
-    if destination.type == BatchExportDestinationType.SNOWFLAKE:
-        values = _required(config, "account", "user")
-        if values is None:
-            return None
-        try:
-            SnowflakeIntegration.validate_account(values["account"])
-        except SnowflakeIntegrationError:
-            return None
-        authentication_type = config.get("authentication_type", "keypair" if config.get("private_key") else "password")
-        if authentication_type not in ("password", "keypair"):
-            return None
-        secrets = _required(config, "password" if authentication_type == "password" else "private_key")
-        if secrets is None:
-            return None
-        passphrase = config.get("private_key_passphrase")
-        if authentication_type == "keypair" and isinstance(passphrase, str) and passphrase:
-            secrets["private_key_passphrase"] = passphrase
-        return _Credentials(
-            accessor=IntegrationManager.snowflake.credentials,
-            external_id=name,
-            config={"name": name, **values, "authentication_type": authentication_type},
-            sensitive_config=dict(secrets),
-        )
-    return None
+def _connection_credentials(export: BatchExport, config: Mapping[str, object]) -> _Credentials | None:
+    values = _required(config, "host", "user", "password")
+    if values is None:
+        return None
+    port_value = config.get("port", 5439)
+    if not isinstance(port_value, (str, int)) or isinstance(port_value, bool):
+        return None
+    try:
+        port = int(port_value)
+    except ValueError:
+        return None
+    return _Credentials(
+        accessor=IntegrationManager.aws_redshift.credentials,
+        external_id=f"{export.team_id}-{values['host']}-{port}-{values['user']}",
+        config={
+            "host": values["host"],
+            "port": port,
+            "user": values["user"],
+            "ssl_mode": "require",
+            "ssl_root_cert": None,
+        },
+        sensitive_config={"password": values["password"]},
+    )
 
 
 def _plan(destination: BatchExportDestination, export: BatchExport) -> _DestinationPlan:
@@ -191,7 +132,7 @@ def _plan(destination: BatchExportDestination, export: BatchExport) -> _Destinat
     needs: list[str] = []
     connection_index: int | None = None
     if destination.integration_id is None:
-        connection = _connection_credentials(destination, export, config)
+        connection = _connection_credentials(export, config)
         if connection is None:
             outcomes.append("skipped_incomplete")
         else:
@@ -199,22 +140,10 @@ def _plan(destination: BatchExportDestination, export: BatchExport) -> _Destinat
             connection_index = len(credentials)
             credentials.append(connection)
 
-    if destination.integration_id is not None or connection_index is not None:
-        secret_keys = BatchExportDestination.secret_fields[destination.type]
-        if destination.type == BatchExportDestinationType.BIGQUERY and destination.integration_id is not None:
-            # BigQuery still uses inline keys if its Integration client fails.
-            secret_keys = set()
-        removed = secret_keys.intersection(config)
-        for key in removed:
-            del config[key]
-        if removed and destination.integration_id is not None:
-            outcomes.append("stale_secrets_removed")
-            needs.append("needs_stale_strip")
-
     copy_moves: list[_CopyMove] = []
     copy_credentials: list[int] = []
     copy_inputs = config.get("copy_inputs")
-    if destination.type == BatchExportDestinationType.REDSHIFT and isinstance(copy_inputs, dict):
+    if isinstance(copy_inputs, dict):
         for key in ("bucket_credentials", "authorization"):
             value = copy_inputs.get(key)
             if not isinstance(value, dict):

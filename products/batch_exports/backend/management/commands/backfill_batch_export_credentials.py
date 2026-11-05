@@ -13,7 +13,8 @@ from products.batch_exports.backend.logic.credentials_backfill import (
 
 class Command(BaseCommand):
     help = (
-        "Move inline batch export credentials into Integrations. Preview by default. "
+        "Link Redshift batch export credentials to Integrations. Keep inline connection values. "
+        "Replace inline AWS key pairs in Redshift COPY settings with Integration IDs. Preview by default. "
         "After --execute, schedules are synced unless --no-sync-schedules is set. "
         "Use update_batch_export_schedules to sync schedules later. Output contains counts only."
     )
@@ -27,7 +28,7 @@ class Command(BaseCommand):
             choices=DESTINATION_TYPES,
             action="append",
             default=[],
-            help="Select a destination type. Repeatable.",
+            help="Select Redshift destinations.",
         )
         parser.add_argument("--limit", type=int, default=None, help="Maximum destinations to process during backfill.")
         parser.add_argument("--batch-size", type=int, default=200, help="Destinations per batch.")
