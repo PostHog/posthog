@@ -10,6 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
@@ -334,13 +335,41 @@ class TestEventsRetentionAPI(APIBaseTest):
 
         assert response.status_code == expected_status
 
-    def test_stops_an_organization_count_past_its_time_budget(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "organization_past_its_time_budget",
+                "organization",
+                "products.product_analytics.backend.events_retention.EVENTS_DELETED_QUERY_SECONDS",
+                {"new": 0},
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ),
+            (
+                "project_without_a_free_query_slot",
+                "project",
+                "products.product_analytics.backend.presentation.query_concurrency.app_org_concurrency_slot",
+                {"side_effect": ConcurrencyLimitExceeded("full")},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+            (
+                "organization_without_a_free_query_slot",
+                "organization",
+                "products.product_analytics.backend.presentation.query_concurrency.app_org_concurrency_slot",
+                {"side_effect": ConcurrencyLimitExceeded("full")},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+        ]
+    )
+    def test_stops_a_count_it_cannot_run_now(
+        self, _name: str, scope: str, target: str, patch_kwargs: dict, expected_status: int
+    ) -> None:
         self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
 
-        with patch("products.product_analytics.backend.events_retention.EVENTS_DELETED_QUERY_SECONDS", 0):
-            response = self.client.get(f"{self.organization_url()}deletion_count/", {"retention_months": 3})
+        with patch(target, **patch_kwargs):
+            response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
 
-        assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
+        assert response.status_code == expected_status
 
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:

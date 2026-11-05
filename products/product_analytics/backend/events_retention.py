@@ -1,5 +1,6 @@
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, date, datetime, time
 from functools import partial
 from time import monotonic
@@ -57,6 +58,8 @@ from products.product_analytics.backend.facade.contracts import (
 RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
 EVENTS_DELETED_QUERY_SECONDS = 10
 EVENTS_DELETED_CACHE_SECONDS = 24 * 60 * 60
+
+ConcurrencySlots = Callable[[Team], AbstractContextManager[None]]
 
 
 def _report_retention_set(
@@ -171,36 +174,37 @@ def _next_cleanup_cutoff(months: int) -> datetime:
     return whole_month_cutoff(datetime.combine(next_cleanup_on(), time()), months).replace(tzinfo=UTC)
 
 
-def _events_before(team: Team, cutoff: datetime, seconds: int) -> int:
+def _events_before(team: Team, cutoff: datetime, seconds: int, concurrency_slots: ConcurrencySlots) -> int:
     key = f"events_retention_deleted:{team.id}:{cutoff:%Y-%m-%d}"
     if (count := cache.get(key)) is not None:
         return count
     if seconds <= 0:
         raise ClickHouseQueryTimeOut()
-    response = execute_hogql_query(
-        "SELECT count() FROM events WHERE timestamp < {cutoff}",
-        team,
-        query_type="events_retention_deletion_count",
-        placeholders={"cutoff": ast.Constant(value=cutoff)},
-        workload=Workload.ONLINE,
-        settings=HogQLGlobalSettings(max_execution_time=seconds, timeout_overflow_mode="throw"),
-    )
+    with concurrency_slots(team):
+        response = execute_hogql_query(
+            "SELECT count() FROM events WHERE timestamp < {cutoff}",
+            team,
+            query_type="events_retention_deletion_count",
+            placeholders={"cutoff": ast.Constant(value=cutoff)},
+            workload=Workload.ONLINE,
+            settings=HogQLGlobalSettings(max_execution_time=seconds, timeout_overflow_mode="throw"),
+        )
     count = response.results[0][0]
     cache.set(key, count, EVENTS_DELETED_CACHE_SECONDS)
     return count
 
 
-def project_events_deleted(team: Team, months: int) -> int:
-    return _events_before(team, _next_cleanup_cutoff(months), EVENTS_DELETED_QUERY_SECONDS)
+def project_events_deleted(team: Team, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
+    return _events_before(team, _next_cleanup_cutoff(months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
 
 
-def organization_events_deleted(organization: Organization, months: int) -> int:
+def organization_events_deleted(organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
     cutoff = _next_cleanup_cutoff(months)
     deadline = monotonic() + EVENTS_DELETED_QUERY_SECONDS
     teams = Team.objects.filter(organization_id=organization.id).exclude(
         id__in=TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values("team_id")
     )
-    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic())) for team in teams)
+    return sum(_events_before(team, cutoff, math.ceil(deadline - monotonic()), concurrency_slots) for team in teams)
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:

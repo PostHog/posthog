@@ -23,12 +23,14 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     return events_retention.project_events_retention(team)
 
 
-def project_events_deleted(team: Team, months: int) -> int:
-    return events_retention.project_events_deleted(team, months)
+def project_events_deleted(team: Team, months: int, *, concurrency_slots: events_retention.ConcurrencySlots) -> int:
+    return events_retention.project_events_deleted(team, months, concurrency_slots=concurrency_slots)
 
 
-def organization_events_deleted(organization: Organization, months: int) -> int:
-    return events_retention.organization_events_deleted(organization, months)
+def organization_events_deleted(
+    organization: Organization, months: int, *, concurrency_slots: events_retention.ConcurrencySlots
+) -> int:
+    return events_retention.organization_events_deleted(organization, months, concurrency_slots=concurrency_slots)
 
 
 def set_organization_events_retention(

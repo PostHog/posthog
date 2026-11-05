@@ -25,6 +25,7 @@ from products.product_analytics.backend.facade.events_retention import (
     set_organization_events_retention,
     set_project_events_retention,
 )
+from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 
 EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
 
@@ -266,7 +267,9 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         months = request.validated_query_data["retention_months"]
-        return _events_deleted_response(months, project_events_deleted(self.team, months))
+        return _events_deleted_response(
+            months, project_events_deleted(self.team, months, concurrency_slots=query_concurrency_slots)
+        )
 
 
 @extend_schema(tags=["events_retention"])
@@ -347,4 +350,6 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     )
     def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         months = request.validated_query_data["retention_months"]
-        return _events_deleted_response(months, organization_events_deleted(self.organization, months))
+        return _events_deleted_response(
+            months, organization_events_deleted(self.organization, months, concurrency_slots=query_concurrency_slots)
+        )
