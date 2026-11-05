@@ -11,7 +11,7 @@ import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filte
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService, uuidtCreatedAt } from '../messaging/email-status.service'
+import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -114,7 +114,13 @@ export class TransactionalSends {
                 case 'replayed': {
                     const scheduledAt = reservation.scheduledAt ?? null
                     if (scheduledAt) {
-                        this.writeStatus(team.id, reservation.invocationId, 'scheduled')
+                        this.writeStatus({
+                            teamId: team.id,
+                            messageId: reservation.invocationId,
+                            status: 'scheduled',
+                            recipient: to,
+                            functionId: hogFlow.id,
+                        })
                     }
                     return { outcome: 'replayed', invocationId: reservation.invocationId, scheduledAt }
                 }
@@ -174,7 +180,13 @@ export class TransactionalSends {
             )
         }
         stages.start('metrics_flush')
-        this.writeStatus(team.id, invocation.id, scheduledAt ? 'scheduled' : 'queued')
+        this.writeStatus({
+            teamId: team.id,
+            messageId: invocation.id,
+            status: scheduledAt ? 'scheduled' : 'queued',
+            recipient: to,
+            functionId: hogFlow.id,
+        })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
@@ -182,9 +194,9 @@ export class TransactionalSends {
         return { outcome: 'queued', invocationId: invocation.id, scheduledAt: scheduledAt?.toISOString() ?? null }
     }
 
-    private writeStatus(teamId: number, messageId: string, status: 'queued' | 'scheduled'): void {
-        this.deps.emailStatus.queue({ teamId, messageId, status })
-        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, messageId))
+    private writeStatus(update: EmailStatusUpdate & { status: 'queued' | 'scheduled' }): void {
+        this.deps.emailStatus.queue(update)
+        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
     }
 
     private buildInvocation(team: Team, hogFlow: HogFlow, request: TransactionalEmailRequest) {
