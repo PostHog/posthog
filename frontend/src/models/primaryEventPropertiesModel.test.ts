@@ -8,10 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 describe('the primary event properties model', () => {
     // Safety net for the test that calls silenceKeaLoadersErrors() inline
-    afterEach(() => {
-        resumeKeaLoadersErrors()
-        jest.restoreAllMocks()
-    })
+    afterEach(resumeKeaLoadersErrors)
 
     let logic: ReturnType<typeof primaryEventPropertiesModel.build>
 
@@ -177,13 +174,11 @@ describe('the primary event properties model', () => {
                 },
             },
         })
-        const captureException = jest.spyOn(posthog, 'captureException')
-
         const loaderSettled = start()
         logic.unmount()
         releaseResponse()
         await loaderSettled
 
-        expect(captureException).not.toHaveBeenCalled()
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 })
