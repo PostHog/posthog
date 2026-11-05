@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -1311,7 +1312,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         run = RoutingRun.objects.unscoped().create(
             team_id=team_id,
             pull_request=pull_request,
-            head_sha="head-1",
+            head_sha=f"head-{pr_number}",
             mode=RoutingMode.ALWAYS,
             trigger="opened",
             scope="full",
@@ -1327,10 +1328,26 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("everything_in_the_team", {}, [2, 1]),
             ("by_owner", {"owner": "team-beta"}, [1]),
             ("by_pull_request", {"pr_number": 2}, [2]),
+            ("by_head_sha", {"head_sha": "head-2"}, [2]),
+            ("by_outcome", {"outcome": "cut"}, [1]),
+            ("by_reason", {"reason": "model_kept"}, [2]),
+            ("by_owner_and_outcome_on_one_owner", {"owner": "team-alpha", "outcome": "cut"}, []),
         ]
     )
     def test_list_filters_the_teams_runs(self, _name: str, query: dict, expected_pr_numbers: list[int]) -> None:
         response = self.client.get(self.url, query)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
+
+    @parameterized.expand([("created_after", [2]), ("created_before", [1])])
+    def test_list_keeps_the_runs_inside_the_time_window(self, param: str, expected_pr_numbers: list[int]) -> None:
+        now = timezone.now()
+        runs = RoutingRun.objects.unscoped().filter(team_id=self.team.id)
+        runs.filter(pull_request__pr_number=1).update(created_at=now - timedelta(days=3))
+        runs.filter(pull_request__pr_number=2).update(created_at=now - timedelta(days=1))
+
+        response = self.client.get(self.url, {param: (now - timedelta(days=2)).isoformat()})
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
