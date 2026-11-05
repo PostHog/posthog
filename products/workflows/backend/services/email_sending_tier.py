@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -345,7 +345,7 @@ def _fetch_daily_metrics(
         return fetch_app_metric_daily_totals_by_team(
             app_source=APP_SOURCE,
             name=metric_names,
-            after=after,
+            after=hour_start(after),
             before=before,
             team_ids=team_ids,
             workload=workload,
@@ -364,6 +364,10 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
         daily_sends={day: sends for day, counts in days.items() if (sends := own_sends(counts)) > 0},
     )
+
+
+def hour_start(value: datetime) -> datetime:
+    return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def own_sends(counts: dict[str, int]) -> int:
