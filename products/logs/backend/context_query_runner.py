@@ -398,7 +398,9 @@ class LogsContextRunner:
             if anchor_row and key["key"] not in skip and key["log_count"] > 1:
                 attribute = {"key": key["key"], "value": key["value"]}
                 anchor = {"attribute": attribute, "around": utc_iso(anchor_row["timestamp"])}
-                calls.append((f"all {key['log_count']} logs with {key['key']}={_cut(key['value'], 40)}", anchor))
+                calls.append(
+                    (f"all {key['log_count']} logs with {key['key']}={_quote(_cut(key['value'], 40))}", anchor)
+                )
         return [
             {
                 "tool": "logs-context",
