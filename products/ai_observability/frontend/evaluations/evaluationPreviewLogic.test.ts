@@ -57,14 +57,16 @@ describe('evaluationPreviewLogic', () => {
     let testCalls: string[]
     let saved: EvaluationConfig
     let pending: Promise<void> | null
+    let responseStatus: number
 
     beforeEach(() => {
         testCalls = []
         pending = null
+        responseStatus = 200
         const respond = (endpoint: string) => async () => {
             testCalls.push(endpoint)
             await pending
-            return [200, { results: [testResult] }]
+            return responseStatus === 200 ? [200, { results: [testResult] }] : [responseStatus, { detail: 'Failed' }]
         }
         useMocks({
             get: { '/api/projects/:teamId/evaluations/:id/': () => [200, saved] },
@@ -128,7 +130,11 @@ describe('evaluationPreviewLogic', () => {
         expect(testCalls).toEqual(['judge'])
     })
 
-    it('drops a judge result that arrives after the prompt changed', async () => {
+    it.each([
+        ['result', 200],
+        ['failure', 500],
+    ])('drops a judge %s that arrives after the prompt changed', async (_outcome, status) => {
+        responseStatus = status
         mount({
             ...evaluation,
             evaluation_type: 'llm_judge',
@@ -143,10 +149,13 @@ describe('evaluationPreviewLogic', () => {
 
         logic.actions.testRows({ auto: false })
         llmEvaluationLogic(props).actions.setEvaluationPrompt('Is it accurate?')
+        // The paid call is still running, so the button must not offer a second one yet.
+        expect(logic.values.testResultsLoading).toBe(true)
         release()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(testCalls).toEqual(['judge'])
         expect(logic.values.testResults).toBeNull()
+        expect(logic.values.testError).toBeNull()
     })
 })

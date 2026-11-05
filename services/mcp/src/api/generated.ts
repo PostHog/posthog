@@ -42061,8 +42061,6 @@ export namespace Schemas {
       output_preview: string;
     }
 
-    export type EvaluationSampleTrafficRequestConditionsItem = { [key: string]: unknown };
-
     export interface TestHogTargetConfig {
       /**
          * Aggregation window for trace samples, in seconds.
@@ -42083,7 +42081,7 @@ export namespace Schemas {
      */
     export interface EvaluationSampleTrafficRequest {
       /** Optional trigger conditions to filter which events are sampled. */
-      conditions?: EvaluationSampleTrafficRequestConditionsItem[];
+      conditions?: EvaluationCondition[];
       /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
        *
        * * `generation` - Generation
@@ -42103,8 +42101,6 @@ export namespace Schemas {
     export interface EvaluationSampleTrafficResponse {
       results: EvaluationSampleTrafficItem[];
     }
-
-    export type EvaluationTestOnSampleRequestConditionsItem = { [key: string]: unknown };
 
     /**
      * Same as on an evaluation: {prompt, judge_method}.
@@ -42237,7 +42233,7 @@ export namespace Schemas {
      */
     export interface EvaluationTestOnSampleRequest {
       /** Optional trigger conditions to filter which events are sampled. */
-      conditions?: EvaluationTestOnSampleRequestConditionsItem[];
+      conditions?: EvaluationCondition[];
       /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
        *
        * * `generation` - Generation
@@ -113076,8 +113072,6 @@ export namespace Schemas {
       description: TerminalNetplayDescription;
     }
 
-    export type TestHogRequestConditionsItem = { [key: string]: unknown };
-
     export type TestHogRequestOutputConfigOptionsItem = {
       /**
          * Stable category key.
@@ -113167,7 +113161,7 @@ export namespace Schemas {
      */
     export interface TestHogRequest {
       /** Optional trigger conditions to filter which events are sampled. */
-      conditions?: TestHogRequestConditionsItem[];
+      conditions?: EvaluationCondition[];
       /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
        *
        * * `generation` - Generation

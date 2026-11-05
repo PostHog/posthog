@@ -15,7 +15,7 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
@@ -680,6 +680,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+        if data.get("model_configuration"):
+            self._validate_provider_key_match(data["model_configuration"])
         self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
@@ -781,6 +783,25 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 {
                     "model_configuration": f"'{model}' is not supported as an evaluation judge. "
                     "Choose a chat model or a supported decision model."
+                }
+            )
+
+    def _validate_provider_key_match(self, model_config: dict) -> None:
+        """A pinned key belongs to this team and to the chosen provider. Saving also enforces this in the
+        model's `clean()`, but a judge test runs from the validated data and never builds the model, so a
+        mismatch would send the key to the wrong provider."""
+        provider_key_id = model_config.get("provider_key_id")
+        if not provider_key_id:
+            return
+        provider_key = LLMProviderKey.objects.filter(id=provider_key_id, team=self.context["get_team"]()).first()
+        if provider_key is None:
+            raise serializers.ValidationError({"model_configuration": {"provider_key_id": "Provider key not found"}})
+        if provider_key.provider != model_config.get("provider"):
+            raise serializers.ValidationError(
+                {
+                    "model_configuration": {
+                        "provider": f"Provider '{model_config.get('provider')}' does not match key provider '{provider_key.provider}'"
+                    }
                 }
             )
 
@@ -1088,6 +1109,9 @@ MAX_PINNED_SAMPLE_IDS = 10
 # Each unit is a paid judge call on the customer's key, made while the request waits.
 MAX_TEST_ON_SAMPLE_UNITS = 3
 TEST_ON_SAMPLE_BUDGET_SECONDS = 60
+# Past the budget plus one call running to the provider's 300-second timeout, so the lock outlives any request
+# yet frees itself if the worker dies before it can release it.
+TEST_ON_SAMPLE_LOCK_SECONDS = 600
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1155,8 +1179,8 @@ class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
 class _EvaluationPreviewScopeSerializer(serializers.Serializer):
     """What a preview samples from: the unsaved evaluation's conditions and target."""
 
-    conditions = serializers.ListField(
-        child=serializers.DictField(),
+    conditions = EvaluationConditionSerializer(
+        many=True,
         required=False,
         default=list,
         help_text="Optional trigger conditions to filter which events are sampled.",
@@ -1735,18 +1759,26 @@ def _sample_unit_ids(
     return [str(row[0]) for row in response.results or []]
 
 
+# The inner query finds each unit's latest generation without reading payloads, so the outer one reads
+# the heavy columns of one generation per unit rather than of every generation in a long trace or session.
 _UNIT_PREVIEW_SQL = f"""
 SELECT
     {{unit_key}} AS unit_id,
-    argMax(trace_id, timestamp) AS latest_trace_id,
-    max(timestamp) AS latest,
-    {", ".join(f"argMax({column_name}, timestamp)" for column_name in HEAVY_COLUMN_NAMES)}
+    trace_id,
+    timestamp,
+    {", ".join(HEAVY_COLUMN_NAMES)}
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
-  AND {{unit_key}} IN {{unit_ids}}
   AND timestamp > now() - toIntervalDay({EVALUATION_TEST_LOOKBACK_DAYS})
-GROUP BY unit_id
-ORDER BY latest DESC
+  AND uuid IN (
+    SELECT argMax(uuid, timestamp)
+    FROM posthog.ai_events AS ai_events
+    WHERE event = '$ai_generation'
+      AND {{unit_key}} IN {{unit_ids}}
+      AND timestamp > now() - toIntervalDay({EVALUATION_TEST_LOOKBACK_DAYS})
+    GROUP BY {{unit_key}}
+  )
+ORDER BY timestamp DESC
 LIMIT {{limit}}
 """
 
@@ -2428,35 +2460,47 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         except AIEventsUnavailableError:
             units, unit_ids, previews = [], [], {}
 
+        # One test per user at a time: a single call can run to the provider's timeout, which the budget
+        # below cannot cut short, so this bounds how many web workers one user holds to one.
+        running_key = f"llma_eval_judge_test_running:{user.pk}"
+        if not cache.add(running_key, True, timeout=TEST_ON_SAMPLE_LOCK_SECONDS):
+            return Response(
+                {"error": "A test is already running. Wait for it to finish, then try again."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         # ponytail: sequential judge calls, up to three; run them concurrently if the wait gets long.
         # A slow model can take minutes per call, so later calls are skipped once the request has run long
         # enough, rather than being billed after the browser has already given up.
         started = time.monotonic()
         results = []
-        for unit, unit_id in zip(units, unit_ids):
-            if time.monotonic() - started > TEST_ON_SAMPLE_BUDGET_SECONDS:
-                row = {
-                    "result": None,
-                    "reasoning": None,
-                    "error": "Not run, because the earlier runs took over a minute.",
-                }
-            else:
-                try:
-                    row = _test_on_sample_row(_judge_unit(evaluation, target, unit, user))
-                except Exception as error:
-                    row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
-            preview = previews.get(unit_id, {})
-            results.append(
-                {
-                    "sample_id": unit_id,
-                    "sample_type": target,
-                    "event_uuid": unit_id if target == EvaluationTarget.GENERATION.value else None,
-                    "trace_id": preview.get("trace_id"),
-                    "input_preview": preview.get("input_preview", ""),
-                    "output_preview": preview.get("output_preview", ""),
-                    **row,
-                }
-            )
+        try:
+            for unit, unit_id in zip(units, unit_ids):
+                if time.monotonic() - started > TEST_ON_SAMPLE_BUDGET_SECONDS:
+                    row = {
+                        "result": None,
+                        "reasoning": None,
+                        "error": "Not run, because the earlier runs took over a minute.",
+                    }
+                else:
+                    try:
+                        row = _test_on_sample_row(_judge_unit(evaluation, target, unit, user))
+                    except Exception as error:
+                        row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
+                preview = previews.get(unit_id, {})
+                results.append(
+                    {
+                        "sample_id": unit_id,
+                        "sample_type": target,
+                        "event_uuid": unit_id if target == EvaluationTarget.GENERATION.value else None,
+                        "trace_id": preview.get("trace_id"),
+                        "input_preview": preview.get("input_preview", ""),
+                        "output_preview": preview.get("output_preview", ""),
+                        **row,
+                    }
+                )
+        finally:
+            cache.delete(running_key)
 
         counts = _hog_test_result_counts(results, output_type, evaluation["output_config"])
         report_user_action(

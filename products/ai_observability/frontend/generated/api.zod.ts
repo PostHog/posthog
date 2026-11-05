@@ -1598,6 +1598,12 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * The latest units an unsaved evaluation would run on, newest first.
  */
+export const evaluationsSampleTrafficCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsSampleTrafficCreateBodyTargetDefault = `generation`
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsMin = 10
@@ -1613,7 +1619,30 @@ export const evaluationsSampleTrafficCreateBodyCountMax = 10
 export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
     .object({
         conditions: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsSampleTrafficCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsSampleTrafficCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
         target: zod
@@ -1654,6 +1683,12 @@ export const EvaluationsSampleTrafficCreateBody = /* @__PURE__ */ zod
 /**
  * Test Hog evaluation code against sample events without saving.
  */
+export const evaluationsTestHogCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsTestHogCreateBodyTargetDefault = `generation`
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
@@ -1687,7 +1722,30 @@ export const evaluationsTestHogCreateBodySampleIdsMax = 10
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
     .object({
         conditions: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsTestHogCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
         target: zod
@@ -1843,6 +1901,12 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod
 /**
  * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
  */
+export const evaluationsTestOnSampleCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsTestOnSampleCreateBodyTargetDefault = `generation`
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsTestOnSampleCreateBodyTargetConfigOneWindowSecondsMin = 10
@@ -1877,7 +1941,30 @@ export const evaluationsTestOnSampleCreateBodySampleIdsMax = 3
 export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
     .object({
         conditions: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsTestOnSampleCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsTestOnSampleCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
         target: zod

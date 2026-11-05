@@ -2199,6 +2199,12 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
         ),
 })
 
+export const evaluationsTestHogCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsTestHogCreateBodyTargetDefault = `generation`
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
@@ -2232,7 +2238,30 @@ export const evaluationsTestHogCreateBodySampleIdsMax = 10
 export const EvaluationsTestHogCreateBody = () => zod
     .object({
         conditions: zod
-            .array(zod.record(zod.string(), zod.unknown()))
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsTestHogCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsTestHogCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
             .optional()
             .describe('Optional trigger conditions to filter which events are sampled.'),
         target: zod

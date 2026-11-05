@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -2198,6 +2199,22 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["input_preview"], "Question a")
         self.assertEqual(results[0]["output_preview"], "Answer a")
 
+    @parameterized.expand(
+        [(endpoint, rollout) for endpoint in ("sample_traffic", "test_on_sample") for rollout in ("invalid", 150)]
+    )
+    def test_previews_reject_a_malformed_rollout(self, endpoint: str, rollout: str | int) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/{endpoint}/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "conditions": [{"id": "set-1", "rollout_percentage": rollout, "properties": []}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
     @parameterized.expand(["generation", "trace", "session"])
     def test_test_hog_runs_pinned_units_even_outside_the_conditions(self, target: str) -> None:
         response = self.client.post(
@@ -2271,6 +2288,56 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_report.call_args.args[1], "llma evaluation tested on sample")
         self.assertEqual(mock_report.call_args.args[2]["error_count"], 0 if provider_error is None else 1)
         self.assertFalse(Evaluation.objects.filter(team=self.team).exists())
+
+    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
+    def test_test_on_sample_refuses_a_second_test_while_one_runs(self, mock_judge: Mock) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team, provider="openai", name="team key", state=LLMProviderKey.State.OK, encrypted_config={}
+        )
+        cache.set(f"llma_eval_judge_test_running:{self.user.pk}", True)
+        self.addCleanup(cache.delete, f"llma_eval_judge_test_running:{self.user.pk}")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "model_configuration": {"provider": "openai", "model": "gpt-5-mini", "provider_key_id": str(key.id)},
+                "sample_ids": [self.units["a"]["generation"]],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.json())
+        mock_judge.assert_not_called()
+
+    @patch("products.ai_observability.backend.api.evaluations.execute_generation_llm_judge")
+    def test_test_on_sample_rejects_a_key_from_another_provider(self, mock_judge: Mock) -> None:
+        anthropic_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="anthropic",
+            name="anthropic key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-ant-test"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer correct?"},
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5-mini",
+                    "provider_key_id": str(anthropic_key.id),
+                },
+                "sample_ids": [self.units["a"]["generation"]],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        mock_judge.assert_not_called()
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):

@@ -160,7 +160,10 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
                             >
                                 {row.trace_id ? (
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.trace_id)}
+                                        to={urls.aiObservabilityTrace(row.trace_id, {
+                                            event: evaluation.target === 'generation' ? row.sample_id : undefined,
+                                            timestamp: row.timestamp ?? undefined,
+                                        })}
                                         className={`${TRACE_LINK.slice(1)} min-w-0 flex-1 truncate text-xs`}
                                         subtle
                                     >
