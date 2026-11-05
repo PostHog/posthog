@@ -75,6 +75,17 @@ Data modeling shadow materialization starts when its feature flag is enabled, th
 
 Trino shadow materialization has a six-hour execution deadline. Its Temporal activity allows six hours and five minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
 
+## Member teams pushed to hogtower
+
+hogtower mints team-scoped hoglake tokens from its own copy of which projects each organization member can see. With `HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED` and `HOGTOWER_API_URL` set, `member_teams.py` keeps that copy current:
+
+- Each visible project goes in at the member's level on warehouse objects. `viewer` becomes `read`, and `editor` or above becomes `write`. A project where the level is `none` is left out.
+- A member who leaves the organization, or whose user is deactivated, is removed. hogtower then revokes every team credential they own.
+- `signals.py` enqueues a push after a membership, role membership, project, or project or warehouse-objects access rule changes. The push runs as a Celery task that retries for about ten hours.
+- `push managed warehouse member teams to hogtower` runs every hour and pushes every member of every Trino warehouse that hogtower lists. It catches changes that no signal reports, such as a user's reactivation.
+
+Each push sends the member's whole team set, versioned by the database clock. hogtower keeps the highest version, so pushes may finish in any order.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:

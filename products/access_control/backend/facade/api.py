@@ -19,14 +19,14 @@ Do NOT:
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from copy import copy
 from typing import cast
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -871,7 +871,41 @@ def available_access_levels() -> list[PropertyAccessLevel]:
     return list(PropertyAccessLevel)
 
 
+def connect_access_change_receivers(
+    *,
+    on_rule_change: Callable[[int, str], None],
+    on_role_membership_change: Callable[[int, UUID | None], None],
+    dispatch_uid: str,
+) -> None:
+    """Call back when an access rule or a role membership is saved or deleted.
+
+    ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted.
+    ``on_role_membership_change(user_id, organization_member_id)`` runs after a role membership
+    is saved and before one is deleted, so the organization membership can still be read.
+
+    Both run inside the change's transaction: defer real work with ``transaction.on_commit``.
+    Only ids cross this boundary, never the models.
+    """
+
+    def rule_changed(sender: object, instance: AccessControl, **kwargs: object) -> None:
+        on_rule_change(instance.team_id, instance.resource)
+
+    def role_membership_changed(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        on_role_membership_change(instance.user_id, instance.organization_member_id)
+
+    # weak=False: the receivers are closures, and nothing else holds them.
+    post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")
+    post_delete.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_deleted")
+    post_save.connect(
+        role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_saved"
+    )
+    pre_delete.connect(
+        role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleting"
+    )
+
+
 __all__ = [
+    "connect_access_change_receivers",
     "InvalidPropertyAccessControlTargetError",
     "PropertyAccessControlRuleNotFoundError",
     "PropertyAccessLevel",
