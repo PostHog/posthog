@@ -1743,6 +1743,23 @@ class EmitReportRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class ReportQualityHintSerializer(serializers.Serializer):
+    check_id = serializers.CharField(help_text="Stable id of the quality check, e.g. `literal_newline_escapes`.")
+    severity = serializers.ChoiceField(
+        choices=["repair", "hint"],
+        help_text="`repair`: the text was fixed before it was stored. `hint`: the text was stored as sent.",
+    )
+    field = serializers.ChoiceField(choices=["title", "summary"], help_text="The field the check matched.")
+    message = serializers.CharField(help_text="What the check found and what to do next time.")
+
+
+QUALITY_HINTS_HELP_TEXT = (
+    "Quality checks the title or summary matched. A `repair` hint means the stored text differs from what "
+    "you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: "
+    "correct it with edit_report if the hint applies. Empty when no check matched."
+)
+
+
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
@@ -1778,6 +1795,7 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "send it again."
         ),
     )
+    quality_hints = serializers.ListField(child=ReportQualityHintSerializer(), help_text=QUALITY_HINTS_HELP_TEXT)
 
 
 class EditReportRequestSerializer(ReviewerProposalSerializer):
@@ -2088,6 +2106,7 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=EditReportWarningSerializer(),
         help_text="Request fields the edit did not apply, each with the reason. Empty when every field applied.",
     )
+    quality_hints = serializers.ListField(child=ReportQualityHintSerializer(), help_text=QUALITY_HINTS_HELP_TEXT)
     corroboration_collapsed = serializers.BooleanField(
         help_text=(
             "Whether your note raised the report's corroboration count instead of landing as its own "

@@ -29,7 +29,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import wraps
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 
@@ -105,6 +105,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
+from products.signals.backend.scout_harness.tools.report_quality import QualityHint, apply_report_quality_checks
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -265,6 +266,7 @@ class EmitReportResult:
     report was dropped and how to unblock it rather than losing a full run to a silent skip.
     `idempotent_replay` means this call authored nothing because its emit key already had a report:
     the fields above describe that first report, so the caller reads its own emission back.
+    `quality_hints` lists the quality checks the title or summary matched (see `report_quality.py`).
     """
 
     report_id: str | None
@@ -274,6 +276,7 @@ class EmitReportResult:
     safety_explanation: str | None
     remediation: str | None = None
     idempotent_replay: bool = False
+    quality_hints: tuple[QualityHint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -337,6 +340,7 @@ class EditReportResult:
     # none, or re-sent the decisions the report already held.
     decision_fields_set: tuple[str, ...] = ()
     warnings: tuple[EditReportWarning, ...] = ()
+    quality_hints: tuple[QualityHint, ...] = ()
 
     @property
     def changed(self) -> bool:
@@ -440,6 +444,84 @@ def _private_report_gateway_async(
                 await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
 
     return wrapped
+
+
+_ReportResult = TypeVar("_ReportResult", EmitReportResult, EditReportResult)
+
+
+def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints: Sequence[QualityHint]) -> None:
+    """One `signals_scout_report_quality_hint` event per matched check, so the rate of each defect is
+    measurable per scout and model. Best-effort, and skipped for a private trial like the other report
+    events."""
+    if not hints or _author_trial_store(author) is not None:
+        return
+    for hint in hints:
+        try:
+            posthoganalytics.capture(
+                event="signals_scout_report_quality_hint",
+                distinct_id=str(team.uuid),
+                properties={
+                    **author.event_properties(),
+                    "tool": tool,
+                    "check_id": hint.check_id,
+                    "severity": hint.severity,
+                    "field": hint.field,
+                },
+                groups=groups(team=team),
+            )
+        except Exception:
+            logger.warning(
+                "signals_scout: failed to capture report quality hint event",
+                extra={"team_id": team.id, "check_id": hint.check_id, **author.log_extra()},
+            )
+
+
+def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
+    kwargs["title"], kwargs["summary"], hints = apply_report_quality_checks(
+        title=kwargs.get("title"), summary=kwargs.get("summary")
+    )
+    return hints
+
+
+def _report_quality_checks(
+    tool: str,
+) -> Callable[[Callable[_Parameters, _ReportResult]], Callable[_Parameters, _ReportResult]]:
+    """Repair the `title` / `summary` kwargs before the tool runs, and return the matched checks on its
+    result as `quality_hints`."""
+
+    def decorator(function: Callable[_Parameters, _ReportResult]) -> Callable[_Parameters, _ReportResult]:
+        @wraps(function)
+        def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
+            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            result = function(*args, **kwargs)
+            _capture_quality_hints(
+                team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
+            )
+            return replace(result, quality_hints=hints)
+
+        return wrapped
+
+    return decorator
+
+
+def _report_quality_checks_async(
+    tool: str,
+) -> Callable[[Callable[_Parameters, Awaitable[_ReportResult]]], Callable[_Parameters, Awaitable[_ReportResult]]]:
+    def decorator(
+        function: Callable[_Parameters, Awaitable[_ReportResult]],
+    ) -> Callable[_Parameters, Awaitable[_ReportResult]]:
+        @wraps(function)
+        async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
+            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            result = await function(*args, **kwargs)
+            await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
+                team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
+            )
+            return replace(result, quality_hints=hints)
+
+        return wrapped
+
+    return decorator
 
 
 def _preflight_report_emission(team: Team, run: SignalScoutRun) -> str | None:
@@ -2108,6 +2190,7 @@ def _capture_report_edited(
 
 
 @_private_report_gateway_async
+@_report_quality_checks_async("emit_report")
 async def emit_report(
     *,
     team: Team,
@@ -2336,6 +2419,7 @@ async def emit_report(
 
 
 @_private_report_gateway
+@_report_quality_checks("emit_report")
 def emit_report_sync(
     *,
     team: Team,
@@ -3137,6 +3221,7 @@ def _validate_edit_inputs(
 
 
 @_private_report_gateway_async
+@_report_quality_checks_async("edit_report")
 async def edit_report(
     *,
     team: Team,
@@ -3280,6 +3365,7 @@ async def edit_report(
 
 
 @_private_report_gateway
+@_report_quality_checks("edit_report")
 def edit_report_sync(
     *,
     team: Team,
