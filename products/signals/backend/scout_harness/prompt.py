@@ -121,6 +121,17 @@ class SignalScoutRunSummary(BaseModel):
         )
     )
 
+    slack_message: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=6000,
+        description=(
+            "Optional final Slack message. Set only when the scout's instructions request one. Follow that format, "
+            "including a Markdown table when requested. Delivered to the scout's configured Slack "
+            "destination without an added title, buttons, or footer. Omit when no final Slack message is needed."
+        ),
+    )
+
 
 class FirstReportScoutRunSummary(SignalScoutRunSummary):
     first_report_result: FirstReportScoutResult = Field(

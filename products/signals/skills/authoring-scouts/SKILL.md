@@ -123,6 +123,14 @@ Name it explicitly near the top of the body so every run anchors on it.
 A second design consideration applies to a **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
 If the project has an approved metric for that measure (`metric-list` shows what exists), name it in the body and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports.
 
+### Control the Slack message format
+
+A scout's instructions can set the format of its Slack messages separately from its inbox reports. Tell the scout to pass `slack_message` when it calls `scout-emit-report` or `scout-edit-report`. This optional field holds the Markdown body Slack receives, without an added report heading, button, or footer. Keep the full research in the report's `summary` or work log. Omitting `slack_message` keeps the standard report card.
+
+To keep one top-level message per report, tell the scout to opt in with `update_existing_message: true` on its report calls. The app stores the report-to-message link for each Slack destination and edits that message on later calls, including note-only edits. Each `slack_message` must contain the full updated message, not only the changed line. If the original message was deleted, delivery posts a replacement and stores its new ID. Without the option, note-only edits keep posting separate updates. This option applies to report messages, not the final run message.
+
+For a final Slack message, tell the scout to return `slack_message` alongside `summary` in its final JSON. For example, the final message can be a table of open PRs while normal updates follow a short fixed format. Delivery uses the scout's configured Slack destination and does not run in a dry run or private trial. Each message is limited to 6,000 characters. Check the tool schema before applying these instructions to a deployment that may not expose the field.
+
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.

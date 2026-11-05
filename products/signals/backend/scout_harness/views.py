@@ -603,6 +603,8 @@ def emit_report_from_validated_data(*, team: Team, author: ReportAuthor, data: d
         return emit_report_sync(
             team=team,
             author=author,
+            slack_message=data.get("slack_message"),
+            update_existing_message=data.get("update_existing_message", False),
             title=data["title"],
             summary=data["summary"],
             evidence=_to_report_evidence(data["evidence"]) or [],
@@ -1420,6 +1422,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
                 team=run.team,
                 author=ScoutRunReportAuthor(run=run),
+                slack_message=data.get("slack_message"),
+                update_existing_message=data.get("update_existing_message", False),
                 report_id=data["report_id"],
                 reviewer_proposal=proposal,
                 title=data.get("title"),

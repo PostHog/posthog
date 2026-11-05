@@ -124,6 +124,8 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             channel="CSCOUTS|#scout-findings",
             edit_note=None,
             thread_reports=True,
+            slack_message=None,
+            delivery_version=None,
         )
 
     def test_record_emit_enqueues_dm_destination_per_recipient(self) -> None:
@@ -165,6 +167,8 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 channel="U1|@andy",
                 edit_note=None,
                 thread_reports=True,
+                slack_message=None,
+                delivery_version=None,
             ),
             call(
                 team_id=self.team.id,
@@ -177,6 +181,8 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 channel="U2|@robbie",
                 edit_note=None,
                 thread_reports=True,
+                slack_message=None,
+                delivery_version=None,
             ),
         ]
 

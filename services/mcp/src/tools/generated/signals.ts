@@ -644,6 +644,12 @@ const inboxReportsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -1782,6 +1788,12 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -1862,6 +1874,12 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutEmitReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -3279,6 +3297,12 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -3362,6 +3386,12 @@ const signalsScoutEmitReport = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutEmitReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
