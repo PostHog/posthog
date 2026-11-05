@@ -7,12 +7,14 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, count_organization_access_cache_round_trips
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 from django.db.models import Count
 from django.db.models.functions import Lower
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import include, path
 from django.utils import timezone
 
@@ -39,6 +41,7 @@ from posthog.permissions import APIScopePermission
 from posthog.products import product_app_names
 from posthog.queryset_paging import stable_queryset_ordering
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
 
@@ -268,6 +271,21 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+
+    @override_settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True)
+    def test_scoped_request_reads_membership_once_and_skips_access_controls_without_the_feature(self) -> None:
+        url = f"/api/scoped_projects/{self.team.id}/scoped_foos/"
+        self.client.get(url)
+
+        with (
+            count_organization_access_cache_round_trips() as cache_round_trips,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == 200
+        assert cache_round_trips() == 1
+        assert not [query for query in queries.captured_queries if AccessControl._meta.db_table in query["sql"]]
 
     @parameterized.expand(
         [

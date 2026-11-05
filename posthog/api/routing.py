@@ -863,7 +863,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(user=cast(User, self.request.user), team=self.team)
+        return UserPermissions(
+            user=cast(User, self.request.user),
+            team=self.team,
+            organization_membership=self.user_access_control.organization_membership,
+        )
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

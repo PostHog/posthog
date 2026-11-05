@@ -2267,7 +2267,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # kill-switch, projection kill-switch, properties-narrowing and flag-cache TTL instance
         # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
         # lookup in the HogQL database build.
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(17):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2282,7 +2282,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
         # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
         # revenue analytics config, which each request reads on its own Team instance.
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
