@@ -1562,7 +1562,9 @@ class _FinishedYesterday:
 
     That run counts yesterday once as a finished day and writes the counts into `daily_usage`.
     A Redis key for the day then tells later runs to keep the stored counts instead of counting a whole
-    day again. Events for yesterday that arrive after that run count only when billing saves yesterday's report.
+    day again. A run that skips or fails to write an organization leaves the key unset, so the next run counts
+    yesterday again. Events for yesterday that arrive after a run sets the key count only when billing saves
+    yesterday's report.
     """
 
     def __init__(self, service: UsageCounterService, *, today: DayRange) -> None:
@@ -1879,7 +1881,9 @@ def update_all_orgs_billing_quotas(
                 f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
             )
 
-    finished_yesterday.finish()
+    # A skipped or failed organization still holds yesterday's partial count.
+    if not failed_org_ids:
+        finished_yesterday.finish()
     if not settings.TEST:
         close_old_connections()
     logger.info(

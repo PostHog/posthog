@@ -1,4 +1,5 @@
 import datetime
+from contextlib import nullcontext
 from typing import Any, cast
 from uuid import uuid4
 
@@ -121,12 +122,13 @@ class TestQuotaLimiting(BaseTest):
 
     @parameterized.expand(
         [
-            ("billing_total_lacks_yesterday", 0, "2026-10-30", "2026-10-01T00:00:00Z", True),
-            ("no_report_yet_this_period", 0, None, "2026-10-01T00:00:00Z", True),
-            ("billing_total_has_yesterday", 0, "2026-10-31", "2026-10-01T00:00:00Z", False),
-            ("yesterday_is_in_the_previous_period", 0, "2026-10-30", "2026-11-01T00:00:00Z", False),
-            ("first_stamp_after_the_first_run", 1, "2026-10-30", "2026-10-01T00:00:00Z", True),
-            ("no_stamp", None, None, "2026-10-01T00:00:00Z", False),
+            ("billing_total_lacks_yesterday", 0, "2026-10-30", "2026-10-01T00:00:00Z", True, False),
+            ("no_report_yet_this_period", 0, None, "2026-10-01T00:00:00Z", True, False),
+            ("billing_total_has_yesterday", 0, "2026-10-31", "2026-10-01T00:00:00Z", False, False),
+            ("yesterday_is_in_the_previous_period", 0, "2026-10-30", "2026-11-01T00:00:00Z", False, False),
+            ("first_stamp_after_the_first_run", 1, "2026-10-30", "2026-10-01T00:00:00Z", True, False),
+            ("no_stamp", None, None, "2026-10-01T00:00:00Z", False, False),
+            ("first_run_write_skipped", 0, "2026-10-30", "2026-10-01T00:00:00Z", True, True),
         ]
     )
     @patch("posthoganalytics.capture")
@@ -138,6 +140,7 @@ class TestQuotaLimiting(BaseTest):
         latest_usage_report_date: str | None,
         period_start: str,
         expect_limited: bool,
+        first_write_skipped: bool,
         _capture,
     ) -> None:
         self.organization.usage = {
@@ -158,6 +161,12 @@ class TestQuotaLimiting(BaseTest):
         flush_persons_and_events()
         token = self.team.api_token.encode("UTF-8")
 
+        def billing_status_lands_first(organization: Organization, *args: Any, **kwargs: Any) -> bool:
+            Organization.objects.filter(id=organization.id).update(
+                usage={**(organization.usage or {}), "billing_status_computed_at": "2026-11-01T00:20:00+00:00"}
+            )
+            return _patch_todays_usage(organization, *args, **kwargs)
+
         with patch.object(
             UsageCounterService, "fetch_report", autospec=True, side_effect=UsageCounterService.fetch_report
         ) as fetch_report:
@@ -171,8 +180,15 @@ class TestQuotaLimiting(BaseTest):
                     }
                     self.organization.usage = stamped_usage
                     self.organization.save()
-                self._run_quota_limiting()
-                limited = expect_limited and stamped_from_run is not None and run >= stamped_from_run
+                with (
+                    patch("ee.billing.quota_limiting._patch_todays_usage", side_effect=billing_status_lands_first)
+                    if first_write_skipped and run == 0
+                    else nullcontext()
+                ):
+                    self._run_quota_limiting()
+                limited = (
+                    expect_limited and stamped_from_run is not None and run >= stamped_from_run + first_write_skipped
+                )
                 assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if limited else [])
 
         self.organization.refresh_from_db()
@@ -180,7 +196,9 @@ class TestQuotaLimiting(BaseTest):
         update_org_billing_quotas(self.organization)
         assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if expect_limited else [])
         today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
-        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == [today, yesterday, today]
+        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == (
+            [today, yesterday, today, yesterday] if first_write_skipped else [today, yesterday, today]
+        )
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
