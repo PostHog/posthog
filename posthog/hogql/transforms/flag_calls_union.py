@@ -724,17 +724,21 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         return self.aliases.target(read)
 
     def _check(self, expr: ast.Expr) -> None:
+        if self.found:
+            return
         values = compared_values(expr, lambda read: self.reader.column(self._resolve(read)) == ["event"])
-        items = [
-            item
-            for value in map(self._resolve, values or [])
-            for item in (value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value])
-        ]
-        if any(
-            isinstance(value := self._resolve(item), ast.Constant) and value.value == FLAG_CALLED_EVENT
-            for item in items
-        ):
-            self.found = True
+        # An alias of a list can appear many times in one comparison, so each list is read once.
+        read_lists: set[int] = set()
+        for value in map(self._resolve, values or []):
+            if isinstance(value, (ast.Tuple, ast.Array)):
+                if id(value) in read_lists:
+                    continue
+                read_lists.add(id(value))
+            for item in value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value]:
+                named = self._resolve(item)
+                if isinstance(named, ast.Constant) and named.value == FLAG_CALLED_EVENT:
+                    self.found = True
+                    return
 
 
 class _UnionRenamer(ScanVisitor):

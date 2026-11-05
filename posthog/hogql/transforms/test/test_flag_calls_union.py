@@ -118,6 +118,20 @@ def _lambdas_inside_a_lambda_with_many_aliases() -> ast.SelectQuery:
     return select
 
 
+def _list_alias_read_many_times() -> ast.SelectQuery:
+    select = _select("SELECT 1 FROM events")
+    names = ast.Tuple(exprs=[*(ast.Constant(value=f"e{n}") for n in range(10_000)), ast.Constant(value="$pageview")])
+    select.select = [ast.Alias(alias="names", expr=names)]
+    select.where = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["event"]),
+        right=ast.Tuple(
+            exprs=[*(ast.Field(chain=["names"]) for _ in range(10_000)), ast.Constant(value="$feature_flag_called")]
+        ),
+    )
+    return select
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
@@ -323,6 +337,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
             ),
             ("many_aliases_inside_one_lambda", _alias_flood(), [UNION], []),
             ("long_alias_chain_read_many_times", _alias_chain_read_many_times(), [UNION], []),
+            ("list_alias_read_many_times", _list_alias_read_many_times(), [UNION], []),
             (
                 "many_lambdas_inside_a_lambda_with_many_aliases",
                 _lambdas_inside_a_lambda_with_many_aliases(),
