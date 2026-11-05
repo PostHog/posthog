@@ -6,9 +6,12 @@ import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, Link, Spinner } f
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { FeatureFlagType } from '~/types'
+
 import { featureFlagCodeAnalysisLogic } from './featureFlagCodeAnalysisLogic'
 import { FeatureFlagCodeCleanupPanel } from './FeatureFlagCodeCleanupPanel'
 import { FeatureFlagCodeReferenceCard } from './FeatureFlagCodeReferenceCard'
+import { FeatureFlagImplementationPanel } from './FeatureFlagImplementationPanel'
 import type { FeatureFlagCodeAnalysisApi } from './generated/api.schemas'
 
 const RUNNING_STATUS_LABELS: Partial<Record<FeatureFlagCodeAnalysisApi['run_status'], string>> = {
@@ -17,7 +20,7 @@ const RUNNING_STATUS_LABELS: Partial<Record<FeatureFlagCodeAnalysisApi['run_stat
     in_progress: 'Reading the repository',
 }
 
-export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
+export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagCodeAnalysisLogic({ id })
     const {
         analysis,
@@ -215,6 +218,9 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
                             <h4 className="m-0">Notes</h4>
                             <p className="m-0 text-secondary whitespace-pre-wrap">{result.notes}</p>
                         </div>
+                    )}
+                    {result.references.length === 0 && (
+                        <FeatureFlagImplementationPanel featureFlag={featureFlag} defaultOpen />
                     )}
                     <FeatureFlagCodeCleanupPanel
                         cleanup={analysis.cleanup}

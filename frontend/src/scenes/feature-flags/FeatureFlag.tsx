@@ -412,7 +412,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             {
                 label: 'Code',
                 key: FeatureFlagsTab.CODE,
-                content: featureFlag.id ? <FeatureFlagCodeTab id={featureFlag.id} /> : null,
+                content: featureFlag.id ? <FeatureFlagCodeTab id={featureFlag.id} featureFlag={featureFlag} /> : null,
             },
         ] as LemonTab<FeatureFlagsTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
