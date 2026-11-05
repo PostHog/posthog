@@ -415,16 +415,16 @@ pub struct Config {
     #[envconfig(from = "SECRET_KEY", default = "")]
     pub secret_key: String,
 
-    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
-    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
-    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
-    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
-    // membership lookups on the hot path for those teams.
+    // Team-scoped gate for realtime cohort evaluation, unioned with the teams whose
+    // `cohort_realtime_team_access` row is at `serving` (`Team::realtime_cohort_level`). For
+    // every other team the realtime cohort block in prepare_flag_evaluation_state is skipped
+    // entirely, even if the behavioral cohorts DB is configured and cohorts with
+    // CohortType::Realtime exist. "none" (default), "all", specific team IDs, or ranges.
     //
     // Routing also requires `condition_type`, which was never backfilled, so every team listed
-    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
-    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
-    // every person as a non-member rather than just evaluating slower.
+    // here or granted `serving` needs `python manage.py resave_cohorts --team-id <id>` first.
+    // Without it behavioral cohorts read as condition_type = NULL and fall back to dynamic
+    // evaluation, which resolves every person as a non-member rather than just evaluating slower.
     //
     // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
     // this predicate trusts are only invalidated on edit for allowlisted teams, so without it

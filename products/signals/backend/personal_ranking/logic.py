@@ -324,6 +324,41 @@ def latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
     return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
 
 
+def ready_summary_version(team: Team, user: User) -> int | None:
+    summary = get_summary(team, user.id)
+    return summary.version if summary is not None and summary.status == ActivitySummaryStatus.READY else None
+
+
+def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) -> None:
+    """Record that the list still matches the current inputs, so it counts as fresh again."""
+    PersonalInboxRanking.objects.for_team(team.id).filter(id=row.id).update(checked_at=now)
+
+
+@frozen
+class InputCheck:
+    unchanged: bool
+    calls_model: bool
+
+
+def check_inputs(team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime) -> InputCheck:
+    """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    latest = latest_row(team, user)
+    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
+    summary_version = ready_summary_version(team, user)
+    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=None)
+    if (
+        latest is not None
+        and latest.input_hash == current_hash
+        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
+    ):
+        record_check(team, latest, now)
+        return InputCheck(unchanged=True, calls_model=False)
+    return InputCheck(
+        unchanged=False,
+        calls_model=bool(candidates) and may_call_model(team, summary_ready=summary_version is not None),
+    )
+
+
 def _client(
     team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig, trigger: BuildTrigger
 ) -> OpenAI:
@@ -562,6 +597,7 @@ def build_personal_ranking(
                     call.content,
                     refs=refs,
                     model_reasons=model_reasons,
+                    needs_you={candidate.ref: candidate.needs_you for candidate in candidates},
                     limit=limit,
                     rank_top=config.rank_top,
                     top_max=config.top_max,
