@@ -37,8 +37,7 @@ import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
-import { TicketSidebarWidgetSlots } from '../../components/TicketSidebarWidgets/ticketSidebarLayout'
-import { TicketSidebarWidgets } from '../../components/TicketSidebarWidgets/TicketSidebarWidgets'
+import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -47,18 +46,10 @@ import {
     priorityOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import { AIPanel } from './AIPanel'
-import { ExceptionsPanel } from './ExceptionsPanel'
-import { PreviousTicketsPanel } from './PreviousTicketsPanel'
-import { RecentEventsPanel } from './RecentEventsPanel'
-import { RelatedGroupsPanel } from './RelatedGroupsPanel'
-import { SessionRecordingPanel } from './SessionRecordingPanel'
-import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
-import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
 // (the ticket row carries them through on navigation). Rebuild the list URL from
@@ -109,7 +100,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
-        person,
         ticketLoading,
         status,
         priority,
@@ -121,11 +111,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
-        eventsQuery,
-        previousTickets,
-        previousTicketsLoading,
         linkedReports,
-        exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
         unsavedTicketChanges,
@@ -271,66 +257,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 </div>
             </SceneContent>
         )
-    }
-
-    const isWidgetTicket = ticket?.channel_source === 'widget'
-    const widgetTicketOnly = 'Only shows on tickets from the in-app widget.'
-    const sidebarWidgetSlots: TicketSidebarWidgetSlots = {
-        related_groups: {
-            content:
-                person?.uuid || ticket?.organization_id ? (
-                    <RelatedGroupsPanel
-                        personUuid={person?.uuid}
-                        organizationId={ticket?.organization_id}
-                        organizationIdSource={ticket?.organization_id_source}
-                    />
-                ) : null,
-            unavailableReason: 'This ticket has no linked person or organization.',
-        },
-        ...(user?.is_staff ? { staff_actions: { content: ticket ? <StaffActionsPanel /> : null } } : {}),
-        ai_triage: {
-            content: aiSuggestionsEnabled && ticket ? <AIPanel aiTriage={ticket.ai_triage} /> : null,
-            unavailableReason: 'AI suggestions are off for this project.',
-        },
-        session_recording: {
-            content: isWidgetTicket ? (
-                <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
-            ) : null,
-            unavailableReason: widgetTicketOnly,
-        },
-        recent_events: {
-            content: isWidgetTicket ? (
-                <RecentEventsPanel
-                    eventsQuery={eventsQuery}
-                    distinctId={ticket?.distinct_id}
-                    sessionId={ticket?.session_id}
-                />
-            ) : null,
-            unavailableReason: widgetTicketOnly,
-        },
-        exceptions: {
-            content: isWidgetTicket ? (
-                <ExceptionsPanel
-                    exceptionsQuery={exceptionsQuery}
-                    sessionId={ticket?.session_id}
-                    distinctId={ticket?.distinct_id}
-                />
-            ) : null,
-            unavailableReason: widgetTicketOnly,
-        },
-        previous_tickets: {
-            content: isWidgetTicket ? (
-                <PreviousTicketsPanel
-                    previousTickets={previousTickets}
-                    previousTicketsLoading={previousTicketsLoading}
-                    personDistinctIds={person?.distinct_ids}
-                />
-            ) : null,
-            unavailableReason: widgetTicketOnly,
-        },
-        activity: {
-            content: ticket?.id ? <TicketActivityPanel ticketId={ticket.id} /> : null,
-        },
     }
 
     return (
@@ -732,7 +658,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    <TicketSidebarWidgets slots={sidebarWidgetSlots} />
+                    <SupportTicketSidebarWidgets ticketId={ticketId || 'new'} />
                 </div>
             </div>
         </SceneContent>
