@@ -1,0 +1,37 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ operation.label }} · {{ team.name }} · PostHog Admin{% endblock %}
+{% block content %}
+    <div class="text-xs text-muted-foreground">
+        <a class="text-muted-foreground"
+           href="{% url 'admin_console_team' team_id=team.pk %}">{{ team.name }}</a> / {{ panel.title }} /
+    </div>
+    <h1 class="mt-1.5 mb-4 text-[22px] font-extrabold">{{ operation.label }}</h1>
+    <section class="quill-card group/card flex flex-col max-w-xl{% if operation.danger %} console-danger{% endif %}"
+             data-quill
+             data-slot="card"
+             data-size="default">
+        <form method="post" class="flex flex-col">
+            {% csrf_token %}
+            <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
+            <div class="quill-card__content flex flex-col gap-4"
+                 data-slot="card-content">
+                {% if operation.description %}
+                    <p class="m-0 text-muted-foreground">{{ operation.description }}</p>
+                {% endif %}
+                {% for error in form.non_field_errors %}
+                    <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+                {% endfor %}
+                {% for field in form %}
+                    {% include "admin_console/_form_field.html" %}
+                {% endfor %}
+            </div>
+            <div class="quill-card__footer flex flex-wrap gap-2"
+                 data-slot="card-footer">
+                <button type="submit"
+                        class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</button>
+                <a href="{% url 'admin_console_team' team_id=team.pk %}"
+                   class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}

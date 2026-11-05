@@ -1,0 +1,28 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ team.name }} · PostHog Admin{% endblock %}
+{% block content %}
+    <div class="text-xs text-muted-foreground">Teams / {{ team.organization.name }} /</div>
+    <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
+        <div class="min-w-0">
+            <h1 class="m-0 text-[22px] font-extrabold break-words">{{ team.name }}</h1>
+            <div class="flex flex-wrap items-center gap-2 mt-1 text-muted-foreground">
+                <span class="quill-badge quill-badge--variant-default font-mono">team {{ team.pk }}</span>
+                <span>{{ team.organization.name }}</span>
+            </div>
+        </div>
+        <div class="ml-auto flex flex-wrap gap-2">
+            <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+               href="{% url 'admin:posthog_team_change' team.pk %}">Open in Django admin</a>
+            <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+               href="/project/{{ team.pk }}">Open in app ↗</a>
+        </div>
+    </div>
+    <div class="grid gap-4 @3xl:grid-cols-2 items-start">
+        {% for rendered in regular_panels %}
+            {% include "admin_console/_panel.html" %}
+        {% endfor %}
+        {% for rendered in danger_panels %}
+            <div class="@3xl:col-span-2">{% include "admin_console/_panel.html" %}</div>
+        {% endfor %}
+    </div>
+{% endblock %}

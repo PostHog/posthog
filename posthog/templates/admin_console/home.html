@@ -1,0 +1,55 @@
+{% extends "admin_console/base.html" %}
+{% block content %}
+    <h1 class="m-0 mb-4 text-[22px] font-extrabold">Find a team</h1>
+    {% if not query %}
+        <div class="quill-empty flex w-full min-w-0 flex-col items-center justify-center gap-4 py-10"
+             data-slot="empty">
+            <div class="quill-empty__media quill-empty__media--variant-default flex shrink-0 items-center justify-center">
+                <img class="w-28"
+                     src="/static/admin-console/hoggies/desk-wizard.png"
+                     alt="" />
+            </div>
+            <div class="quill-empty__content flex flex-col items-center gap-1">
+                <div class="quill-empty__title" data-slot="empty-title">Search for a team to get started</div>
+                <div class="quill-empty__description" data-slot="empty-description">Use the search box above. A team ID opens the team right away.</div>
+            </div>
+        </div>
+    {% elif not teams %}
+        <div class="quill-empty flex w-full min-w-0 flex-col items-center justify-center gap-4 py-10"
+             data-slot="empty">
+            <div class="quill-empty__media quill-empty__media--variant-default flex shrink-0 items-center justify-center">
+                <img class="w-28" src="/static/admin-console/hoggies/asleep.png" alt="" />
+            </div>
+            <div class="quill-empty__content flex flex-col items-center gap-1">
+                <div class="quill-empty__title" data-slot="empty-title">No teams match "{{ query }}"</div>
+                <div class="quill-empty__description" data-slot="empty-description">Try a team ID, the full API token, or part of the team or organization name.</div>
+            </div>
+        </div>
+    {% else %}
+        <section class="quill-card group/card flex flex-col max-w-3xl"
+                 data-quill
+                 data-slot="card"
+                 data-size="sm">
+            <div class="quill-card__content" data-slot="card-content">
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="text-left text-xs text-muted-foreground border-b border-border">
+                            <th class="py-1.5 font-bold">Team</th>
+                            <th class="py-1.5 font-bold">Organization</th>
+                            <th class="py-1.5 font-bold">ID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for team in teams %}
+                            <tr class="border-b border-border last:border-b-0">
+                                <td class="py-1.5"><a href="{% url 'admin_console_team' team_id=team.pk %}">{{ team.name }}</a></td>
+                                <td class="py-1.5">{{ team.organization.name }}</td>
+                                <td class="py-1.5 font-mono text-xs">{{ team.pk }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    {% endif %}
+{% endblock %}

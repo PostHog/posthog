@@ -79,6 +79,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
+    from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -164,6 +165,8 @@ if settings.ADMIN_PORTAL_ENABLED:
                 query_string=True,
             ),
         ),
+        # Before admin.site.urls, whose `<app_label>/` pattern would claim /admin/console/.
+        *console_urlpatterns,
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
