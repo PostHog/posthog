@@ -1,5 +1,6 @@
 import json
 from datetime import date, timedelta
+from itertools import count
 from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import unquote
@@ -9,6 +10,8 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from products.customer_analytics.backend.facade.contracts import KeyMetric
+from products.today.backend.facade.contracts import PulseSlot
+from products.today.backend.facade.enums import PulseSlotStatus
 from products.today.backend.logic.highlight_registry import load_sources
 from products.today.backend.logic.highlight_types import Context, DailyValueNotReady
 from products.today.backend.logic.today_highlights import key_metrics
@@ -62,12 +65,15 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
-                publish_pulse=None,
+                publish_pulse=lambda found, slots: None,
             ),
         )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
 
-        with patch.object(key_metrics, "get_key_metrics", return_value=metrics):
+        with (
+            patch.object(key_metrics, "get_key_metric_names", return_value={}),
+            patch.object(key_metrics, "get_key_metrics", return_value=metrics),
+        ):
             found = registered.find(context)
 
         self.assertEqual(
@@ -90,11 +96,25 @@ class TestKeyMetrics(SimpleTestCase):
         )
 
     def test_a_pending_calculation_asks_for_a_quick_retry(self) -> None:
+        published: list[list[PulseSlot]] = []
         context = cast(
             Context,
-            SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY, publish_pulse=None),
+            SimpleNamespace(
+                team=SimpleNamespace(id=1),
+                user=SimpleNamespace(id=2),
+                today=TODAY,
+                publish_pulse=lambda found, slots: published.append(slots),
+            ),
         )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
 
-        with patch.object(key_metrics, "get_key_metrics", return_value=None), self.assertRaises(DailyValueNotReady):
+        with (
+            patch.object(key_metrics, "get_key_metric_names", return_value={"signup_event": "Sign-ups"}),
+            patch.object(key_metrics, "get_key_metrics", return_value=None),
+            patch.object(key_metrics, "monotonic", side_effect=count(0, 30)),
+            patch.object(key_metrics, "sleep"),
+            self.assertRaises(DailyValueNotReady),
+        ):
             registered.find(context)
+
+        self.assertEqual([slot.status for slot in published[-1]], [PulseSlotStatus.ERROR])

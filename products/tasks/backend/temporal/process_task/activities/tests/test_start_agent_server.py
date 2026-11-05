@@ -62,6 +62,10 @@ def task_run_state(mocker):
     )
     state = runs.return_value.values_list.return_value.first
     state.return_value = None
+    startup = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.select_for_update"
+    )
+    startup.return_value.only.return_value.get.return_value = mocker.Mock(state={}, is_terminal=False)
     return state
 
 
