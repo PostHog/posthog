@@ -172,7 +172,7 @@ def read_flag_calls_in_inline_cohort(
     )
     renamer.visit(query)
     if renamer.refusals:
-        raise flag_calls_only_in_flag_evaluations_error(renamer.refusals[0])
+        raise flag_calls_only_in_flag_evaluations_error(renamer.refusals[0].reason)
     return query
 
 
