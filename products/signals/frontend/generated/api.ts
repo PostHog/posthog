@@ -59,6 +59,7 @@ import type {
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
+    ReportLocationResponseApi,
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
@@ -162,6 +163,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
+    SignalsReportsLocateRetrieveParams,
     SignalsReportsPrCiStatusesParams,
     SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
@@ -1642,6 +1644,37 @@ export const signalsReportsForMeRetrieve = async (
     options?: RequestInit
 ): Promise<PersonalRankingApi> => {
     return apiMutator<PersonalRankingApi>(getSignalsReportsForMeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsLocateRetrieveUrl = (projectId: string, params: SignalsReportsLocateRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/locate/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/locate/`
+}
+
+/**
+ * Find which of the caller's projects owns a report id. The inbox calls this when a report link opens under a project that does not own the report, so it can send the person to the right project. Returns null when the caller can't read the report in any project. Only browser-session requests get an answer; a call with any other credential returns null.
+ * @summary Find the project that owns a report
+ */
+export const signalsReportsLocateRetrieve = async (
+    projectId: string,
+    params: SignalsReportsLocateRetrieveParams,
+    options?: RequestInit
+): Promise<ReportLocationResponseApi> => {
+    return apiMutator<ReportLocationResponseApi>(getSignalsReportsLocateRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

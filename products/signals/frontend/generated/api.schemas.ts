@@ -6664,6 +6664,14 @@ export interface PersonalRankingApi {
     folded: PersonalRankingFoldApi[]
 }
 
+export interface ReportLocationResponseApi {
+    /**
+     * The project that owns the report, or null when the caller can't read the report in any project.
+     * @nullable
+     */
+    team_id: number | null
+}
+
 /**
  * * `passing` - Passing
  * * `failing` - Failing
@@ -11488,6 +11496,13 @@ export type SignalsReportsForMeRetrieveParams = {
      * @maximum 30
      */
     wait_seconds?: number
+}
+
+export type SignalsReportsLocateRetrieveParams = {
+    /**
+     * The report to find.
+     */
+    report_id: string
 }
 
 export type SignalsReportsPrCiStatusesParams = {
