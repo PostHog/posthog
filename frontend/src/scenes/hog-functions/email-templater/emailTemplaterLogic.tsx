@@ -970,7 +970,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 design: emailTemplateContent.design ?? null,
             })
 
-            const design = editorDesignForEmail(emailTemplateContent)
+            const design = editorDesignForEmail(emailTemplateContent as Pick<EmailTemplate, 'html' | 'design'>)
             if (values.isEmailEditorReady && design) {
                 cache.lastEditorDesign = design
                 values.emailEditorRef?.editor?.loadDesign(design)

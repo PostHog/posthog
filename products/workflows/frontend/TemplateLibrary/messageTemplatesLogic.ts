@@ -101,10 +101,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplateApi[],
+        templates: MessageTemplateListItem[],
         payload?: any
     ) => {
-        templates: MessageTemplateApi[]
+        templates: MessageTemplateListItem[]
         payload?: any
     }
     setCreatedByFilter: (createdBy: number | null) => {
@@ -300,7 +300,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
 
 // A plain function rather than a listener, because the caller awaits it to keep its editor open on
 // a rejection, and a kea listener that rethrows raises an unhandled rejection on the way out.
-export async function saveTemplateTags(template: MessageTemplate, tags: string[]): Promise<void> {
+export async function saveTemplateTags(template: Pick<MessageTemplate, 'id'>, tags: string[]): Promise<void> {
     const updated = await api.messaging.updateTemplate(template.id, { tags })
     messageTemplatesLogic.findMounted()?.actions.templateTagsSaved(updated)
     tagsModel.findMounted()?.actions.loadTags()

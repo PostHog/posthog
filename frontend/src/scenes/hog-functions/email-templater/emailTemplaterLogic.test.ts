@@ -13,7 +13,6 @@ import type {
     MessageTemplateApi,
     MessageTemplateApi as MessageTemplateListApi,
 } from 'products/messaging/frontend/generated/api.schemas'
-import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
@@ -291,7 +290,7 @@ describe('emailTemplaterLogic', () => {
                         replyTo: 'security@example.com',
                     },
                 },
-            } as MessageTemplate)
+            } as unknown as MessageTemplateApi)
 
             await expectLogic(logic).toMatchValues({
                 emailTemplate: expect.objectContaining({
@@ -323,7 +322,7 @@ describe('emailTemplaterLogic', () => {
                     templating: 'liquid',
                     email: { subject: 'Your receipt', text: 'Thanks for your order.' },
                 },
-            } as MessageTemplate)
+            } as unknown as MessageTemplateApi)
 
             expect(onChange).toHaveBeenLastCalledWith(
                 expect.objectContaining({
@@ -352,7 +351,7 @@ describe('emailTemplaterLogic', () => {
                     templating: 'liquid',
                     email: { subject: 'News', html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
                 },
-            } as MessageTemplate)
+            } as unknown as MessageTemplateApi)
 
             expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
         })
@@ -948,7 +947,7 @@ describe('emailTemplaterLogic', () => {
                 name: template.name,
                 ...TEMPLATE_METADATA,
                 content: { email: DEFAULT_EMAIL_TEMPLATE },
-            })
+            } as unknown as MessageTemplateApi)
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(logic.values.appliedTemplate).toBeNull()
         })
@@ -973,7 +972,7 @@ describe('emailTemplaterLogic', () => {
                 name: template.name,
                 ...TEMPLATE_METADATA,
                 content: { email: DEFAULT_EMAIL_TEMPLATE },
-            })
+            } as unknown as MessageTemplateApi)
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             expect(props.onChange).not.toHaveBeenCalled()
