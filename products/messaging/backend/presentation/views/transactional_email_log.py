@@ -19,6 +19,7 @@ from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
     EmailStatsGroupBy,
+    EmailStatsInterval,
     TransactionalEmailLogEntry,
 )
 from products.messaging.backend.facade.transactional_email_log import (
@@ -28,6 +29,7 @@ from products.messaging.backend.facade.transactional_email_log import (
     list_transactional_emails,
     transactional_email_results,
     transactional_email_stats,
+    transactional_email_stats_over_time,
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
@@ -138,6 +140,32 @@ class TransactionalEmailStatsRowSerializer(serializers.Serializer):
 
 class TransactionalEmailStatsSerializer(serializers.Serializer):
     results = TransactionalEmailStatsRowSerializer(many=True, help_text="One row per group, busiest first.")
+
+
+class TransactionalEmailStatsCountsSerializer(serializers.Serializer):
+    sent = serializers.IntegerField(help_text="Emails that reached the email provider.")
+    delivered = serializers.IntegerField(help_text="Emails the recipient's mail server accepted.")
+    bounced = serializers.IntegerField(help_text="Emails that bounced.")
+    complained = serializers.IntegerField(help_text="Emails the recipient marked as spam.")
+    failed = serializers.IntegerField(help_text="Emails that were not sent.")
+
+
+class TransactionalEmailStatsBucketSerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="When this time bucket starts.")
+    counts = TransactionalEmailStatsCountsSerializer(help_text="Sends queued during this bucket.")
+
+
+class TransactionalEmailStatsOverTimeSerializer(serializers.Serializer):
+    interval = serializers.ChoiceField(
+        choices=EmailStatsInterval.choices,
+        help_text="The width of each bucket. A `minute` bucket spans five minutes.",
+    )
+    timezone = serializers.CharField(help_text="The project timezone that the buckets start in.")
+    buckets = TransactionalEmailStatsBucketSerializer(many=True, help_text="Every bucket in the period, oldest first.")
+    previous = TransactionalEmailStatsCountsSerializer(
+        allow_null=True,
+        help_text="Totals for the same length of time just before the period. Null when retention no longer covers it.",
+    )
 
 
 class TransactionalEmailResultsQuerySerializer(DateRangeQuerySerializer):
@@ -290,6 +318,25 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 access=self._workflow_access(),
             )
         return Response(TransactionalEmailStatsSerializer({"results": [asdict(row) for row in rows]}).data)
+
+    @validated_request(
+        query_serializer=DateRangeQuerySerializer,
+        responses={200: OpenApiResponse(response=TransactionalEmailStatsOverTimeSerializer)},
+        summary="Get transactional email delivery stats over time",
+        description="Count sends by delivery status per time bucket, with totals for the period before.",
+    )
+    @action(detail=False, methods=["GET"])
+    def stats_over_time(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        with query_concurrency_slots(self.team):
+            stats = transactional_email_stats_over_time(
+                self.team_id,
+                self.team.timezone,
+                date_from=query.get("date_from"),
+                date_to=query.get("date_to"),
+                access=self._workflow_access(),
+            )
+        return Response(TransactionalEmailStatsOverTimeSerializer(asdict(stats)).data)
 
     @validated_request(
         query_serializer=TransactionalEmailResultsQuerySerializer,

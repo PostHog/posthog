@@ -62,6 +62,7 @@ export function TransactionalEmailDeliveryStep({
                     )
                 )}
                 {step.detail &&
+                    step.state !== 'failed' &&
                     (step.detail.length > 40 ? (
                         <Tooltip title={step.detail}>
                             <span className="text-xs text-secondary truncate">{step.detail}</span>

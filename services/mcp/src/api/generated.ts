@@ -37530,6 +37530,20 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
     }
 
+    /**
+     * * `minute` - Minute
+     * * `hour` - Hour
+     * * `day` - Day
+     */
+    export type EmailStatsIntervalEnum = typeof EmailStatsIntervalEnum[keyof typeof EmailStatsIntervalEnum];
+
+
+    export const EmailStatsIntervalEnum = {
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
@@ -114049,6 +114063,41 @@ export namespace Schemas {
       results: TransactionalEmailStatsRow[];
     }
 
+    export interface TransactionalEmailStatsCounts {
+      /** Emails that reached the email provider. */
+      sent: number;
+      /** Emails the recipient's mail server accepted. */
+      delivered: number;
+      /** Emails that bounced. */
+      bounced: number;
+      /** Emails the recipient marked as spam. */
+      complained: number;
+      /** Emails that were not sent. */
+      failed: number;
+    }
+
+    export interface TransactionalEmailStatsBucket {
+      /** When this time bucket starts. */
+      start: string;
+      /** Sends queued during this bucket. */
+      counts: TransactionalEmailStatsCounts;
+    }
+
+    export interface TransactionalEmailStatsOverTime {
+      /** The width of each bucket. A `minute` bucket spans five minutes.
+       *
+       * * `minute` - Minute
+       * * `hour` - Hour
+       * * `day` - Day */
+      interval: EmailStatsIntervalEnum;
+      /** The project timezone that the buckets start in. */
+      timezone: string;
+      /** Every bucket in the period, oldest first. */
+      buckets: TransactionalEmailStatsBucket[];
+      /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
+      previous: TransactionalEmailStatsCounts | null;
+    }
+
     export interface TranslateRequest {
       /**
          * The text to translate
@@ -135590,6 +135639,17 @@ export namespace Schemas {
       Template: 'template',
       SendingDomain: 'sending_domain',
     } as const;
+
+    export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    };
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**
