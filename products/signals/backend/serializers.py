@@ -117,6 +117,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
 from .ranking.public_outcomes import RankingOutcome
@@ -2621,16 +2622,30 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
-            "Sort key from the ranker named by the list response's ranker field, for sort=recommended only. "
-            "Lower keys rank first, so rows from several requests merge in the order of one request. "
-            "For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, "
-            "and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the "
-            "priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort."
+            "Sort key from the ranker named by the list response's ranker field, for sort=recommended and "
+            "sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one "
+            "request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from "
+            "0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses "
+            "the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the "
+            "stored personal ranking gets its position in that ranking from 0, and every other report gets the "
+            "number of those positions plus its key from the recommended ranker. Null for every other sort."
+        ),
+    )
+    personal_tier = serializers.SerializerMethodField(
+        help_text=(
+            "The tier your personal ranking gave this report, for sort=personal. Null when the language model "
+            "did not rank the report, and for every other sort."
+        ),
+    )
+    personal_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why your personal ranking put this report where it is, for sort=personal. Null when the language "
+            "model did not rank the report, and for every other sort."
         ),
     )
 
     class Meta(SignalReportSerializer.Meta):
-        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
+        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key", "personal_tier", "personal_reason"]
         read_only_fields = fields
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
@@ -2638,7 +2653,26 @@ class SignalReportListSerializer(SignalReportSerializer):
         if ranker is None:
             return None
         score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        return inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        key = inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        personal_order: PersonalListOrder | None = self.context.get("personal_order")
+        if personal_order is None:
+            return key
+        personal_rank = getattr(obj, "personal_rank", None)
+        if personal_rank is not None:
+            return float(personal_rank - 1)
+        return len(personal_order.report_ids) + key
+
+    def _personal_note(self, obj: SignalReport) -> PersonalRowNote | None:
+        personal_order: PersonalListOrder | None = self.context.get("personal_order")
+        return personal_order.notes.get(str(obj.id)) if personal_order is not None else None
+
+    def get_personal_tier(self, obj: SignalReport) -> str | None:
+        note = self._personal_note(obj)
+        return note.tier if note is not None else None
+
+    def get_personal_reason(self, obj: SignalReport) -> str | None:
+        note = self._personal_note(obj)
+        return note.reason if note is not None else None
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
@@ -2669,6 +2703,13 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
+    ranking_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal "
+            "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
+        ),
+    )
     count_only = serializers.BooleanField(
         required=False,
         default=False,
