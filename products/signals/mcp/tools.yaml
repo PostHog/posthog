@@ -680,10 +680,9 @@ tools:
             rationale survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'.
             When the report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone
             else, while `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not
-            allow the transition, or when a project requires the claim to dismiss or resolve and another person holds it.
-            Take it over with `inbox-reports-claim` only when the user asks. Closing a report nobody holds claims it
-            for you. To transition several
-            reports, use `inbox-reports-bulk-set-state`.
+            allow the transition, or when a project requires the claim to dismiss or resolve and another person holds
+            it. Take it over with `inbox-reports-claim` only when the user asks. Closing a report nobody holds claims it
+            for you. To transition several reports, use `inbox-reports-bulk-set-state`.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
