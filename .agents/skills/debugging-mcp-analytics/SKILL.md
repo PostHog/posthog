@@ -129,7 +129,7 @@ and exec-mode properties the SDK does not define — live in `posthog/taxonomy/t
 **Events** (all `$`-prefixed; non-`$` names would be treated as customer events):
 `$mcp_tool_call` (primary), `$mcp_tools_list`, `$mcp_initialize`, `$mcp_missing_capability`,
 `$mcp_resource_read` / `$mcp_resources_list`, `$mcp_prompt_get` / `$mcp_prompts_list`,
-`$identify`, `$exception`.
+`$exception`. (Standalone `$identify` stopped in TS 0.23.0 and Python 7.72.0; older rows still have it.)
 
 > **`$mcp_initialize` is not a reliable session anchor — but check whose server you're looking
 > at.** The 2026-07-28 revision removes the `initialize` handshake, so a customer server on the
@@ -328,7 +328,7 @@ sessions byte-compatible with TS (`derive_session_id_from_conversation`), typed
 threads ([posthog-python 803](https://github.com/PostHog/posthog-python/pull/803) and
 [830](https://github.com/PostHog/posthog-python/pull/830)) were **closed unmerged and
 superseded** — don't cite them as the source of what landed. Since then: 0.17.0 (`posthog`
-7.56.0) turned `captureModel` and `enableConversationId` on by default, 0.23.0 stopped sending
+7.56.0) turned `captureModel` and `enableConversationId` on by default, 0.23.0 (`posthog` 7.72.0) stopped sending
 standalone `$identify` events, and 0.24.0 / 0.25.0 added `sendInitializeEvent` /
 `sendToolsListEvent` (on by default).
 [references/stateless-and-sessions.md](references/stateless-and-sessions.md) is the reference

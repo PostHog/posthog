@@ -22,7 +22,7 @@ All `$`-prefixed — a non-`$` name would be treated as a customer event.
 | `$mcp_auth_failed`                           | A request refused before a session existed — a rejected credential, or a scope the API denied. **PostHog's own server only, not the SDK.** The one MCP event with no organization/project, because none was resolved. |
 | `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                                                                         |
 | `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                                                              |
-| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                                                                      |
+| `$identify`                                  | Historical only. TS 0.23.0 and Python `posthog` 7.72.0 stopped sending it; `identify` now sets `distinct_id`, `$set`, and `$groups` on every event instead.                                                           |
 | `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                                                                 |
 
 `$mcp_custom` is registered in the enum, but `analytics.capture()` sends the verbatim event
