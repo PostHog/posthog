@@ -14,7 +14,9 @@ import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { isDataTableNode } from '~/queries/schema/node-guards'
+import { DataTableNode, ProductKey } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import { ActivityTab } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -29,8 +31,13 @@ export function EventsScene(): JSX.Element {
     const { setQuery } = useActions(eventsSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const eventsSource = query.source.kind === NodeKind.EventsQuery ? query.source : null
+    const dataTableQuery = isDataTableNode(query) ? query : null
+    const eventsSource = dataTableQuery && isEventsQuery(dataTableQuery.source) ? dataTableQuery.source : null
     const widerRange = eventsSource ? widerActivityRange(eventsSource.after, eventsSource.before) : null
+    const widerQuery: DataTableNode | null =
+        dataTableQuery && eventsSource && widerRange
+            ? { ...dataTableQuery, source: { ...eventsSource, after: widerRange.after } }
+            : null
 
     useAttachedContext(buildExploreAgentContext(ActivityTab.ExploreEvents, query))
 
@@ -74,16 +81,14 @@ export function EventsScene(): JSX.Element {
                     // The scene defaults to the last hour, so an empty list is often a narrow window,
                     // not missing data. Offer the next wider range in one click.
                     emptyStateDetail:
-                        eventsSource && widerRange ? (
+                        widerQuery && widerRange ? (
                             <div className="flex flex-col items-center gap-2">
                                 <span>Try changing the date range, or pick another action, event or breakdown.</span>
                                 <LemonButton
                                     type="secondary"
                                     size="small"
                                     data-attr="events-empty-widen-date-range"
-                                    onClick={() =>
-                                        setQuery({ ...query, source: { ...eventsSource, after: widerRange.after } })
-                                    }
+                                    onClick={() => setQuery(widerQuery)}
                                 >
                                     {widerRange.label}
                                 </LemonButton>
