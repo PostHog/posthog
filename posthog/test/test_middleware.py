@@ -2546,7 +2546,10 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
             (
                 "provider_server_error",
                 "/complete/github/",
-                requests.exceptions.HTTPError("500 Server Error: Internal Server Error for url: https://example.com"),
+                requests.exceptions.HTTPError(
+                    "500 Server Error: Internal Server Error for url: https://example.com",
+                    response=requests.Response(),
+                ),
                 "/login?error_code=social_login_failure",
             ),
         ]
