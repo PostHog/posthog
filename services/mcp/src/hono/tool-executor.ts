@@ -35,7 +35,7 @@ import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
-import { responseTokenBudget } from '@/lib/response-budget'
+import { byteLength, responseTokenBudget } from '@/lib/response-budget'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -628,7 +628,7 @@ export class ToolExecutor {
                     appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
-            response = this.capResponse(response, tool.name, state, validation.data)
+            response = this.capResponse(response, tool.name, state, validation.data, guidance)
 
             const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
@@ -748,14 +748,20 @@ export class ToolExecutor {
         }
     }
 
+    /** The guidance notice joins the result after the cap, so its bytes come out of the same budget. */
     private capResponse(
         response: ToolResultPayload,
         toolName: string,
         state: ResolvedState,
-        args: unknown
+        args: unknown,
+        guidance: GuidanceNotice | undefined
     ): ToolResultPayload {
         const clientLimit = state.clientProfile.capabilities.toolResultTokenLimit
-        const capped = capResponseToBudget(response, responseTokenBudget(clientLimit, args))
+        const capped = capResponseToBudget(
+            response,
+            responseTokenBudget(clientLimit, args),
+            guidance?.text ? byteLength(guidance.text) : 0
+        )
         if (capped !== response) {
             toolResponsesShortenedTotal.inc({
                 tool: toolName,
@@ -865,12 +871,6 @@ export class ToolExecutor {
                       suppressStructuredContentForFormattedResults: state.clientProfile.prefersFormattedText(),
                       distinctId: undefined,
                   })
-            const response = this.capResponse(
-                built,
-                execToolName(),
-                state,
-                execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined
-            )
 
             // A handler can return normally for a call that failed: a skill lookup
             // miss is rewritten so the agent does not read it as an outage. The
@@ -891,6 +891,13 @@ export class ToolExecutor {
             const guided = attachGuidanceNotice(response, guidance, {
                 jsonOutput: execMetrics.innerOutputFormat === 'json',
             })
+            const response = this.capResponse(
+                built,
+                execToolName(),
+                state,
+                execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined,
+                guidance
+            )
 
             void trackToolCall(
                 analyticsToolName(),
