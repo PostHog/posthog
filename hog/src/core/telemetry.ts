@@ -111,14 +111,10 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-// A field that isn't a non-empty string reads as missing, so a surprising answer only leaves the
-// event anonymous.
-const Text = z.unknown().transform((value) => (typeof value === 'string' && value ? value : undefined))
-const IdentityUser = z.looseObject({
-    distinct_id: Text,
-    organization: z.looseObject({ id: Text }).optional().catch(undefined),
-})
-const IdentityProject = z.looseObject({ organization: Text, uuid: Text })
+// An answer hog can't read only leaves the event anonymous.
+const Text = z.string().min(1).optional()
+const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional() })
+const IdentityProject = z.object({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
 // to a random install ID otherwise. Events carry no argument or option values and no error messages,

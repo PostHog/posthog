@@ -6,7 +6,7 @@ import { contentHash } from './container'
 import type { GitInfo } from './git'
 import { ApiFailure, errorCode, type SymbolSetClient } from './upload'
 
-const Release = z.looseObject({ id: z.string(), hash_id: z.string(), version: z.string(), project: z.string() })
+const Release = z.object({ id: z.string(), hash_id: z.string(), version: z.string(), project: z.string() })
 
 export type Release = z.output<typeof Release>
 

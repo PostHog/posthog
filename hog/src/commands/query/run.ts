@@ -5,7 +5,6 @@ import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 
-// The whole answer reaches agents, so fields hog doesn't name stay.
 const QueryResponse = z.looseObject({
     columns: z.array(z.string()).nullish(),
     results: z.array(z.array(z.unknown())).nullish(),

@@ -4,7 +4,7 @@ import { PendingApprovalSchema, type PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
-import { parseOrThrow, parseOrUndefined } from '@/core/schema'
+import { parseOrThrow } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
 import { ProjectIdSchema } from './ids'
@@ -119,7 +119,7 @@ const DeviceTokenResponse = TokenResponse.extend({
     scoped_teams: z.tuple([ProjectIdSchema], ProjectIdSchema),
 })
 
-const DeviceAuthorizationResponse = z.looseObject({
+const DeviceAuthorizationResponse = z.object({
     device_code: z.string().min(1),
     user_code: z.string().min(1),
     verification_uri: z.string().min(1),
@@ -151,11 +151,11 @@ export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: rea
             'Wait a minute, then run `hog auth login` again.'
         )
     }
-    const refused = unauthorizedClient(host, parseOrUndefined(OAuthErrorBody, response.json))
+    const refused = unauthorizedClient(host, OAuthErrorBody.safeParse(response.json).data)
     if (refused) {
         throw refused
     }
-    const body = response.ok ? parseOrUndefined(DeviceAuthorizationResponse, response.json) : undefined
+    const body = response.ok ? DeviceAuthorizationResponse.safeParse(response.json).data : undefined
     if (body === undefined) {
         throw new HogError(
             'login_unavailable',
@@ -206,7 +206,7 @@ export async function pollDeviceLogin(
             value: OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes }),
         }
     }
-    const body = parseOrUndefined(OAuthErrorBody, response.json)
+    const body = OAuthErrorBody.safeParse(response.json).data
     switch (body?.error) {
         case 'authorization_pending':
             return { state: 'pending' }

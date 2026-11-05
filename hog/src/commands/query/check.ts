@@ -1,9 +1,5 @@
-import { z } from 'zod'
-
 import { defineCommand } from '@/core/command'
 import { DiagnosticsReport, printDiagnostics } from '@/core/diagnostics'
-
-const MetadataResponse = DiagnosticsReport.extend({ isValid: z.boolean().nullish() })
 
 export default defineCommand({
     description: 'Check the syntax and types of a HogQL query without running it',
@@ -19,7 +15,7 @@ export default defineCommand({
         const response = await api.post(
             'query',
             { query: { kind: 'HogQLMetadata', language: 'hogQL', query: args.query } },
-            MetadataResponse
+            DiagnosticsReport
         )
         return { query: args.query, response }
     },

@@ -49,9 +49,9 @@ function transferTimeout(bytes: number): number {
 }
 const RATE_LIMIT_PER_MINUTE = 480
 
-const ErrorBody = z.looseObject({ code: z.unknown() })
+const ErrorBody = z.object({ code: z.string() })
 
-export function errorCode(body: string): unknown {
+export function errorCode(body: string): string | undefined {
     return parseJsonOrUndefined(body, ErrorBody)?.code
 }
 
@@ -129,11 +129,11 @@ export function uuidv7(now: number): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-const PresignedPost = z.looseObject({ url: z.string(), fields: z.record(z.string(), z.string()) })
+const PresignedPost = z.object({ url: z.string(), fields: z.record(z.string(), z.string()) })
 
 type PresignedPost = z.output<typeof PresignedPost>
 
-const StartEntry = z.looseObject({
+const StartEntry = z.object({
     // Null when PostHog couldn't sign a POST, in which case it sends a PUT URL.
     presigned_url: PresignedPost.nullish(),
     fallback_presigned_url: PresignedPost.nullish(),
@@ -144,8 +144,8 @@ const StartEntry = z.looseObject({
 
 type StartEntry = z.output<typeof StartEntry>
 
-const CheckResponse = z.looseObject({ chunk_ids_to_upload: z.array(z.unknown()) })
-const StartResponse = z.looseObject({ id_map: z.record(z.string(), StartEntry).nullish() })
+const CheckResponse = z.object({ chunk_ids_to_upload: z.array(z.string()) })
+const StartResponse = z.object({ id_map: z.record(z.string(), StartEntry).nullish() })
 
 type Target = { kind: 'put'; url: string } | { kind: 'post'; form: PresignedPost }
 
@@ -203,7 +203,7 @@ export class SymbolSetClient {
             code: 'unexpected_response',
             context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
         }
-        return parseOrThrow(schema, text ? parseJson(text, z.unknown(), failure) : undefined, failure)
+        return text ? parseJson(text, schema, failure) : parseOrThrow(schema, undefined, failure)
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
@@ -303,7 +303,7 @@ export class SymbolSetClient {
                     context: "PostHog's answer to the upload check isn't what hog expects.",
                 })
                 for (const chunkId of response.chunk_ids_to_upload) {
-                    needed.add(String(chunkId))
+                    needed.add(chunkId)
                 }
             } catch {
                 for (const upload of uploads.slice(start)) {
