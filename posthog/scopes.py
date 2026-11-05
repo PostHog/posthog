@@ -83,6 +83,7 @@ APIScopeObject = Literal[
     "integration",
     "interactive_run",
     "internal_run",
+    "knowledge_writer",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -156,6 +157,7 @@ APIScopeObject = Literal[
     "wizard_session",
     "wizard_run",
     "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 

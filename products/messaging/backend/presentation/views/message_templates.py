@@ -40,7 +40,7 @@ from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,
@@ -353,7 +353,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         # Programmatically authored templates often supply html without a design, which the
         # visual editor can't open. Wrap the html in a single custom HTML block; the stored
         # html stays untouched, so nothing about the sent email changes.
-        if email and email.get("html") and not email.get("design"):
+        if email and email.get("html") and html_wrap_design_needs_refresh(email["html"], email.get("design")):
             email["design"] = build_html_wrap_design(email["html"])
         # Design-only saves get their html rendered server-side (the send path uses html
         # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
