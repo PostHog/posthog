@@ -41,7 +41,7 @@ import {
     promptSourcesQuery,
     promptVisibilityQuery,
 } from './promptReportQueries'
-import { sortEngines } from './utils'
+import { promptEditPatch, sortEngines } from './utils'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
 
@@ -594,22 +594,18 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             if (!prompt) {
                 return
             }
-            const textChanged = text.trim() !== prompt.prompt
-            const topicChanged = topic.trim() !== prompt.topic
-            if (!textChanged && !topicChanged) {
+            const patch = promptEditPatch(prompt, text, topic)
+            if (!patch) {
                 actions.setPromptEditing(false)
                 return
             }
             try {
-                const updated = await aeoPromptsPartialUpdate(String(values.currentTeamIdStrict), prompt.id, {
-                    ...(textChanged ? { prompt: text.trim() } : {}),
-                    ...(topicChanged ? { topic: topic.trim() } : {}),
-                })
+                const updated = await aeoPromptsPartialUpdate(String(values.currentTeamIdStrict), prompt.id, patch)
                 actions.savePromptEditSuccess(updated)
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics content autopilot prompt edited', {
-                    text_changed: textChanged,
-                    topic_changed: topicChanged,
+                    text_changed: patch.prompt !== undefined,
+                    topic_changed: patch.topic !== undefined,
                 })
                 if (updated.version_count > 1) {
                     actions.loadAeoPromptVersions(updated.id)
