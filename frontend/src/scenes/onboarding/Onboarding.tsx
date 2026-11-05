@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 }
 
 const CARD_CLASSES =
-    'relative w-full min-h-0 flex flex-col overflow-visible p-0 sm:max-h-[calc(100dvh-7rem)] sm:overflow-y-auto sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
+    'relative w-full min-h-0 flex flex-col overflow-visible p-0 sm:max-h-[calc(100dvh-7rem)] sm:overflow-y-auto sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(20_44_72_/_18%)] sm:border sm:border-primary'
 
 /**
  * Renders product selection until a product is chosen, then hands off to the flow host. The simple
