@@ -34,11 +34,13 @@ class TestEventsRetentionAPI(APIBaseTest):
     def organization_url(self) -> str:
         return f"/api/organizations/{self.organization.id}/events_retention_setting/"
 
-    def _set_plan_years(self, years: int) -> None:
+    def _set_plan_years(self, years: int, standard: bool = False) -> None:
+        standard_feature = [{"key": "product_analytics_standard_data_retention"}] if standard else []
         Organization.objects.filter(pk=self.organization.pk).update(
             available_product_features=[
                 {"key": "product_analytics_data_retention", "limit": years, "unit": "years"},
                 {"key": "access_control", "name": "Access control"},
+                *standard_feature,
             ]
         )
 
@@ -77,10 +79,38 @@ class TestEventsRetentionAPI(APIBaseTest):
             "docs_url": "https://posthog.com/docs/data/events-retention",
             "project_retention_months": None,
             "organization_retention_months": None,
+            "default_retention_months": 12,
+            "default_is_grandfathered": False,
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
+            "retention_months_choices": [1, 3, 12, 24, 36, 60, 84],
         }
+
+    @parameterized.expand(
+        [
+            ("standard_plan_defaults_to_24_months", True, None, 24, False),
+            ("grandfathered_plan_defaults_to_its_whole_period", False, None, 84, True),
+            ("staff_minimum_raises_the_standard_default", True, 36, 36, False),
+        ]
+    )
+    def test_reports_the_default_period(
+        self, _name: str, standard: bool, staff_min: int | None, expected_months: int, grandfathered: bool
+    ) -> None:
+        self._set_plan_years(7, standard=standard)
+        self.team.event_retention_months = 84
+        self.team.save()
+        if staff_min is not None:
+            OrganizationEventsRetentionConfig.objects.create(
+                organization=self.organization, min_events_retention_months=staff_min
+            )
+
+        project = self.client.get(self.url()).json()
+        organization = self.client.get(self.organization_url()).json()
+
+        assert (project["retention_months"], project["default_retention_months"]) == (expected_months, expected_months)
+        assert (organization["default_retention_months"], organization["max_retention_months"]) == (expected_months, 84)
+        assert organization["default_is_grandfathered"] is grandfathered
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_reports_no_window_until_retention_is_enforced(self) -> None:
@@ -96,11 +126,11 @@ class TestEventsRetentionAPI(APIBaseTest):
             organization=self.organization, default_events_retention_months=12
         )
 
-        response = self.client.post(self.url(), {"retention_months": 6}, format="json")
+        response = self.client.post(self.url(), {"retention_months": 3}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["retention_months"] == 6
-        assert response.json()["project_retention_months"] == 6
+        assert response.json()["retention_months"] == 3
+        assert response.json()["project_retention_months"] == 3
         assert ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").exists()
 
         response = self.client.post(self.url(), {"retention_months": None}, format="json")
@@ -114,7 +144,8 @@ class TestEventsRetentionAPI(APIBaseTest):
         [
             ("longer_than_the_plan", "organization_admin", 36, status.HTTP_400_BAD_REQUEST),
             ("shorter_than_the_staff_minimum", "organization_admin", 3, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("not_one_of_the_choices", "organization_admin", 18, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 12, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_a_project_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
@@ -136,9 +167,12 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "organization_retention_months": 12,
+            "default_retention_months": 24,
+            "default_is_grandfathered": False,
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
+            "retention_months_choices": [1, 3, 12, 24, 36, 60, 84],
         }
         assert self.client.get(self.url()).json()["retention_months"] == 12
         assert ActivityLog.objects.filter(
@@ -153,8 +187,8 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_staff_maximum", "organization_admin", 18, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("longer_than_the_staff_maximum", "organization_admin", 24, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 12, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_an_organization_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
@@ -218,7 +252,7 @@ class TestEventsRetentionAPI(APIBaseTest):
 
         self.client.credentials(**headers)
         with patch("posthoganalytics.capture") as capture:
-            for before, after in [(None, 6), (6, 12), (12, None)]:
+            for before, after in [(None, 3), (3, 12), (12, None)]:
                 capture.reset_mock()
                 with self.captureOnCommitCallbacks(execute=True):
                     response = self.client.post(url, {"retention_months": after}, format="json")
@@ -257,10 +291,10 @@ class TestEventsRetentionAPI(APIBaseTest):
         url = self.url() if scope == "project" else self.organization_url()
 
         with patch("posthoganalytics.capture"), self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(url, {"retention_months": 6}, format="json", HTTP_REFERER="https://[")
+            response = self.client.post(url, {"retention_months": 3}, format="json", HTTP_REFERER="https://[")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[f"{scope}_retention_months"] == 6
+        assert response.json()[f"{scope}_retention_months"] == 3
 
     @parameterized.expand([("project",), ("organization",)])
     def test_does_not_track_rolled_back_retention_changes(self, scope: str) -> None:
@@ -269,7 +303,7 @@ class TestEventsRetentionAPI(APIBaseTest):
 
         with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
             with transaction.atomic():
-                response = self.client.post(url, {"retention_months": 6}, format="json")
+                response = self.client.post(url, {"retention_months": 3}, format="json")
                 assert response.status_code == status.HTTP_200_OK
                 assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
                 transaction.set_rollback(True)
@@ -300,11 +334,11 @@ class TestEventsRetentionAPI(APIBaseTest):
         with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
             if scope == "project":
                 set_project_events_retention(
-                    self.team, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                    self.team, 3, user=self.user, was_impersonated=False, analytics_properties=properties
                 )
             else:
                 set_organization_events_retention(
-                    self.organization, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                    self.organization, 3, user=self.user, was_impersonated=False, analytics_properties=properties
                 )
             properties["$ai_trace_id"] = "changed after save"
 
@@ -317,7 +351,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert captured["mcp_client_name"] == "client"
         assert captured["scope"] == scope
         assert captured["organization_id"] == str(self.organization.id)
-        assert captured["retention_months"] == 6
+        assert captured["retention_months"] == 3
         assert captured["previous_retention_months"] is None
         assert captured["was_impersonated"] is False
         assert "$mcp_conversation_id" not in captured

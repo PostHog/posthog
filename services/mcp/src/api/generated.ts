@@ -42496,10 +42496,16 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+      readonly default_retention_months: number;
+      /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+      readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
       /** The shortest window an admin can set, in months. */
@@ -70011,10 +70017,16 @@ export namespace Schemas {
 
     export interface OrganizationEventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+      readonly default_retention_months: number;
+      /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+      readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
       /** The shortest window an admin can set, in months. */

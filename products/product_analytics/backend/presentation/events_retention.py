@@ -15,6 +15,7 @@ from posthog.models.team.event_retention import events_retention_floor_date, eve
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions
 
+from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 from products.product_analytics.backend.facade.events_retention import (
     organization_events_retention,
     project_events_retention_months,
@@ -43,7 +44,20 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     organization_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.",
+        help_text="The period, in months, that every project without its own period uses. Null while those projects use the default period.",
+    )
+    default_retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text="The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period.",
+    )
+    default_is_grandfathered = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the default is longer than 24 months because the plan predates the 24-month default.",
+    )
+    retention_months_choices = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods.",
     )
     plan_retention_months = serializers.IntegerField(
         read_only=True,
@@ -90,6 +104,18 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     )
 
 
+def _organization_fields(organization: OrganizationEventsRetention) -> dict[str, Any]:
+    return {
+        "organization_retention_months": organization.organization_months,
+        "default_retention_months": organization.default_months,
+        "default_is_grandfathered": organization.default_is_grandfathered,
+        "retention_months_choices": organization.months_choices,
+        "plan_retention_months": organization.plan_months,
+        "min_retention_months": organization.min_months,
+        "max_retention_months": organization.max_months,
+    }
+
+
 @extend_schema(tags=["events_retention"])
 class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
@@ -101,7 +127,6 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         retained_from = (
             events_retention_floor_date(self.team, retention_months) if retention_months is not None else None
         )
-        organization = organization_events_retention(self.organization)
         return Response(
             EventsRetentionSerializer(
                 {
@@ -109,10 +134,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "retained_from": retained_from,
                     "docs_url": EVENTS_RETENTION_DOCS_URL,
                     "project_retention_months": project_events_retention_months(self.team),
-                    "organization_retention_months": organization.organization_months,
-                    "plan_retention_months": organization.plan_months,
-                    "min_retention_months": organization.min_months,
-                    "max_retention_months": organization.max_months,
+                    **_organization_fields(organization_events_retention(self.organization)),
                 }
             ).data
         )
@@ -165,15 +187,9 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     permission_classes = [OrganizationAdminWritePermissions]
 
     def _retention_response(self) -> Response:
-        organization = organization_events_retention(self.organization)
         return Response(
             OrganizationEventsRetentionSerializer(
-                {
-                    "organization_retention_months": organization.organization_months,
-                    "plan_retention_months": organization.plan_months,
-                    "min_retention_months": organization.min_months,
-                    "max_retention_months": organization.max_months,
-                }
+                _organization_fields(organization_events_retention(self.organization))
             ).data
         )
 
@@ -181,8 +197,8 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_retrieve",
         summary="Get the organization's events retention window",
         description=(
-            "Returns the events retention window that every project without its own window uses, and the range an "
-            "organization admin can set."
+            "Returns the events retention period that every project without its own period uses, the default period "
+            "while none is set, and the range an organization admin can set."
         ),
         responses={200: OrganizationEventsRetentionSerializer},
     )
