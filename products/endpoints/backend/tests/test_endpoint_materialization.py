@@ -527,11 +527,15 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             mock.patch.object(EndpointMaterializationService, "check_cadence_carry"),
         ):
             self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
+            serving_version = endpoint.get_version()
             response = edit_query("count(), 1")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertIn("older version of this endpoint", response.json()["materialization_error"])
-        self.assertIsNone(endpoint.get_version().saved_query_id)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("older version of this endpoint", response.json()["detail"])
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, serving_version.version)
+        self.assertEqual(endpoint.get_version().pk, serving_version.pk)
+        self.assertIsNotNone(endpoint.get_version().saved_query_id)
 
     def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
         endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")

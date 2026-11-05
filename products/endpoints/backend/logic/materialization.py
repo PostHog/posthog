@@ -229,6 +229,10 @@ def _retained_saved_query_ids(
     )
 
 
+class CadenceCarryRefusedError(ValidationError):
+    """A query edit's new version can't keep the cadence of the version it replaces."""
+
+
 class EndpointMaterializationService:
     """Enable, disable, and preview materialization for endpoint versions."""
 
@@ -361,11 +365,8 @@ class EndpointMaterializationService:
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
             # query (deferred to on_commit, so it sees the version link above).
-            try:
-                if (
-                    replaced_version is not None
-                    and replaced_version.declared_target_seconds() == data_freshness_seconds
-                ):
+            if replaced_version is not None and replaced_version.declared_target_seconds() == data_freshness_seconds:
+                try:
                     # `sync_saved_query_to_dag` above holds the DAG's advisory lock until commit, so a concurrent
                     # query edit waits and then counts this version's link among the retained versions.
                     carry_saved_query_frequency_target(
@@ -374,6 +375,9 @@ class EndpointMaterializationService:
                         timedelta(seconds=data_freshness_seconds),
                         retained_saved_query_ids=_retained_saved_query_ids(endpoint, replaced_version, version),
                     )
+                except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                    raise CadenceCarryRefusedError(str(e)) from e
+            try:
                 saved_query.schedule_materialization(
                     trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
                 )
