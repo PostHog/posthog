@@ -1,7 +1,7 @@
 import { marked } from 'marked'
 import { memo, useMemo } from 'react'
 
-import { rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
+import { escapeRawHtmlTags, rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { LemonMarkdown, type LemonMarkdownComponents, type LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
@@ -13,11 +13,14 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
     return tokens.map((token) => token.raw)
 }
 
-function rewriteObjectTags(markdown: string, teamId: number | null): string {
+function rewriteObjectTags(markdown: string, teamId: number | null, literalTags: boolean): string {
     // Agent object tags (`<insight id="…">label</insight>`) become links into the
     // current project, carrying the agent's label; stripping them instead posted
     // empty bullets wherever a reply cited an object.
-    return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '')
+    const rewritten = rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '', {
+        streaming: !literalTags,
+    })
+    return literalTags ? escapeRawHtmlTags(rewritten) : rewritten
 }
 
 /**
@@ -30,6 +33,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     className,
     components,
     renderCodeBlock,
+    literalTags = false,
 }: {
     content: string
     id: string
@@ -38,10 +42,15 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     components?: LemonMarkdownComponents
     /** Renderer for fenced code blocks. Pass a stable (module-level) function. */
     renderCodeBlock?: LemonMarkdownProps['renderCodeBlock']
+    /** Show tag-like text as typed. For text a person wrote, which is complete and has no agent tags to hide. */
+    literalTags?: boolean
 }): JSX.Element {
     // The team id is a memo dependency so a project switch re-points existing links.
     const teamId = getCurrentTeamIdOrNone()
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(rewriteObjectTags(content, teamId)), [content, teamId])
+    const blocks = useMemo(
+        () => parseMarkdownIntoBlocks(rewriteObjectTags(content, teamId, literalTags)),
+        [content, teamId, literalTags]
+    )
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
