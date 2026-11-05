@@ -1,5 +1,6 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, type ScrollView, Text, TextInput, View } from 'react-native'
+import type { ScrollViewInstance, TextInputInstance } from 'react-native'
+import { ActivityIndicator, Text, TextInput, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated from 'react-native-reanimated'
@@ -40,8 +41,8 @@ export function VerdictSheet<Reason extends string>({
     const { height } = useSceneDimensions()
     const compact = height < 480
     const keyboard = useReanimatedKeyboardAnimation()
-    const scroll = useRef<ScrollView>(null)
-    const noteInput = useRef<TextInput>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
+    const noteInput = useRef<TextInputInstance>(null)
     const listGesture = useMemo(() => Gesture.Native(), [])
     const [reason, setReason] = useState<Reason | undefined>(undefined)
     const [note, setNote] = useState('')
