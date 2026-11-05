@@ -593,6 +593,33 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         assert awaited_request_from("T12345", "C001", message_ts, now=now) is None
 
+    @parameterized.expand(
+        [
+            ("same_workspace", {}, True),
+            ("other_workspace_guest", {"user_team": "T_OTHER"}, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.request_onboarding")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_a_mention_from_an_unlinked_member_starts_their_onboarding(
+        self, _name, extra, starts, _sync_connect, _asyncio_run, _post_feedback, request_onboarding
+    ):
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", "stranger@example.com")
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {**self.event, **extra}, "T12345")
+
+        assert request_onboarding.called is starts
+        if starts:
+            assert request_onboarding.call_args.args[1] == "U123"
+            assert request_onboarding.call_args.kwargs == {"may_start": True, "start_only": True}
+
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
