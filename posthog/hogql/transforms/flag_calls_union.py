@@ -71,6 +71,10 @@ if TYPE_CHECKING:
 
 # The joins whose resolver compares only the join's key and `extra_from_fields` on the source table. Lazy table
 # resolution projects exactly those from the union, so a join that reads anything else would name a missing column.
+# The most compared values the flag-call finder reads for one scan. Past it, the finder treats the scan as one that
+# names flag calls. The union returns the right rows for any scan, so the limit costs only a second table read.
+_COMPARED_VALUES_BUDGET = 100_000
+
 _UNION_JOIN_RESOLVERS = frozenset(
     {
         EVENTS_TO_SESSIONS_V1,
@@ -684,6 +688,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to None. An alias
         # inside a lambda maps to the expression that it names. Each lambda adds a layer, so entering one copies nothing.
         self.lambda_names: ChainMap[str, ast.Expr | None] | None = None
+        self.values_left = _COMPARED_VALUES_BUDGET
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -735,8 +740,9 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
                     continue
                 read_lists.add(id(value))
             for item in value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value]:
+                self.values_left -= 1
                 named = self._resolve(item)
-                if isinstance(named, ast.Constant) and named.value == FLAG_CALLED_EVENT:
+                if self.values_left < 0 or (isinstance(named, ast.Constant) and named.value == FLAG_CALLED_EVENT):
                     self.found = True
                     return
 
