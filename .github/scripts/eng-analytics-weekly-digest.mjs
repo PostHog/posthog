@@ -1,7 +1,6 @@
 // Weekly CI digest for #alerts-devex. It compares the last 7 complete UTC days with the 7 days before.
-// Spend covers every repository in the organization. Runner and container build minutes come from
-// Depot's usage API. Depot CI comes from the depot_ci_usage endpoint, which counts only repositories
-// with a synced Depot source. Cache storage is not counted.
+// Spend covers every repository in the organization. Runner, Depot CI and container build minutes come
+// from Depot's usage API. Cache storage is not counted.
 
 import { pathToFileURL } from 'node:url'
 
@@ -25,20 +24,23 @@ const DEPOT_CONTRACT_USD = Number(process.env.DEPOT_CONTRACT_USD || 0)
 const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
 const DEPOT_CONTRACT_END = process.env.DEPOT_CONTRACT_END || ''
 
-// The depot_ci_usage endpoint prices Depot CI.
 const RUNNER_USD_PER_MINUTE = 0.004
 const BUILD_USD_PER_MINUTE = 0.04
+// Depot bills Depot CI in raw vCPU-minutes, while runner minutes are 2-vCPU-equivalent, so the two
+// rates are not comparable. Keep this equal to DEPOT_CI_RATE_USD_PER_VCPU_SECOND × 60 in
+// products/engineering_analytics/backend/logic/cost.py, so the digest and the app agree.
+const DEPOT_CI_USD_PER_VCPU_MINUTE = 0.003
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
 
-function billedMinutes(entry) {
+function billedMinutes(minutes) {
     // Protobuf JSON omits a field at its zero default.
-    const minutes = entry?.minutesBilled ?? 0
-    if (!Number.isFinite(minutes) || minutes < 0) {
+    const value = minutes ?? 0
+    if (!Number.isFinite(value) || value < 0) {
         throw new Error('Depot GetUsage returned invalid billed minutes')
     }
-    return minutes
+    return value
 }
 
 async function depotUsageSpend(startAt, endAt) {
@@ -61,36 +63,42 @@ async function depotUsageSpend(startAt, endAt) {
     }
     const usage = await res.json().catch(() => null)
     const jobs = usage?.githubActionsJobs ?? []
+    const ciWorkflows = usage?.depotCi ?? []
     const builds = usage?.containerBuild ?? []
-    if (!usage || typeof usage !== 'object' || !Array.isArray(jobs) || !Array.isArray(builds)) {
+    if (
+        !usage ||
+        typeof usage !== 'object' ||
+        !Array.isArray(jobs) ||
+        !Array.isArray(ciWorkflows) ||
+        !Array.isArray(builds)
+    ) {
         throw new Error('Depot GetUsage returned invalid usage')
     }
-    let runners = 0
-    let repoRunners = 0
-    for (const repo of jobs) {
-        const usd = billedMinutes(repo?.total) * RUNNER_USD_PER_MINUTE
-        runners += usd
-        if (isThisRepository(repo?.repo)) {
-            repoRunners += usd
+    const byRepository = (entries, usd) => {
+        let all = 0
+        let here = 0
+        for (const entry of entries) {
+            const amount = usd(entry)
+            all += amount
+            if (isThisRepository(entry?.repo)) {
+                here += amount
+            }
         }
+        return [all, here]
     }
-    const containerBuilds = builds.reduce((sum, project) => sum + billedMinutes(project) * BUILD_USD_PER_MINUTE, 0)
-    return { runners, repoRunners, containerBuilds }
-}
-
-async function depotCiSpend(startAt, endAt) {
-    const usage = await withRetry(() =>
-        api('depot_ci_usage', { date_from: startAt.toISOString(), date_to: endAt.toISOString() })
+    const [runners, repoRunners] = byRepository(
+        jobs,
+        (repo) => billedMinutes(repo?.total?.minutesBilled) * RUNNER_USD_PER_MINUTE
     )
-    if (!Array.isArray(usage) || usage.some((repo) => !Number.isFinite(repo?.estimated_cost_usd))) {
-        throw new Error('depot_ci_usage returned invalid usage')
-    }
-    const sum = (repos) => repos.reduce((total, repo) => total + repo.estimated_cost_usd, 0)
-    return {
-        depotCi: sum(usage),
-        repoDepotCi: sum(usage.filter((repo) => isThisRepository(repo.repo))),
-        depotCiRepos: usage.map((repo) => repo.repo),
-    }
+    const [depotCi, repoDepotCi] = byRepository(
+        ciWorkflows,
+        (workflow) => billedMinutes(workflow?.vcpuMinutesBilled) * DEPOT_CI_USD_PER_VCPU_MINUTE
+    )
+    const containerBuilds = builds.reduce(
+        (sum, project) => sum + billedMinutes(project?.minutesBilled) * BUILD_USD_PER_MINUTE,
+        0
+    )
+    return { runners, repoRunners, depotCi, repoDepotCi, containerBuilds }
 }
 
 function isThisRepository(name) {
@@ -98,11 +106,8 @@ function isThisRepository(name) {
 }
 
 async function spend(startAt, endAt) {
-    const [usage, ci] = await Promise.all([
-        withRetry(() => depotUsageSpend(startAt, endAt)),
-        depotCiSpend(startAt, endAt),
-    ])
-    return { ...usage, ...ci, total: usage.runners + ci.depotCi + usage.containerBuilds }
+    const usage = await withRetry(() => depotUsageSpend(startAt, endAt))
+    return { ...usage, total: usage.runners + usage.depotCi + usage.containerBuilds }
 }
 
 function contractDates(weekEnd) {
@@ -194,7 +199,7 @@ async function api(action, params) {
     const fail = (detail) => {
         throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
     }
-    // The message never quotes the body, because depot_ci_usage returns billing data.
+    // The message never quotes the body, because it reaches the public Actions log.
     const parsed = await res.json().catch(() => fail('non-JSON response'))
     if (!res.ok) {
         fail(typeof parsed?.detail === 'string' ? parsed.detail : 'request failed')
@@ -331,23 +336,12 @@ function buildBlocks(weekStart, weekEnd, rows, notes) {
 }
 
 function spendNotes(weeks, weekEnd) {
-    if (!weeks) {
+    if (!weeks?.contract) {
         return []
     }
-    const repos = weeks.lastWeek.depotCiRepos
-    const notes = [
-        repos.length
-            ? `Depot CI counts ${repos.join(', ')}.`
-            : 'Depot CI counts no repository, because no Depot source is synced.',
+    return [
+        DRY_RUN ? `Depot contract sentence ${HIDDEN}.` : contractSummary(weeks.contract, weeks.lastWeek.total, weekEnd),
     ]
-    if (weeks.contract) {
-        notes.push(
-            DRY_RUN
-                ? `Depot contract sentence ${HIDDEN}.`
-                : contractSummary(weeks.contract, weeks.lastWeek.total, weekEnd)
-        )
-    }
-    return notes
 }
 
 async function postToSlack(blocks) {
