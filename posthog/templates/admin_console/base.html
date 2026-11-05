@@ -37,15 +37,32 @@
                    href="/admin/">Django admin</a>
             </div>
         </header>
-        <main class="px-6 pt-5 pb-20 @container">
-            {% if messages %}
-                <div class="flex flex-col gap-2 mb-4">
-                    {% for message in messages %}
-                        {% include "admin_console/_message.html" %}
+        <div class="@container">
+            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[200px_1fr]">
+                <nav class="flex flex-col gap-0.5 p-2 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
+                     aria-label="Console">
+                    <p class="mt-2 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Records</p>
+                    <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap"
+                       href="{% url 'admin_console_home' %}">Teams</a>
+                    {% for group, tools in console_tool_groups.items %}
+                        <p class="mt-3 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ group }}</p>
+                        {% for nav_tool in tools %}
+                            <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap"
+                               href="{% url 'admin_console_tool' tool_key=nav_tool.key %}">{{ nav_tool.title }}</a>
+                        {% endfor %}
                     {% endfor %}
-                </div>
-            {% endif %}
-            {% block content %}{% endblock %}
-        </main>
+                </nav>
+                <main class="min-w-0 px-6 pt-5 pb-20 @container">
+                    {% if messages %}
+                        <div class="flex flex-col gap-2 mb-4">
+                            {% for message in messages %}
+                                {% include "admin_console/_message.html" %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {% block content %}{% endblock %}
+                </main>
+            </div>
+        </div>
     </body>
 </html>

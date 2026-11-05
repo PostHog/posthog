@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ from parameterized import parameterized
 from posthog.admin.console.panels import Operation, Owner, Panel
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.llm.gateway_internal_client import CreditResult
+from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 
 from products.workflows.backend.facade.api import get_email_sending_state
 
@@ -59,16 +61,15 @@ class TestAdminConsoleAssets(SimpleTestCase):
             + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
         )
 
-    def test_every_panel_owner_crest_ships(self) -> None:
+    def test_every_owner_crest_ships(self) -> None:
+        owners = [panel.owner for panel in console.panels_for("team")] + [tool.owner for tool in console.tools()]
         missing = sorted(
-            {
-                panel.owner.crest
-                for panel in console.panels_for("team")
-                if not (CONSOLE_ASSETS / "crests" / f"{panel.owner.crest}.svg").is_file()
-            }
+            {owner.crest for owner in owners if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()}
         )
 
-        assert not missing, f"Panel owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
+        assert not missing, (
+            f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
+        )
 
     def test_registering_a_second_panel_with_a_taken_key_fails(self) -> None:
         registry = ConsoleRegistry()
@@ -161,3 +162,20 @@ class TestAdminConsoleViews(BaseTest):
         keys = {call.args[3] for call in add_credit.call_args_list}
         assert add_credit.call_count == 2
         assert len(keys) == 1
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:
+        empty = self.client.get("/admin/console/tools/events-retention/")
+        assert empty.status_code == 200
+        assert "No team has a deletion retention yet" in empty.content.decode()
+
+        OrganizationEventsRetentionConfig.objects.create(
+            organization=self.organization, default_events_retention_months=13
+        )
+        response = self.client.get("/admin/events-retention/", follow=True)
+
+        assert response.redirect_chain == [("/admin/console/tools/events-retention/", 302)]
+        content = response.content.decode()
+        assert f"/admin/console/teams/{self.team.pk}/" in content
+        assert "Organization default" in content
+        assert "September 2025" in content

@@ -1,0 +1,29 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
+{% block content %}
+    <div class="text-xs text-muted-foreground">Tools / {{ tool.group }} /</div>
+    <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
+        <div class="min-w-0">
+            <h1 class="m-0 text-[22px] font-extrabold">{{ tool.title }}</h1>
+            {% if tool.description %}<p class="m-0 mt-1 text-muted-foreground">{{ tool.description }}</p>{% endif %}
+        </div>
+        <div class="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground"
+             title="Owned by {{ tool.owner.name }}">
+            {{ tool.owner.name }}
+            <img class="size-[22px]"
+                 src="/static/admin-console/crests/{{ tool.owner.crest }}.svg"
+                 alt="" />
+        </div>
+    </div>
+    <div class="flex flex-col gap-4">
+        {% for block in page.blocks %}
+            {% if block.kind == "notice" %}
+                <p class="m-0 max-w-3xl text-muted-foreground">{{ block.text }}</p>
+            {% elif block.kind == "table" %}
+                {% include "admin_console/_table.html" with table=block %}
+            {% elif block.kind == "paging" %}
+                {% include "admin_console/_paging.html" with paging=block %}
+            {% endif %}
+        {% endfor %}
+    </div>
+{% endblock %}

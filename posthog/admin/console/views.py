@@ -14,6 +14,7 @@ import structlog
 
 from posthog.admin.console.panels import Fact, Operation, Panel
 from posthog.admin.console.registry import console
+from posthog.admin.console.tools import ConsoleTool
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.models.team.team import Team
@@ -61,11 +62,15 @@ class ConsoleEnvironment:
         return "dev"
 
     @classmethod
-    def context(cls) -> dict[str, str]:
+    def context(cls) -> dict[str, object]:
         key = cls.key()
+        tools_by_group: dict[str, list[ConsoleTool]] = {}
+        for tool in console.tools():
+            tools_by_group.setdefault(tool.group, []).append(tool)
         return {
             "console_env": key,
             "console_env_label": cls.LABELS[key],
+            "console_tool_groups": tools_by_group,
             "console_asset_version": ConsoleAssets.version(),
         }
 
@@ -170,3 +175,15 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
         messages.error(request, f"{operation.label} failed with status {response.status_code}.")
         return redirect(team_url)
     return response
+
+
+def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
+    tool = console.get_tool(tool_key)
+    if tool is None:
+        raise Http404("Unknown console tool")
+    page = tool.page(request)
+    return render(
+        request,
+        "admin_console/tool.html",
+        {**ConsoleEnvironment.context(), "tool": tool, "page": page},
+    )
