@@ -4,7 +4,13 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeMathType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricForm } from './ExperimentMetricForm'
@@ -38,6 +44,10 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
             {dataWarehousePopoverFields.map(({ key }: { key: string }) => key).join(',')}
         </button>
     ),
+}))
+
+jest.mock('lib/monaco/CodeEditorResizable', () => ({
+    CodeEditorResizeable: ({ value }: { value: string }) => <pre>{value}</pre>,
 }))
 
 describe('ExperimentMetricForm', () => {
@@ -137,5 +147,51 @@ describe('ExperimentMetricForm', () => {
             conversion_window: 14,
             conversion_window_unit: FunnelConversionWindowTimeUnit.Day,
         })
+    })
+
+    it('edits a warehouse-native metric and keeps every source warehouse-native when its type changes', async () => {
+        const exposure: ExperimentWarehouseNativeExposureConfig = {
+            kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+            connection_id: 'connection-1',
+            unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+            query: 'SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM billing.exposures',
+        }
+        const source = {
+            kind: NodeKind.ExperimentWarehouseNativeNode as const,
+            connection_id: exposure.connection_id,
+            unit: exposure.unit,
+            query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+            math: ExperimentWarehouseNativeMathType.TotalCount,
+        }
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            uuid: 'metric-1',
+            metric_type: ExperimentMetricType.MEAN,
+            source,
+        }
+        const handleSetMetric = jest.fn()
+
+        const { container } = render(
+            <ExperimentMetricForm
+                metric={metric}
+                handleSetMetric={handleSetMetric}
+                filterTestAccounts={false}
+                exposureCriteria={{ exposure_config: exposure }}
+            />
+        )
+
+        expect(screen.getByText(source.query)).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="experiment-metric-type-funnel"]')).toBeDisabled()
+
+        await userEvent.click(container.querySelector('[data-attr="experiment-metric-type-ratio"]') as HTMLElement)
+
+        expect(handleSetMetric).toHaveBeenCalledWith(
+            expect.objectContaining({
+                uuid: 'metric-1',
+                metric_type: ExperimentMetricType.RATIO,
+                numerator: source,
+                denominator: { ...source, query: '' },
+            })
+        )
     })
 })

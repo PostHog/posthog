@@ -16,6 +16,13 @@ import { ChartDisplayCategory } from '~/types'
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { WarehouseNativeConnectionFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeConnectionFields'
+import { WarehouseNativeQueryEditor } from 'products/experiments/frontend/warehouseNative/WarehouseNativeQueryEditor'
+import {
+    EMPTY_WAREHOUSE_NATIVE_BINDING,
+    getWarehouseNativeExposure,
+    getWarehouseNativeExposureError,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
@@ -41,9 +48,13 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
     // still composes with activation, and the editor must classify it the way the backend does
     const isActivation = !!getActivationConfig(exposureCriteria)
-    const isCustom = !isActivation && !!exposureCriteria?.exposure_config
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const isCustom = !isActivation && !warehouseExposure && !!exposureCriteria?.exposure_config
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationCard = activationEventEnabled || isActivation
+    const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
+    // Keep an existing warehouse-native exposure editable even if the team is no longer flagged in
+    const showWarehouseNativeCard = warehouseNativeEnabled || !!warehouseExposure
 
     return (
         <LemonModal
@@ -70,6 +81,9 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
+                        disabledReason={
+                            warehouseExposure ? getWarehouseNativeExposureError(warehouseExposure) : undefined
+                        }
                     >
                         Save
                     </LemonButton>
@@ -80,7 +94,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                 Exposure determines when a user enters your experiment. Only events that occur after exposure are
                 counted in your metrics.
             </div>
-            <div className="flex gap-4 mb-4">
+            <div className="flex flex-wrap gap-4 mb-4">
                 <SelectableCard
                     title="Default"
                     description={
@@ -89,7 +103,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
-                    selected={!isCustom && !isActivation}
+                    selected={!isCustom && !isActivation && !warehouseExposure}
                     onClick={() => {
                         setExposureCriteria({
                             ...exposureCriteria,
@@ -152,7 +166,60 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         })
                     }}
                 />
+                {showWarehouseNativeCard && (
+                    <SelectableCard
+                        title="Warehouse-native"
+                        description={
+                            <>
+                                Read exposures with a SQL query that runs in your own warehouse. The metrics of the
+                                experiment then run there too, and only aggregated results leave the warehouse.
+                            </>
+                        }
+                        selected={!!warehouseExposure}
+                        data-attr="experiment-exposure-warehouse-native"
+                        onClick={() => {
+                            // Re-clicking the selected card must not reset a configured query
+                            if (warehouseExposure) {
+                                return
+                            }
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                exposure_config: {
+                                    kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                                    ...EMPTY_WAREHOUSE_NATIVE_BINDING,
+                                    query: '',
+                                },
+                                activation_config: undefined,
+                            })
+                        }}
+                    />
+                )}
             </div>
+            {warehouseExposure && (
+                <div className="mb-4 flex flex-col gap-4">
+                    <WarehouseNativeConnectionFields
+                        binding={warehouseExposure}
+                        onChange={(binding) =>
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                exposure_config: { ...warehouseExposure, ...binding },
+                            })
+                        }
+                    />
+                    <WarehouseNativeQueryEditor
+                        label="Exposure query"
+                        hint="Return one row per exposure with the columns entity_id, variant and timestamp. PostHog keeps the first exposure of each unit."
+                        query={warehouseExposure.query}
+                        onChange={(query) =>
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                exposure_config: { ...warehouseExposure, query },
+                            })
+                        }
+                        data-attr="experiment-warehouse-native-exposure-query"
+                    />
+                </div>
+            )}
             {isCustom && exposureCriteria?.exposure_config && (
                 <div className="mb-4">
                     <SeriesActionFilter
@@ -251,16 +318,19 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
                     </div>
                 </div>
-                <TestAccountFilterSwitch
-                    checked={hasFilters && resolveFilterTestAccounts(exposureCriteria)}
-                    onChange={(checked: boolean) => {
-                        setExposureCriteria({
-                            ...exposureCriteria,
-                            filterTestAccounts: checked,
-                        })
-                    }}
-                    fullWidth
-                />
+                {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+                {!warehouseExposure && (
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && resolveFilterTestAccounts(exposureCriteria)}
+                        onChange={(checked: boolean) => {
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                filterTestAccounts: checked,
+                            })
+                        }}
+                        fullWidth
+                    />
+                )}
             </div>
         </LemonModal>
     )

@@ -9,6 +9,8 @@ import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experim
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { getWarehouseNativeMetricError } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
+
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
@@ -75,6 +77,7 @@ export function ExperimentMetricModal({
                             onClick={() => onSave(metric, context)}
                             type="primary"
                             data-attr="save-experiment-metric"
+                            disabledReason={getWarehouseNativeMetricError(metric) ?? undefined}
                         >
                             {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>
