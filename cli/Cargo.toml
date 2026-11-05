@@ -74,6 +74,8 @@ urlencoding = "2.1.3"
 url = "2"
 rayon = "1.11.0"
 similar = "2.7"
+# With this feature, `open::that_detached` on Windows calls ShellExecuteExW. Without it, it runs
+# `cmd /c start` and cmd parses the URL. WebUrl::open_in_browser relies on the feature.
 open = { version = "5", features = ["shellexecute-on-windows"] }
 zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 tempfile = "3"

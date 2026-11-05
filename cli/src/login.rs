@@ -419,4 +419,18 @@ mod tests {
             assert!(parse(url).is_err(), "{url} should be rejected");
         }
     }
+
+    #[test]
+    fn verification_url_keeps_the_server_code_and_adds_the_use_cases() {
+        let url =
+            WebUrl::try_from("https://us.posthog.com/cli/authorize?code=ABCD-1234".to_string())
+                .unwrap();
+
+        assert_eq!(
+            url.with_query_pair("use_cases", &DEFAULT_LOGIN_USE_CASES.join(","))
+                .unwrap()
+                .to_string(),
+            "https://us.posthog.com/cli/authorize?code=ABCD-1234&use_cases=agent-cli"
+        );
+    }
 }

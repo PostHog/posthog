@@ -32,9 +32,8 @@ impl WebUrl {
         Self::new(self.0)
     }
 
-    /// `open::that` runs `cmd /c start` on Windows, and cmd parses the URL as shell syntax.
-    /// `open::that_detached` with the `shellexecute-on-windows` feature calls ShellExecuteExW
-    /// instead, so cmd does not see the URL.
+    /// Only `that_detached` uses the `shellexecute-on-windows` feature in Cargo.toml.
+    /// The other `open` functions run `cmd /c start` on Windows.
     #[allow(clippy::disallowed_methods)]
     pub fn open_in_browser(&self) -> Result<()> {
         open::that_detached(self.0.as_str()).context("Failed to open browser")
