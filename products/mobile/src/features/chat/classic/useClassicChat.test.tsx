@@ -464,4 +464,26 @@ describe('classic chat transport', () => {
             expect(getConversation).toHaveBeenCalledWith(saved.id, expect.any(AbortSignal))
         }
     )
+    test('reports acceptance before the reply finishes', async () => {
+        let finish!: () => void
+        jest.mocked(readSse).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+        )
+        const accepted = jest.fn(async () => undefined)
+        const { result } = renderHook(() => useClassicChat(), { wrapper })
+        let sending!: Promise<boolean>
+        act(() => {
+            sending = result.current.send('A question', accepted)
+        })
+        await waitFor(() => expect(readSse).toHaveBeenCalled())
+        expect(accepted).toHaveBeenCalledTimes(1)
+        expect(result.current.working).toBe(true)
+        await act(async () => {
+            finish()
+            expect(await sending).toBe(true)
+        })
+    })
 })

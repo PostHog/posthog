@@ -29,6 +29,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         enabled: mode === 'live' && !!scope && !!conversationId && !newChat,
         retry: false,
     })
+    const detail = conversation.isFetchedAfterMount ? conversation.data : undefined
     const restart = (): void => {
         setNewChat(true)
         setGeneration((value) => value + 1)
@@ -46,18 +47,13 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
             />
         )
     if (conversationId && !newChat) {
-        if (conversation.data && (conversation.data.agent_runtime !== 'sandbox' || conversation.data.task)) {
-            return conversation.data.agent_runtime === 'sandbox' && conversation.data.task ? (
-                <ChatScreen
-                    {...props}
-                    initialTaskId={conversation.data.task.id}
-                    initialRunId={undefined}
-                    onNewChat={restart}
-                />
+        if (detail && (detail.agent_runtime !== 'sandbox' || detail.task)) {
+            return detail.agent_runtime === 'sandbox' && detail.task ? (
+                <ChatScreen {...props} initialTaskId={detail.task.id} initialRunId={undefined} onNewChat={restart} />
             ) : (
                 <ClassicChatScreen
                     conversationId={conversationId}
-                    initialConversation={conversation.data}
+                    initialConversation={detail}
                     source={props.source}
                     autoFocus={props.autoFocus ?? false}
                     onBack={props.onBack}
@@ -67,10 +63,10 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         }
         return (
             <View style={styles.screen}>
-                {conversation.isError || conversation.data ? (
+                {conversation.isError || detail ? (
                     <StateView
                         icon={<WarningIcon size={iconSizes.empty} />}
-                        title={conversation.data ? 'This chat is not ready yet' : "Couldn't load this chat"}
+                        title={detail ? 'This chat is not ready yet' : "Couldn't load this chat"}
                         actionLabel="Try again"
                         onAction={() => void conversation.refetch()}
                     />

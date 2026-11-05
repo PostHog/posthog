@@ -31,7 +31,7 @@ export function useClassicChat(
     working: boolean
     stopping: boolean
     error: string | null
-    send: (text: string) => Promise<boolean>
+    send: (text: string, onAccepted?: () => Promise<void>) => Promise<boolean>
     answer: (approved: boolean) => Promise<boolean>
     form: ClassicForm | null
     submitForm: (answers: Record<string, string | string[]>) => Promise<boolean>
@@ -75,7 +75,8 @@ export function useClassicChat(
             resumePayload?:
                 | { proposal_id: string; action: 'approve' | 'reject' }
                 | { action: 'form'; form_answers: Record<string, string | string[]> }
-                | { action: 'dismiss_form' }
+                | { action: 'dismiss_form' },
+            onAccepted?: () => Promise<void>
         ): Promise<boolean> => {
             const generation = epoch.current
             const active = (): boolean =>
@@ -114,6 +115,7 @@ export function useClassicChat(
                     abort.signal
                 )
                 accepted = true
+                await onAccepted?.()
                 if (!active()) return true
                 idRef.current = conversation
                 setId(conversation)
@@ -270,7 +272,7 @@ export function useClassicChat(
         working,
         stopping,
         error: error ?? state.error,
-        send: (text) => stream(text),
+        send: (text, onAccepted) => stream(text, undefined, onAccepted),
         answer: (approved) =>
             state.approval
                 ? stream(null, { proposal_id: state.approval.id, action: approved ? 'approve' : 'reject' })

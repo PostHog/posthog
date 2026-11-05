@@ -93,8 +93,12 @@ export function ClassicChatScreen({
                 await settle(false)
                 return
             }
-            const accepted = await chat.send(text)
-            await settle(accepted)
+            let settled = false
+            const accepted = await chat.send(text, async () => {
+                await settle(true)
+                settled = true
+            })
+            if (!settled) await settle(accepted)
             if (accepted) {
                 events.countSent()
                 track('mobile_session_sent', { agent_runtime: 'langgraph', conversation_id: chat.id })

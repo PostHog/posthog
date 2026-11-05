@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 
 import { useChatDraft } from '../useChatDraft'
 import { ClassicChatScreen } from './ClassicChatScreen'
@@ -123,5 +123,48 @@ describe('classic chat draft recovery', () => {
         })
         expect(send).not.toHaveBeenCalled()
         expect(settle).toHaveBeenCalledWith(false)
+    })
+    test('settles an accepted draft while the reply is still streaming', async () => {
+        const settle = jest.fn(async () => undefined)
+        let finish!: (accepted: boolean) => void
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: 'A question', reportIds: [] },
+            ready: true,
+            beginSend: async () => settle,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        jest.mocked(useClassicChat).mockReturnValue({
+            id: null,
+            loading: false,
+            working: false,
+            historyError: null,
+            stopping: false,
+            error: null,
+            state: { messages: [], approval: null, title: null, progress: null, error: null },
+            answer: jest.fn(),
+            stop: jest.fn(),
+            reload: jest.fn(),
+            reset: jest.fn(),
+            dismissError: jest.fn(),
+            send: async (_text, onAccepted) => {
+                await onAccepted?.()
+                return new Promise((resolve) => {
+                    finish = resolve
+                })
+            },
+        })
+        render(
+            <ClassicChatScreen
+                source={{ entry: 'compose', origin: null }}
+                autoFocus={false}
+                onBack={jest.fn()}
+                onNewChat={jest.fn()}
+            />
+        )
+        fireEvent.press(screen.getByTestId('chat-send'))
+        await waitFor(() => expect(settle).toHaveBeenCalledWith(true))
+        await act(async () => {
+            finish(true)
+        })
+        expect(settle).toHaveBeenCalledTimes(1)
     })
 })

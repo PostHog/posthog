@@ -1,5 +1,5 @@
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react-native'
+import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import type { ReactElement } from 'react'
 
 import { getConversation } from '@/api/conversations'
@@ -34,21 +34,28 @@ jest.mock('./classic/ClassicChatScreen', () => {
     return {
         ClassicChatScreen: ({
             conversationId,
+            initialConversation,
             onNewChat,
         }: {
             conversationId?: string
+            initialConversation?: { title: string | null }
             onNewChat: () => void
         }): ReactElement => (
             <View testID="classic">
                 <Text>{conversationId}</Text>
+                <Text>{initialConversation?.title}</Text>
                 <Button title="New" onPress={onNewChat} />
             </View>
         ),
     }
 })
 
-function open(props: Partial<React.ComponentProps<typeof ChatEntryScreen>> = {}): void {
+function open(
+    props: Partial<React.ComponentProps<typeof ChatEntryScreen>> = {},
+    seed?: (client: QueryClient) => void
+): void {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+    seed?.(client)
     render(
         <QueryClientProvider client={client}>
             <ChatEntryScreen
@@ -149,5 +156,29 @@ describe('mobile AI runtime selection', () => {
         expect(screen.queryByText('demo-task')).toBeNull()
         expect(screen.getByTestId('sandbox')).toBeTruthy()
         expect(getConversation).not.toHaveBeenCalled()
+    })
+    test('waits for refreshed history before mounting a cached classic chat', async () => {
+        let refresh!: (value: Awaited<ReturnType<typeof getConversation>>) => void
+        jest.mocked(getConversation).mockReturnValueOnce(
+            new Promise((resolve) => {
+                refresh = resolve
+            })
+        )
+        open({ conversationId: 'saved-chat' }, (client) => {
+            client.setQueryData(['chat-conversation', 'https://us.posthog.com', 42, 'saved-chat'], {
+                id: 'saved-chat',
+                title: 'Old history',
+                agent_runtime: 'langgraph',
+            })
+        })
+        expect(screen.queryByTestId('classic')).toBeNull()
+        await act(async () => {
+            refresh({ id: 'saved-chat', title: 'Updated history', agent_runtime: 'langgraph' } as Awaited<
+                ReturnType<typeof getConversation>
+            >)
+        })
+        await screen.findByText('Updated history')
+        expect(screen.queryByText('Old history')).toBeNull()
+        expect(getConversation).toHaveBeenCalledTimes(1)
     })
 })
