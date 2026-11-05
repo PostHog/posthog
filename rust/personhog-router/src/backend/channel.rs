@@ -1,9 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tonic::transport::{Channel, Endpoint};
 use tracing::info;
 
+use crate::backend::affinity::PodChannels;
 use crate::backend::discovery::DiscoveryReadiness;
 use crate::config::{Http2Windows, RetryConfig};
 
@@ -15,6 +17,7 @@ pub struct ChannelBackend {
     next_idx: AtomicUsize,
     retry_config: RetryConfig,
     readiness: Option<DiscoveryReadiness>,
+    pods: Option<Arc<PodChannels>>,
 }
 
 #[derive(Clone)]
@@ -67,6 +70,7 @@ impl ChannelBackend {
             next_idx: AtomicUsize::new(0),
             retry_config: config.retry_config,
             readiness: None,
+            pods: None,
         }
     }
 
@@ -87,7 +91,13 @@ impl ChannelBackend {
             next_idx: AtomicUsize::new(0),
             retry_config,
             readiness: Some(readiness),
+            pods: None,
         }
+    }
+
+    pub fn with_pods(mut self, pods: Arc<PodChannels>) -> Self {
+        self.pods = Some(pods);
+        self
     }
 
     pub fn role(&self) -> &'static str {
@@ -97,6 +107,24 @@ impl ChannelBackend {
     pub fn channel(&self) -> Channel {
         let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.channels.len();
         self.channels[idx].clone()
+    }
+
+    /// Best effort: without a key or a known pod, the balanced channel serves the request.
+    pub fn channel_for(&self, affinity_key: Option<&[u8]>) -> Channel {
+        let Some(key) = affinity_key else {
+            return self.channel();
+        };
+        let (outcome, channel) = match self.pods.as_ref().and_then(|pods| pods.pick(key)) {
+            Some(channel) => ("pinned", channel),
+            None => ("unpinned", self.channel()),
+        };
+        metrics::counter!(
+            "personhog_router_affinity_picks_total",
+            "role" => self.role,
+            "outcome" => outcome,
+        )
+        .increment(1);
+        channel
     }
 
     pub fn retry_config(&self) -> &RetryConfig {

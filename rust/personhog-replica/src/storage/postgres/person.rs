@@ -30,6 +30,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_id: i64,
+        include_properties: bool,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
         let method = current_method_name();
@@ -46,9 +47,10 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
+            SELECT id, uuid, team_id::bigint as "team_id!",
+                   CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
+                   CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -56,7 +58,8 @@ impl PersonLookup for PostgresStorage {
             WHERE team_id = $1 AND id = $2 AND is_deleted = false
             "#,
             team_id as i32,
-            person_id
+            person_id,
+            include_properties
         )
         .fetch_optional(&mut *conn)
         .await?;
@@ -64,7 +67,12 @@ impl PersonLookup for PostgresStorage {
         Ok(row)
     }
 
-    async fn get_person_by_uuid(&self, team_id: i64, uuid: Uuid) -> StorageResult<Option<Person>> {
+    async fn get_person_by_uuid(
+        &self,
+        team_id: i64,
+        uuid: Uuid,
+        include_properties: bool,
+    ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
         let method = current_method_name();
         let labels = [
@@ -80,9 +88,10 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
+            SELECT id, uuid, team_id::bigint as "team_id!",
+                   CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
+                   CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    created_at, version, is_identified,
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
@@ -90,7 +99,8 @@ impl PersonLookup for PostgresStorage {
             WHERE team_id = $1 AND uuid = $2 AND is_deleted = false
             "#,
             team_id as i32,
-            uuid
+            uuid,
+            include_properties
         )
         .fetch_optional(&mut *conn)
         .await?;
@@ -252,6 +262,7 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         distinct_id: &str,
+        include_properties: bool,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
         let method = current_method_name();
@@ -271,9 +282,10 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!",
+                   CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
+                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at
@@ -284,7 +296,8 @@ impl PersonLookup for PostgresStorage {
             LIMIT 1
             "#,
             team_id as i32,
-            distinct_id
+            distinct_id,
+            include_properties
         )
         .fetch_optional(&mut *conn)
         .await?;

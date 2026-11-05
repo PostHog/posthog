@@ -13,10 +13,19 @@ use crate::storage::types::{
 pub trait PersonLookup: Send + Sync {
     // Lookups by ID/UUID
 
-    async fn get_person_by_id(&self, team_id: i64, person_id: i64)
-        -> StorageResult<Option<Person>>;
+    async fn get_person_by_id(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        include_properties: bool,
+    ) -> StorageResult<Option<Person>>;
 
-    async fn get_person_by_uuid(&self, team_id: i64, uuid: Uuid) -> StorageResult<Option<Person>>;
+    async fn get_person_by_uuid(
+        &self,
+        team_id: i64,
+        uuid: Uuid,
+        include_properties: bool,
+    ) -> StorageResult<Option<Person>>;
 
     async fn get_persons_by_ids(
         &self,
@@ -38,6 +47,7 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         distinct_id: &str,
+        include_properties: bool,
     ) -> StorageResult<Option<Person>>;
 
     async fn get_persons_by_distinct_ids_in_team(
