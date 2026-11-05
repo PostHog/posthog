@@ -7,7 +7,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Node.js
 
 - **Package:** `posthog-node`, version `<release>` or later.
-- **Client:** `new PostHog(projectToken, { host, secretKey })`. Behind a reverse proxy or on a self-hosted instance, set `appHost` to the PostHog app URL. The client polls feature flag definitions with the secret key, so a client that only sends email sets `enableLocalEvaluation: false`, unless the key also has the feature flag read scope.
+- **Client:** `new PostHog(projectToken, { host, secretKey })`. On a self-hosted instance, set `appHost` to the PostHog app URL. The client polls feature flag definitions with the secret key, so a client that only sends email sets `enableLocalEvaluation: false`, unless the key also has the feature flag read scope.
 - **Code send:** `posthog.emails.send({ templateKey, to, subject, html, text, distinctId, idempotencyKey })`, with `from`, `replyTo` and `captureEngagement` optional.
 - **Template send:** `posthog.emails.send({ to, templateId, templateData, distinctId, idempotencyKey })`.
 - **Result:** `{ data, error }`. It doesn't throw on an API error. `data.id` is the message ID, and `error.code` is the error code.
@@ -16,7 +16,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Python
 
 - **Package:** `posthog` (`posthog[async]` for `AsyncPosthog`), version `<release>` or later.
-- **Client:** `Posthog(project_token, host=..., secret_key=...)`. Behind a reverse proxy or on a self-hosted instance, set `app_host`. The client loads flag definitions only when it evaluates a flag.
+- **Client:** `Posthog(project_token, host=..., secret_key=...)`. On a self-hosted instance, set `app_host`. With the secret key set, the client loads flag definitions from its host with it when it evaluates a flag.
 - **Code send:** `posthog.emails.send(template_key=..., to=..., subject=..., html=..., text=..., distinct_id=..., idempotency_key=...)`, with `from_`, `reply_to` and `capture_engagement` optional.
 - **Template send:** `posthog.emails.send(to=..., template_id=..., template_data=..., distinct_id=..., idempotency_key=...)`.
 - **Result:** a `SendEmailResult` with `id`. It raises `EmailError`, imported from `posthog.emails`, with `code`.
@@ -25,7 +25,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Go
 
 - **Package:** `github.com/posthog/posthog-go`, version `<release>` or later.
-- **Client:** `posthog.NewWithConfig(projectToken, posthog.Config{Endpoint: ..., SecretKey: ...})`. Behind a reverse proxy or on a self-hosted instance, set `AppHost`. With `SecretKey` set, the client polls flag definitions with it, so give the key the feature flag read scope too, or it logs a failed poll each time.
+- **Client:** `posthog.NewWithConfig(projectToken, posthog.Config{Endpoint: ..., SecretKey: ...})`. On a self-hosted instance, set `AppHost`. With `SecretKey` set, the client polls flag definitions with it, so give the key the feature flag read scope too, or it logs a failed poll each time.
 - **Code send:** `client.Emails().Send(ctx, posthog.CodeEmail{To, TemplateKey, Subject, HTML, Text, DistinctID, IdempotencyKey})`, with `From`, `ReplyTo` and `CaptureEngagement` (`posthog.Ptr(false)`) optional.
 - **Template send:** `client.Emails().Send(ctx, posthog.TemplateEmail{To, TemplateID, TemplateData, DistinctID, IdempotencyKey})`.
 - **Result:** a `*posthog.SendEmailResult` with `ID`, and an error that is a `*posthog.EmailError` with `Code`.
@@ -34,7 +34,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Ruby
 
 - **Package:** the `posthog-ruby` gem, version `<release>` or later.
-- **Client:** `PostHog::Client.new({ api_key: ..., host: ..., secret_key: ... })`. Behind a reverse proxy or on a self-hosted instance, set `app_host`. With `secret_key` set, the client loads flag definitions with it when it starts, so give the key the feature flag read scope too.
+- **Client:** `PostHog::Client.new({ api_key: ..., host: ..., secret_key: ... })`. On a self-hosted instance, set `app_host`. With `secret_key` set, the client loads flag definitions with it when it starts, so give the key the feature flag read scope too.
 - **Code send:** `client.emails.send(to:, template_key:, subject:, html:, text:, distinct_id:, idempotency_key:)`, with `from:`, `reply_to:` and `capture_engagement:` optional.
 - **Template send:** `client.emails.send(to:, template_id:, template_data:, distinct_id:, idempotency_key:)`.
 - **Result:** a `SendResult` with `id`. It raises `PostHog::EmailError`, with `code`.
@@ -43,7 +43,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## PHP
 
 - **Package:** `posthog/posthog-php` with Composer, version `<release>` or later.
-- **Client:** `PostHog::init($projectToken, ['host' => ...], secretKey: ...)`. Behind a reverse proxy or on a self-hosted instance, set the `app_host` option. With `secretKey` set, the client loads flag definitions with it when it starts: give the key the feature flag read scope too, or build the client with `loadFeatureFlags: false` in a process that only sends email.
+- **Client:** `PostHog::init($projectToken, ['host' => ...], secretKey: ...)`. On a self-hosted instance, set the `app_host` option. With `secretKey` set, the client loads flag definitions with it when it starts: give the key the feature flag read scope too, or build the client with `loadFeatureFlags: false` in a process that only sends email.
 - **Code send:** `PostHog::emails()->send(['to' => ..., 'template_key' => ..., 'subject' => ..., 'html' => ..., 'text' => ..., 'distinct_id' => ..., 'idempotency_key' => ...])`, with `'from'`, `'reply_to'` and `'capture_engagement'` optional.
 - **Template send:** `PostHog::emails()->send(['to' => ..., 'template_id' => ..., 'template_data' => [...], 'distinct_id' => ..., 'idempotency_key' => ...])`.
 - **Result:** a `SendEmailResult`, with `getId()`. It throws `PostHog\EmailError`, with `getErrorCode()`.
@@ -52,7 +52,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## .NET
 
 - **Package:** `PostHog` on NuGet, version `<release>` or later.
-- **Client:** set `SecretKey` on `PostHogOptions`. With ASP.NET's `builder.AddPostHog()`, set `PostHog:SecretKey` in configuration and inject `IPostHogEmails`. Otherwise use `posthog.Emails` on a `PostHogClient`. Behind a reverse proxy or on a self-hosted instance, set `AppHost`. The client loads flag definitions only when it evaluates a flag.
+- **Client:** set `SecretKey` on `PostHogOptions`. With ASP.NET's `builder.AddPostHog()`, set `PostHog:SecretKey` in configuration and inject `IPostHogEmails`. Otherwise use `posthog.Emails` on a `PostHogClient`. On a self-hosted instance, set `AppHost`. With the secret key set, the client loads flag definitions from its host with it when it evaluates a flag.
 - **Code send:** `await emails.SendAsync(new SendCodeEmailOptions { To, TemplateKey, Subject, Html, Text, DistinctId, IdempotencyKey })`, with `From`, `ReplyTo` and `CaptureEngagement` optional.
 - **Template send:** `await emails.SendAsync(new SendTemplateEmailOptions { To, TemplateId, TemplateData, DistinctId, IdempotencyKey })`.
 - **Result:** a `SendEmailResult` with `Id`. It throws `EmailException`, with `Code`.
@@ -61,7 +61,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Rust
 
 - **Package:** the `posthog-rs` crate, version `<release>` or later.
-- **Client:** `ClientOptionsBuilder::default().api_key(...).host(...).secret_key(...)`. Behind a reverse proxy or on a self-hosted instance, set `app_host`. The client loads flag definitions only with `enable_local_evaluation` on.
+- **Client:** `ClientOptionsBuilder::default().api_key(...).host(...).secret_key(...)`. On a self-hosted instance, set `app_host`. The client loads flag definitions only with `enable_local_evaluation` on.
 - **Code send:** `posthog.emails().send(CodeEmail::new(to, template_key, subject).html(...).text(...).distinct_id(...).idempotency_key(...))`, with `.from(...)`, `.reply_to(...)` and `.capture_engagement(false)` optional.
 - **Template send:** `posthog.emails().send(TemplateEmail::new(to, template_id).template_data(...).distinct_id(...).idempotency_key(...))`.
 - **Result:** a `SendEmailResult` with `id`, or a `posthog_rs::EmailError`, with `code()`.
@@ -70,7 +70,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 ## Elixir
 
 - **Package:** `posthog` from Hex, in `mix.exs`, version `<release>` or later.
-- **Client:** set `secret_key` in the `:posthog` config, next to `api_host` and `api_key`. Behind a reverse proxy or on a self-hosted instance, set `app_host`. With `secret_key` set, the SDK loads flag definitions with it when it starts: give the key the feature flag read scope too, or set `enable_local_evaluation: false`.
+- **Client:** set `secret_key` in the `:posthog` config, next to `api_host` and `api_key`. On a self-hosted instance, set `app_host`. With `secret_key` set, the SDK loads flag definitions with it when it starts: give the key the feature flag read scope too, or set `enable_local_evaluation: false`.
 - **Code send:** `PostHog.Emails.send(to: ..., template_key: ..., subject: ..., html: ..., text: ..., distinct_id: ..., idempotency_key: ...)`, with `from:`, `reply_to:` and `capture_engagement:` optional.
 - **Template send:** `PostHog.Emails.send(to: ..., template_id: ..., template_data: %{...}, distinct_id: ..., idempotency_key: ...)`.
 - **Result:** `{:ok, result}` with `result.id`, or `{:error, %PostHog.Emails.Error{}}`, with `code`.
