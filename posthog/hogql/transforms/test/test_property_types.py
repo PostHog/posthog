@@ -36,6 +36,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
@@ -140,6 +141,22 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("extract", "JSONExtractString(properties, '')"),
+            ("has", "JSONHas(properties, '')"),
+            ("property", "properties['']"),
+            ("nested_property", "properties.parent[''].child"),
+            ("numeric", "toFloat(properties[''])"),
+            ("person", "JSONExtract(poe.properties, '', 'String')"),
+            ("wrapped", "JSONExtractString(toString(properties), '')"),
+        ]
+    )
+    def test_empty_property_keys_do_not_print_empty_identifiers(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert ".``" not in printed
+        assert "getSubcolumn(" in printed
+
     def test_json_function_rewrites_ignore_property_metadata(self) -> None:
         printed = self._print_select(
             "SELECT JSONExtractRaw(properties, 'value') AS value FROM events",
@@ -612,39 +629,57 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
-    def test_json_function_conversions_and_defaults_match_the_blob(self) -> None:
-        documents = [
-            "{}",
-            '{"value":null}',
-            '{"value":""}',
-            '{"value":"hello"}',
-            '{"value":"2.5"}',
-            '{"value":"1e3"}',
-            '{"value":true}',
-            '{"value":false}',
-            '{"value":1.5}',
-            '{"value":2.0}',
-            '{"value":1e21}',
-            '{"value":-1.5e-7}',
-            '{"value":-2}',
-            '{"value":0}',
-            '{"value":[1,"two"]}',
-            '{"value":{"name":"example"}}',
+    @parameterized.expand(
+        [
+            ("ordinary", ["value"]),
+            ("empty", [""]),
+            ("empty_first", ["", "child"]),
+            ("empty_middle", ["parent", "", "child"]),
+            ("empty_last", ["parent", ""]),
+            ("nested_percent", ["parent", "value%"]),
+            ("empty_then_backtick", ["", "tick`key"]),
+            ("percent_then_backtick", ["percent%", "tick`key"]),
+            ("empty_then_backslash_backtick", ["", "slash\\`key"]),
+            ("empty_then_control", ["", "line\nbreak\tkey"]),
         ]
+    )
+    def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
+        values = [
+            "null",
+            '""',
+            '"hello"',
+            '"2.5"',
+            '"1e3"',
+            "true",
+            "false",
+            "1.5",
+            "2.0",
+            "1e21",
+            "-1.5e-7",
+            "-2",
+            "0",
+            '[1,"two"]',
+            '{"name":"example"}',
+        ]
+        # Wrap the raw value text, because re-serializing it would rewrite number tokens such as `1e21`.
+        prefix = "".join(f"{{{json.dumps(key)}:" for key in keys)
+        suffix = "}" * len(keys)
+        documents = ["{}", *(prefix + value + suffix for value in values)]
+        path = ", ".join(escape_hogql_string(key) for key in keys)
         expressions = [
-            "JSONExtractString(properties, 'value')",
-            "JSONExtractInt(properties, 'value')",
-            "JSONExtractUInt(properties, 'value')",
-            "JSONExtractFloat(properties, 'value')",
-            "JSONExtractBool(properties, 'value')",
-            "JSONExtract(properties, 'value', 'Nullable(Int64)')",
-            "JSONExtract(properties, 'value', 'Nullable(Bool)')",
-            "JSONExtract(properties, 'value', 'String')",
-            "JSONExtract(properties, 'value', 'Nullable(String)')",
-            "JSONExtract(properties, 'value', 'Float64')",
-            "JSONExtract(properties, 'value', 'Nullable(Float64)')",
-            "JSONLength(properties, 'value')",
-            "JSONType(properties, 'value')",
+            f"JSONExtractString(properties, {path})",
+            f"JSONExtractInt(properties, {path})",
+            f"JSONExtractUInt(properties, {path})",
+            f"JSONExtractFloat(properties, {path})",
+            f"JSONExtractBool(properties, {path})",
+            f"JSONExtract(properties, {path}, 'Nullable(Int64)')",
+            f"JSONExtract(properties, {path}, 'Nullable(Bool)')",
+            f"JSONExtract(properties, {path}, 'String')",
+            f"JSONExtract(properties, {path}, 'Nullable(String)')",
+            f"JSONExtract(properties, {path}, 'Float64')",
+            f"JSONExtract(properties, {path}, 'Nullable(Float64)')",
+            f"JSONLength(properties, {path})",
+            f"JSONType(properties, {path})",
         ]
         query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
         results = []
