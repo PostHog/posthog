@@ -48016,8 +48016,6 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
-      /** Whether the pull request was closed without a merge. A new cleanup pull request can then be opened. */
-      pr_closed: boolean;
       /**
          * Why the run failed, when it failed.
          * @nullable

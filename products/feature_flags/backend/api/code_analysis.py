@@ -147,9 +147,6 @@ class FeatureFlagCodeCleanupRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The draft pull request the run opened. Null while it runs, or when it found no code to remove.",
     )
-    pr_closed = serializers.BooleanField(
-        help_text="Whether the pull request was closed without a merge. A new cleanup pull request can then be opened."
-    )
     error_message = serializers.CharField(allow_null=True, help_text="Why the run failed, when it failed.")
     can_view_task = serializers.BooleanField(
         help_text="Whether the requesting user can open the task. Hide the task link from everyone else."

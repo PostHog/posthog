@@ -18,9 +18,9 @@ export interface FeatureFlagCodeCleanupPanelProps {
     onCheckStatus: () => void
 }
 
-// Mirrors the server: a run in progress, or one whose pull request is still open or merged, blocks another request.
+// Mirrors the server: only a run in progress blocks another request. An earlier pull request may have been closed.
 function blocksNewRequest(run: FeatureFlagCodeCleanupRunApi | null): boolean {
-    return !!run && (!run.is_terminal || (!!run.pr_url && !run.pr_closed))
+    return !!run && !run.is_terminal
 }
 
 function outcomeLabel(outcome: string, suggestedOutcome: string | null): string {
@@ -76,18 +76,6 @@ export function FeatureFlagCodeCleanupPanel({
                     <span className="text-secondary">You can leave this page and come back.</span>
                     {taskLink}
                 </div>
-            ) : run?.pr_url && run.pr_closed ? (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'View pull request',
-                        to: run.pr_url,
-                        targetBlank: true,
-                        'data-attr': 'feature-flag-code-cleanup-pr-link',
-                    }}
-                >
-                    The cleanup pull request was closed without a merge.
-                </LemonBanner>
             ) : run?.run_status === 'completed' && run.pr_url ? (
                 <LemonBanner
                     type="success"
