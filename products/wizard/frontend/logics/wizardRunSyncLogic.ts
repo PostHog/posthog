@@ -61,7 +61,7 @@ export interface wizardRunSyncLogicProps {
     projectId: string
 }
 
-interface WizardRunDataOptions {
+export interface WizardRunDataOptions {
     tasksOnly?: boolean
     force?: boolean
 }
