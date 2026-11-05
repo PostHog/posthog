@@ -974,11 +974,8 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
-    # Refused before the fetch so that PostHog sends no request to the host. Clients that already
-    # exist keep their background refresh, because creation and registration are the only gates.
-    if is_throwaway_host(url) and (
-        register_provisioning or not OAuthApplication.objects.filter(client_id=url).exists()
-    ):
+    # Refused before the fetch so that PostHog sends no request to the host.
+    if is_throwaway_host(url):
         capture_ph_event(
             distinct_id=url,
             event="cimd_throwaway_host_refused",

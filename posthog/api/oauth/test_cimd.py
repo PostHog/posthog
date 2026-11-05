@@ -395,6 +395,25 @@ class TestFetchCimdMetadata(SimpleTestCase):
 
 @mock_anti_ssrf_dns_lookup()
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_refresh_of_an_existing_client_on_a_throwaway_host_is_refused(self, mock_get, _url_mock):
+        url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+        OAuthApplication.objects.create(
+            name="Existing client",
+            client_id=url,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+        )
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(url)
+
+        mock_get.assert_not_called()
+
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
