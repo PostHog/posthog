@@ -1998,10 +1998,10 @@ class GenericEmails:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
-        at_location = email.find("@")
-        if at_location == -1:
+        _, separator, domain = email.rpartition("@")
+        if not separator:
             return False
-        return self.is_generic_domain(email[(at_location + 1) :])
+        return self.is_generic_domain(domain)
 
     def is_generic_domain(self, domain: str) -> bool:
         return self.emails.get(domain, False)
