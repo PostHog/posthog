@@ -408,6 +408,7 @@ Both modes skip a worktree where `cargo` or `rustc` is running.
 
 Flox activation also runs this once a day in the background: `--mode deps` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
 It skips worktrees with uncommitted or unpushed work and keeps every branch.
+Commits that landed through a squash merge do not count as unpushed: hogli matches the branch's diff against the squash commit, and asks the GitHub CLI for the merged pull request when that fails.
 Set `POSTHOG_WORKTREES_AUTOCLEAN=0` to turn it off.
 The output goes to `.flox/cache/worktrees-clean.log` in the checkout that ran it.
 
