@@ -5,7 +5,7 @@ import { ChannelDTOApi } from '../generated/api.schemas'
 import { SpaceComposerRepositoryConfig } from './spaceSceneLogic'
 
 const SPACE_COMPOSER_OVERRIDE = {
-    placeholder: 'What do you want to ship?',
+    placeholder: 'Ask a question',
     hideSuggestions: true,
     hideRecentTasks: true,
     hideOnboardingReplay: true,
