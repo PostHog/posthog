@@ -32,7 +32,7 @@ function exportBody(id: number, fields: Record<string, unknown> = {}): Record<st
         export_format: 'video/mp4',
         created_at: new Date(Date.now() - 60_000).toISOString(),
         has_content: false,
-        export_context: { session_recording_id: 's-1' },
+        export_context: { session_recording_id: 's-1', timestamp: 0, duration: 120 },
         filename: 'replay-s-1',
         expires_after: null,
         exception: null,
@@ -74,7 +74,12 @@ describe('useReplayVideo', () => {
                       results: [
                           exportBody(3, {
                               has_content: true,
-                              export_context: { session_recording_id: 's-1', video_duration_s: 40 },
+                              export_context: {
+                                  session_recording_id: 's-1',
+                                  timestamp: 0,
+                                  duration: 120,
+                                  video_duration_s: 40,
+                              },
                           }),
                       ],
                   })

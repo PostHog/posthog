@@ -1,6 +1,5 @@
-import { useEventListener } from 'expo'
 import { useVideoPlayer, VideoView } from 'expo-video'
-import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, Modal, Platform, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -22,6 +21,7 @@ import {
 } from '../replayAnalytics'
 import { formatOffset } from '../sessionAdapters'
 import { type ReplayVideoState, type UseReplayVideo, useReplayVideo } from './useReplayVideo'
+import { useReplayVideoSource } from './useReplayVideoSource'
 import { videoSecondsForSessionSeconds } from './videoTime'
 
 interface ReplayVideoPlayerProps {
@@ -85,6 +85,14 @@ function VideoBody({
     // Tied to the state that failed, so the old source never plays again and the next report from the hook clears it.
     const [failedState, setFailedState] = useState<ReplayVideoState | null>(null)
     const playbackFailed = failedState === state
+    const resumeAt = useRef<number | null>(null)
+    const onPlaybackError = useCallback(
+        (currentTime: number): void => {
+            resumeAt.current = currentTime
+            setFailedState(state)
+        },
+        [state]
+    )
     useRequestWhileMounted(video)
     useVideoAnalytics(sessionId, state, playbackFailed)
 
@@ -108,10 +116,12 @@ function VideoBody({
             return (
                 <ReadyVideo
                     key={state.exportId}
+                    exportId={state.exportId}
                     source={state.source}
                     context={state.context}
                     seconds={seconds}
-                    onPlaybackError={() => setFailedState(state)}
+                    resumeAt={resumeAt.current}
+                    onPlaybackError={onPlaybackError}
                 />
             )
         case 'error':
@@ -151,25 +161,23 @@ function Elapsed({ startedAt }: { startedAt: number }): ReactElement {
 }
 
 interface ReadyVideoProps {
+    exportId: number
+    resumeAt: number | null
     source: ReplayVideoSource
     context: ReplayVideoExportContext | undefined
     seconds: number
-    onPlaybackError: () => void
+    onPlaybackError: (currentTime: number) => void
 }
 
-function ReadyVideo({ source, context, seconds, onPlaybackError }: ReadyVideoProps): ReactElement {
+function ReadyVideo({ exportId, source, context, seconds, resumeAt, onPlaybackError }: ReadyVideoProps): ReactElement {
     const styles = useStyles()
-    const startAt = videoSecondsForSessionSeconds(seconds, context)
+    const startAt = resumeAt ?? videoSecondsForSessionSeconds(seconds, context)
     const player = useVideoPlayer(source, (created) => {
         created.currentTime = startAt
         created.play()
     })
     const inPictureInPicture = useRef(false)
-    useEventListener(player, 'statusChange', ({ status }) => {
-        if (status === 'error') {
-            onPlaybackError()
-        }
-    })
+    useReplayVideoSource(player, exportId, source, onPlaybackError)
     // expo-video pauses on its own when the app goes to the background. iOS also has `inactive` (Control Center, the
     // app switcher), which it ignores. Picture in Picture keeps playing in both cases.
     useEffect(() => {

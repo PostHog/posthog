@@ -18,7 +18,7 @@ function asset(id: number, minutesAgo: number, fields: Partial<ReplayVideoExport
         export_format: 'video/mp4',
         created_at: new Date(NOW - minutesAgo * MINUTE_MS).toISOString(),
         has_content: false,
-        export_context: { session_recording_id: 's-1' },
+        export_context: { session_recording_id: 's-1', timestamp: 0, duration: 120 },
         filename: 'replay-s-1',
         expires_after: null,
         exception: null,
@@ -46,7 +46,10 @@ describe('replay video API', () => {
             refreshAccessToken: async () => null,
         })
     )
-    afterEach(() => setAuthProvider(null))
+    afterEach(() => {
+        setAuthProvider(null)
+        jest.useRealTimers()
+    })
 
     test.each<[string, ReplayVideoExport[], number | null]>([
         ['the newest finished video', [asset(1, 30, { has_content: true }), asset(2, 5, { has_content: true })], 2],
@@ -65,7 +68,21 @@ describe('replay video API', () => {
         ['nothing for a render past the workflow timeout', [asset(1, 76)], null],
         ['nothing for a failed render', [asset(1, 5, { exception: 'Export failed' })], null],
     ])('reuse picks %s', (_name, exports, expectedId) => {
-        expect(pickReusableExport(exports, NOW)?.id ?? null).toBe(expectedId)
+        expect(pickReusableExport(exports, 120.9, NOW)?.id ?? null).toBe(expectedId)
+    })
+
+    test.each([true, false])('ignores clips and unknown ranges when has_content is %s', (has_content) => {
+        const full = asset(1, 30, { has_content })
+        const clips = [
+            { timestamp: 45, duration: 120 },
+            { timestamp: 0, duration: 119 },
+            { timestamp: 0 },
+            { duration: 120 },
+            { timestamp: 0, duration: Number.NaN },
+        ].map((context, index) => asset(index + 2, 5, { has_content, export_context: context }))
+        expect(pickReusableExport(clips, 120, NOW)).toBeNull()
+        expect(pickReusableExport([...clips, full], 120, NOW)).toBe(full)
+        expect(pickReusableExport([full], null, NOW)).toBeNull()
     })
 
     test('a recording longer than 3 hours never asks for a render', async () => {
@@ -82,8 +99,12 @@ describe('replay video API', () => {
             contentResponse(400, 'https://storage.example.com/v.mp4?sig=1'),
         ],
     ])('the video loads from the signed URL without the bearer token after %s', async (_name, response) => {
+        jest.useFakeTimers({ now: NOW })
         globalThis.fetch = jest.fn().mockResolvedValue(response)
-        await expect(resolveReplayVideoSource(42)).resolves.toEqual({ uri: 'https://storage.example.com/v.mp4?sig=1' })
+        await expect(resolveReplayVideoSource(42)).resolves.toEqual({
+            uri: 'https://storage.example.com/v.mp4?sig=1',
+            expiresAt: NOW + 60 * MINUTE_MS,
+        })
         expect(fetch).toHaveBeenCalledWith(
             'https://us.example.com/api/projects/7/exports/42/content/',
             expect.objectContaining({ redirect: 'manual' })

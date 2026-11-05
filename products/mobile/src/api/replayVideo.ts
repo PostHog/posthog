@@ -64,6 +64,7 @@ export interface ReplayVideoExport {
 /** What the player loads. Headers are present only when the API serves the bytes itself. */
 export interface ReplayVideoSource {
     uri: string
+    expiresAt?: number
     headers?: Record<string, string>
 }
 
@@ -264,9 +265,23 @@ function createdAt(asset: ReplayVideoExport): number {
  */
 export function pickReusableExport(
     exports: readonly ReplayVideoExport[],
+    durationSeconds: number | null,
     now: number = serverNow()
 ): ReplayVideoExport | null {
-    const newestFirst = [...exports].sort((a, b) => createdAt(b) - createdAt(a))
+    if (durationSeconds === null || !Number.isFinite(durationSeconds)) {
+        return null
+    }
+    const newestFirst = exports
+        .filter((asset) => {
+            const context = asset.export_context
+            return (
+                context?.timestamp === 0 &&
+                typeof context.duration === 'number' &&
+                Number.isFinite(context.duration) &&
+                context.duration >= Math.max(0, Math.floor(durationSeconds))
+            )
+        })
+        .sort((a, b) => createdAt(b) - createdAt(a))
     const ready = newestFirst.find(
         (asset) =>
             asset.has_content && !asset.exception && (asset.expires_after === null || timeOf(asset.expires_after) > now)
@@ -316,15 +331,16 @@ async function errorBody(response: Response): Promise<unknown> {
 export async function resolveReplayVideoSource(id: number, signal?: AbortSignal): Promise<ReplayVideoSource> {
     const path = projectPath(`exports/${id}/content/`)
     const requested = apiUrl(path)
+    const expiresAt = Date.now() + 60 * 60_000
     return apiReadResponse(path, { redirect: 'manual', signal }, async (response) => {
         const location = response.headers.get('Location')
         if (response.status >= 300 && response.status < 400 && location) {
-            return { uri: location }
+            return { uri: location, expiresAt }
         }
         const landed = typeof response.url === 'string' && response.url ? response.url : requested
         if (/^https?:\/\//i.test(landed) && hostOf(landed) !== hostOf(requested)) {
             discardBody(response)
-            return { uri: landed }
+            return { uri: landed, expiresAt }
         }
         if (response.ok) {
             discardBody(response)

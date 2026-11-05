@@ -107,7 +107,7 @@ async function prepareReplayVideo({
 }: PrepareInput): Promise<ReplayVideoState> {
     const requestedAt = Date.now()
     report(CHECKING)
-    const reusable = pickReusableExport(await listReplayVideoExports(sessionId, signal))
+    const reusable = pickReusableExport(await listReplayVideoExports(sessionId, signal), durationSeconds)
     const reused = reusable !== null
     let asset: ReplayVideoExport
     if (reusable) {
