@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -14,7 +13,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
 import { MCPSetupMode } from '../setupMode/MCPSetupMode'
 import { mcpAnalyticsSetupLogic } from './mcpAnalyticsSetupLogic'
-import { MCPAnalyticsSetupProgress } from './MCPAnalyticsSetupProgress'
 
 const COPY = {
     title: 'Step 1: Wrap your MCP server',
@@ -38,7 +36,6 @@ export function MCPSetupCard({
 }): JSX.Element {
     const { agentPrompt } = useValues(mcpAnalyticsSetupLogic)
     const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }))
-    const { isCloudOrDev } = useValues(preflightLogic)
 
     return (
         <div className="mt-2 flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
@@ -70,11 +67,6 @@ export function MCPSetupCard({
                             Copy prompt
                         </LemonButton>
                     </div>
-                </div>
-            ) : null}
-            {isCloudOrDev && !preview ? (
-                <div className="px-4 pb-2.5 empty:hidden">
-                    <MCPAnalyticsSetupProgress mode={mode} />
                 </div>
             ) : null}
             <div className="border-t border-primary px-4 py-2.5 text-xs">
