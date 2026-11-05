@@ -516,6 +516,10 @@ Validate its frozen install, workspace build, and agent tests from the sparse tr
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.
 
+The weekly ownership live lint needs every `owners.yaml` and configured alias file (`product.yaml`), plus the hogli command and locked workspace metadata.
+Its coverage and dead-glob checks use `git ls-files`, which still lists the complete tree in a sparse checkout.
+Keep the sparse patterns in sync with `alias_files` in the root `owners.yaml`.
+
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
 
 The MCP live canary uses the same workspace manifest pattern, plus `services/mcp/` and `packages/` for its dependency tree.
