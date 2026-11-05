@@ -364,7 +364,7 @@ export const QuickEntryWithGithubAccessExplanation: Story = {
         const accessSummary = await within(document.body).findByText(
             'We use GitHub access to research issues and may automatically open pull requests with proposed fixes.'
         )
-        await expect(accessSummary).toBeVisible()
+        await waitFor(() => expect(accessSummary).toBeVisible())
         controls.forEach((element, index) => {
             expect(element.getBoundingClientRect().y).toBe(positions[index])
         })
