@@ -3,7 +3,6 @@ import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/at
 // Bounds the persisted store, because every chat a browser starts adds an entry to localStorage.
 const MAX_PERSISTED_CHATS = 50
 
-/** What a composer needs to draw and link one context item. A chip never carries the item's `value` payload. */
 export interface ContextChip extends Pick<AttachedContextItem, 'type' | 'key' | 'pageId' | 'dismissible'> {
     id: string
     label: string

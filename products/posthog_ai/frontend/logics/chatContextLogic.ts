@@ -31,7 +31,6 @@ export function chatSendItems(
 }
 
 export interface ChatContextLogicProps {
-    /** The started chat. A new chat has no task yet, so its context follows the page the user is on. */
     taskId?: string
 }
 
@@ -84,7 +83,7 @@ export interface chatContextLogicMeta {
         picks: (pickedByChat: Record<string, AttachedContextItem[]>, arg: string) => AttachedContextItem[]
         pageItems: (
             contextItems: AttachedContextItem[],
-            removedGroupsByTask: any,
+            removedGroupsByTask: Record<string, string[]>,
             arg: string | undefined
         ) => AttachedContextItem[]
         chips: (

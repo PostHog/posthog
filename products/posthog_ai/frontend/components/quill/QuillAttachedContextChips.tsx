@@ -9,7 +9,6 @@ import { chatContextLogic } from '../../logics/chatContextLogic'
 import { QuillAttachedContextChip } from './QuillAttachedContextChip'
 
 export interface QuillAttachedContextChipsProps {
-    /** The started chat this composer belongs to. Omit it for a new chat, whose chips follow the current page. */
     taskId?: string
 }
 

@@ -28,12 +28,7 @@ export interface AttachedContextItem {
     previewHtml?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
-    /**
-     * Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either).
-     * A hidden item holds the state of the current page that tools act on, such as live editor state, so it keeps
-     * reaching a started chat as the user navigates. A visible item only reaches a chat when it starts or through the
-     * picker.
-     */
+    /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
     hidden?: boolean
     /** Whether the user can dismiss the item from the composer. Defaults to true. */
     dismissible?: boolean

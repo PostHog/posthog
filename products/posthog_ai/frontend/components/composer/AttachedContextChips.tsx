@@ -61,7 +61,6 @@ function AttachmentPreview({ label, html, onRemove }: AttachmentPreviewProps): J
 
 export interface AttachedContextChipsProps {
     leading?: ReactNode
-    /** The started chat this composer belongs to. Omit it for a new chat, whose chips follow the current page. */
     taskId?: string
 }
 

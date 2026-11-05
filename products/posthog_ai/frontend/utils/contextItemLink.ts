@@ -13,7 +13,6 @@ function pathOnly(url: string): string {
     return url.split(/[?#]/)[0].replace(/\/+$/, '')
 }
 
-/** The app page a context item points at, without a project prefix. Null when the item has no page of its own. */
 export function contextItemPath(item: Pick<AttachedContextItem, 'type' | 'key' | 'pageId'>): string | null {
     const pageId = item.pageId === undefined ? item.key : item.pageId
     if (pageId === undefined || pageId === null || pageId === '') {
