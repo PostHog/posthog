@@ -970,6 +970,54 @@ describe('CdpEventsConsumer', () => {
                     expect(await outcome(true)).toEqual(parsed)
                     expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
                 })
+
+                it('counts an event the gate rejects that a destination still invokes, while skipping is off', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = false
+                    counterUnmatchedEventNameInvoked.reset()
+                    const pageview = createIncomingEvent(team.id, {
+                        properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                    })
+
+                    await handleBatch([
+                        createKafkaMessage(pageview, {
+                            headers: [{ team_id: String(team.id) }, { event: 'signed_up' }],
+                        }),
+                    ])
+
+                    expect((await counterUnmatchedEventNameInvoked.get()).values[0]?.value).toBe(1)
+                })
+
+                it('records the filtered metric of a skipped event once when its batch fails and is read again', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = true
+                    const manager = processor['hogFunctionManager']
+                    const original = manager.getHogFunctionsForTeam.bind(manager)
+                    const lookup = jest
+                        .spyOn(manager, 'getHogFunctionsForTeam')
+                        .mockImplementationOnce(original)
+                        .mockRejectedValueOnce(
+                            new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down'))
+                        )
+                    const batch = [
+                        withHeaders(createIncomingEvent(team.id, { event: 'signed_up' })),
+                        withHeaders(
+                            createIncomingEvent(team.id, {
+                                properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                            }),
+                            1
+                        ),
+                    ]
+
+                    await expect(handleBatch(batch)).rejects.toThrow('Postgres is down')
+                    lookup.mockRestore()
+                    await handleBatch(batch)
+
+                    const filtered = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                        .filter(({ value }: any) => value.metric_name === 'filtered')
+                        .reduce((sum: number, { value }: any) => sum + value.count, 0)
+                    expect(filtered).toBe(1)
+                })
             })
 
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {

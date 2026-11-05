@@ -43,5 +43,5 @@ export const counterUnmatchedEventName = new Counter({
 
 export const counterUnmatchedEventNameInvoked = new Counter({
     name: 'cdp_events_unmatched_event_name_invoked',
-    help: 'Events the name gate rejected that a destination or workflow still invoked once parsed. Counted while CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES is off. Each one is an event the skip would drop, so it must stay at zero before the switch goes on.',
+    help: 'Events the name gate rejected that a destination or workflow still invoked once parsed. Counted while CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES is off. Each one is an event the skip would drop, so it must stay at zero before the switch goes on. It counts only invocations that survive the watcher, rate limits, quotas and masking, so a wrong rejection for a disabled or limited destination does not show.',
 })
