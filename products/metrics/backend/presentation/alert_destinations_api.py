@@ -76,7 +76,7 @@ _FIELDS_BY_TYPE: dict[DestinationType, tuple[str, ...]] = {
 }
 # Choices classes for the serializers below. TextChoices supports this functional API at runtime, but
 # its type stubs only describe member construction. The destination types carry their display labels,
-# so the OpenAPI enum is named after this class (MetricsAlertDestinationTypeEnum). The others keep
+# so the OpenAPI enum shares the platform alert API's name (PlatformAlertDestinationTypeEnum). The others keep
 # label equal to value, so they share the names their ENUM_NAME_OVERRIDES entries give them.
 MetricsAlertDestinationType = cast(Any, models.TextChoices)(
     "MetricsAlertDestinationType",

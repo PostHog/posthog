@@ -1337,10 +1337,10 @@ export interface _MetricVariableOptionsResponseApi {
  * * `discord` - Discord
  * * `pagerduty` - PagerDuty
  */
-export type MetricsAlertDestinationTypeEnumApi =
-    (typeof MetricsAlertDestinationTypeEnumApi)[keyof typeof MetricsAlertDestinationTypeEnumApi]
+export type PlatformAlertDestinationTypeEnumApi =
+    (typeof PlatformAlertDestinationTypeEnumApi)[keyof typeof PlatformAlertDestinationTypeEnumApi]
 
-export const MetricsAlertDestinationTypeEnumApi = {
+export const PlatformAlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
@@ -1354,10 +1354,10 @@ export const MetricsAlertDestinationTypeEnumApi = {
  * * `errored` - errored
  * * `broken` - broken
  */
-export type MetricsAlertDestinationEventKindEnumApi =
-    (typeof MetricsAlertDestinationEventKindEnumApi)[keyof typeof MetricsAlertDestinationEventKindEnumApi]
+export type AlertDestinationEventKindEnumApi =
+    (typeof AlertDestinationEventKindEnumApi)[keyof typeof AlertDestinationEventKindEnumApi]
 
-export const MetricsAlertDestinationEventKindEnumApi = {
+export const AlertDestinationEventKindEnumApi = {
     Firing: 'firing',
     Resolved: 'resolved',
     Errored: 'errored',
@@ -1400,11 +1400,11 @@ export interface MetricsAlertDestinationApi {
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
      * * `pagerduty` - PagerDuty */
-    type: MetricsAlertDestinationTypeEnumApi
+    type: PlatformAlertDestinationTypeEnumApi
     /** Whether the destination is sent to. */
     enabled: boolean
     /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
-    event_kinds: MetricsAlertDestinationEventKindEnumApi[]
+    event_kinds: AlertDestinationEventKindEnumApi[]
     /** Integration ID of the Slack workspace. Set when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Set when type=slack. */
@@ -1437,7 +1437,7 @@ export interface MetricsAlertCreateDestinationApi {
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
      * * `pagerduty` - PagerDuty */
-    type: MetricsAlertDestinationTypeEnumApi
+    type: PlatformAlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -1464,7 +1464,7 @@ export interface MetricsAlertCreateDestinationApi {
      * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
      * @minItems 1
      */
-    event_kinds?: MetricsAlertDestinationEventKindEnumApi[]
+    event_kinds?: AlertDestinationEventKindEnumApi[]
 }
 
 export interface MetricsAlertDeleteDestinationApi {
