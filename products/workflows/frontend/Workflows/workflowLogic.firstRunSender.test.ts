@@ -559,54 +559,66 @@ describe('workflow first-run sender', () => {
         }
     })
 
-    it.each([
-        ['', false],
-        [' and the flags refresh meanwhile', true],
-    ])(
-        'gives an email step inserted during the sandbox sender setup that sender once it finishes%s',
-        async (_case, flagsRefresh) => {
-            let finishSetup = (): void => undefined
-            const setupFinished = new Promise<void>((resolve) => {
-                finishSetup = resolve
-            })
-            useMocks({
-                post: {
-                    '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
-                        await setupFinished
-                        ensureCalls++
-                        integrations = [...integrations, SANDBOX]
-                        return [200, SANDBOX]
-                    },
+    it.each<[string, boolean, boolean]>([
+        ['gives an email step inserted during the sandbox sender setup that sender once it finishes', false, false],
+        [
+            'gives an email step inserted during the sandbox sender setup that sender once it finishes and the flags refresh meanwhile',
+            true,
+            false,
+        ],
+        [
+            'leaves an email step inserted during the sandbox sender setup empty when the editor closes first',
+            false,
+            true,
+        ],
+    ])('%s', async (_case, flagsRefresh, editorClosesFirst) => {
+        let finishSetup = (): void => undefined
+        const setupFinished = new Promise<void>((resolve) => {
+            finishSetup = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
+                    await setupFinished
+                    ensureCalls++
+                    integrations = [...integrations, SANDBOX]
+                    return [200, SANDBOX]
                 },
-            })
-            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-            const workflow = workflowLogic({ id: 'new' })
-            workflow.mount()
-            await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
-            const editor = hogFlowEditorLogic({ id: 'new' })
-            editor.mount()
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const workflow = workflowLogic({ id: 'new' })
+        workflow.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        const editor = hogFlowEditorLogic({ id: 'new' })
+        editor.mount()
 
-            editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
-            editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
-            const insertedFrom = (): unknown =>
-                (workflow.values.workflow.actions.find((action) => action.type === 'function_email')?.config as any)
-                    ?.inputs?.email?.value?.from
-            expect(insertedFrom()).toEqual({})
-            if (flagsRefresh) {
-                setSandboxFlag(true)
-            }
-
-            finishSetup()
-            await expectLogic(editor).toFinishAllListeners()
-
-            expect(insertedFrom()).toEqual({ integrationId: SANDBOX.id })
-            expect(ensureCalls).toBe(1)
-            expect(capture.mock.calls.filter(([event]) => event === 'email sender preselected')).toEqual([
-                ['email sender preselected', { surface: 'workflow', reason: 'sandbox_sender' }],
-            ])
-            capture.mockRestore()
-            editor.unmount()
-            workflow.unmount()
+        editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
+        editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+        const insertedFrom = (): unknown =>
+            (workflow.values.workflow.actions.find((action) => action.type === 'function_email')?.config as any)?.inputs
+                ?.email?.value?.from
+        expect(insertedFrom()).toEqual({})
+        if (flagsRefresh) {
+            setSandboxFlag(true)
         }
-    )
+
+        if (editorClosesFirst) {
+            editor.unmount()
+        }
+
+        finishSetup()
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(insertedFrom()).toEqual(editorClosesFirst ? {} : { integrationId: SANDBOX.id })
+        expect(ensureCalls).toBe(1)
+        expect(capture.mock.calls.filter(([event]) => event === 'email sender preselected')).toEqual(
+            editorClosesFirst ? [] : [['email sender preselected', { surface: 'workflow', reason: 'sandbox_sender' }]]
+        )
+        capture.mockRestore()
+        if (!editorClosesFirst) {
+            editor.unmount()
+        }
+        workflow.unmount()
+    })
 })
