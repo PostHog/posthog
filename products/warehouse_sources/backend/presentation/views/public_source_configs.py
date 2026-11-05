@@ -1,6 +1,7 @@
 import json
 import functools
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -20,13 +21,16 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 # Web workers recycle often, so most catalog requests land on a process that has not imported the
-# source registry yet (~5 s of vendor SDK imports). The catalog is identical in every process of a
+# source registry yet, and its vendor SDK imports are slow. The catalog is identical in every process of a
 # deploy, so share it through the Django cache, keyed by commit. It is stored as JSON text so that a
 # cache read never unpickles classes from the source modules this cache exists to avoid importing.
 SHARED_CATALOG_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 def shared_catalog_cache_key(*, include_tables: bool) -> str | None:
+    if settings.DEBUG:
+        # Local edits do not change the commit, so a shared entry would hide them until it expires.
+        return None
     commit = get_git_commit_full()
     if not commit:
         # Without a commit we cannot tell deploys apart, so a shared entry could outlive a code change.
