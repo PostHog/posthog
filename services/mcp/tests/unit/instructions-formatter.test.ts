@@ -456,7 +456,7 @@ describe('InstructionsFormatter', () => {
 
         it('keeps the query-tool routing inline', () => {
             const result = new InstructionsFormatter().buildCompactExecCommandReference(
-                { ...fullCtx, renderUiEnabled: false, queryRoutingInline: true },
+                { ...fullCtx, renderUiEnabled: false, cliLearnLayout: true },
                 { skillsEnabled: true }
             )
 

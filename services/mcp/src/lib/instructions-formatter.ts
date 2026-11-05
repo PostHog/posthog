@@ -486,7 +486,7 @@ export class InstructionsFormatter {
         const claudeChat = opts.claudeChat ?? false
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildExecLearnGuides({ ...ctx, cliLearnLayout: !claudeChat })
+        const learnGuides = this.buildExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         // Claude web/desktop keep the learn-first framing; with skills on, cli clients must search skills before guides.
         const learnHeading = claudeChat ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
@@ -504,7 +504,11 @@ export class InstructionsFormatter {
             : undefined
         const renderCtx: InstructionsContext = claudeChat
             ? { guidelines: ctx.guidelines, tools: ctx.tools }
-            : { guidelines: ctx.guidelines, docsSearchEnabled: docsSearchAvailable(ctx), cliLearnLayout: true }
+            : {
+                  guidelines: ctx.guidelines,
+                  docsSearchEnabled: docsSearchAvailable(ctx),
+                  cliLearnLayout: ctx.cliLearnLayout,
+              }
 
         return this.compose(
             [
@@ -514,7 +518,7 @@ export class InstructionsFormatter {
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
                 ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
                 METRIC_DISCOVERY_COMPACT,
-                ...(ctx.queryRoutingInline ? [QUERY_TOOL_ROUTING] : []),
+                ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),

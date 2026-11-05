@@ -593,7 +593,7 @@ describe('SkillCatalog and exec learn', () => {
         const deferralBody = (fill: string): string =>
             fill.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
 
-        it.each([
+        it.each<{ batch: string; files: Record<string, string>; command: string; retry: string; returned: string[] }>([
             {
                 batch: 'skills',
                 files: {
