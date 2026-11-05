@@ -22,6 +22,7 @@ import {
 } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import * as signalsApi from '../generated/api'
 import type { InboxOnboardingDraftApi, InboxOnboardingStateApi, SignalSourceConfigApi } from '../generated/api.schemas'
@@ -897,5 +898,27 @@ describe('signalSourcesLogic', () => {
 
         expect(logic.values.enablingProduct).toBeNull()
         expect(logic.values.productStatusBySource.error_tracking?.enabled).toBe(true)
+    })
+
+    it('sends the flipped emits_signals for the scanner the roster toggles', async () => {
+        const patches: { id: string; body: Record<string, unknown> }[] = []
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/vision/scanners/:id/': async ({ params, request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push({ id: params.id as string, body })
+                    return [200, { id: params.id, emits_signals: body.emits_signals }]
+                },
+            },
+        })
+        logic.actions.loadVisionScannersSuccess([
+            { id: 'scanner-1', emits_signals: false },
+            { id: 'scanner-2', emits_signals: false },
+        ] as ReplayScannerApi[])
+
+        await expectLogic(logic, () => logic.actions.toggleScannerSignals('scanner-2')).toFinishAllListeners()
+
+        expect(patches).toEqual([{ id: 'scanner-2', body: { emits_signals: true } }])
+        expect(logic.values.visionScanners?.map((scanner) => scanner.emits_signals)).toEqual([false, true])
     })
 })

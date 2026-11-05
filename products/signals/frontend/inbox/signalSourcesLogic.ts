@@ -578,7 +578,9 @@ export interface signalSourcesLogicActions {
     toggleHealthChecks: () => {
         value: true
     }
-    toggleScannerSignals: ({ scannerId }: any) => any
+    toggleScannerSignals: (scannerId: string) => {
+        scannerId: string
+    }
     toggleScannerSignalsFailure: (
         error: string,
         errorObject?: any
@@ -588,10 +590,14 @@ export interface signalSourcesLogicActions {
     }
     toggleScannerSignalsSuccess: (
         visionScanners: ReplayScannerApi[],
-        payload?: any
+        payload?: {
+            scannerId: string
+        }
     ) => {
         visionScanners: ReplayScannerApi[]
-        payload?: any
+        payload?: {
+            scannerId: string
+        }
     }
     toggleSignalSource: (params: ToggleSignalSourceParams) => {
         params: ToggleSignalSourceParams
@@ -1065,6 +1071,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
+        toggleScannerSignals: (scannerId: string) => ({ scannerId }),
         setAllScannerSignals: (enabled: boolean) => ({ enabled }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
@@ -1973,6 +1980,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             loadSourceConfigsFailure: ({ error, errorObject }) => {
                 captureSignalSourceConfigsLoadFailed(errorObject?.detail || error || 'Failed to load signal sources')
+            },
+            toggleScannerSignalsFailure: ({ error, errorObject }) => {
+                lemonToast.error(errorObject?.detail || error || "Couldn't update this scanner. Please try again.")
             },
             loadCiSignalsConfigFailure: ({ error, errorObject }) => {
                 // Silent failure would leave the card claiming setup is required for an armed source.
