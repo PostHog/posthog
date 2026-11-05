@@ -12494,6 +12494,10 @@ snapshots:
         hash: v1.k794b7964.e0f8ccaf099a26d2c9e5a01759d4335c4f3874920c0cc87629cc18c08f2a186d.lnU6n7PM5IpNBHL67GnkE0i4bNWz6D-LrnJ4FsPH15I
     scenes-app-inbox-focused-setup--github-optional--light:
         hash: v1.k794b7964.ebc3621a8d2898cd4e684d6c38a53231543158f2463b72e1564526f85c663ff6.4ETAHoDCK1k-fG_TyUe7a67SitYAcFPIi7VBfxuwHM8
+    scenes-app-inbox-focused-setup--github-with-access-explanation--dark:
+        hash: v1.k794b7964.24b17cd83be424daec8534b58b6591674485f369d228db934a9d5c429a5de947.lZIRbQ66gvG-t6CjV9m_p8Fu0h7RBHI0DYh6b0EwIMU
+    scenes-app-inbox-focused-setup--github-with-access-explanation--light:
+        hash: v1.k794b7964.67f721146a39a1354ec52ff5ee7bdb8202b54cbde999fc5b129416de26748cc4.atNPB2sNVhCSG3mdhWLmfTCt1aivg9rImZvCHmU6J20
     scenes-app-inbox-focused-setup--github-without-automatic-implementation--dark:
         hash: v1.k794b7964.81248bc9725853d60f6abaa48b7dfd3da16e12b2a0737dc24e9528ce6bc7f92b.obY1rKohrnBvh71Ep3wJZzs8J56ZUo98dlJDXlzwj-E
     scenes-app-inbox-focused-setup--github-without-automatic-implementation--light:
@@ -12530,6 +12534,10 @@ snapshots:
         hash: v1.k794b7964.94d4d56e6f378ac1850c7e09331a0fb870bb597ac292bbd40892c6e4ff5d4d04.03SQ74HJv_m8omrJAVReZf42a6uESkf5H7X2vpipDNk
     scenes-app-inbox-focused-setup--quick-entry--light:
         hash: v1.k794b7964.0ac93666c22ddf7eb27f107e4beef5f9aa5d09c47c44400f90e89259a03a614d.NGCt5LoiAK7ZJ9ic7mJL4RCKMiugT4aRNdRhr6PTrEE
+    scenes-app-inbox-focused-setup--quick-entry-with-github-access-explanation--dark:
+        hash: v1.k794b7964.c0bfa77fd2b9a82c9b3816a0a6ef3c4f23e85992a0f61cccf32c1b74bd81cd34.cXAnxksUBN-V48atEibmiEZt-IjAxqdQZWOplQjolP0
+    scenes-app-inbox-focused-setup--quick-entry-with-github-access-explanation--light:
+        hash: v1.k794b7964.2f4846be4a8ec30b104e38f605c7b9fbbf24cf8973f2ae6b19f388dfa9a4be6a.Kx-LNWSEQLurzR6DIKSgX1MKeCMnOkavH2CPP4DemGo
     scenes-app-inbox-focused-setup--scouts--dark:
         hash: v1.k794b7964.6fd8aa35755ed0ad8bfdee5e82fd3ae4bb2b66b185c5ad8ce8762291e9242c81.EseOEIZLSBk_G1Dlr44lR9ulG4RFO6cCcKKY8bCOLH4
     scenes-app-inbox-focused-setup--scouts--light:
