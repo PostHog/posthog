@@ -64,8 +64,10 @@ Call `external-data-schemas-incremental-fields-create` for the schema to see wha
 - `full_refresh` is the default and the safe choice. Each sync reads all files again and replaces the table.
 - `incremental` and `append` for file tables use the file modification time. A sync reads only files that changed
   since the last sync. Use this only when new data arrives as new or changed files.
-- A Delta table reads only the new commits when the writer only appends data. When the writer deletes, updates or
-  rewrites data, the sync reads the whole table again.
+- An `incremental` Delta table reads only the data files that changed since the last sync. When the writer deletes,
+  updates or rewrites data, the sync replaces the rows of the removed files and reads the new files. It reads the
+  whole table again only when the table was made again (a new Delta table id), its version went back, or the
+  stored version can no longer be read.
 - A table that a writer replaces on each run (for example a dlt `replace` write) is always read in full. Use
   `full_refresh` for it.
 
