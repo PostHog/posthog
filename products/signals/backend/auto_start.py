@@ -1122,7 +1122,7 @@ def start_requested_implementation(
             repository=repo_selection.repository,
             base_branch=team_config.base_branch_for(repo_selection.repository) if team_config else None,
             steering=steering,
-            free_trial_enabled=self_driving_free_trial_enabled(team),
+            free_trial_enabled=self_driving_free_trial_enabled(team, admitted_report_id=request.report_id),
             requested_after_run_count=request.after_run_count,
             ch_user=ch_user,
         )
@@ -1134,7 +1134,7 @@ def start_requested_implementation(
     if not runs or not runs[0].is_terminal:
         raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
     previous_run = runs[0]
-    free_trial_enabled = self_driving_free_trial_enabled(team)
+    free_trial_enabled = self_driving_free_trial_enabled(team, admitted_report_id=request.report_id)
     from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
 
     with (
@@ -1641,7 +1641,9 @@ async def maybe_autostart_implementation_task(
     # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
     # or by hand. The gate sits after the runner resolution because a report with no runner opens
     # no pull request anyway, so counting it would overstate what the trial held back.
-    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team)
+    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(
+        team, admitted_report_id=report_id
+    )
     if on_free_trial:
         capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
         logger.info(

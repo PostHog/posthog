@@ -92,10 +92,13 @@ class TrialPolicy:
         return grant if grant is not None and self.enabled() else None
 
     def admission_grant(self) -> SignalTrialGrant | None:
+        grant = self.grant()
+        if grant is None:
+            return None
         decision = self.flag_decision()
         if decision.enabled is None:
             raise TrialRefused("flag_unavailable")
-        return self.grant() if decision.enabled else None
+        return grant if decision.enabled else None
 
     def claim(self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS) -> SignalTrialGrant:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle

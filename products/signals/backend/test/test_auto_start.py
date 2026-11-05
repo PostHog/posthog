@@ -3,6 +3,8 @@ import json
 from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Literal
+from uuid import UUID
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -83,6 +85,7 @@ from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRu
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
+from products.signals.backend.trial.funding import TrialFunding
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -1529,19 +1532,26 @@ async def test_autostart_requires_admission_or_available_quota(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event"),
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event", "funding"),
     [
-        (True, True, False, True),
-        (False, True, True, False),
+        (True, True, False, True, None),
+        (True, True, False, True, "existing"),
+        (True, True, True, False, "trial"),
+        (True, True, True, False, "paid"),
+        (False, True, True, False, None),
         # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
         # report opens no pull request off the trial either. The trial held nothing back, so the
         # sales count must not carry it.
-        (True, False, False, False),
+        (True, False, False, False, None),
     ],
 )
 async def test_free_trial_gate_blocks_autostart(
-    on_trial, repository_autostart_eligible, expect_task, expect_pause_event
-):
+    on_trial: bool,
+    repository_autostart_eligible: bool,
+    expect_task: bool,
+    expect_pause_event: bool,
+    funding: Literal["trial", "paid", "existing"] | None,
+) -> None:
     # A trial org gets reports, not pull requests: the implementation task is the step that opens
     # one, so auto-start creates none while the flag is on, and counts the held-back PR.
     Task = apps.get_model("tasks", "Task")
@@ -1558,6 +1568,14 @@ async def test_free_trial_gate_blocks_autostart(
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
+        if funding is not None:
+            report.self_driving_funding = TrialFunding(
+                funding=funding,
+                grant_id=UUID("11111111-1111-1111-1111-111111111111") if funding == "trial" else None,
+                report_pass_key="accepted",
+            ).as_dict()
+            report.save(update_fields=["self_driving_funding"])
+            SignalUserAutonomyConfig.objects.create(user=enabler, autostart_priority=Priority.P2)
         return team, report
 
     team, report = await sync_to_async(_setup)()
@@ -1575,7 +1593,10 @@ async def test_free_trial_gate_blocks_autostart(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
-        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=on_trial),
+        patch(
+            "products.signals.backend.free_trial.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: on_trial if key == "self-driving-free-trial" else False,
+        ),
         patch("products.signals.backend.auto_start.capture_signal_report_free_trial_paused") as capture_mock,
     ):
         await maybe_autostart_implementation_task(

@@ -40,13 +40,26 @@ class FreeTrialPullRequestRefused(APIException):
     default_detail = FREE_TRIAL_PR_MESSAGE
 
 
-def self_driving_free_trial_enabled(team: "Team") -> bool:
+def self_driving_free_trial_enabled(
+    team: "Team", *, admitted_report_id: str | None = None, enabled: bool | None = None
+) -> bool:
     """Whether the legacy reports-only restriction applies to this project.
 
     Org-keyed like the quota-enforcement and refund flags. Fails open (not on trial) on a
     flag-read error: a flag outage must not stop every org's pull requests. Blocking network
     I/O; wrap in `sync_to_async` from async code.
+
+    Server continuations keep their admitted funding. A pre-resolved verdict avoids reading
+    flags again while the caller holds database locks.
     """
+    if admitted_report_id is not None:
+        from products.signals.backend.trial.reports import report_funding  # noqa: PLC0415 -- Tasks model import cycle
+
+        funding = report_funding(team, admitted_report_id)
+        if funding is not None and funding.funding in {"trial", "paid"}:
+            return False
+    if enabled is not None:
+        return enabled
     if TrialPolicy(team).active_grant() is not None:
         return False
     try:
