@@ -40,6 +40,7 @@ const pipeline = {
     effective_agent_reasoning_effort: 'medium',
     training_phase: 'maintain',
     next_research_at: '2026-11-12T00:00:00Z',
+    not_promoted_reason: null,
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
@@ -435,6 +436,27 @@ export const AgentResearchWithoutReaderNotes: Story = {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
         testOptions: { viewportWidths: ['wide'] },
     },
+}
+
+// The first champion failed its fit, so the model went back to bootstrapping with no champion.
+export const FirstChampionRolledBack: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/`]: {
+                    ...pipeline,
+                    status: 'bootstrapping',
+                    training_phase: 'maintain',
+                    champion_holdout_auc: null,
+                    champion_realized_auc: null,
+                    not_promoted_reason:
+                        'The champion fit failed: model.pkl is 14830476 bytes, over the 10485760-byte cap',
+                },
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([challenger]),
+            },
+        }),
+    ],
+    parameters: { testOptions: { viewportWidths: ['wide'] } },
 }
 
 export const Accuracy: Story = {
