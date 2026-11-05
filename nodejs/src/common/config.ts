@@ -170,6 +170,11 @@ export type CommonConfig = BaseServerConfig & {
 
     // Kafka consumer base
     CONSUMER_BATCH_SIZE: number
+    /**
+     * Byte bound of a batch in KiB, counted on message values; 0 leaves batches bounded by count only.
+     * Only KafkaConsumerV2 reads it.
+     */
+    CONSUMER_BATCH_SIZE_KB: number
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number
     CONSUMER_LOG_STATS_LEVEL: LogLevel
@@ -389,6 +394,7 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka consumer base
         CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE_KB: 0,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
         CONSUMER_LOG_STATS_LEVEL: 'debug',

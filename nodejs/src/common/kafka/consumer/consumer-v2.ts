@@ -55,6 +55,7 @@ export type KafkaConsumerV2Config = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     fetchBatchSize?: number
+    fetchBatchMaxBytes?: number
     maxBackgroundTasks?: number
     backgroundTaskTimeoutMs?: number
     rebalanceTimeoutMs?: number
@@ -76,6 +77,8 @@ type RebalanceEvent =
 type TaskEntry = {
     settled: Promise<void>
 }
+
+const valueBytes = (messages: Message[]): number => messages.reduce((acc, m) => acc + (m.value?.length ?? 0), 0)
 
 const partitionKey = (tp: { topic: string; partition: number }): string => `${tp.topic}/${tp.partition}`
 
@@ -122,6 +125,7 @@ export class KafkaConsumerV2 {
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
+    private fetchBatchMaxBytes: number
     private batchTimeoutMs: number
     private maxBackgroundTasks: number
     private backgroundTaskTimeoutMs: number
@@ -146,6 +150,7 @@ export class KafkaConsumerV2 {
             .substring(2, 8)}`
 
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchMaxBytes = config.fetchBatchMaxBytes ?? defaultConfig.CONSUMER_BATCH_SIZE_KB * 1024
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
         this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs =
@@ -393,14 +398,14 @@ export class KafkaConsumerV2 {
     }
 
     private async fetchAndDispatch(eachBatch: EachBatch): Promise<void> {
-        const messages = await retryIfRetriable(() =>
-            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-        )
+        const messages =
+            this.fetchBatchMaxBytes > 0 ? await this.fetchBatchWithinBytes() : await this.consume(this.fetchBatchSize)
 
         consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
-        consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
+        const bytes = valueBytes(messages)
+        consumerBatchSizeKb.observe(bytes / 1024)
+        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(this.batchUtilization(messages, bytes))
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -424,6 +429,45 @@ export class KafkaConsumerV2 {
         const offsets = findOffsetsToCommit(messages)
         this.trackTask(result, offsets)
         await this.applyBackpressure()
+    }
+
+    /**
+     * Collects a batch one message at a time and ends it at fetchBatchSize messages or once the values reach
+     * fetchBatchMaxBytes, so the last message can overshoot the byte bound. consume(n) alone fills a batch to n
+     * under a backlog whatever the message sizes.
+     */
+    private async fetchBatchWithinBytes(): Promise<Message[]> {
+        const batch = await this.consume(1)
+        let bytes = valueBytes(batch)
+        // The first message waits batchTimeoutMs. The rest take only what librdkafka already holds, because
+        // a wait per message would delay every batch of a lane that is caught up.
+        this.rdKafkaConsumer.setDefaultConsumeTimeout(0)
+        try {
+            while (batch.length > 0 && batch.length < this.fetchBatchSize && bytes < this.fetchBatchMaxBytes) {
+                const next = await this.consume(1)
+                if (next.length === 0) {
+                    break
+                }
+                batch.push(...next)
+                bytes += valueBytes(next)
+            }
+        } finally {
+            this.rdKafkaConsumer.setDefaultConsumeTimeout(this.batchTimeoutMs)
+        }
+        return batch
+    }
+
+    /** A batch that either bound ended is full, because autoscaling on other lanes reads this gauge. */
+    private batchUtilization(messages: Message[], bytes: number): number {
+        const byCount = messages.length / this.fetchBatchSize
+        if (this.fetchBatchMaxBytes <= 0) {
+            return byCount
+        }
+        return Math.min(1, Math.max(byCount, bytes / this.fetchBatchMaxBytes))
+    }
+
+    private consume(count: number): Promise<Message[]> {
+        return retryIfRetriable(() => promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(count, cb)))
     }
 
     private trackTask(result: EachBatchResult, offsets: TopicPartitionOffset[]): void {
