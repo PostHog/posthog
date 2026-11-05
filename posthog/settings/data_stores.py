@@ -32,6 +32,8 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+POSTGRES_ENGINE = "posthog.db_backends.postgresql"
+
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -46,7 +48,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": POSTGRES_ENGINE,
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
@@ -85,7 +87,7 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+        "default": dict(dj_database_url.config(default=DATABASE_URL, engine=POSTGRES_ENGINE, conn_max_age=0))
     }
 
     if DISABLE_SERVER_SIDE_CURSORS:
