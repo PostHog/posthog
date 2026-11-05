@@ -27,8 +27,7 @@
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS properties___email,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', '') AS properties___name,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', '') AS properties___plan,
-            person.is_identified AS is_identified
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', '') AS properties___plan
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,
                                        max(person.version) AS version
@@ -52,7 +51,6 @@
                                 GROUP BY person.id
                                 HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_12)s), person.version), plus(now64(6, %(hogql_val_13)s), toIntervalDay(1))))))
      WHERE equals(person.team_id, 99999) SETTINGS optimize_aggregation_in_order=0) AS persons ON equals(persons.id, source.person_id)
-  WHERE equals(persons.is_identified, 1)
   ORDER BY source.account_last_seen DESC
   LIMIT 2
   OFFSET 0 SETTINGS optimize_aggregation_in_order=0,
@@ -84,8 +82,7 @@
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___name,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS properties___username,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS properties___plan,
-            person.is_identified AS is_identified
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS properties___plan
      FROM person PREWHERE in(tuple(person.id, person.version),
                                (SELECT person.id AS id,
                                        max(person.version) AS version
@@ -96,7 +93,6 @@
                                 GROUP BY person.id
                                 HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_4)s), person.version), plus(now64(6, %(hogql_val_5)s), toIntervalDay(1))))))
      WHERE equals(person.team_id, 99999) SETTINGS optimize_aggregation_in_order=0) AS persons ON equals(persons.id, source.person_id)
-  WHERE equals(persons.is_identified, 1)
   ORDER BY toTimeZone(source.account_last_seen, %(hogql_val_14)s) DESC
   LIMIT 2
   OFFSET 0 SETTINGS optimize_aggregation_in_order=0,

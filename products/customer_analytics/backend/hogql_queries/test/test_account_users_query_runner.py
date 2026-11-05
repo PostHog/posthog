@@ -89,21 +89,15 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             team=self.team,
             distinct_ids=["member-one", "member-one-alias"],
             properties={"email": "first@example.com", "name": "First member", "plan": "paid", "private_note": "hidden"},
-            is_identified=True,
         )
         self.second = create_person(
-            team=self.team,
-            distinct_ids=["member-two"],
-            properties={"email": "second@example.com", "plan": "free"},
-            is_identified=True,
+            team=self.team, distinct_ids=["member-two"], properties={"email": "second@example.com", "plan": "free"}
         )
-        create_person(team=self.team, distinct_ids=["anonymous-member"], properties={"email": "anon@example.com"})
         create_person(team=self.team, distinct_ids=["non-member"], properties={"email": "outside@example.com"})
         flush_persons_and_events()
         self._insert_membership("member-one", "2024-01-01", "2024-01-05")
         self._insert_membership("member-one-alias", "2024-01-02", "2024-01-09")
         self._insert_membership("member-two", "2024-01-03", "2024-01-06")
-        self._insert_membership("anonymous-member", "2024-01-01", "2024-01-10")
         self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_key="another-workspace")
         self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_type_index=1)
         self._insert_membership(
