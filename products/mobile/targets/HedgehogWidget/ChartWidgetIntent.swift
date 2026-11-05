@@ -30,7 +30,9 @@ struct PinEntity: AppEntity {
 
 struct PinQuery: EntityStringQuery {
     private var pickerPins: [PinEntity] {
-        (ChartStore.catalog()?.pickerPins ?? []).map(PinEntity.init(pin:))
+        (ChartStore.catalog()?.pins ?? []).map { pin in
+            PinEntity(id: pin.id, name: pin.name, subtitle: pin.eligible ? pin.subtitle : pin.reason)
+        }
     }
 
     /// A stored id that left the catalog still resolves, so the widget can say the pin is gone instead of
@@ -44,6 +46,7 @@ struct PinQuery: EntityStringQuery {
 
     func entities(matching string: String) async throws -> [PinEntity] {
         pickerPins.filter {
+            string.isEmpty ||
             $0.name.localizedCaseInsensitiveContains(string) || ($0.subtitle?.localizedCaseInsensitiveContains(string) ?? false)
         }
     }
@@ -53,13 +56,13 @@ struct PinQuery: EntityStringQuery {
     }
 
     func defaultResult() async -> PinEntity? {
-        pickerPins.first
+        ChartStore.catalog()?.pickerPins.first.map(PinEntity.init(pin:))
     }
 }
 
 struct ChartWidgetIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Chart" }
-    static var description: IntentDescription { "Choose a pin from your Views tab." }
+    static var description: IntentDescription { "Shows your first chart pin. Choose a different pin below." }
 
     @Parameter(title: "Pin")
     var pin: PinEntity?

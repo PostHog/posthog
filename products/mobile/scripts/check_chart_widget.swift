@@ -460,7 +460,16 @@ struct CheckChartWidget {
               message(ChartResolver.content(primary: signups, extras: [], store: state(credentials: expired), links: links, now: now)) == "Open PostHog to update")
 
         let unconfigured = ChartResolver.content(primary: nil, extras: [], store: state(), links: links, now: now)
-        check("state: not configured", message(unconfigured) == "Choose a pin")
+        check("state: automatically uses the first eligible pin", unconfigured.primary.title == "Signups" && unconfigured.primary.state == .loading)
+        let noCatalog = ChartResolver.content(primary: nil, extras: [], store: state(catalog: nil), links: links, now: now)
+        check("state: missing catalog points to the app", message(noCatalog) == "Open PostHog to load your pins")
+        let emptyCatalog = ChartCatalog(version: 1, host: catalog.host, projectId: 2, projectName: nil, writtenAt: 0, pins: [])
+        let noPins = ChartResolver.content(primary: nil, extras: [], store: state(catalog: emptyCatalog), links: links, now: now)
+        check("state: empty catalog explains the next step", message(noPins) == "No chart pins available")
+        let defaults = ChartResolver.selections(primary: nil, extras: [signups], family: .large, catalog: catalog)
+        check("selection: default participates in fetch and deduplication", defaults.0 == signups && defaults.1.isEmpty)
+        let chosen = ChartResolver.selections(primary: ChartSelection(id: "pin-b", name: "Product KPIs"), extras: [], family: .medium, catalog: catalog)
+        check("selection: explicit choice wins over the default", chosen.0?.id == "pin-b")
 
         let revenue = ChartSelection(id: "pin-x", name: "Revenue")
         let gone = ChartResolver.content(primary: revenue, extras: [], store: state(), links: links, now: now)
@@ -497,7 +506,7 @@ struct CheckChartWidget {
         check("state: another project sends nothing", ChartResolver.pinsToFetch([signups], store: state(credentials: elsewhere), now: now).isEmpty)
 
         let loading = ChartResolver.content(primary: signups, extras: [], store: state(), links: links, now: now)
-        check("state: first read pending", loading.primary.state == .loading && loading.primary.title == "Signups")
+        check("state: first read pending", loading.primary.state == .loading && loading.primary.title == "Signups" && loading.primary.link == links.pin(catalog.pin(id: "pin-a")!))
 
         let cached = ChartSample.snapshot(pinId: "pin-a", value: "1,284", delta: 12, deltaText: "12%", values: [1, 2], now: now.addingTimeInterval(-3600))
         let stale = ChartResolver.content(primary: signups, extras: [],

@@ -78,7 +78,11 @@ struct ChartWidgetView: View {
             case .systemLarge, .systemExtraLarge:
                 LargeChartLayout(content: entry.content, now: entry.date, colors: colors)
             default:
-                MediumChartLayout(content: entry.content, now: entry.date, colors: colors)
+                Link(destination: entry.content.primary.link) {
+                    MediumChartLayout(content: entry.content, now: entry.date, colors: colors)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .widgetURL(entry.content.primary.link)
@@ -138,14 +142,21 @@ private struct LargeChartLayout: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let snapshot = content.primary.snapshot {
-                ChartPanel(
-                    title: content.primary.title, snapshot: snapshot, window: PointWindow.large, axisLabels: true,
-                    dataDate: content.oldestData, now: now, colors: colors
-                )
-            } else {
-                StateView(slot: content.primary, colors: colors)
+            Link(destination: content.primary.link) {
+                Group {
+                    if let snapshot = content.primary.snapshot {
+                        ChartPanel(
+                            title: content.primary.title, snapshot: snapshot, window: PointWindow.large, axisLabels: true,
+                            dataDate: content.oldestData, now: now, colors: colors
+                        )
+                    } else {
+                        StateView(slot: content.primary, colors: colors)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             if !content.extras.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(Array(content.extras.enumerated()), id: \.offset) { _, slot in

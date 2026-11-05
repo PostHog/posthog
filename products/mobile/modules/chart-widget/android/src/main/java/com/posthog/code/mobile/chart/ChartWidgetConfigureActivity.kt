@@ -90,7 +90,7 @@ class ChartWidgetConfigureActivity : Activity() {
         val current = ChartStore.widgetConfig(this, widgetId)
         val eligible = catalog.pins.filter { it.eligible }
         val ineligible = catalog.pins.filter { !it.eligible }
-        selected = current?.pinId?.takeIf { id -> eligible.any { it.id == id } }
+        selected = current?.pinId?.takeIf { id -> eligible.any { it.id == id } } ?: eligible.firstOrNull()?.id
         current?.extraPinIds?.filter { id -> eligible.any { it.id == id } }?.let(extras::addAll)
         lateinit var done: Button
 

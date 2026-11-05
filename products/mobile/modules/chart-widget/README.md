@@ -4,7 +4,8 @@ A home-screen widget for iOS and Android that shows a pinned insight from the Vi
 See the sections below for the store contract, the fetch rules and the identifiers.
 
 The widget shows one pin as a number and sparkline (small), one pin as a chart with its value and change (medium), or one chart plus up to two number tiles (large).
-The person picks the pin in the OS: the Edit widget sheet on iOS, the configure screen on Android.
+An iOS widget with no saved selection shows the first supported pin in Views order, including when the catalog arrives after placement.
+The person can change it in the Edit Widget sheet. Android preselects the first supported pin in its configure screen.
 The app itself shows nothing about widgets.
 
 ## How it works
@@ -48,7 +49,9 @@ Until the new project's catalog lands after a project switch, the widget shows "
 The widget never refreshes the OAuth token.
 On each return to the foreground, the app refreshes an OAuth access token with less than 24 hours left (`FOREGROUND_REFRESH_MARGIN_MS` in `src/auth/authStore.ts`), then writes the new copy, so the widget's token stays valid between app opens.
 
-The catalog takes each pin's insight from what the Views list already read: the pin metadata cache (`viewsKeys.pinMetadata`), else the pin's Number or Chart snapshot.
+The catalog takes each pin's insight from the newest available pin metadata or Number/Chart snapshot.
+Insight, dashboard and automatic preview updates also rebuild the catalog, so opening a pin in Views recovers an earlier metadata failure.
+A dashboard without a manually chosen tile discovers a suitable tile using the Views automatic preview reader, without changing the pin's display preference.
 For up to 30 pins without either, the sync reads `GET insights/?short_id=&basic=true&refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the same metadata cache.
 A 429, a 503, an empty budget bucket or no connection stops the reads; those pins say "Open it in Views first" until the next sync.
 The sync never forces a compute.
@@ -145,17 +148,17 @@ Pins are in Views order, at most 30.
 }
 ```
 
-| Field         | Meaning                                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | The pin's `shortcutId` (`PinView.shortcutId`). The widget configuration stores it.                                           |
-| `subtitle`    | "Insight" for an insight pin. For a dashboard pin, "<dashboard name> · <tile name>", or "Dashboard" before a tile is chosen. |
-| `insightId`   | Null when the app has not read the insight. The widget then reads by `shortId`.                                              |
-| `shortId`     | The insight's `short_id`: the pin's `ref`, or the chosen tile's insight. Null for a dashboard pin without a tile.            |
-| `dashboardId` | The dashboard's numeric id, sent as `from_dashboard`. Null for an insight pin.                                               |
-| `number`      | `capabilitiesOf(query).number` (`src/model/adapters/insightSnapshot.ts`): one series or a big number, without a breakdown.   |
-| `chart`       | `capabilitiesOf(query).chart`: a line or bar trends chart over time.                                                         |
-| `eligible`    | A `TrendsQuery` with `number` or `chart`. iOS leaves other pins out of the picker; Android shows them grayed with `reason`.  |
-| `reason`      | Null when eligible, else one of the reasons below.                                                                           |
+| Field         | Meaning                                                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | The pin's `shortcutId` (`PinView.shortcutId`). The widget configuration stores it.                                                                                |
+| `subtitle`    | "Insight" for an insight pin. For a dashboard pin, "<dashboard name> · <tile name>", or "Dashboard" before a tile is chosen.                                      |
+| `insightId`   | Null when the app has not read the insight. The widget then reads by `shortId`.                                                                                   |
+| `shortId`     | The insight's `short_id`: the pin's `ref`, or the chosen tile's insight. Null for a dashboard pin without a tile.                                                 |
+| `dashboardId` | The dashboard's numeric id, sent as `from_dashboard`. Null for an insight pin.                                                                                    |
+| `number`      | `capabilitiesOf(query).number` (`src/model/adapters/insightSnapshot.ts`): one series or a big number, without a breakdown.                                        |
+| `chart`       | `capabilitiesOf(query).chart`: a line or bar trends chart over time.                                                                                              |
+| `eligible`    | A `TrendsQuery` with `number` or `chart`. iOS lists other pins with `reason`; Android shows them grayed with `reason`. Only eligible pins are automatic defaults. |
+| `reason`      | Null when eligible, else one of the reasons below.                                                                                                                |
 
 | Reason                            | When                                                                                                      |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -219,7 +222,7 @@ The widget only reads what the server already computed: never `blocking`, never 
 
 | State                      | Text                                                                                                                           |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Not configured             | "Choose a pin", then "Touch and hold to pick a pin from your Views tab"                                                        |
+| No supported pins          | "No chart pins available", then "Open Views to pin an insight or choose a dashboard tile"                                      |
 | No credentials, demo mode  | "Sign in to see your pins", then "Open PostHog to sign in"                                                                     |
 | Expired or rejected token  | "Open PostHog to update"                                                                                                       |
 | Pin missing from catalog   | "<name> is no longer pinned"                                                                                                   |
@@ -229,7 +232,7 @@ The widget only reads what the server already computed: never `blocking`, never 
 | First read pending         | The title, "Loading…" and a placeholder sparkline. Only for a pin never read                                                   |
 | No cached result           | The title, then "Open it in PostHog to load this insight"; links to the insight                                                |
 
-A state links to `<scheme>://views`; a chart links to the pin's view with `from=widget` (see "How it works").
+A state links to `<scheme>://views`; a selected pin that is still loading and a chart link to the pin's view with `from=widget` (see "How it works").
 The scheme is `posthog`, `posthog-dev` or `posthog-preview` by build variant (`src/lib/appVariants.json`).
 
 ### Identifiers

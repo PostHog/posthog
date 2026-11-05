@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { waitFor } from '@testing-library/react-native'
-
-import type { InsightBasicApi } from '@/api/insights'
+import { ApiError } from '@/api/client'
+import type { InsightApi, InsightBasicApi } from '@/api/insights'
 import type { PaginatedApi } from '@/api/reports'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
 import { installAuthProvider, useAuthStore } from '@/auth/authStore'
@@ -13,7 +13,10 @@ import {
     setSessionTokens,
 } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
+import { usePinPrefs } from '@/features/views/pinPrefsStore'
+import { viewsQueue } from '@/features/views/refreshQueue'
 import { viewsKeys } from '@/features/views/viewsCache'
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 
 import { clearWidgetState, startChartWidgetSync, syncWidgetCatalog, syncWidgetCredentials } from './chartWidgetSync'
 
@@ -108,6 +111,7 @@ describe('chart widget sync', () => {
 
     beforeEach(() => {
         // A sync without a cached pin list prefetches it, so no test may reach the network.
+        viewsQueue.reset()
         fetchMock.mockReset()
         fetchMock.mockResolvedValue(json(404, { detail: 'Not found.' }))
         globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -115,6 +119,7 @@ describe('chart widget sync', () => {
         setSessionTokens(null)
         useAuthStore.setState({ status: 'signed_out', signedIn: false, user: null, projectId: null, projectName: null })
         useDemoMode.setState({ enabled: false })
+        usePinPrefs.getState().clear()
         clearWidgetState()
         mockSetCredentials.mockClear()
         mockClearCredentials.mockClear()
@@ -224,5 +229,158 @@ describe('chart widget sync', () => {
             projectId: 2,
             pins: [{ id: 's-kpis', dashboardId: 12, eligible: false, reason: 'Choose a tile in Views first' }],
         })
+    })
+    it('offers an insight after opening it recovers a failed metadata read', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        stop = startChartWidgetSync(client)
+        await waitFor(() => expect(mockSetCatalog).toHaveBeenCalled())
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].eligible).toBe(false)
+        const response: InsightApi = {
+            id: 123,
+            short_id: 'sig1',
+            name: 'Signups',
+            derived_name: null,
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode' }] } },
+            result: [],
+            last_refresh: null,
+            cache_target_age: null,
+            next_allowed_client_refresh: null,
+        }
+        client.setQueryData(
+            viewsKeys.insight(scope, 'sig1', null, '-'),
+            insightSnapshot(response, undefined, { readAt: Date.now(), serverNow: Date.now() })
+        )
+        await waitFor(() =>
+            expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({
+                eligible: true,
+                insightId: 123,
+            })
+        )
+    })
+
+    it('uses the newer opened insight instead of an older unsupported metadata response', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        client.setQueryData(
+            viewsKeys.pinMetadata(scope, 'sig1'),
+            {
+                id: 123,
+                short_id: 'sig1',
+                name: 'Signups',
+                query: { kind: 'FunnelsQuery' },
+            },
+            { updatedAt: Date.now() - 1000 }
+        )
+        const response: InsightApi = {
+            id: 123,
+            short_id: 'sig1',
+            name: 'Signups',
+            derived_name: null,
+            query: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode' }] },
+            result: [],
+            last_refresh: null,
+            cache_target_age: null,
+            next_allowed_client_refresh: null,
+        }
+        client.setQueryData(
+            viewsKeys.insight(scope, 'sig1', null, '-'),
+            insightSnapshot(response, undefined, { readAt: Date.now(), serverNow: Date.now() })
+        )
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].eligible).toBe(true)
+    })
+
+    it('selects a chart tile for a dashboard pin without requiring a display choice in Views', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-kpis', '12', 'dashboard')],
+        })
+        fetchMock.mockImplementation(async (url) =>
+            url.includes('/dashboards/12/')
+                ? json(200, {
+                      id: 12,
+                      name: 'Product KPIs',
+                      tiles: [
+                          {
+                              id: 3,
+                              insight: {
+                                  id: 456,
+                                  short_id: 'dau1',
+                                  name: 'Daily active users',
+                                  query: {
+                                      kind: 'InsightVizNode',
+                                      source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode' }] },
+                                  },
+                                  result: [],
+                                  last_refresh: null,
+                              },
+                          },
+                      ],
+                  })
+                : json(404, {})
+        )
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({
+            id: 's-kpis',
+            dashboardId: 12,
+            insightId: 456,
+            shortId: 'dau1',
+            eligible: true,
+        })
+        expect(usePinPrefs.getState().projects).toEqual({})
+    })
+
+    it('prefetches the new project after the project-switch query reset', async () => {
+        signIn(KEY)
+        const client = testClient()
+        client.setQueryData(viewsKeys.shortcuts({ host: HOST, projectId: 2 }), { count: 0, next: null, results: [] })
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
+        fetchMock.mockImplementation(async (url) =>
+            url.includes('/api/projects/3/file_system_shortcut/')
+                ? json(200, { count: 0, next: null, results: [] })
+                : json(404, {})
+        )
+        useAuthStore.setState({ projectId: 3, projectName: 'Second project' })
+        await client.resetQueries()
+        await waitFor(() => expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').projectId).toBe(3))
+    })
+    it('does not keep the next project waiting on an old insight rate-limit pause', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        viewsQueue.notePause('insights', new ApiError(429, {}, new Headers({ 'Retry-After': '60' })))
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        client.setQueryData(viewsKeys.shortcuts({ host: HOST, projectId: 3 }), { count: 0, next: null, results: [] })
+        stop = startChartWidgetSync(client)
+        await Promise.resolve()
+        expect(mockSetCatalog).not.toHaveBeenCalled()
+
+        useAuthStore.setState({ projectId: 3, projectName: 'Second project' })
+        await syncWidgetCatalog(client)
+
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').projectId).toBe(3)
+        expect(fetchMock).not.toHaveBeenCalled()
     })
 })
