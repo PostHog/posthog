@@ -19,8 +19,12 @@ export class BoundedPrimaryLookup {
         this.slots = new DeadlineSlots(options.maxOpen)
     }
 
-    public async run<Result>(tag: string, read: (tx: TransactionClient) => Promise<Result>): Promise<Result> {
-        const { name, timeoutMs } = this.options
+    public async run<Result>(
+        tag: string,
+        read: (tx: TransactionClient) => Promise<Result>,
+        { timeoutMs = this.options.timeoutMs }: { timeoutMs?: number } = {}
+    ): Promise<Result> {
+        const { name } = this.options
         let timedOut = false
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
