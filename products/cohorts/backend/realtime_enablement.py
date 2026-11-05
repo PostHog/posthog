@@ -116,12 +116,14 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
     if row is None:
-        # Only a run from a time the env list named the team stamps a team with no row. The pipeline has
-        # since stopped maintaining that membership, and `serving` would route flags to it before the new
-        # runs seed.
+        # A team with no row was stamped by a run from a time the env list named it, or by the legacy
+        # calculation workflow, whose stamp the flags service also accepts. Nothing maintains that
+        # membership, and `serving` would route flags to it before the new runs seed.
         stamped = list(
             Cohort.objects.filter(
-                Q(last_backfill_events_at__isnull=False) | Q(last_backfill_person_properties_at__isnull=False),
+                Q(last_backfill_events_at__isnull=False)
+                | Q(last_backfill_person_properties_at__isnull=False)
+                | Q(last_realtime_cohort_calculation_at__isnull=False),
                 team_id=team_id,
             )
             .order_by("id")

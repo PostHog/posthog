@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 
@@ -14,7 +14,6 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
@@ -184,17 +183,12 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
         BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
         BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
         BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
-        BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000,
     )
-    @patch("products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events")
-    def test_enable_handles_each_team_and_fails_when_one_is_not_enabled(self, scan_estimate: Any) -> None:
-        scan_estimate.return_value = BehavioralScanEstimate(
-            days_sampled=7,
-            peak_day=date(2026, 11, 1),
-            peak_day_events=2_000,
-            peak_day_events_by_name={"$pageview": 2_000},
-            max_events_per_day=1_000,
-        )
+    @patch(
+        "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+        side_effect=RuntimeError("ClickHouse timeout"),
+    )
+    def test_enable_handles_each_team_and_fails_when_one_is_not_enabled(self, _scan_estimate: Any) -> None:
         held, serving, enabled = (Team.objects.create(organization=self.organization) for _ in range(3))
         env_listed_cohort = Cohort.objects.create(
             team=self.team,

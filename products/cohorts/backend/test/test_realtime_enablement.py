@@ -161,7 +161,7 @@ class TestEnableRealtimeCohorts(BaseTest):
             ),
         )
 
-    def test_a_refused_run_keeps_the_team_processing_until_a_rerun_finds_both_runs(self) -> None:
+    def test_a_refused_run_keeps_the_team_processing_until_a_rerun_has_both_runs(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         self.peak_day_events = 2_000
 
@@ -174,42 +174,45 @@ class TestEnableRealtimeCohorts(BaseTest):
         assert self._team_runs(CohortBackfillKind.BEHAVIORAL) == []
         assert self._level() == RealtimeCohortLevel.PROCESSING
 
-        # The person run finishes while the operator accepts the scan volume through
-        # `create_cohort_backfill_run --max-scan-events-per-day 0`.
-        CohortBackfillRun.objects.for_team(self.team.id).filter(id=person_run.id).update(
-            status=CohortBackfillRunStatus.COMPLETED
-        )
+        # The operator accepts the scan volume through `create_cohort_backfill_run
+        # --max-scan-events-per-day 0`. That run finishes, and the person run fails.
         behavioral_run = create_team_backfill_run(self.team.id, CohortBackfillTrigger.TEAM_ENABLEMENT)
+        runs = CohortBackfillRun.objects.for_team(self.team.id)
+        runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.COMPLETED)
+        runs.filter(id=person_run.id).update(status=CohortBackfillRunStatus.FAILED)
         second = self._enable()
 
-        assert (second.behavioral, second.person) == (
-            RunAlreadyCreated(run_id=behavioral_run.id),
-            RunAlreadyCreated(run_id=person_run.id),
-        )
+        assert second.behavioral == RunAlreadyCreated(run_id=behavioral_run.id)
+        assert isinstance(second.person, RunCreated)
         assert self._level() == RealtimeCohortLevel.SERVING
-        assert CohortBackfillRun.objects.for_team(self.team.id).count() == 2
 
     @parameterized.expand(
         [
             (
                 "missing_attestation",
                 {"BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": False},
-                None,
+                {},
                 "Missing operator attestations: processor durability",
             ),
             (
                 "stamped_before_the_grant",
                 {},
-                datetime(2026, 1, 1, tzinfo=UTC),
+                {"last_backfill_events_at": datetime(2026, 1, 1, tzinfo=UTC)},
+                "Cohorts stamped ready before the grant",
+            ),
+            (
+                "calculated_before_the_grant",
+                {},
+                {"last_realtime_cohort_calculation_at": datetime(2026, 1, 1, tzinfo=UTC)},
                 "Cohorts stamped ready before the grant",
             ),
         ]
     )
     def test_refuses_the_team_before_any_write(
-        self, _name: str, overrides: dict[str, Any], stamped_at: datetime | None, message: str
+        self, _name: str, overrides: dict[str, Any], stamps: dict[str, datetime], message: str
     ) -> None:
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=stamped_at)
+        Cohort.objects.filter(id=cohort.id).update(**stamps)
 
         with override_settings(**overrides), self.assertRaisesMessage(ValueError, message):
             enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
