@@ -8,8 +8,10 @@ from django.utils import timezone
 import structlog
 from botocore.exceptions import (
     ClientError,
-    ConnectionError as BotoConnectionError,
-    HTTPClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
 )
 from prometheus_client import Counter
 
@@ -36,6 +38,7 @@ SANDBOX_TENANT_SYNC_FAILURES = Counter(
     labelnames=["kind"],
 )
 _TRANSIENT_SES_ERRORS = frozenset({"Throttling", "ThrottlingException", "TooManyRequestsException"})
+_TRANSIENT_TRANSPORT_ERRORS = (EndpointConnectionError, ConnectTimeoutError, ConnectionClosedError, ReadTimeoutError)
 
 PROVIDER_PAUSE_REASON = "Our email provider paused sending for this project because of high-impact reputation findings"
 # A tenant can also be paused without high-impact findings: someone pausing it directly in the
@@ -77,7 +80,7 @@ def _announce_state_change(team_id: int) -> None:
 
 
 def _sandbox_sync_failure_kind(error: Exception) -> str:
-    if isinstance(error, BotoConnectionError | HTTPClientError):
+    if isinstance(error, _TRANSIENT_TRANSPORT_ERRORS):
         return "transient"
     if isinstance(error, ClientError) and (
         error.response["Error"]["Code"] in _TRANSIENT_SES_ERRORS
