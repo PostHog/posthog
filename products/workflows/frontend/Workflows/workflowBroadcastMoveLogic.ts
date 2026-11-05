@@ -35,12 +35,18 @@ export function sendsFromSandboxSender(
     return emailSenderIds(workflow).some((id) => sandboxIds.has(id))
 }
 
+function sendersAreListed(workflow: HogFlow, integrations: IntegrationType[]): boolean {
+    const listed = new Set(integrations.map((integration) => String(integration.id)))
+    return emailSenderIds(workflow).every((id) => listed.has(id))
+}
+
 /** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
 export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: IntegrationType[] | null): boolean {
     if (!workflow || !integrations) {
         return false
     }
     return (
+        sendersAreListed(workflow, integrations) &&
         !sendsFromSandboxSender(workflow, integrations) &&
         !workflow.origin_product &&
         workflow.status !== 'archived' &&
