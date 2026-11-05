@@ -242,11 +242,17 @@ def build_html_wrap_design(html: str) -> dict:
     }
 
 
-_UNLAYER_BODY_CLASS = "u_body"
+_UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
+_MARKUP_WITHOUT_TEXT = re.compile(
+    r"<head\b.*?</head>|<style\b.*?</style>|<!--.*?-->|<[^>]*>|&nbsp;|\s", re.DOTALL | re.IGNORECASE
+)
 
 
 def _is_unlayer_render_of(html: str, block_html: str) -> bool:
-    return _UNLAYER_BODY_CLASS in html and block_html in html
+    if block_html not in html:
+        return False
+    around_block = html.replace(block_html, "", 1)
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and not _MARKUP_WITHOUT_TEXT.sub("", around_block)
 
 
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:

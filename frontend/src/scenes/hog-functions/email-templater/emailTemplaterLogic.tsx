@@ -169,10 +169,15 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
-const UNLAYER_BODY_CLASS = 'u_body'
+const UNLAYER_BODY_CLASS = /\bu_body\b/
+const MARKUP_WITHOUT_TEXT = /<head\b[\s\S]*?<\/head>|<style\b[\s\S]*?<\/style>|<!--[\s\S]*?-->|<[^>]*>|&nbsp;|\s/gi
 
 function isUnlayerRenderOf(html: string, blockHtml: string): boolean {
-    return html.includes(UNLAYER_BODY_CLASS) && html.includes(blockHtml)
+    if (!html.includes(blockHtml)) {
+        return false
+    }
+    const aroundBlock = html.replace(blockHtml, () => '')
+    return UNLAYER_BODY_CLASS.test(aroundBlock) && aroundBlock.replace(MARKUP_WITHOUT_TEXT, '') === ''
 }
 
 export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {

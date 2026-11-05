@@ -90,6 +90,14 @@ def create_example_inputs():
     }
 
 
+def _render_around(block_html: str) -> str:
+    return (
+        "<!DOCTYPE html><html><head><style>#u_body a { color: #00e; }</style></head>"
+        '<body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]-->'
+        f'<div class="u-row-container"><div class="u-row">{block_html}</div></div></body></html>'
+    )
+
+
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     filters_context: dict = {}
 
@@ -510,6 +518,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("copy_appended_to_the_block", "<p>Old copy</p>", "<p>Old copy</p><p>New footer</p>"),
             ("block_wrapped_in_new_markup", "<p>Old copy</p>", '<div style="padding: 8px"><p>Old copy</p></div>'),
             (
+                "copy_appended_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><p>P.S.</p>"),
+            ),
+            (
+                "block_is_an_unlayer_page_that_got_a_footer",
+                _render_around("<p>Page</p>"),
+                f"<div>{_render_around('<p>Page</p>')}<p>Footer</p></div>",
+            ),
+            (
+                "unrelated_body_class_is_not_the_unlayer_page",
+                "<p>Old copy</p>",
+                '<div class="menu_body"><p>Old copy</p></div>',
+            ),
+            (
                 "full_render_replaced_by_another",
                 '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
                 '<html><body class="clean-body u_body"><p>New copy</p></body></html>',
@@ -547,10 +570,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["email"]["value"]["design"] == edited_design
 
     def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self):
-        html = (
-            '<!DOCTYPE html><html><body class="clean-body u_body"><div class="u-row-container">'
-            "<p>Inner block</p></div></body></html>"
-        )
+        html = _render_around("<p>Inner block</p>")
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         design = build_html_wrap_design("<p>Inner block</p>")
         value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": design}
