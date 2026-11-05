@@ -640,6 +640,7 @@ async def handle_corrupted_delta_log(
     logger: FilteringBoundLogger,
     *,
     table_will_be_reset: bool = False,
+    keeps_table: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -664,6 +665,9 @@ async def handle_corrupted_delta_log(
     scheduled full refresh or a requested reset). The delete does not read the log, so an unreadable
     log needs no detection there, and the open is skipped. A revive marker and a staged swap are
     still handled, because they need more than the delete.
+
+    `keeps_table` marks a table that holds the only copy of its data, such as a history table. A rebuild
+    from the source can't bring that data back, so it is never reset here and is left for a repair.
 
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
@@ -744,6 +748,16 @@ async def handle_corrupted_delta_log(
         except Exception as e:
             capture_exception(e)
             await logger.aexception(f"handle_corrupted_delta_log: salvage failed, resetting: {e}", exc_info=e)
+
+    if keeps_table:
+        capture_exception(
+            RuntimeError(f"Delta table of schema {schema.id} is corrupt and holds the only copy of its data")
+        )
+        await logger.aerror(
+            f"handle_corrupted_delta_log: keeping the corrupt table for a repair, schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return False
 
     # Reset + rebuild from source in this run, marked non-billable — we caused the corruption.
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path

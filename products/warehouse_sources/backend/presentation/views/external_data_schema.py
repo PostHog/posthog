@@ -1541,17 +1541,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
         # The rebuild a new mask starts leaves a registered history table as it is, also after the schema
-        # stopped writing it, so the earlier values would stay readable there. Only a CDC table that keeps
-        # history reseeds that table from its new snapshot. Removing a mask leaks nothing.
+        # stopped writing it, so the earlier values would stay readable there. Only a table that is CDC and
+        # keeps history after this request reseeds that table from its new snapshot. Removing a mask leaks nothing.
         stored_masks = {fold_column_name(column) for column in instance.masked_columns or []}
         adds_a_mask = masked_columns_changed and any(
             fold_column_name(column) not in stored_masks for column in validated_data.get("masked_columns") or []
         )
-        if (
-            adds_a_mask
-            and not (instance.is_cdc and history_mode_before is not None)
-            and registered_history_naming(instance) is not None
-        ):
+        reseeds_history = data.get("sync_type", instance.sync_type) == ExternalDataSchema.SyncType.CDC and (
+            is_history_table_mode(data.get("cdc_table_mode", previous_cdc_table_mode))
+        )
+        if adds_a_mask and not reseeds_history and registered_history_naming(instance) is not None:
             raise ValidationError(
                 "This table has a history table that keeps the past values of its columns. A new mask can't "
                 "hide those values, so the column can't be masked."

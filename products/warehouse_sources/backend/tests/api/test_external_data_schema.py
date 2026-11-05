@@ -4961,15 +4961,35 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("keeps_history", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, [], ["email"], True),
-            ("history_only", ExternalDataSchema.SyncType.INCREMENTAL, "cdc_only", True, [], ["email"], True),
+            ("keeps_history", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, [], ["email"], {}, True),
+            ("history_only", ExternalDataSchema.SyncType.INCREMENTAL, "cdc_only", True, [], ["email"], {}, True),
             # The history table stays registered after the schema stops writing it.
-            ("history_turned_off", ExternalDataSchema.SyncType.INCREMENTAL, "consolidated", False, [], ["email"], True),
-            ("cdc_left_history", ExternalDataSchema.SyncType.CDC, "consolidated", False, [], ["email"], True),
+            (
+                "history_turned_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "consolidated",
+                False,
+                [],
+                ["email"],
+                {},
+                True,
+            ),
+            ("cdc_left_history", ExternalDataSchema.SyncType.CDC, "consolidated", False, [], ["email"], {}, True),
             # A CDC table that keeps history reseeds it from the new snapshot.
-            ("cdc_keeps_history", ExternalDataSchema.SyncType.CDC, "both", False, [], ["email"], False),
+            ("cdc_keeps_history", ExternalDataSchema.SyncType.CDC, "both", False, [], ["email"], {}, False),
+            # The same request leaves CDC, so nothing reseeds the history table.
+            (
+                "cdc_switching_to_incremental",
+                ExternalDataSchema.SyncType.CDC,
+                "both",
+                False,
+                [],
+                ["email"],
+                {"sync_type": "incremental"},
+                True,
+            ),
             # The past versions stay masked, so removing a mask leaks nothing.
-            ("removing_a_mask", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, ["email"], [], False),
+            ("removing_a_mask", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, ["email"], [], {}, False),
         ]
     )
     def test_masking_a_column_of_a_table_with_a_history_table(
@@ -4980,6 +5000,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         chose_history: bool,
         stored_masks: list[str],
         requested_masks: list[str],
+        request_extra: dict[str, Any],
         refused: bool,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
@@ -5007,11 +5028,12 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             options={"history_table": True, "history_naming": "ph_validity"},
         )
 
+        body = {"masked_columns": requested_masks, **request_extra}
         if refused:
             with pytest.raises(ValidationError, match="history table"):
-                self._save_through_serializer(self.schema, {"masked_columns": requested_masks})
+                self._save_through_serializer(self.schema, body)
         else:
-            self._save_through_serializer(self.schema, {"masked_columns": requested_masks})
+            self._save_through_serializer(self.schema, body)
 
         self.schema.refresh_from_db()
         assert (self.schema.masked_columns or []) == (stored_masks if refused else requested_masks)

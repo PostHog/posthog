@@ -940,6 +940,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     table_will_be_reset=table_will_be_reset,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
 
                 await handle_reset_or_full_refresh(

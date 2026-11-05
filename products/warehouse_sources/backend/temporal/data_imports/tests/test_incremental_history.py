@@ -109,6 +109,14 @@ class TestAttachHistoryLanes:
             with pytest.raises(IncrementalHistoryUnavailableError):
                 attach_history_lanes(_schema("both"), _response())
 
+    def test_a_run_that_does_not_sync_to_the_warehouse_fails(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.incremental_history.includes_the_warehouse",
+            return_value=False,
+        ):
+            with pytest.raises(IncrementalHistoryUnavailableError, match="warehouse"):
+                attach_history_lanes(_schema("both"), _response(), destination_ids=["an-external-destination"])
+
 
 class TestRegisteredHistoryColumns:
     @parameterized.expand(

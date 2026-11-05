@@ -935,7 +935,9 @@ class TestCorruptionCheckBeforeAReset:
         return schema
 
     def _logger(self) -> MagicMock:
-        return MagicMock(awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock())
+        return MagicMock(
+            awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock(), aerror=AsyncMock()
+        )
 
     @parameterized.expand(_reset_inputs())
     def test_prediction_matches_what_the_reset_step_does(
@@ -984,6 +986,17 @@ class TestCorruptionCheckBeforeAReset:
 
         assert revived is False
         assert table_ref.is_table_corrupted.await_count == int(expect_open)
+        table_ref.reset_table.assert_not_awaited()
+
+    def test_a_corrupt_table_that_holds_the_only_copy_of_its_data_is_kept(self) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.INCREMENTAL)
+        table_ref = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
+
+        revived = async_to_sync(handle_corrupted_delta_log)(
+            schema, MagicMock(), table_ref, self._logger(), keeps_table=True
+        )
+
+        assert revived is False
         table_ref.reset_table.assert_not_awaited()
 
 

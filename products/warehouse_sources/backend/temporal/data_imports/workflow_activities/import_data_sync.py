@@ -969,7 +969,9 @@ async def _import_data_with_reporting(
                 )
 
             try:
-                await database_sync_to_async_pool(attach_history_lanes)(schema, source_response)
+                await database_sync_to_async_pool(attach_history_lanes)(
+                    schema, source_response, destination_ids=list(model.destination_ids or [])
+                )
             except IncrementalHistoryUnavailableError as e:
                 await _handle_import_error(job_inputs, logger, e)
 

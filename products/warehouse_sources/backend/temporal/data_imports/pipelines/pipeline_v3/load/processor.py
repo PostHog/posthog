@@ -1003,7 +1003,8 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # outside the loader (a run with zero batches) must not promote it.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
     # The tables of a `both` run share one read, and each completes its own job. The last one to complete
-    # promotes the cursor, so a table that failed reads the run's rows again on the next sync.
+    # promotes the cursor, so a table that failed reads the run's rows again on the next sync. Each
+    # completion holds the schema row's lock, so the second one reads the first as committed.
     run_uuid = export_signal.run_uuid
     if export_signal.sync_type == "incremental":
         if not run_completed_on_every_table(export_signal.job_id, export_signal.team_id):

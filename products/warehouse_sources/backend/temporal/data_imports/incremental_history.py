@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
     registered_stamped_history_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import includes_the_warehouse
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
@@ -85,10 +86,16 @@ def is_incremental_history_enabled_for_team(team: Team) -> bool:
     )
 
 
-def attach_history_lanes(schema: ExternalDataSchema, source_response: SourceResponse) -> None:
+def attach_history_lanes(
+    schema: ExternalDataSchema, source_response: SourceResponse, *, destination_ids: Sequence[str] = ()
+) -> None:
     """Add the history lane to an incremental run of a schema that keeps history."""
     if not (schema.is_incremental and schema.keeps_history):
         return
+    if not includes_the_warehouse(schema.team_id, destination_ids):
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps a history table, which lives in the PostHog warehouse, but it doesn't sync there"
+        )
     if source_response.lanes or source_response.replace_scope is not None:
         raise IncrementalHistoryUnavailableError(
             f"{schema.name} keeps a history table, but its source replaces rows instead of merging them by key"
