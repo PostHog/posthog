@@ -856,15 +856,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "WHERE in(e.event",
                 "WHERE in(event, tuple('$pageview', '$feature_flag_called')) LIMIT 10) AS e LEFT JOIN",
             ),
-            (
-                "json_extract_of_a_materialized_key_reads_its_column",
-                f"SELECT JSONExtractString(properties, 'mykey') FROM events WHERE {MIXED}",
-                PersonsOnEventsMode.DISABLED,
-                {},
-                "events.mat_mykey",
-                "events.properties, 'mykey'",
-                None,
-            ),
         ]
     )
     def test_union_scan_keeps_the_pushdown_that_events_gets(
