@@ -641,7 +641,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         [
             ("compilation_limit", CompilationLimitExceededError("limit"), True, False),
             ("invalid_query_fails_open_unreported", QueryError("invalid"), False, False),
-            ("unresolvable_query_fails_open_unreported", ResolutionError("unresolved"), False, False),
+            ("internal_hogql_error_fails_open_and_is_reported", ResolutionError("unresolved"), False, True),
             ("other_error_fails_open_and_is_reported", RuntimeError("unexpected"), False, True),
         ]
     )
