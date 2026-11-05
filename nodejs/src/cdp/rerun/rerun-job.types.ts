@@ -87,8 +87,6 @@ export interface RerunJobProgress {
     skipped: number
     /** Keyset cursor on (scheduled_at, invocation_id). Undefined on first page; null when exhausted. */
     cursor?: RerunCursor | null
-    /** By-IDs mode only: how many of `invocation_ids` earlier pages have covered. Replaces the cursor there. */
-    invocation_id_offset?: number
     /** True once the worker has processed every page or exhausted max_count. */
     done: boolean
     /** Last error from a page; non-fatal — the next reschedule retries. */

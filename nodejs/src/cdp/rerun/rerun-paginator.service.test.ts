@@ -375,6 +375,10 @@ describe('RerunPaginatorService integration', () => {
                 }))
                 expect(state.progress.last_error).toBeUndefined()
                 pages += 1
+                if (!state.progress.done) {
+                    // A worker from before page-by-page IDs reads only this list, so it can't resend covered runs.
+                    expect(state.request.filter.invocation_ids).toEqual(ids.slice(pages * RERUN_PAGE_SIZE))
+                }
             }
 
             const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
@@ -383,6 +387,32 @@ describe('RerunPaginatorService integration', () => {
             expect(enqueued.map((i) => i.id)).toEqual([first, last])
             expect(state.progress.queued).toBe(2)
             expect(pages).toBe(ids.length / RERUN_PAGE_SIZE)
+        })
+
+        it('reruns an ID once when a job queued earlier repeats it across pages', async () => {
+            await seedRows([{ invocation_id: 'inv-repeated', status: 'failed', error: new Error('5xx') }])
+            const others = Array.from({ length: RERUN_PAGE_SIZE }, () => randomUUID())
+
+            let state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-repeated', ...others, 'inv-repeated'],
+                    },
+                },
+            })
+            while (!state.progress.done) {
+                ;({ state } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                }))
+            }
+
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-repeated'])
         })
 
         it('keeps a job that started before page-by-page IDs on its cursor, so it does not rerun earlier rows', async () => {
