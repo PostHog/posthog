@@ -31,6 +31,7 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'analytics-go':
             return 'go'
         case 'posthog-php':
+        case 'posthog-laravel':
             return 'php'
         case 'posthog-rs':
             return 'rust'

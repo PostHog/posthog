@@ -81,6 +81,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             "401 Client Error:  for url": "Your Zoho CRM access token is invalid or expired. Reconnect the source to issue a new one.",
             "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
             "403 Client Error:  for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
+            "INVALID_MODULE": "Zoho CRM doesn't have this module enabled for your account. Turn off this table in the source's schema settings, or enable the module in Zoho CRM.",
             "Non-JSON response from": "Zoho CRM returned a non-JSON response, for example an HTML error or login page, instead of data. Check that the data center you picked matches your Zoho account, then try again.",
         }
 

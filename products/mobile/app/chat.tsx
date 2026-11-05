@@ -5,11 +5,13 @@ import { useDataMode } from '@/demo/demoMode'
 import { ChatScreen } from '@/features/chat/ChatScreen'
 import { chatSheetSource } from '@/features/chat/chatSheetEvents'
 import { objectContextFromParams } from '@/features/chat/objectContext'
+import { useChatAutoFocus } from '@/features/chat/useChatAutoFocus'
 import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 
 export default function ChatRoute(): ReactElement {
     const router = useRouter()
     const dataMode = useDataMode()
+    const autoFocus = useChatAutoFocus()
     const { reportId, taskId, runId, entry, origin, objectType, objectId, objectLabel } = useLocalSearchParams<{
         reportId?: string
         taskId?: string
@@ -35,6 +37,7 @@ export default function ChatRoute(): ReactElement {
             initialRunId={runId}
             initialObject={objectContextFromParams({ objectType, objectId, objectLabel })}
             source={chatSheetSource({ entry, origin, reportId, taskId, objectType })}
+            autoFocus={autoFocus}
             onBack={close}
         />
     )

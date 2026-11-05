@@ -84,3 +84,31 @@ export function urlJob(nextFetchAtMs: number, storedAtMs: number | undefined, no
 export function isUrlHistoryValue(key: string, value: string): boolean {
     return native.isUrlHistoryValue(key, value)
 }
+
+export type V4UrlAsset = 'image' | 'font'
+
+export type V4UrlRef =
+    | { scope: 'team'; asset: V4UrlAsset; teamId: number; keyMonth: string; hash: string }
+    | { scope: 'public'; asset: 'font'; hash: string }
+
+/** Parses `imageurl:v4:{team}:{YYYY-MM}:{hash}`, its `fonturl` twin and `fonturl:v4:public:{hash}`. `parseImageRef` refuses them all, so no v2 or v3 reader takes one. */
+export function parseV4UrlRef(reference: string): V4UrlRef | null {
+    return native.parseV4UrlRef(reference)
+}
+
+export function sealFetchedImage(teamMonthKey: Buffer, reference: string, image: Buffer): Promise<Buffer> {
+    return native.sealFetchedImage(teamMonthKey, reference, image)
+}
+
+export function imageUrlHash(teamMonthKey: Buffer, url: string): string {
+    return native.imageUrlHash(teamMonthKey, url)
+}
+
+/** The public font reference that a canonical fetch URL names, or `null` when its file belongs to a team. */
+export function publicFontRefOf(fetchUrl: string): string | null {
+    return native.publicFontRefOf(fetchUrl)
+}
+
+export function publicUrlHash(url: string): string {
+    return native.publicUrlHash(url)
+}

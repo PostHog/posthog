@@ -354,6 +354,10 @@ class TestConvexNonRetryableErrors:
                 "Your deploy key contains characters PostHog can't send to Convex. "
                 "Copy the key again from your Convex dashboard, then try again.",
             ),
+            (
+                "unsupported_schema_for_export",
+                "UnsupportedSchemaForExport: Schema contains a union of objects, which is not supported for export",
+            ),
         ]
     )
     def test_known_errors_match(self, _name: str, observed_error: str) -> None:

@@ -19,11 +19,12 @@ from products.signals.backend.activity_summary.queue import is_team_enrolled_for
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
+SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
 
 
 class ActivitySummaryStatus(models.TextChoices):
     READY = "ready"
-    # No row, or no update succeeded yet.
+    # No row, no update succeeded yet, or the rebuild of a stale summary skipped.
     NOT_READY = "not_ready"
 
 
@@ -113,12 +114,19 @@ def readable_config(team: Team) -> ActivitySummaryConfig | None:
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
-    """The user's current summary. A failed later update keeps the last good summary, so it is still ready."""
+    """The user's current summary. A failed later update keeps the last good summary, so it is still ready.
+
+    A stale summary whose rebuild skipped is not ready, because the current inputs gave no summary.
+    """
     config = readable_config(team)
     if config is None:
         return None
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
-    return (row and ready_view(row, config)) or ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    if row is None or (view := ready_view(row, config)) is None:
+        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    if view.stale and row.status in SKIPPED_REBUILD_STATUSES:
+        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    return view
 
 
 def ready_view(row: UserActivitySummary, config: ActivitySummaryConfig) -> ActivitySummaryView | None:

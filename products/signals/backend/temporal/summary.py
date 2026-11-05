@@ -147,6 +147,9 @@ async def _capture_report_event(
         "run_count": run_count,
         "source_products": source_products,
     }
+    if temporalio.activity.in_activity():
+        info = temporalio.activity.info()
+        properties.update(workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id)
     if result is not None:
         properties["result"] = result
     # Only the two outcomes that write prose carry a chart set, so the property is absent rather

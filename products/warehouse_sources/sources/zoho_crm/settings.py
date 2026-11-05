@@ -53,8 +53,8 @@ ZOHO_CRM_ENDPOINTS: dict[str, ZohoCRMEndpointConfig] = {
     "Calls": _module("Calls"),
     "Notes": _module("Notes"),
     "Products": _module("Products"),
-    "Vendors": _module("Vendors"),
     # Inventory and support modules — edition/setup dependent.
+    "Vendors": _module("Vendors", should_sync_default=False),
     "Price_Books": _module("Price_Books", should_sync_default=False),
     "Quotes": _module("Quotes", should_sync_default=False),
     "Sales_Orders": _module("Sales_Orders", should_sync_default=False),

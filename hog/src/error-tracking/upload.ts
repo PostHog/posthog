@@ -1,7 +1,8 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import { USER_AGENT } from '@/posthog/api'
-import type { Credentials } from '@/posthog/credentials'
+import { hostUrl } from '@/posthog/host'
+import type { KeySession } from '@/posthog/key-session'
 
 import { contentHash } from './container'
 
@@ -145,35 +146,40 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials,
+        private readonly session: KeySession,
         private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
 
-    // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
+    // Project-scoped API URL. hostUrl keeps the path a self-hosted PostHog sits under, which
+    // posthog-cli's `Url::join` drops, and gives the same URL for a host without one.
     projectUrl(path: string): URL {
-        return new URL(path, new URL(`api/projects/${this.credentials.projectId}/`, this.credentials.host))
+        const { projectId, host } = this.session.current
+        return new URL(path, hostUrl(host, `api/projects/${projectId}/`))
     }
 
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
         await this.throttle.wait()
         const url = this.projectUrl(path)
-        let response: Response
-        try {
-            response = await this.runtime.fetch(url, {
-                method,
-                headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': USER_AGENT,
-                },
-                body: body === undefined ? undefined : JSON.stringify(body),
-                timeoutMs: REQUEST_TIMEOUT_MS,
-            })
-        } catch (error) {
-            throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+        // Only a failed request becomes an ApiFailure. A renewal that fails keeps its own error and hint.
+        const send = async (token: string): Promise<Response> => {
+            try {
+                return await this.runtime.fetch(url, {
+                    method,
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'User-Agent': USER_AGENT,
+                    },
+                    body: body === undefined ? undefined : JSON.stringify(body),
+                    timeoutMs: REQUEST_TIMEOUT_MS,
+                })
+            } catch (error) {
+                throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+            }
         }
+        const response = await this.session.send(send, (answer) => answer.status === 401)
         const text = await response.text()
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())

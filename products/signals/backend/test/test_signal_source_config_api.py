@@ -3,11 +3,13 @@ from threading import Barrier
 from typing import TYPE_CHECKING
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.db import connection, connections
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -17,6 +19,14 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.signals.backend.emission.steering import afetch_source_config
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    AlertNamePatterns,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+)
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -568,6 +578,55 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
 
+    @parameterized.expand(
+        [
+            ("investigated_only", "analytics", "anomaly_investigation", "investigated_only", True),
+            ("all_firing_alerts", "analytics", "anomaly_investigation", "all_firing_alerts", True),
+            ("unknown_value", "analytics", "anomaly_investigation", "everything", False),
+            ("null", "analytics", "anomaly_investigation", None, False),
+            ("unhashable", "analytics", "anomaly_investigation", ["all_firing_alerts"], False),
+            ("other_source", "github", "issue", "all_firing_alerts", False),
+        ]
+    )
+    def test_alert_scope(self, _name, source_product, source_type, value, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {"alert_scope": value}}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "alert_scope" in str(serializer.errors["config"])
+
+    def test_alert_scope_is_validated_on_config_set(self) -> None:
+        instance = SignalSourceConfig(source_product="github", source_type="issue", config={})
+        serializer = SignalSourceConfigSerializer(
+            instance, data={"config_set": {"alert_scope": "all_firing_alerts"}}, partial=True
+        )
+        assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ("allow", "analytics", "anomaly_investigation", "alert_allow_patterns", ["(?i)checkout", "^Daily"], None),
+            ("block", "analytics", "anomaly_investigation", "alert_block_patterns", ["test"], None),
+            ("empty_list", "analytics", "anomaly_investigation", "alert_block_patterns", [], None),
+            ("not_a_list", "analytics", "anomaly_investigation", "alert_allow_patterns", "checkout", "list"),
+            ("empty_pattern", "analytics", "anomaly_investigation", "alert_allow_patterns", [""], "list"),
+            ("too_many", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a"] * 21, "at most 20"),
+            ("too_long", "analytics", "anomaly_investigation", "alert_block_patterns", ["a" * 201], "at most 200"),
+            ("lookahead", "analytics", "anomaly_investigation", "alert_block_patterns", ["ok", "(?=x)"], "'(?=x)'"),
+            ("unbalanced", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a("], "'a('"),
+            ("other_source", "github", "issue", "alert_allow_patterns", ["checkout"], "only supported"),
+        ]
+    )
+    def test_alert_patterns(self, _name, source_product, source_type, key, value, expected_error):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {key: value}}
+        )
+        assert serializer.is_valid() is (expected_error is None), serializer.errors
+        if expected_error is not None:
+            error = str(serializer.errors["config"])
+            assert key in error
+            assert expected_error in error
+
 
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child
@@ -719,6 +778,21 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
 
+    @parameterized.expand([("no_row", None, False), ("enabled_row", True, True), ("disabled_row", False, False)])
+    def test_alert_firing_gated_by_product_analytics_row(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.ANALYTICS,
+                source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
+                enabled=existing_enabled,
+                config={"steering": "Skip the staging alerts."},
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "analytics", "alert_firing") is expected
+        steering = async_to_sync(afetch_source_config)(self.team.id, "analytics", "alert_firing").get("steering")
+        assert steering == (None if existing_enabled is None else "Skip the staging alerts.")
+
     def test_pganalyze_issue_requires_own_config(self):
         SignalSourceConfig.objects.create(
             team=self.team,
@@ -773,6 +847,118 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
+
+
+class TestGetAnalyticsAlertScope(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, "investigated_only"),
+            ("no_key", {}, True, "investigated_only"),
+            ("unknown_stored_value", {"alert_scope": "everything"}, True, "investigated_only"),
+            ("unhashable_stored_value", {"alert_scope": ["all_firing_alerts"]}, True, "investigated_only"),
+            ("all_firing_alerts_flag_on", {"alert_scope": "all_firing_alerts"}, True, "all_firing_alerts"),
+            ("all_firing_alerts_flag_off", {"alert_scope": "all_firing_alerts"}, False, "investigated_only"),
+        ]
+    )
+    def test_scope(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == expected
+
+    def test_flag_service_error_reads_default_scope(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_scope": "all_firing_alerts"},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == "investigated_only"
+
+
+class TestGetAnalyticsAlertNamePatterns(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, AlertNamePatterns()),
+            ("no_keys", {"alert_scope": "all_firing_alerts"}, True, AlertNamePatterns()),
+            (
+                "valid",
+                {"alert_allow_patterns": ["^Daily"], "alert_block_patterns": ["test"]},
+                True,
+                AlertNamePatterns(allow=("^Daily",), block=("test",)),
+            ),
+            ("flag_off", {"alert_block_patterns": ["test"]}, False, AlertNamePatterns()),
+            ("not_a_list", {"alert_block_patterns": "test"}, True, AlertNamePatterns(invalid=True)),
+            ("null", {"alert_allow_patterns": None}, True, AlertNamePatterns(invalid=True)),
+            ("no_longer_compiles", {"alert_block_patterns": ["(?=x)"]}, True, AlertNamePatterns(invalid=True)),
+        ]
+    )
+    def test_patterns(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == expected
+
+    def test_flag_service_error_fails_closed(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_allow_patterns": ["^Daily"]},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == AlertNamePatterns(invalid=True)
+
+
+class TestEvaluateAlertFilter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_patterns", AlertNamePatterns(), AlertFilterOutcome.PASSED),
+            ("allow_matches", AlertNamePatterns(allow=("Checkout",)), AlertFilterOutcome.PASSED),
+            ("allow_misses", AlertNamePatterns(allow=("signups",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("block_misses", AlertNamePatterns(block=("signups",)), AlertFilterOutcome.PASSED),
+            ("block_matches", AlertNamePatterns(block=("conversion",)), AlertFilterOutcome.BLOCKED),
+            (
+                "block_wins_over_allow",
+                AlertNamePatterns(allow=("Checkout",), block=("conversion",)),
+                AlertFilterOutcome.BLOCKED,
+            ),
+            (
+                "allow_matches_and_block_misses",
+                AlertNamePatterns(allow=("Checkout",), block=("signups",)),
+                AlertFilterOutcome.PASSED,
+            ),
+            ("matches_the_insight_name", AlertNamePatterns(allow=("^Weekly revenue$",)), AlertFilterOutcome.PASSED),
+            ("search_not_full_match", AlertNamePatterns(allow=("out conv",)), AlertFilterOutcome.PASSED),
+            ("case_sensitive_by_default", AlertNamePatterns(allow=("^checkout",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("case_insensitive_flag", AlertNamePatterns(allow=("(?i)^checkout",)), AlertFilterOutcome.PASSED),
+            ("pattern_that_does_not_compile", AlertNamePatterns(block=("(?=x)",)), AlertFilterOutcome.INVALID),
+            ("invalid_stored_patterns", AlertNamePatterns(invalid=True), AlertFilterOutcome.INVALID),
+        ]
+    )
+    def test_outcome(self, _name, patterns, expected):
+        outcome = evaluate_alert_filter(patterns, alert_name="Checkout conversion", insight_name="Weekly revenue")
+
+        assert outcome == expected
 
 
 @pytest.mark.django_db(transaction=True)

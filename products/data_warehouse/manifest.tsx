@@ -187,7 +187,7 @@ export const manifest: ProductManifest = {
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             href: urls.sqlEditor(),
-            searchKeywords: ['hogql', 'hogsql', 'query editor'],
+            searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
             sceneKeys: ['SQLEditor'],
         },

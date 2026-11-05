@@ -27,6 +27,7 @@ This reservation does not add qualified names to existing models or require a na
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The initial load keeps section titles visible and shows skeletons for the metric values, charts, model table, and job rows. Refreshes keep the loaded data visible while new data loads.
 The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
 Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
 The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.

@@ -98,6 +98,8 @@ ExtractErrors = {
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
     "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # Same HEAD-request shape as the 403 above, but for a key that isn't there at all.
+    "Failed to get object info: No response body.. HTTP response code: 404": "The provided file doesn't exist in the bucket. Check the files URL pattern, then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",

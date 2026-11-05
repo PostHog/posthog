@@ -251,6 +251,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -336,6 +337,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
@@ -367,13 +369,38 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
     NOT_CHECKED = "not_checked"
 
 
+class ExperimentHealthMeasurementUnit(LabeledStrEnum):
+    # On the 0-100 scale.
+    PERCENTAGE = "percentage", "Percentage of exposed units"
+    P_VALUE = "p_value", "P-value of a statistical test"
+
+
+class ExperimentHealthMeasurementSide(LabeledStrEnum):
+    ABOVE = "above", "Finding above the threshold"
+    BELOW = "below", "Finding below the threshold"
+
+
+@frozen
+class ExperimentHealthMeasurement:
+    """The value that decided a passed check, so a reader sees how far it is from a finding."""
+
+    value: float
+    threshold: float
+    unit: ExperimentHealthMeasurementUnit
+    # The side of the threshold that reports a finding.
+    warns: ExperimentHealthMeasurementSide
+
+
 @frozen
 class ExperimentHealthCheckResult:
     key: ExperimentHealthCheckKey
     name: str
+    description: str
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
+    # Only for the status passed, when the check shows the value that decided the pass.
+    measurement: ExperimentHealthMeasurement | None
 
 
 @frozen
