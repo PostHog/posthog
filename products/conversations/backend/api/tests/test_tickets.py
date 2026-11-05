@@ -155,6 +155,27 @@ class TestTicketBriefSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert expected_error_field in serializer.errors
 
+    @parameterized.expand(
+        [
+            ("ask_only", {"ask": "Just the ask."}, ["area", "questions"]),
+            ("area_only", {"area": "Billing"}, ["ask", "questions"]),
+            ("empty_object", {}, ["area", "ask", "questions"]),
+        ]
+    )
+    def test_patch_rejects_a_brief_missing_a_required_field(self, _name, brief, expected_missing):
+        # A PATCH makes the parent serializer partial, and DRF propagates that into the nested
+        # brief, so `required` alone stops being enforced. A brief with no ask then reaches the
+        # sidebar, where rendering it throws and takes the whole ticket scene down.
+        serializer = TicketUpdateRequestSerializer(data={"ticket_brief": brief}, partial=True)
+        assert not serializer.is_valid()
+        assert sorted(serializer.errors["ticket_brief"]) == expected_missing
+
+    def test_patch_clears_the_brief_with_an_explicit_null(self):
+        # Rejecting an incomplete brief would otherwise leave no way to remove a wrong one.
+        serializer = TicketUpdateRequestSerializer(data={"ticket_brief": None}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["ticket_brief"] == {}
+
     def test_accepts_a_full_brief(self):
         serializer = TicketBriefSerializer(
             data=self._brief(

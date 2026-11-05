@@ -790,8 +790,8 @@ export interface TicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
-    /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
-    ticket_brief?: TicketBriefApi
+    /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
+    ticket_brief?: TicketBriefApi | null
 }
 
 /**
@@ -836,8 +836,8 @@ export interface PatchedTicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
-    /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
-    ticket_brief?: TicketBriefApi
+    /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
+    ticket_brief?: TicketBriefApi | null
 }
 
 /**

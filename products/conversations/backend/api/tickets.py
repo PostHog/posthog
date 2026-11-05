@@ -641,7 +641,11 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     )
     ticket_brief = TicketBriefSerializer(
         required=False,
-        help_text="Structured summary of the ticket for the support engineer. Replaces the whole brief.",
+        allow_null=True,
+        help_text=(
+            "Structured summary of the ticket for the support engineer. Replaces the whole brief. "
+            "Pass null to clear it."
+        ),
     )
 
     class Meta:
@@ -678,6 +682,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
                 code="max_new_tags",
             )
         return value
+
+    def validate_ticket_brief(self, value: dict[str, Any] | None) -> dict[str, Any]:
+        # The column is not nullable, so an explicit null clears the brief instead of storing one.
+        return value or {}
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)

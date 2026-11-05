@@ -13,6 +13,8 @@ const ITEM_KIND_LABELS: Record<TicketBriefItemKindEnumApi, string> = {
     other: 'Item',
 }
 
+const FALLBACK_ITEM_KIND_LABEL = 'Item'
+
 interface TicketBriefPanelProps {
     brief: TicketBriefApi
 }
@@ -55,20 +57,22 @@ function BriefSection({ label, items }: { label: string; items: string[] }): JSX
     )
 }
 
-function BriefLinks({ brief }: { brief: TicketBriefApi }): JSX.Element | null {
+function briefLinks(brief: TicketBriefApi): { key: string; label: string; url: string }[] {
     const links = [
         ...(brief.affected_items ?? []).map((item) => ({
-            key: item.url,
-            label: `${ITEM_KIND_LABELS[item.kind]}: ${item.label}`,
+            label: `${ITEM_KIND_LABELS[item.kind] ?? FALLBACK_ITEM_KIND_LABEL}: ${item.label}`,
             url: item.url,
         })),
-        ...(brief.replay_url ? [{ key: brief.replay_url, label: 'Session replay', url: brief.replay_url }] : []),
-        ...(brief.screenshot_urls ?? []).map((url, index) => ({
-            key: url,
-            label: `Screenshot ${index + 1}`,
-            url,
-        })),
+        ...(brief.replay_url ? [{ label: 'Session replay', url: brief.replay_url }] : []),
+        ...(brief.screenshot_urls ?? []).map((url, index) => ({ label: `Screenshot ${index + 1}`, url })),
     ]
+    // A key is the url plus its position, because the agent can cite one url under two labels
+    // and React drops the duplicate.
+    return links.map((link, index) => ({ ...link, key: `${link.url}-${index}` }))
+}
+
+function BriefLinks({ brief }: { brief: TicketBriefApi }): JSX.Element | null {
+    const links = briefLinks(brief)
     if (links.length === 0) {
         return null
     }
@@ -88,7 +92,17 @@ function BriefLinks({ brief }: { brief: TicketBriefApi }): JSX.Element | null {
     )
 }
 
-export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element {
+// A brief is written by an agent, so a field the schema calls required can still be missing on
+// one already stored. Render what is there and keep the sidebar up.
+export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element | null {
+    const questions = brief.questions ?? []
+    const facts = brief.facts ?? []
+    const tried = brief.tried ?? []
+    const links = briefLinks(brief)
+    if (!brief.ask && questions.length === 0 && facts.length === 0 && tried.length === 0 && links.length === 0) {
+        return null
+    }
+
     return (
         <LemonCollapse
             className="bg-surface-primary"
@@ -108,15 +122,17 @@ export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element 
                     ),
                     content: (
                         <div className="space-y-2 text-xs min-w-0">
-                            <div className="min-w-0">
-                                <div className="text-muted-alt">Wants</div>
-                                <p className="m-0 mt-0.5 break-words">
-                                    <Inline text={brief.ask} />
-                                </p>
-                            </div>
-                            <BriefSection label="Asking" items={brief.questions} />
-                            <BriefSection label="Facts" items={brief.facts ?? []} />
-                            <BriefSection label="Tried" items={brief.tried ?? []} />
+                            {brief.ask ? (
+                                <div className="min-w-0">
+                                    <div className="text-muted-alt">Wants</div>
+                                    <p className="m-0 mt-0.5 break-words">
+                                        <Inline text={brief.ask} />
+                                    </p>
+                                </div>
+                            ) : null}
+                            <BriefSection label="Asking" items={questions} />
+                            <BriefSection label="Facts" items={facts} />
+                            <BriefSection label="Tried" items={tried} />
                             <BriefLinks brief={brief} />
                         </div>
                     ),
