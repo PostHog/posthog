@@ -37,7 +37,12 @@ def _require_cli(name: str) -> None:
 def _run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
     # Output is captured, so a prompt would wait on input nobody can see.
     # Closing stdin makes it fail with an error instead.
-    return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Report a timeout as a failed run, so that polling loops retry it and
+        # other callers show their own error message instead of a traceback.
+        return subprocess.CompletedProcess(args, 124, "", f"`{' '.join(args[:3])}` timed out after {timeout:.0f}s.")
 
 
 def _run_json(args: list[str], *, failure: str, cause: str) -> dict[str, Any]:
@@ -68,6 +73,7 @@ def ensure_machine(workspace_name: str) -> str:
     )
     for machine in listing.get("machines", []):
         if machine.get("target") == target and machine.get("name"):
+            _wait_until_connected(machine["name"])
             return machine["name"]
 
     click.echo(f"Adding '{workspace_name}' to Herdr. The first time, this copies hc onto the devbox...")
@@ -96,13 +102,14 @@ def _machine_state(name: str) -> str | None:
 
 
 def _wait_until_connected(name: str) -> None:
-    # `hc machine add` returns while the machine is still connecting, and the
-    # Herdr window refuses a space on a machine it hasn't seen connect.
+    # `hc machine add` returns while the machine is still connecting, and a
+    # saved machine reconnects for a while after its devbox starts. The Herdr
+    # window refuses a space on a machine it hasn't seen connect.
     deadline = time.monotonic() + _MACHINE_CONNECT_TIMEOUT
     while _machine_state(name) != "connected":
         if time.monotonic() >= deadline:
             _fail(
-                f"Herdr added '{name}' but couldn't connect to it. Check `hc machine ls`, then run this command again.",
+                f"Herdr couldn't connect to '{name}'. Check `hc machine ls`, then run this command again.",
                 cause="herdr_machine_connect_timeout",
             )
         time.sleep(_POLL_INTERVAL)

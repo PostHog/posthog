@@ -2620,9 +2620,12 @@ class TestDevboxCommands:
 
 class TestDevboxOpenHerdr:
     @pytest.fixture
-    def herdr_calls(self, monkeypatch: pytest.MonkeyPatch) -> Callable[[list[dict], list[dict]], list[list[str]]]:
-        def install(machines: list[dict], spaces: list[dict]) -> list[list[str]]:
+    def herdr_calls(self, monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
+        def install(
+            machines: list[dict], spaces: list[dict], *, connecting_polls: int = 0, add_times_out: bool = False
+        ) -> list[list[str]]:
             calls: list[list[str]] = []
+            remaining = {"polls": connecting_polls}
 
             def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 if args[0] not in ("hc", "herdr-app"):
@@ -2630,15 +2633,23 @@ class TestDevboxOpenHerdr:
                 calls.append(args)
                 stdout = "{}"
                 if args[:3] == ["hc", "machine", "add"]:
-                    machines.append({"name": args[5], "target": args[3], "state": "connected"})
+                    if add_times_out:
+                        raise subprocess.TimeoutExpired(args, 300)
+                    machines.append({"name": args[5], "target": args[3]})
                 elif args[:3] == ["hc", "machine", "ls"]:
-                    stdout = json.dumps({"machines": machines})
+                    state = "connecting" if remaining["polls"] > 0 else "connected"
+                    remaining["polls"] = max(remaining["polls"] - 1, 0)
+                    stdout = json.dumps({"machines": [{**m, "state": state} for m in machines]})
                 elif args[:2] == ["herdr-app", "ls"]:
                     stdout = json.dumps({"spaces": spaces})
+                elif args[:2] == ["herdr-app", "do"] and remaining["polls"] > 0:
+                    return subprocess.CompletedProcess(args, 1, '{"error": "no machine"}', "")
                 return subprocess.CompletedProcess(args, 0, stdout, "")
 
             monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
             monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+            monkeypatch.setattr(devbox_herdr, "_POLL_INTERVAL", 0)
+            monkeypatch.setattr(devbox_herdr, "_WINDOW_SEES_MACHINE_TIMEOUT", 0)
             return calls
 
         return install
@@ -2687,13 +2698,14 @@ class TestDevboxOpenHerdr:
             "folder": "/home/coder/posthog",
         }
 
-    def test_reuses_the_machine_and_space_already_in_herdr(
+    def test_reuses_the_machine_and_space_already_in_herdr_once_it_reconnects(
         self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
     ) -> None:
         running_workspace("running")
         calls = herdr_calls(
             machines=[{"name": "box", "target": "coder.devbox-test-user"}],
             spaces=[{"id": "box/sp1", "machine": "box"}, {"id": "sp2", "machine": None}],
+            connecting_polls=2,
         )
 
         result = runner.invoke(cli, ["devbox:open", "--herdr"])
@@ -2714,6 +2726,19 @@ class TestDevboxOpenHerdr:
         assert result.exit_code == 1
         assert "Devbox 'devbox-test-user' is stopped. Start it with `hogli devbox:start`" in result.output
         assert calls == []
+
+    def test_a_timed_out_hc_call_fails_with_a_message(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[], add_times_out=True)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+        assert "Couldn't add 'devbox-test-user' to Herdr." in result.output
+        assert "timed out after 300s" in result.output
 
 
 @pytest.fixture
