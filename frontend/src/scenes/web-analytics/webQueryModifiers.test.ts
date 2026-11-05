@@ -1,6 +1,7 @@
 import { NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { TileId, WebAnalyticsTile } from './common'
+import { getNewInsightUrlFactory } from './insightsUtils'
 import { applyWebQueryModifiers } from './webQueryModifiers'
 
 const overview: QuerySchema = {
@@ -77,4 +78,18 @@ describe('webQueryModifiers', () => {
             'webQueryModifiers'
         )
     })
+
+    it.each([[TileId.OVERVIEW], [TileId.WEB_VITALS]])(
+        'leaves the modifiers out of the new insight url for %s',
+        (tileId) => {
+            const getNewInsightUrl = getNewInsightUrlFactory(
+                applyWebQueryModifiers(tiles, { useDimensionalTables: true })
+            )
+
+            const url = decodeURIComponent(getNewInsightUrl(tileId) ?? '')
+
+            expect(url).toContain('InsightVizNode')
+            expect(url).not.toContain('webQueryModifiers')
+        }
+    )
 })

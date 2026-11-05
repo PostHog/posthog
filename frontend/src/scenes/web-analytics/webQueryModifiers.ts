@@ -35,6 +35,17 @@ export function withWebQueryModifiers<T extends QuerySchema>(query: T, modifiers
     return query
 }
 
+export function withoutWebQueryModifiers<T extends QuerySchema>(query: T): T {
+    if ('webQueryModifiers' in query && query.webQueryModifiers) {
+        const { webQueryModifiers: _, ...rest } = query
+        return rest as T
+    }
+    if (WRAPPER_QUERY_KINDS.has(query.kind) && 'source' in query && query.source) {
+        return { ...query, source: withoutWebQueryModifiers(query.source as QuerySchema) }
+    }
+    return query
+}
+
 export function applyWebQueryModifiers(
     tiles: WebAnalyticsTile[],
     modifiers: WebAnalyticsQueryModifiers
