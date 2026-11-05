@@ -41,20 +41,19 @@ export async function findEndpoints(api: PostHogApi, names: readonly string[]): 
 // PostHog allows a variable without a code name, which no query can reference, so a lookup skips it.
 const ListedVariable = InsightVariable.extend({ code_name: z.string().nullable() })
 
+// A project with more variables than MAX_PAGES holds can leave a name out of the result. A push then
+// tries to create that variable, and PostHog rejects the duplicate for that endpoint alone.
 export async function findInsightVariables(
     api: PostHogApi,
     names: readonly string[]
 ): Promise<Map<string, InsightVariable>> {
-    const { found, complete } = await findNamed(
+    const { found } = await findNamed(
         api,
         'insight_variables/',
         ListedVariable,
         names,
         (variable) => variable.code_name
     )
-    if (!complete && found.size < new Set(names).size) {
-        throw listTooLong('insight variables', 'Delete the insight variables the project no longer uses.')
-    }
     return new Map([...found].map(([name, variable]) => [name, { ...variable, code_name: name }]))
 }
 

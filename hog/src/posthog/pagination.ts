@@ -38,7 +38,8 @@ export async function getPage<T>(api: PostHogApi, path: string, item: Schema<T>)
     }
 }
 
-// False when it stops at MAX_PAGES first. Keeping only a link's path lets PostHogApi refuse another host.
+// False when it stops at MAX_PAGES first. Keeping only a link's path and query sends every page to
+// the configured host, whatever host the link names.
 async function eachPage<T>(
     api: PostHogApi,
     path: string,
