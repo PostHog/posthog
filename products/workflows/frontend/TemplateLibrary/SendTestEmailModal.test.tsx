@@ -96,8 +96,8 @@ describe('SendTestEmailModal', () => {
 
         membersAvailable = true
         fireEvent.click(screen.getAllByText('Try again')[0])
-        await waitFor(() => expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull())
-        expect(screen.getByText(/isn't among the verified members you can see/)).toBeInTheDocument()
+        expect(await screen.findByText(/isn't among the verified members you can see/)).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
     })
 
     it.each([
