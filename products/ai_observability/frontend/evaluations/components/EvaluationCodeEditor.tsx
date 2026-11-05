@@ -444,10 +444,10 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <Tooltip
                             title={
                                 isSessionTarget
-                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
+                                    ? 'Runs your code on up to 3 sessions that have gone quiet, the same way it runs live'
                                     : evaluation.target === 'trace'
-                                      ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
-                                      : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                                      ? 'Runs your code on up to 5 recent traces, the same way it runs live'
+                                      : 'Runs your code on up to 5 recent generations that match your filters'
                             }
                         >
                             <LemonButton
@@ -582,7 +582,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                                 multiple selection; null means N/A when allowed.
                                             </span>
                                         ) : evaluation.output_type === 'numeric' ? (
-                                            <span>Return a number within the configured bounds.</span>
+                                            <span>Return a number in the range you set.</span>
                                         ) : (
                                             <>
                                                 Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or{' '}
@@ -598,7 +598,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                     </li>
                                     {evaluation.output_config.allows_na && (
                                         <li>
-                                            Return <code>null</code> when the evaluation criteria doesn't apply
+                                            Return <code>null</code> when the check doesn't apply
                                         </li>
                                     )}
                                     <li>

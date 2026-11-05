@@ -48,9 +48,8 @@ export function EvaluationModelPanel(): JSX.Element | null {
                         </Tooltip>
                     </div>
                     <span className="text-xs text-secondary pl-6">
-                        Turn it on when the check depends on images, PDFs, audio, or video, like whether an answer
-                        matches a screenshot. Each file adds input tokens, so runs cost more. Off, the judge reads only
-                        the text.
+                        For checks that depend on images, PDFs, audio, or video. Each file adds input tokens, so runs
+                        cost more.
                     </span>
                 </div>
             )}

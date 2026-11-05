@@ -55,7 +55,14 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                 </LemonField.Pure>
             )}
             {effectiveStrategy === 'fixed_window' ? (
-                <LemonField.Pure label="Wait for">
+                <LemonField.Pure
+                    label="Wait for"
+                    info={
+                        isSessionTarget
+                            ? 'Counted from the first matching generation, 10 seconds to 7 days. Runs already scheduled keep their wait.'
+                            : 'Counted from the first matching generation, 10 seconds to 2 hours. Runs already scheduled keep their wait.'
+                    }
+                >
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <DurationPicker
                             value={
@@ -71,16 +78,18 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                 })
                             }}
                         />
-                        <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                            {isSessionTarget
-                                ? 'Counted from the first matching generation, 10 seconds to 7 days. Runs already scheduled keep their wait.'
-                                : 'Counted from the first matching generation, 10 seconds to 2 hours. Runs already scheduled keep their wait.'}
-                        </p>
                     </div>
                 </LemonField.Pure>
             ) : (
                 <>
-                    <LemonField.Pure label="Quiet period">
+                    <LemonField.Pure
+                        label="Quiet period"
+                        info={
+                            isSessionTarget
+                                ? 'It runs once the session has no new activity for this long, 10 seconds to 24 hours. Conversations pause, so a longer wait judges fewer unfinished sessions.'
+                                : 'It runs once the trace has no new activity for this long, 10 seconds to 30 minutes.'
+                        }
+                    >
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <DurationPicker
                                 value={
@@ -95,14 +104,16 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                     })
                                 }
                             />
-                            <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                                {isSessionTarget
-                                    ? 'It runs once the session has no new activity for this long, 10 seconds to 24 hours. Conversations pause, so a longer wait judges fewer unfinished sessions.'
-                                    : 'It runs once the trace has no new activity for this long, 10 seconds to 30 minutes.'}
-                            </p>
                         </div>
                     </LemonField.Pure>
-                    <LemonField.Pure label="Run no later than">
+                    <LemonField.Pure
+                        label="Run no later than"
+                        info={
+                            isSessionTarget
+                                ? "It runs once the session is this old, even if it's still active. 1 minute to 7 days."
+                                : "It runs once the trace is this old, even if it's still active. 1 minute to 2 hours."
+                        }
+                    >
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <DurationPicker
                                 value={
@@ -115,11 +126,6 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                     })
                                 }
                             />
-                            <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                                {isSessionTarget
-                                    ? "It runs once the session is this old, even if it's still active. 1 minute to 7 days."
-                                    : "It runs once the trace is this old, even if it's still active. 1 minute to 2 hours."}
-                            </p>
                         </div>
                     </LemonField.Pure>
                 </>

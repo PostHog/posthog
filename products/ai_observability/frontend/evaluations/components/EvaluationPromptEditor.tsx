@@ -32,9 +32,9 @@ export function EvaluationPromptEditor(): JSX.Element {
                             evaluation.output_type === 'categorical'
                                 ? 'Describe when each category applies.'
                                 : evaluation.output_type === 'numeric'
-                                  ? 'Describe how to score the response. Return a numeric score within the configured bounds.'
+                                  ? 'Describe how to score the response, within the range you set.'
                                   : allowsNA
-                                    ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
+                                    ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the check doesn't apply.
 
 Example: Is this response mathematically accurate? Return true if correct, false if incorrect, or N/A if no math is involved.`
                                     : `Write a prompt that evaluates the LLM generation and returns true or false.

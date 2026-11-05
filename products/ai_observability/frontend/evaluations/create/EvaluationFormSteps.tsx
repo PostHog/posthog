@@ -89,10 +89,7 @@ const STEPS: Step[] = [
         key: 'reports',
         title: 'Reports',
         heading: 'Reports',
-        description: [
-            'An agent reads the results and writes up what changed, with examples.',
-            'Choose how often a report arrives and where it goes.',
-        ],
+        description: ['An agent writes up what changed in the results, with examples.'],
         hoggie: pngHoggie(reporterPng),
         parts: ['reports'],
         checks: [],
