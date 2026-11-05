@@ -232,9 +232,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         # reads each row in the range, and at scale it goes above the read limit.
         # The rollup has service_name and severity_text, so exclude_facet_field removes the filter
         # of this facet exactly. The rollup has no body or log attributes, so this query ignores
-        # these filters. When resource-attribute filters are set, to_query() calls
-        # _column_facet_query_from_attributes. When personId or sessionId is set, to_query() calls
-        # _column_facet_query_from_logs, because the rollup has neither column.
+        # these filters.
         facet = ast.Field(chain=[cast(str, self.facet_field)])
         filter_builder = LogsFilterBuilder(
             self.query,
