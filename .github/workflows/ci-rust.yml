@@ -92,6 +92,8 @@ jobs:
                         # The rust mirror of the out-of-band domain list has a parity test
                         # against the shared json.
                         - 'posthog/security/crosslang/**'
+                        # The rust mirror of the AI event limits has a parity test against the shared json.
+                        - 'products/ai_observability/shared/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'

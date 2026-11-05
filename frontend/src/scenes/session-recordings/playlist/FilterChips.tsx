@@ -5,7 +5,6 @@ import { IconClock, IconEye, IconPerson } from '@posthog/icons'
 import { Button, Chip, ChipClose } from '@posthog/quill'
 
 import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
-import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } from '~/types'
@@ -13,6 +12,7 @@ import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { filterLeaves, removeFilterLeaf } from './filterChipLeaves'
+import { QuillUniversalFilterChip } from './QuillUniversalFilterChip'
 import { defaultRecordingDurationFilter, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const MAX_VISIBLE_CHIPS = 4
@@ -54,7 +54,7 @@ export function FilterChips({
 
     const chips: ReactNode[] = [
         ...leaves.map(({ path, filter }) => (
-            <UniversalFilterButton
+            <QuillUniversalFilterChip
                 key={path.join('.')}
                 filter={filter}
                 onClose={() => setFilters({ filter_group: removeFilterLeaf(filters.filter_group, path) })}
