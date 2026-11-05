@@ -19,9 +19,9 @@ rules:
 
               local_part, _, domain = email.rpartition("@")
 
-          Code that already does this is not blocked. If the string is not an email address,
+          If the string is not an email address, or the code refuses a second `@` itself,
           add `# nosemgrep: email-domain-after-last-at -- <reason>` on the line before.
-      severity: WARNING
+      severity: ERROR
       languages: [python]
       paths:
           include:

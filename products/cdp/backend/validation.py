@@ -166,7 +166,7 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    override_domain = override.split("@")[1].lower()
+    override_domain = override.rsplit("@", 1)[1].lower()
     # An empty cached domain means the id resolved to no email integration for this team; the
     # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
     shared_cache = context.get("email_integration_domain_cache")

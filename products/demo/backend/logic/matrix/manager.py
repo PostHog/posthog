@@ -118,7 +118,7 @@ class MatrixManager:
         if existing_user is None or email_collision_handling == "disambiguate":
             if existing_user is not None:
                 print(f"User {email} already exists, trying to find a unique email...")
-                original_user, domain = email.split("@")
+                original_user, _, domain = email.rpartition("@")
                 for i in range(1, 1000):
                     email = f"{original_user}+{i}@{domain}"
                     if User.objects.filter(email=email).exists():

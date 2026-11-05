@@ -54,7 +54,7 @@ class EmailIntegration:
     ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
-        domain: str = email_address.split("@")[1]
+        domain: str = email_address.rsplit("@", 1)[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 

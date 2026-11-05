@@ -583,7 +583,7 @@ class EmailConnectView(APIView):
             if owner.id != user.id and not is_admin:
                 return Response({"error": "You can only connect your own email address."}, status=403)
 
-        domain = from_email.split("@")[1]
+        domain = from_email.rsplit("@", 1)[1]
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(

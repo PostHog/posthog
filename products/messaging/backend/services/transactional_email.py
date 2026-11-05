@@ -226,8 +226,8 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
         config = IntegrationManager.email.credentials.get(team_id, integration_id).config or {}
     except IntegrationNotFound:
         config = {}
-    domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
-    if domain and address.partition("@")[2].lower() != domain:
+    domain = (config.get("domain") or (config.get("email") or "").rpartition("@")[2]).lower()
+    if domain and address.rpartition("@")[2].lower() != domain:
         return f"Use an address on {domain}, the domain this sender is verified for."
     return None
 

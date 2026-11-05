@@ -10,6 +10,7 @@ import posthoganalytics
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import MCP_READ_SCOPES
@@ -73,7 +74,7 @@ def _started_session_id(team_id: int, user_id: int) -> UUID | None:
 
 
 def company_domain_from(email: str) -> str | None:
-    _, _, domain = email.strip().lower().partition("@")
+    domain = email_domain(email.strip().lower())
     if not domain or domain in PERSONAL_EMAIL_DOMAINS:
         return None
     return normalize_target(domain)
