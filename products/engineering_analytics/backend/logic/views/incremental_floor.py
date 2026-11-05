@@ -14,17 +14,15 @@ workflow took decides whether a GitHub run is a shell. A scan for such rows reac
 ``JOB_FLOOR_SLACK_ON_RUN_STARTED`` before the window.
 """
 
-from datetime import timedelta
-
+from products.engineering_analytics.backend.logic._shared import DEFAULT_WINDOW
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     JOB_FLOOR_SLACK_ON_RUN_STARTED,
     WIDEST_SCAN_FLOOR_SLACK,
 )
 
 WINDOW_START = "{incremental_window_start}"
-# The product's default read window is 30 days (``logic._shared._DEFAULT_WINDOW``). The slack keeps a
-# default read's scan floor inside the seed, so the first build already serves it.
-SEED_LOOKBACK = timedelta(days=30) + WIDEST_SCAN_FLOOR_SLACK
+# The slack keeps a default read's scan floor inside the seed, so the first build already serves it.
+SEED_LOOKBACK = DEFAULT_WINDOW + WIDEST_SCAN_FLOOR_SLACK
 
 
 def stored_rows(column: str = "created_at") -> str:

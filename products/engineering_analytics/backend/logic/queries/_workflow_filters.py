@@ -89,8 +89,12 @@ LATEST_COMPLETED_RUN_FAILED = (
     f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), {LATEST_RUN_ORDER}, status = 'completed')"
 )
 
-# A date-only floor reaches back up to one day past the slack it subtracts.
+# The slack a date-only floor subtracts from the window start.
 _DATE_FLOOR_SLACK = timedelta(days=1)
+
+# A date-only floor reaches back past the slack it subtracts: up to a day for the day rounding, and up
+# to a day more for the window's offset from the UTC strings it compares with.
+_DATE_FLOOR_REACH = timedelta(days=2)
 
 
 def run_started_floor_constant(window_start: datetime) -> ast.Constant:
@@ -126,7 +130,7 @@ JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
 
 # The furthest any scan floor reaches below its window start. A stored read whose window start is
 # this far inside the stored coverage keeps every floor it registers inside the stored rows.
-WIDEST_SCAN_FLOOR_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + _DATE_FLOOR_SLACK
+WIDEST_SCAN_FLOOR_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + _DATE_FLOOR_REACH
 
 
 def _date_floor(window_start: datetime, slack: timedelta) -> ast.Constant:

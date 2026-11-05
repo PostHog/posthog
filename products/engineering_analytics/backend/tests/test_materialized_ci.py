@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.data_modeling.backend.facade.api import (
     definition_fingerprint,
     get_incremental_config,
+    get_incremental_state,
     set_incremental_state,
 )
 from products.data_modeling.backend.facade.models import (
@@ -168,12 +169,18 @@ class TestMaterializedCI(BaseTest):
             "new_definition",
             "missing_stored_column",
             "wrong_viewset",
+            "full_build_not_recorded",
         ]
     )
     def test_unusable_materializations_fall_back_together(self, condition: str) -> None:
         views = _ready_views(self)
         jobs = views[ci_rows.JOBS_VIEW_NAME]
-        if condition == "missing_pair":
+        if condition == "full_build_not_recorded":
+            fingerprint = get_incremental_state(jobs).definition_fingerprint
+            DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(incremental_state={})
+            jobs.refresh_from_db()
+            set_incremental_state(jobs, watermark=timezone.now(), fingerprint=fingerprint, mode="incremental")
+        elif condition == "missing_pair":
             DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(deleted=True)
         elif condition == "disabled_view":
             DataWarehouseSavedQuery.objects.filter(id=jobs.id).update(is_materialized=False)
@@ -204,15 +211,22 @@ class TestMaterializedCI(BaseTest):
 
     @parameterized.expand(
         [
-            ("unbounded", None, False),
-            ("floor_reaches_before_the_seed", WIDEST_SCAN_FLOOR_SLACK - timedelta(seconds=1), False),
-            ("inside_the_seed", WIDEST_SCAN_FLOOR_SLACK, True),
+            ("unbounded", None, timedelta(0), False),
+            ("floor_reaches_before_the_seed", WIDEST_SCAN_FLOOR_SLACK - timedelta(seconds=1), timedelta(0), False),
+            ("inside_the_seed", WIDEST_SCAN_FLOOR_SLACK, timedelta(0), True),
+            ("inside_the_older_seed_only", WIDEST_SCAN_FLOOR_SLACK - timedelta(days=10), timedelta(days=10), False),
         ]
     )
     def test_reads_windowed_before_the_stored_coverage_use_raw_tables(
-        self, _: str, offset_from_coverage_start: timedelta | None, stored: bool
+        self, _: str, offset_from_coverage_start: timedelta | None, jobs_seeded_earlier_by: timedelta, stored: bool
     ) -> None:
-        _ready_views(self)
+        views = _ready_views(self)
+        if jobs_seeded_earlier_by:
+            jobs = views[ci_rows.JOBS_VIEW_NAME]
+            fingerprint = get_incremental_state(jobs).definition_fingerprint
+            with time_machine.travel(timezone.now() - jobs_seeded_earlier_by, tick=False):
+                set_incremental_state(jobs, watermark=timezone.now(), fingerprint=fingerprint, mode="full_refresh")
+        # The coverage starts at the later of the two seeds.
         covers_from = timezone.now() - SEED_LOOKBACK
         window_start = covers_from + offset_from_coverage_start if offset_from_coverage_start is not None else None
         with patch("posthoganalytics.feature_enabled", return_value=True):

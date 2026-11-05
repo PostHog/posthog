@@ -204,7 +204,14 @@ class MaterializedCI:
         )
 
     def covers(self, since: datetime) -> bool:
-        """Whether a read windowed from ``since`` finds every row it would read in the raw tables."""
+        """Whether every row a read windowed from ``since`` would scan was created inside the coverage.
+
+        A run created before the coverage and rerun inside the window is the creation-time coarseness
+        SPEC §5 documents. A naive window start cannot be placed against the coverage, so it reads the
+        raw tables like every other unready case.
+        """
+        if since.tzinfo is None:
+            return False
         return since - WIDEST_SCAN_FLOOR_SLACK >= self.covers_from
 
     def _scope(self) -> str:
