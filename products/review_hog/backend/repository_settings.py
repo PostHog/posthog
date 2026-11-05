@@ -283,6 +283,18 @@ class ProjectRepositories:
             self._delete_rows(claim.installation_id, only_unselected=False)
             claim.delete()
 
+    def _listed_people_get_excepted(self, row: ReviewRepository | None, old_flash_for: str | None) -> bool:
+        """Whether someone reviewed under "listed" today would be on the except list once the repository is at "everyone".
+
+        Both lists stay stored across mode changes, so one person can be on the listed list and the except list.
+        """
+        if row is None:
+            return False
+        people = ReviewRepositoryPerson.objects.for_team(self.team_id)
+        listed_source = people.filter(repository=row) if old_flash_for else people.filter(repository__isnull=True)
+        listed = listed_source.filter(kind=ReviewRepositoryPerson.Kind.LISTED).values("user_id")
+        return people.filter(repository=row, kind=ReviewRepositoryPerson.Kind.EXCEPTED, user_id__in=listed).exists()
+
     def _check_raise_only(
         self,
         ref: RepositoryRef,
@@ -311,6 +323,10 @@ class ProjectRepositories:
             )
             if not goes_up:
                 raise AdminOnlyChangeError("Only project admins can turn automatic reviews down for a repository.")
+            if current == AutomaticFlashFor.LISTED and self._listed_people_get_excepted(row, old_flash_for):
+                raise AdminOnlyChangeError(
+                    "Only project admins can raise this repository to everyone, because it would stop reviews for someone on its list."
+                )
         if old_review_drafts and not new_review_drafts:
             raise AdminOnlyChangeError("Only project admins can turn off draft reviews.")
 
@@ -333,6 +349,9 @@ class ProjectRepositories:
             if row is not None and row.team_id != self.team_id:
                 project = self._project(row.team_id)
                 raise OwnershipConflict(f"{ref.full_name} is already reviewed in {project.label}.", project)
+            if row is not None:
+                # Every write saves the whole row, so two writes in flight would each restore the other's old fields.
+                row = ReviewRepository.objects.for_team(self.team_id).select_for_update().filter(pk=row.pk).first()
             claim = self.claim_for(ref.installation_id)
             takes_all = claim is not None and claim.scope == ReviewInstallationClaim.Scope.ALL
             was_selected = row is not None and row.selected

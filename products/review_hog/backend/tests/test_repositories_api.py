@@ -89,6 +89,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             ("turn_on_for_everyone", "all", None, {"flash_for": "everyone"}, 200),
             ("include_into_selected", "selected", None, {"selected": True}, 200),
             ("raise_listed_to_everyone", "all", {"flash_for": "listed"}, {"flash_for": "everyone"}, 200),
+            (
+                "raise_listed_to_everyone_over_a_listed_and_excepted_person",
+                "all",
+                {"flash_for": "listed", "people": ["listed", "excepted"]},
+                {"flash_for": "everyone"},
+                403,
+            ),
             ("turn_drafts_on", "all", None, {"review_drafts": True}, 200),
             ("lower_everyone_to_off", "all", {"flash_for": "everyone"}, {"flash_for": "off"}, 403),
             ("clear_the_exception", "all", {"flash_for": "everyone"}, {"flash_for": None}, 403),
@@ -106,9 +113,14 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             claim_scope = "selected"
         self._claim(self.team, claim_scope)
         if row is not None:
-            ReviewRepository.objects.for_team(self.team.id).create(
-                team=self.team, installation_id=INSTALLATION, github_repo_id=501, full_name="example-org/web", **row
+            fields = {key: value for key, value in row.items() if key != "people"}
+            repository = ReviewRepository.objects.for_team(self.team.id).create(
+                team=self.team, installation_id=INSTALLATION, github_repo_id=501, full_name="example-org/web", **fields
             )
+            for kind in row.get("people", []):
+                ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+                    team=self.team, repository=repository, user=self.user, kind=kind
+                )
         before = list(ReviewRepository.objects.unscoped().values("team_id", "selected", "flash_for", "review_drafts"))
         self._set_level(OrganizationMembership.Level.MEMBER)
 
