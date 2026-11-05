@@ -24,8 +24,14 @@ const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns']
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
-    const { setupModalOpen, userManagedIntegrations, setupModalType, selectedIntegration, sandboxEmailSender } =
-        useValues(integrationsLogic)
+    const {
+        setupModalOpen,
+        userManagedIntegrations,
+        setupModalType,
+        selectedIntegration,
+        sandboxEmailSender,
+        integrationsLoading,
+    } = useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const { sandboxSetupError, sandboxProvisionErrorLoading } = useValues(channelCatalogLogic)
     const { setUpSandboxSender } = useActions(channelCatalogLogic)
@@ -63,7 +69,7 @@ export function MessageChannels(): JSX.Element {
                         action={{
                             children: 'Try again',
                             onClick: () => setUpSandboxSender(),
-                            loading: sandboxProvisionErrorLoading,
+                            loading: sandboxProvisionErrorLoading || integrationsLoading,
                         }}
                     >
                         {sandboxSetupError}
