@@ -89,7 +89,7 @@ export class TransactionalSends {
         stages: TransactionalEmailStageTimer
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
-        const { to, idempotency_key: idempotencyKey } = request
+        const { idempotency_key: idempotencyKey } = request
 
         stages.start('build')
         const files = decodeAttachments(request.send)
