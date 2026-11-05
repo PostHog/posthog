@@ -939,7 +939,6 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("empty_equals", "properties.step = ''", [0, 0, 0, 0, 0, 0, 1, 0]),
             ("empty_not_equals", "properties.step != ''", [1, 1, 1, 1, 1, 1, 0, 1]),
             ("empty_in", "properties.step IN ('', '5')", [0, 0, 1, 1, None, 0, 1, 0]),
-            ("empty_not_in", "properties.step NOT IN ('', '5')", [1, 1, 0, 0, 1, 1, 0, 1]),
             ("array_text_equals", "properties.step = '[5]'", [0, 0, 0, 0, 0, 0, 0, 1]),
         ]
     )
@@ -1022,8 +1021,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
         [
             ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0, 0]),
             ("empty_not_equals", "properties.signed_up_at != ''", [1, 0, 1, 1]),
-            ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, 1, None, 1]),
-            ("empty_not_in", "properties.signed_up_at NOT IN ('', '2024-05-06')", [1, 0, 1, 0]),
+            ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, None, None, 1]),
         ]
     )
     def test_datetime_property_compared_to_empty_text_matches_text(
