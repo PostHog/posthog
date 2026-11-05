@@ -111,9 +111,10 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-// An answer hog can't read only leaves the event anonymous.
-const Text = z.string().min(1).optional()
-const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional() })
+// A field hog can't read, such as a null organization, reads as missing, so the event loses only
+// that field.
+const Text = z.string().min(1).optional().catch(undefined)
+const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional().catch(undefined) })
 const IdentityProject = z.object({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
