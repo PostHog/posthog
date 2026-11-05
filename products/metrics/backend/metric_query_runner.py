@@ -474,6 +474,16 @@ def time_range_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
 METRICS_QUERY_DEDUPE_POINTS_FLAG = "metrics-query-dedupe-points"
 
 
+def dedupe_points_enabled(team: Team) -> bool:
+    return posthog_feature_flag_enabled(
+        METRICS_QUERY_DEDUPE_POINTS_FLAG,
+        str(team.uuid),
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    )
+
+
 def _utc_hour(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
@@ -879,13 +889,7 @@ class MetricQueryRunner:
 
     @cached_property
     def _dedupe_points(self) -> bool:
-        return posthog_feature_flag_enabled(
-            METRICS_QUERY_DEDUPE_POINTS_FLAG,
-            str(self.team.uuid),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        )
+        return dedupe_points_enabled(self.team)
 
     def _combine_series(self, per_series: ast.SelectQuery) -> ast.SelectQuery:
         """Combine the per-series query, whose rows are `(time, series_fingerprint, series_value)`.
