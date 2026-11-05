@@ -701,6 +701,26 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
 
+    def test_task_header_does_not_resume_its_creators_agent_claim(self):
+        # The task id is caller-supplied, so naming a task the holder started must not borrow their agent's claim.
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+        ).json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+
+        resumed = self.client.post(
+            self._claim_url(report),
+            data={"claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+
+        assert resumed.status_code == status.HTTP_409_CONFLICT
+
     @parameterized.expand(
         [
             ("claim_inbox_only", "claim", ["inbox:write"], False),
