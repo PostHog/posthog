@@ -1,4 +1,4 @@
-"""Workspace and person checks shared by the onboarding thread and the old installer DM."""
+"""Workspace and person checks shared by the onboarding steps and the old installer DM."""
 
 from posthog.integrations import IntegrationManager
 from posthog.models import OrganizationMembership, Team

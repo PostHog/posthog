@@ -6,13 +6,13 @@ from products.slack_app.backend.logic.onboarding.actions import (
     button,
     skip_button,
 )
+from products.slack_app.backend.logic.onboarding.checks import approve_ai_data_processing_for_team, has_ai_approval
 from products.slack_app.backend.logic.onboarding.step import (
     OnboardingContext,
     OnboardingStep,
     OnboardingStepKey,
     StepClick,
 )
-from products.slack_app.backend.services.onboarding_checks import approve_ai_data_processing_for_team, has_ai_approval
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_welcome_messages import AI_DATA_PROCESSING_TEXT
 

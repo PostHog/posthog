@@ -7,13 +7,13 @@ from products.slack_app.backend.logic.onboarding.actions import (
     button,
     skip_button,
 )
+from products.slack_app.backend.logic.onboarding.checks import has_enabled_source
 from products.slack_app.backend.logic.onboarding.step import (
     OnboardingContext,
     OnboardingStep,
     OnboardingStepKey,
     StepClick,
 )
-from products.slack_app.backend.services.onboarding_checks import has_enabled_source
 from products.slack_app.backend.services.slack_welcome_messages import sources_blocks
 
 

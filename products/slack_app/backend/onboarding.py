@@ -24,8 +24,7 @@ from products.slack_app.backend.inbox_channel import (
     has_inbox_scopes,
     invite_user_to_inbox,
 )
-from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
-from products.slack_app.backend.services.onboarding_checks import (
+from products.slack_app.backend.logic.onboarding.checks import (
     approve_ai_data_processing_for_team,
     has_ai_approval as _has_ai_approval,
     has_enabled_source as _has_enabled_source,
@@ -33,6 +32,7 @@ from products.slack_app.backend.services.onboarding_checks import (
     has_team_github as _has_team_github,
     is_org_admin as _is_org_admin,
 )
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_welcome_messages import (
     INBOX_CREATE_ACTION_ID,

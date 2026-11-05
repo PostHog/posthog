@@ -1,6 +1,6 @@
 from products.slack_app.backend.logic.onboarding.actions import skip_button
+from products.slack_app.backend.logic.onboarding.checks import has_personal_github, has_team_github
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
-from products.slack_app.backend.services.onboarding_checks import has_personal_github, has_team_github
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_welcome_messages import github_connect_button
 

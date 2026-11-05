@@ -9,8 +9,8 @@ from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.onboarding.checks import is_org_admin
 from products.slack_app.backend.onboarding import installer_slack_user_id
-from products.slack_app.backend.services.onboarding_checks import is_org_admin
 from products.slack_app.backend.services.slack_app_home import linked_posthog_user
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration

@@ -73,12 +73,6 @@ def _click(integration: WorkspaceIntegration, action_id: str, **value: str) -> d
     }
 
 
-@pytest.fixture(autouse=True)
-def slack_workspace_admin() -> Iterator[MagicMock]:
-    with patch(f"{STEP}.is_slack_workspace_admin", return_value=False) as admin:
-        yield admin
-
-
 @pytest.fixture
 def slack_client() -> Iterator[MagicMock]:
     with patch("posthog.models.integration.slack.WebClient") as web_client:
