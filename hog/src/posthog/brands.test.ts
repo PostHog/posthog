@@ -3,8 +3,8 @@ import { describe, expect, test } from 'bun:test'
 import { HogError } from '@/core/errors'
 
 import { parseHost } from './host'
-import { parseProjectId } from './ids'
-import { parseOAuthAccessToken, parsePersonalApiKey, parseWorkloadToken } from './tokens'
+import { parseOrganizationId, parseProjectId } from './ids'
+import { parseOAuthAccessToken, parsePersonalApiKey, parseProjectToken, parseWorkloadToken } from './tokens'
 
 function problem(parse: () => unknown): string {
     try {
@@ -44,10 +44,23 @@ describe('brand factories', () => {
             () => parseWorkloadToken('phx_abc123'),
             'invalid_workload_token: This is a personal API key, not a workload token. A workload token must be a JWT, three parts joined by dots.',
         ],
+        ['a custom project token without the prefix', () => parseProjectToken('my-team-token'), 'parsed'],
+        [
+            'a personal API key as a project token',
+            () => parseProjectToken('phx_abc123'),
+            'invalid_project_token: This is a personal API key, not a project token.',
+        ],
+        ['@current as a project ID', () => parseProjectId('@current'), 'parsed'],
+        ['@current as an organization ID', () => parseOrganizationId('@current'), 'parsed'],
+        [
+            'an organization ID that is neither a UUID nor @current',
+            () => parseOrganizationId('acme'),
+            'invalid_organization_id: The organization ID must be a UUID or @current, but it is "acme".',
+        ],
         [
             'a project ID that is not a number',
             () => parseProjectId('two', { code: 'invalid_credentials' }),
-            'invalid_credentials: The project ID must be a number, but it is "two".',
+            'invalid_credentials: The project ID must be a number or @current, but it is "two".',
         ],
         [
             'a host with a password in it',
