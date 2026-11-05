@@ -418,6 +418,7 @@ export interface workflowLogicValues {
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
+    autoSavePausedForReauth: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
@@ -433,7 +434,6 @@ export interface workflowLogicValues {
     hogFunctionTemplatesByIdLoading: boolean
     isAutoSave: boolean
     isAutoSavePending: boolean
-    autoSavePausedForReauth: boolean
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
