@@ -175,6 +175,14 @@ test('keeps dashboard tile values and display modes scoped to each pin', () => {
         [10, true, 'number', 'same-insight', '1'],
         [20, true, 'number', 'same-insight', '2'],
     ])
+    const selected = buildCatalog(
+        pins,
+        metadata,
+        { host: 'https://example.com', projectId: 1, projectName: 'Example' },
+        new Set(['pin-10'])
+    )
+    expect(selected.pins.map((pin) => pin.snapshot?.valueText)).toEqual(['1', undefined])
+    expect(selected.pins.map((pin) => pin.eligible)).toEqual([true, true])
 })
 
 test('accepts a full final pin page and keeps every visible pin', () => {

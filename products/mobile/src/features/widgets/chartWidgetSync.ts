@@ -1,8 +1,9 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
+import { AppState } from 'react-native'
 
 import { backgroundReadDelay } from '@/api/budget'
 import { ApiError } from '@/api/client'
-import { type InsightBasicApi, readInsight as readInsightResponse } from '@/api/insights'
+import { fetchInsightMetadata, type InsightBasicApi, readInsight as readInsightResponse } from '@/api/insights'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
 import { serverNow } from '@/api/serverClock'
 import { type FileSystemShortcutApi, isCompleteShortcutPage } from '@/api/shortcuts'
@@ -14,7 +15,7 @@ import { listRead, readShortcuts, retryListRead } from '@/features/views/listRea
 import { NO_PIN_PREFS, usePinPrefs } from '@/features/views/pinPrefsStore'
 import { discoverPinDisplays } from '@/features/views/useSmartPinDisplays'
 import { featureAccessFor, useScopeErrorStore } from '@/features/views/useViewsAccess'
-import { overrideKey, viewsKeys } from '@/features/views/viewsCache'
+import { overrideKey, useItemErrors, viewsKeys } from '@/features/views/viewsCache'
 import { abortError } from '@/lib/abort'
 import { track } from '@/lib/analytics'
 import { sleep } from '@/lib/sleep'
@@ -26,10 +27,12 @@ import type { InsightSnapshot, PinView } from '@/model/views'
 import {
     clearCatalog,
     clearCredentials,
+    getWidgetState,
     isAvailable,
     setCatalog,
     setCredentials,
     type WidgetCredentials,
+    type WidgetState,
 } from '../../../modules/chart-widget'
 
 import {
@@ -61,6 +64,7 @@ let cleared = false
 let clearEpoch = 0
 let catalogController: AbortController | null = null
 let nextMetadataReadAt = 0
+let widgetState: WidgetState | null = null
 // Keyed by `{host}|{project id}|{short_id}`: insights the server no longer returns, so a sync does not ask again.
 const missingInsights = new Set<string>()
 const prefetchedPinLists = new Set<string>()
@@ -123,6 +127,7 @@ export function clearWidgetState(): void {
     writtenCatalogProject = null
     clearEpoch += 1
     catalogController?.abort()
+    widgetState = null
     nextMetadataReadAt = 0
     prefetchedPinLists.clear()
     missingInsights.clear()
@@ -157,6 +162,9 @@ export function syncWidgetCredentials(reason: CredentialsSyncReason): void {
         if (!cleared) {
             clearWidgetState()
         }
+        return
+    }
+    if (!widgetState?.installed || !viewsAccessible()) {
         return
     }
     const credentials = currentCredentials()
@@ -204,6 +212,22 @@ function cachedInsight(
     pin: PinView,
     shortId: string
 ): WidgetPinInsight | null | undefined {
+    const denied = Object.entries(useItemErrors.getState().errors).some(([key, error]) => {
+        if (!['deleted', 'no_access', 'scope'].includes(error)) return false
+        try {
+            const queryKey: unknown[] = JSON.parse(key)
+            return (
+                queryKey[0] === 'views' &&
+                queryKey[1] === scope.host &&
+                queryKey[2] === scope.projectId &&
+                ((queryKey[3] === 'insight' && queryKey[4] === shortId) ||
+                    (queryKey[3] === 'dashboard' && pin.kind === 'dashboard' && queryKey[4] === pin.ref))
+            )
+        } catch {
+            return false
+        }
+    })
+    if (denied) return null
     const basic = client.getQueryState<InsightBasicApi>(viewsKeys.pinMetadata(scope, shortId))
     const snapshot = client.getQueryState<InsightSnapshot>(
         viewsKeys.insight(scope, shortId, pin.kind === 'dashboard' ? pin.ref : null, overrideKey(null))
@@ -232,7 +256,8 @@ async function readInsight(
     pin: PinView,
     shortId: string,
     isCurrent: () => boolean,
-    signal: AbortSignal
+    signal: AbortSignal,
+    includeSnapshot: boolean
 ): Promise<WidgetPinInsight | null> {
     // `projectPath()` reads the project when the request starts, so the session must still be the one the pins are from.
     const response = await listRead('insights', signal, async () => {
@@ -247,6 +272,7 @@ async function readInsight(
             throw abortError()
         }
         nextMetadataReadAt = Date.now() + 1000
+        if (!includeSnapshot) return fetchInsightMetadata(shortId, signal)
         return readInsightResponse(
             { shortId, id: pin.display.insightId },
             {
@@ -265,6 +291,7 @@ async function readInsight(
     }
     // The shared cache entry, so the Views list's previews and later syncs read it without a request.
     client.setQueryData(viewsKeys.pinMetadata(scope, shortId), response)
+    if (!('result' in response)) return insightOf(response)
     const snapshot = insightSnapshot(response, undefined, { readAt: Date.now(), serverNow: serverNow() })
     client.setQueryData(
         viewsKeys.insight(scope, shortId, pin.kind === 'dashboard' ? pin.ref : null, overrideKey(null)),
@@ -279,7 +306,8 @@ async function pinMetadata(
     scope: ProjectScope,
     pins: readonly PinView[],
     isCurrent: () => boolean,
-    signal: AbortSignal
+    signal: AbortSignal,
+    readPinIds: ReadonlySet<string>
 ): Promise<Map<string, WidgetPinInsight | null>> {
     const metadata = new Map<string, WidgetPinInsight | null>()
     const unread = new Map<string, { pin: PinView; shortId: string }>()
@@ -298,7 +326,10 @@ async function pinMetadata(
     // Pace catalog reads and reserve half the shared budget for foreground Views requests.
     for (const [pinId, { shortId, pin }] of unread) {
         try {
-            metadata.set(pinId, await readInsight(client, scope, pin, shortId, isCurrent, signal))
+            metadata.set(
+                pinId,
+                await readInsight(client, scope, pin, shortId, isCurrent, signal, readPinIds.has(pinId))
+            )
         } catch (error) {
             // A 429, a 503, an empty budget, no connection or a session change holds for every pin, so the rest
             // stay unread until the next sync. A 403 or 404 concerns this insight only.
@@ -346,13 +377,38 @@ function prefetchPinList(client: QueryClient, session: WidgetSession): void {
     })
 }
 
+function readWidgetState(signal: AbortSignal): Promise<WidgetState> {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            reject(abortError())
+            return
+        }
+        const onAbort = (): void => reject(abortError())
+        signal.addEventListener('abort', onAbort, { once: true })
+        void getWidgetState()
+            .then(resolve, reject)
+            .finally(() => signal.removeEventListener('abort', onAbort))
+    })
+}
+
 async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<void> {
     if (!isAvailable() || dataMode() !== 'live') {
         return
     }
     const session = currentSession()
-    if (!session) {
+    if (!session) return
+    if (!viewsAccessible()) {
+        clearWidgetState()
         return
+    }
+    const presence = await readWidgetState(signal)
+    if (signal.aborted || !isSameSession(session, currentSession())) return
+    widgetState = presence
+    if (!presence.installed) {
+        writtenCredentials = null
+        clearCredentials()
+    } else {
+        syncWidgetCredentials('launch')
     }
     const page = client.getQueryData<ShortcutPage>(viewsKeys.shortcuts(session.scope))
     if (!page && writtenCatalogProject !== prefsKey(session.scope)) {
@@ -368,7 +424,18 @@ async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<v
     let pins = pinsFromShortcuts(page.results, prefs).slice(0, CATALOG_PIN_LIMIT)
     const epoch = clearEpoch
     const isCurrent = (): boolean => epoch === clearEpoch && isSameSession(session, currentSession())
-    const dashboards = pins.filter((pin) => pin.kind === 'dashboard' && !pinInsightShortId(pin))
+    const selected = new Set(presence.pinIds)
+    if (presence.installed && presence.usesDefault) {
+        const defaultPin =
+            pins.find((pin) => {
+                const shortId = pinInsightShortId(pin)
+                return shortId && cachedInsight(client, session.scope, pin, shortId)
+            }) ?? pins[0]
+        if (defaultPin) selected.add(defaultPin.shortcutId)
+    }
+    const dashboards = pins.filter(
+        (pin) => selected.has(pin.shortcutId) && pin.kind === 'dashboard' && !pinInsightShortId(pin)
+    )
     if (dashboards.length > 0) {
         try {
             const displays = await discoverPinDisplays(
@@ -388,11 +455,11 @@ async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<v
     if (signal.aborted || !isCurrent()) {
         return
     }
-    const metadata = await pinMetadata(client, session.scope, pins, isCurrent, signal)
+    const metadata = await pinMetadata(client, session.scope, pins, isCurrent, signal, selected)
     if (signal.aborted || !isCurrent()) {
         return
     }
-    const body = buildCatalog(pins, metadata, { ...session.scope, projectName: session.projectName })
+    const body = buildCatalog(pins, metadata, { ...session.scope, projectName: session.projectName }, selected)
     const key = JSON.stringify(body)
     if (key === writtenCatalog) {
         return
@@ -470,8 +537,17 @@ export function startChartWidgetSync(client: QueryClient): () => void {
     const syncCatalog = (): void => {
         void syncWidgetCatalog(client)
     }
+    const foreground = AppState.addEventListener('change', (state) => {
+        if (state === 'active') syncCatalog()
+    })
     const stops = [
         addSessionEndTask(clearWidgetState),
+        () => foreground.remove(),
+        useScopeErrorStore.subscribe(() => {
+            catalogController?.abort()
+            syncCatalog()
+        }),
+        useItemErrors.subscribe(syncCatalog),
         onSessionTokensChanged((change) => {
             syncWidgetCredentials(change === 'refresh' ? 'refresh' : 'sign_in')
             // The same account signing in again leaves the auth store's fields as they were, so only this sees it.

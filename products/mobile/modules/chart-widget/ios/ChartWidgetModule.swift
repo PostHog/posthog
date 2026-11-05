@@ -55,10 +55,10 @@ private func deleteCredentials() -> OSStatus {
 }
 
 private func removeSnapshots() {
-  guard let defaults = UserDefaults(suiteName: suiteName) else {
+  guard let defaults = ChartStore.storage else {
     return
   }
-  for key in defaults.dictionaryRepresentation().keys
+  for key in defaults.keys
   where snapshotKeyPrefixes.contains(where: { key.hasPrefix($0) }) {
     defaults.removeObject(forKey: key)
   }
@@ -67,6 +67,11 @@ private func removeSnapshots() {
 public class ChartWidgetModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ChartWidget")
+
+    AsyncFunction("getWidgetState") {
+      if #available(iOS 17.0, *) { return try await chartWidgetState() }
+      return ["installed": false, "pinIds": [], "usesDefault": false] as [String: Any]
+    }
 
     Function("setCredentials") { (json: String) throws in
       try writeCredentials(json)
@@ -84,13 +89,21 @@ public class ChartWidgetModule: Module {
     }
 
     Function("setCatalog") { (json: String) in
-      if let defaults = UserDefaults(suiteName: suiteName) {
+      if let defaults = ChartStore.storage {
         let catalog = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
         let old = defaults.string(forKey: catalogKey).flatMap {
           (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
         }
         let oldPins = old?["pins"] as? [[String: Any]] ?? []
-        for pin in catalog?["pins"] as? [[String: Any]] ?? [] {
+        let pins = catalog?["pins"] as? [[String: Any]] ?? []
+        for key in defaults.keys where key.hasPrefix("chart.snapshot.") {
+          let id = String(key.dropFirst("chart.snapshot.".count))
+          if !pins.contains(where: { $0["id"] as? String == id && $0["eligible"] as? Bool == true })
+          {
+            defaults.removeObject(forKey: key)
+          }
+        }
+        for pin in pins {
           guard let id = pin["id"] as? String else { continue }
           let previous = oldPins.first { $0["id"] as? String == id }
           let changed =
@@ -104,7 +117,7 @@ public class ChartWidgetModule: Module {
             defaults.removeObject(forKey: key)
             defaults.removeObject(forKey: "chart.snapshotError.\(id)")
           }
-          if let snapshot = pin["snapshot"] as? [String: Any],
+          if pin["eligible"] as? Bool == true, let snapshot = pin["snapshot"] as? [String: Any],
             let at = snapshot["fetchedAt"] as? Double
           {
             let cached = defaults.string(forKey: key).flatMap {
@@ -119,13 +132,20 @@ public class ChartWidgetModule: Module {
             }
           }
         }
-        defaults.set(json, forKey: catalogKey)
+        var metadata = catalog ?? [:]
+        metadata["pins"] = pins.map { pin in pin.filter { $0.key != "snapshot" } }
+        if let data = try? JSONSerialization.data(withJSONObject: metadata),
+          let value = String(data: data, encoding: .utf8)
+        {
+          defaults.set(value, forKey: catalogKey)
+        }
       }
       WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 
     Function("clearCatalog") {
-      UserDefaults(suiteName: suiteName)?.removeObject(forKey: catalogKey)
+      ChartStore.storage?.removeObject(forKey: catalogKey)
+      removeSnapshots()
       WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 

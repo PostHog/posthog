@@ -190,7 +190,7 @@ class ChartWidgetRefreshTest {
         assertEquals(1, calls)
         assertTrue(ChartStore.retryAt(context) >= before + 120_000L)
         assertEquals(ErrorKind.RATE_LIMITED, ChartStore.snapshotError(context, "second")?.kind)
-        context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE).edit().putLong("chart.retryAt", 0L).commit()
+        context.getSharedPreferences("test-credentials", Context.MODE_PRIVATE).edit().putLong("chart.retryAt", 0L).commit()
         ChartWidgetRefresh.fetchShownPins(context, { false }, fetch)
         assertEquals(2, calls)
     }
@@ -263,4 +263,27 @@ class ChartWidgetRefreshTest {
         assertEquals(1000L, cached.updatedAt())
         assertEquals(0L, cached.copy(lastRefreshAt = "1970-01-01T00:00:00Z").updatedAt())
     }
+    @Test
+    fun storesOnlySelectedSnapshotsInTheProtectedStoreAndClearsRemovedSelections() {
+        val raw = context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE)
+        raw.edit().putString("chart.snapshot.legacy", "private result").commit()
+        ChartStore.setCatalogJson(context, """{"host":"https://example.com","projectId":1,"pins":[
+            {"id":"first","insightId":1,"eligible":true,"snapshot":${snapshot().toJson()}},
+            {"id":"unselected","insightId":3,"eligible":true,"snapshot":${snapshot("unselected").toJson()}}
+        ]}""")
+        assertEquals(snapshot(), ChartStore.snapshot(context, "first"))
+        assertNull(ChartStore.snapshot(context, "unselected"))
+        assertTrue(raw.all.isEmpty())
+        assertFalse(context.getSharedPreferences("test-credentials", Context.MODE_PRIVATE).getString("chart.catalog", "")!!.contains("snapshot"))
+        for (kind in listOf(ErrorKind.AUTH, ErrorKind.NOT_FOUND)) {
+            ChartStore.setSnapshot(context, snapshot())
+            ChartWidgetRefresh.fetchShownPins(context, { false }) { _, _, _ -> ChartFetcher.Outcome.Failure(kind) }
+            assertNull(ChartStore.snapshot(context, "first"))
+        }
+        ChartStore.retainSnapshots(context, emptySet())
+        assertNull(ChartStore.snapshot(context, "first"))
+        ChartStore.removeWidget(context, 1)
+        assertNull(ChartStore.credentials(context))
+    }
+
 }

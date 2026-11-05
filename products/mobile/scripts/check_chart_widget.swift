@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // Usage: check-chart
@@ -311,14 +312,22 @@ struct CheckChartWidget {
 
     static func checkStore(now: Date) throws {
         let suite = "check-chart-widget-\(ProcessInfo.processInfo.processIdentifier)"
-        let store = try require(UserDefaults(suiteName: suite), "test suite")
-        defer { store.removePersistentDomain(forName: suite) }
+        let raw = try require(UserDefaults(suiteName: suite), "test suite")
+        let key = SymmetricKey(size: .bits256)
+        let store = ChartStorage(defaults: raw, key: key)
+        defer { raw.removePersistentDomain(forName: suite) }
         check("app group from the extension id", AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile.dev.HedgehogWidget") == "com.posthog.code.mobile.dev"
               && AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile") == "com.posthog.code.mobile")
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
         let catalog = try require(ChartStore.catalog(store: store), "stored catalog")
         let pin = try require(catalog.pin(id: "pin-a"), "stored pin")
         let dashboard = try require(catalog.pin(id: "pin-b"), "stored dashboard pin")
+        check("store: catalog has no plaintext copy", raw.string(forKey: ChartStore.catalogKey) == nil && raw.data(forKey: ChartStore.catalogKey) != nil)
+        let wrongKey = ChartStorage(defaults: raw, key: SymmetricKey(size: .bits256))
+        check("store: a wrong key cannot read values", wrongKey.string(forKey: ChartStore.catalogKey) == nil)
+        raw.set("legacy result", forKey: "chart.snapshot.legacy")
+        _ = ChartStorage(defaults: raw, key: key)
+        check("store: old plaintext is removed", raw.object(forKey: "chart.snapshot.legacy") == nil)
         check("store: catalog reads back", ChartStore.catalog(store: store)?.pins.count == 4)
         let snapshot = ChartSample.snapshot(pinId: "pin-a", value: "1,284", delta: 12, deltaText: "12%", values: [1, 2, 3], now: now)
         ChartRefresh.record(.failed(.network), pin: pin, credentials: credentials, at: now, store: store)
@@ -340,6 +349,11 @@ struct CheckChartWidget {
         let marker = store.string(forKey: "chart.pinProject.pin-a").flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSONObject }
         check("store: pin project marker JSON", (marker?["projectId"] as? Int) == 2 && (marker?["projectName"] as? String) == "PostHog App")
         check("store: pin project marker reads back", ChartStore.pinProject(pinId: "pin-a", store: store) == ChartPinProject(projectId: 2, projectName: "PostHog App"))
+        for kind in [ChartErrorKind.auth, .notFound] {
+            ChartStore.save(snapshot, store: store)
+            ChartRefresh.record(.failed(kind), pin: pin, credentials: credentials, at: now, store: store)
+            check("store: access failures discard cached values", ChartStore.snapshot(pinId: pin.id, store: store) == nil)
+        }
         let credentialsJSON = #"{"version":1,"host":"https://eu.posthog.com","projectId":7,"projectName":"Shop","accessToken":"pha_example","expiresAt":null,"userUuid":"u"}"#
         check("credentials decode with a null expiry", ChartStore.decodeCredentials(Data(credentialsJSON.utf8))?.isExpired(at: now) == false)
 
@@ -409,8 +423,9 @@ struct CheckChartWidget {
 
     static func checkRefresh(now: Date) async throws {
         let suite = "check-chart-refresh-\(ProcessInfo.processInfo.processIdentifier)"
-        let store = try require(UserDefaults(suiteName: suite), "refresh test suite")
-        defer { store.removePersistentDomain(forName: suite) }
+        let raw = try require(UserDefaults(suiteName: suite), "refresh test suite")
+        let store = ChartStorage(defaults: raw, key: SymmetricKey(size: .bits256))
+        defer { raw.removePersistentDomain(forName: suite) }
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
         let pin = try require(ChartStore.catalog(store: store)?.pin(id: "pin-b"), "original dashboard tile")
         let requests = PendingFetches()
@@ -601,6 +616,8 @@ struct CheckChartWidget {
             if let count = expected["seriesCount"] as? Int { check("format: \(name) series", snapshot.series.count == count) }
             if let value = expected["lastValue"] as? Double { check("format: \(name) last point", snapshot.series.first?.points.last?.value == value) }
         }
+        check("SQL: long numeric text stays text", InsightParser.number(String(repeating: "1", count: 16000) + "!") == nil)
+        check("SQL: decimals still parse", InsightParser.number(" -1.25e2 ") == -125)
         let start = ChartDates.parse("2026-01-01T00:00:00Z")!
         let formatter = ISO8601DateFormatter()
         let rows: [[Any]] = (0..<10_000).flatMap { index in

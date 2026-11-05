@@ -98,7 +98,7 @@ object InsightParser {
 
     internal fun number(value: Any?): Double? = when (value) {
         is Number -> value.toDouble().takeIf { it.isFinite() }
-        is String -> value.takeIf { it.matches(Regex("\\s*[-+]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?\\s*")) }?.toDoubleOrNull()?.takeIf { it.isFinite() }
+        is String -> value.takeIf { it.length <= 128 && it.matches(Regex("\\s*[-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?\\s*")) }?.toDoubleOrNull()?.takeIf { it.isFinite() }
         else -> null
     }
 

@@ -28,6 +28,8 @@ fun main(args: Array<String>) {
         check(ChartSnapshot.parse(snapshot.toJson()) == snapshot) { "$name: round trip" }
         println("ok $name")
     }
+    check(InsightParser.number("1".repeat(16000) + "!") == null)
+    check(InsightParser.number(" -1.25e2 ") == -125.0)
     val rows = JSONArray()
     val start = java.time.LocalDateTime.of(2026, 1, 1, 0, 0)
     for (index in 0 until 10_000) {

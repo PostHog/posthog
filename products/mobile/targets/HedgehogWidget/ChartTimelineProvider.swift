@@ -26,6 +26,7 @@ struct ChartTimelineProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: ChartWidgetIntent, in context: Context) async -> Timeline<ChartEntry> {
+        _ = try? await chartWidgetState()
         let now = Date()
         let family = Self.family(context)
         let before = Self.storeState()
@@ -66,7 +67,7 @@ struct ChartTimelineProvider: AppIntentTimelineProvider {
     }
 
     private static func storeState() -> ChartStoreState {
-        let defaults = ChartStore.defaults
+        let defaults = ChartStore.storage
         return ChartStoreState(
             credentials: ChartStore.credentials(),
             catalog: ChartStore.catalog(store: defaults),

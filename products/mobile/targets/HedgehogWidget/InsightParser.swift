@@ -147,9 +147,9 @@ enum InsightParser {
     if let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() {
       return value.doubleValue.isFinite ? value.doubleValue : nil
     }
-    if let value = value as? String,
+    if let value = value as? String, value.utf8.count <= 128,
       value.range(
-        of: "^\\s*[-+]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?\\s*$",
+        of: "^\\s*[-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?\\s*$",
         options: .regularExpression) != nil,
       let parsed = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)), parsed.isFinite
     {

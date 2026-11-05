@@ -8,6 +8,14 @@ class ChartWidgetModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("ChartWidget")
 
+        AsyncFunction("getWidgetState") {
+            val ids = ChartRenderer.widgetIds(context())
+            val selected = ChartStore.selectedPinIds(context())
+            ChartStore.retainSnapshots(context(), selected.toSet())
+            if (ids.isEmpty()) ChartStore.clearCredentials(context())
+            mapOf("installed" to ids.isNotEmpty(), "pinIds" to selected, "usesDefault" to (ids.isNotEmpty() && selected.isEmpty()))
+        }
+
         Function("setCredentials") { json: String ->
             ChartStore.setCredentials(context(), json)
             ChartWidgetRefresh.refreshAll(context())

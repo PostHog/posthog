@@ -11,7 +11,7 @@ The app itself shows nothing about widgets.
 ## How it works
 
 The app and the widget share a small store.
-The app writes the session copy, the pin catalog and any available Views snapshots; the widget refreshes one snapshot per pin.
+The app writes an encrypted pin catalog for the picker. When a Chart widget is placed, it also writes the session copy and snapshots for its selected pins; the widget refreshes one snapshot per pin.
 The widget never runs the app's JavaScript and never refreshes the OAuth token.
 
 ```text
@@ -43,7 +43,7 @@ Each write makes the OS reload every placed widget, so the app keeps the last JS
 A clear resets that memory, so the next sign in writes again even with the same token.
 Writes happen only while the auth store and the stored session name the same host and user, so a sign in never pairs one account's token with another account's project.
 When the signed-in project has no catalog and no cached pin list, the sync reads the pin list itself, with the query key, fetcher (`readShortcuts` in `src/features/views/listReads.ts`) and lane that `usePins` uses.
-It does that once per project per session, and only when the session has the Views scopes; a failure leaves the catalog for the next Views read.
+It does that once per project per session, only when the session has the Views scopes; a failure leaves the catalog for the next Views read.
 Until the new project's catalog lands after a project switch, the widget shows "In another project".
 
 The widget never refreshes the OAuth token.
@@ -52,7 +52,7 @@ On each return to the foreground, the app refreshes an OAuth access token with l
 The catalog takes each pin's insight from the newest available pin metadata or Number/Chart snapshot.
 Insight, dashboard and automatic preview updates also rebuild the catalog, so opening a pin in Views recovers an earlier metadata failure.
 A dashboard without a manually chosen tile discovers a suitable tile using the Views automatic preview reader, without changing the pin's display preference.
-For pins without either, the sync reads the full insight with `refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the metadata and Views caches. Dashboard reads include `from_dashboard`, and snapshots are scoped to each pin so two dashboard contexts do not overwrite each other.
+For selected pins without either, the sync reads the full insight with `refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the metadata and Views caches. Dashboard reads include `from_dashboard`, and snapshots are scoped to each pin so two dashboard contexts do not overwrite each other.
 A 429, a 503, an empty budget bucket or no connection stops the reads; those pins say "Open it in Views first" until the next sync.
 The sync never forces a compute.
 
@@ -64,15 +64,19 @@ A widget tap opens `/views/insight/<short_id>?from=widget&family=<family>` or `/
 | Data                  | iOS                                                                                                                                                                                                                | Android                                                                                                                    | Writer        |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | Credentials           | Keychain generic password: service `com.posthog.code.mobile.chart-widget`, account `credentials`, access group `group.<app bundle id>`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`; data is the UTF-8 JSON | `EncryptedSharedPreferences` file `chart_widget_secure` (MasterKey AES256_GCM), key `credentials`, written with `commit()` | App           |
-| Catalog               | `UserDefaults(suiteName: "group.<app bundle id>")`, key `chart.catalog`                                                                                                                                            | `SharedPreferences` file `chart_widget`, key `chart.catalog`                                                               | App           |
-| Snapshot of one pin   | same suite, key `chart.snapshot.<pinId>`                                                                                                                                                                           | `chart_widget`, key `chart.snapshot.<pinId>`                                                                               | App or widget |
-| Last error of one pin | same suite, key `chart.snapshotError.<pinId>`                                                                                                                                                                      | `chart_widget`, key `chart.snapshotError.<pinId>`                                                                          | Widget        |
-| Project of one pin    | same suite, key `chart.pinProject.<pinId>` = `{ "projectId": number, "projectName": string }`                                                                                                                      | kept per widget in `chart.widget.<appWidgetId>` as `projectId`, `projectName` and `pinName`, written at configure time     | Widget        |
-| Widget configuration  | the widget's configuration intent, kept by WidgetKit                                                                                                                                                               | `chart_widget`, key `chart.widget.<appWidgetId>` = `{ "pinId": string, "extraPinIds": string[] }`                          | Widget        |
+| Catalog               | AES-GCM encrypted `UserDefaults(suiteName: "group.<app bundle id>")`, key `chart.catalog`                                                                                                                          | `EncryptedSharedPreferences` file `chart_widget_secure`, key `chart.catalog`                                               | App           |
+| Snapshot of one pin   | same encrypted suite, key `chart.snapshot.<pinId>`                                                                                                                                                                 | `chart_widget_secure`, key `chart.snapshot.<pinId>`                                                                        | App or widget |
+| Last error of one pin | same encrypted suite, key `chart.snapshotError.<pinId>`                                                                                                                                                            | `chart_widget_secure`, key `chart.snapshotError.<pinId>`                                                                   | Widget        |
+| Project of one pin    | same encrypted suite, key `chart.pinProject.<pinId>` = `{ "projectId": number, "projectName": string }`                                                                                                            | kept per widget in `chart.widget.<appWidgetId>` as `projectId`, `projectName` and `pinName`, written at configure time     | Widget        |
+| Widget configuration  | the widget's configuration intent, kept by WidgetKit                                                                                                                                                               | `chart_widget_secure`, key `chart.widget.<appWidgetId>` = `{ "pinId": string, "extraPinIds": string[] }`                   | Widget        |
 
 The suite is the hedgehog widget's App Group.
 An App Group id is also a keychain access group of every target in the group, so the extension reads the credentials without a keychain-sharing entitlement.
-The credentials stay out of `UserDefaults` because the suite is a plain file in the group container.
+Credentials stay in the keychain. Every `chart.*` value in the App Group suite is AES-GCM encrypted with a device-only 256-bit key stored alongside the credentials in the shared keychain. Both native targets compile the same storage implementation. Old plaintext entries are discarded, and unreadable encrypted values have no plaintext fallback.
+
+Android stores the catalog, snapshots, errors and configuration in `chart_widget_secure`, alongside credentials. Old `chart_widget` values are cleared.
+
+`getWidgetState()` checks placed Chart widgets with WidgetKit on iOS and AppWidgetManager on Android. Only their selected pins receive result snapshots. The app checks placement on launch and foreground and before catalog writes; Android also clears credentials when the last widget is deleted. Picker metadata remains encrypted for first-time setup. Unselected pins use basic metadata reads, which exclude result rows. Loss of Views access clears the catalog and snapshots; missing or inaccessible pins lose their cached results. The iOS content boundary is privacy-sensitive so WidgetKit can redact account-derived text.
 
 ### Credentials JSON
 
@@ -291,8 +295,8 @@ RemoteViews only (no Glance, no Compose), API 24 and up. Code in `android/src/ma
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provider           | receiver `com.posthog.code.mobile.chart.ChartWidgetProvider`, info `res/xml/chart_widget_info.xml`                                                                              |
 | Configure activity | `com.posthog.code.mobile.chart.ChartWidgetConfigureActivity` (`APPWIDGET_CONFIGURE`, exported)                                                                                  |
-| Plain preferences  | `chart_widget`: `chart.catalog`, `chart.snapshot.<pinId>`, `chart.snapshotError.<pinId>`, `chart.widget.<appWidgetId>`                                                          |
-| Secure preferences | `chart_widget_secure` (`EncryptedSharedPreferences`, `MasterKey` AES256_GCM): `credentials`                                                                                     |
+| Legacy preferences | `chart_widget`: cleared on access                                                                                                                                               |
+| Secure preferences | `chart_widget_secure` (`EncryptedSharedPreferences`, `MasterKey` AES256_GCM): credentials, catalog, snapshots, errors and widget configuration                                  |
 | Work               | unique `chart-widget-refresh` (REPLACE, network required), `chart-widget-keep-enabled`                                                                                          |
 | Deep links         | `<scheme>://views/insight/<shortId>?from=widget&family=<small\|medium\|large>`, `<scheme>://views/dashboard/<dashboardId>?from=widget&family=…`, states open `<scheme>://views` |
 
@@ -337,7 +341,7 @@ A corrupt or restored keystore file is deleted and counts as signed out; the app
 ## Chart widget (iOS)
 
 The iOS widget is a second kind in the `HedgehogWidget` extension (`targets/HedgehogWidget/`).
-It reads the catalog and its snapshots from the App Group suite and the credentials from the keychain, and it reads PostHog itself.
+It reads encrypted catalog and snapshot values from the App Group suite and their key and credentials from the keychain, and it reads PostHog itself.
 
 | File                                           | What it holds                                                                                                                  |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -357,7 +361,7 @@ It reads the catalog and its snapshots from the App Group suite and the credenti
 From `products/mobile` on macOS:
 
 ```sh
-swiftc targets/HedgehogWidget/{AppGroup,ChartModels,ChartStore,ChartFetcher,TrendsParser,InsightParser,ChartState}.swift scripts/check_chart_widget.swift -o /tmp/check-chart
+swiftc targets/HedgehogWidget/{AppGroup,ChartModels,ChartStorage,ChartStore,ChartFetcher,TrendsParser,InsightParser,ChartState}.swift scripts/check_chart_widget.swift -o /tmp/check-chart
 /tmp/check-chart
 ```
 
@@ -372,7 +376,7 @@ The SwiftUI, WidgetKit and AppIntents files do not compile there; `xcodebuild` c
 | Widget        | kind `ChartWidget`, target `HedgehogWidget`, families small, medium, large                                                                                                        |
 | Configuration | `ChartWidgetIntent` ("Chart"): `pin: PinEntity?`, `extraPins: [PinEntity]?` (large only)                                                                                          |
 | Picker entity | `PinEntity`, id = the catalog pin id; `PinQuery` lists eligible pins in Views order                                                                                               |
-| Store         | `UserDefaults(suiteName: "group.<app bundle id>")`, keys `chart.catalog`, `chart.snapshot.<pinId>`, `chart.snapshotError.<pinId>`, `chart.pinProject.<pinId>`                     |
+| Store         | AES-GCM encrypted `UserDefaults(suiteName: "group.<app bundle id>")`, keys `chart.catalog`, `chart.snapshot.<pinId>`, `chart.snapshotError.<pinId>`, `chart.pinProject.<pinId>`   |
 | Credentials   | keychain generic password, service `com.posthog.code.mobile.chart-widget`, account `credentials`, access group `group.<app bundle id>`                                            |
 | Deep links    | `<scheme>://views/insight/<shortId>?from=widget&family=<small\|medium\|large>`, `<scheme>://views/dashboard/<dashboardId>?from=widget&family=...`; states open `<scheme>://views` |
 

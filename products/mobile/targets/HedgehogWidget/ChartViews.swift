@@ -85,6 +85,7 @@ struct ChartWidgetView: View {
                 .buttonStyle(.plain)
             }
         }
+        .privacySensitive()
         .widgetURL(entry.content.primary.link)
     }
 }

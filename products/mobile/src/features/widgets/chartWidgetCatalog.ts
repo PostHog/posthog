@@ -87,14 +87,15 @@ function eligibilityOf(insight: WidgetPinInsight): Eligibility {
 /** Keyed by pin id (or `short_id` for callers without a pin context). Null: the server no longer returns the insight. Missing: the app has not read it yet. */
 export type WidgetPinMetadata = ReadonlyMap<string, WidgetPinInsight | null>
 
-function catalogPin(pin: PinView, metadata: WidgetPinMetadata): WidgetCatalogPin {
+function catalogPin(pin: PinView, metadata: WidgetPinMetadata, includeSnapshot: boolean): WidgetCatalogPin {
     const shortId = pinInsightShortId(pin)
     const insight = metadata.has(pin.shortcutId)
         ? metadata.get(pin.shortcutId)
         : shortId
           ? metadata.get(shortId)
           : undefined
-    const snapshot = insight?.snapshot ? widgetSnapshot(pin.shortcutId, insight.snapshot, pin.display.mode) : null
+    const snapshot =
+        includeSnapshot && insight?.snapshot ? widgetSnapshot(pin.shortcutId, insight.snapshot, pin.display.mode) : null
     const base = {
         id: pin.shortcutId,
         kind: pin.kind,
@@ -121,14 +122,17 @@ function catalogPin(pin: PinView, metadata: WidgetPinMetadata): WidgetCatalogPin
 export function buildCatalog(
     pins: readonly PinView[],
     metadata: WidgetPinMetadata,
-    project: WidgetCatalogProject
+    project: WidgetCatalogProject,
+    snapshotPinIds?: ReadonlySet<string>
 ): WidgetCatalogBody {
     return {
         version: 1,
         host: project.host,
         projectId: project.projectId,
         projectName: project.projectName,
-        pins: pins.slice(0, CATALOG_PIN_LIMIT).map((pin) => catalogPin(pin, metadata)),
+        pins: pins
+            .slice(0, CATALOG_PIN_LIMIT)
+            .map((pin) => catalogPin(pin, metadata, snapshotPinIds?.has(pin.shortcutId) ?? true)),
     }
 }
 

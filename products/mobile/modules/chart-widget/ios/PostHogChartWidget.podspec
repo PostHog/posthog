@@ -17,7 +17,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.frameworks = 'WidgetKit', 'Security'
+  s.frameworks = 'WidgetKit', 'Security', 'CryptoKit', 'AppIntents'
 
   s.source_files = '**/*.{h,m,swift}'
   s.pod_target_xcconfig = {

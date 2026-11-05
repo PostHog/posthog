@@ -154,13 +154,13 @@ actor ChartRefresh {
         let userUuid: String?
     }
 
-    private let store: UserDefaults?
+    private let store: ChartStorage?
     private let currentCredentials: @Sendable () -> ChartCredentials?
     private let fetch: @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome
     private var running: [RequestKey: Task<Void, Never>] = [:]
 
     init(
-        store: UserDefaults? = ChartStore.defaults,
+        store: ChartStorage? = ChartStore.storage,
         currentCredentials: @escaping @Sendable () -> ChartCredentials? = { ChartStore.credentials() },
         fetch: @escaping @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome = {
             await ChartFetcher().fetch(pin: $0, credentials: $1, now: $2)
@@ -196,7 +196,7 @@ actor ChartRefresh {
 
     static func record(
         _ outcome: ChartFetchOutcome, pin: ChartPin, credentials: ChartCredentials, at now: Date,
-        store: UserDefaults? = ChartStore.defaults
+        store: ChartStorage? = ChartStore.storage
     ) {
         guard let catalog = ChartStore.catalog(store: store), catalog.belongs(to: credentials),
               let current = catalog.pin(id: pin.id), current.eligible,
@@ -209,6 +209,9 @@ actor ChartRefresh {
         case .snapshot(let snapshot):
             ChartStore.save(snapshot, store: store)
         case .failed(let kind):
+            if kind == .auth || kind == .notFound {
+                store?.removeObject(forKey: ChartStore.snapshotKey(pin.id))
+            }
             ChartStore.save(ChartSnapshotError(at: (now.timeIntervalSince1970 * 1000).rounded(), kind: kind), pinId: pin.id, store: store)
         }
     }

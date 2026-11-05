@@ -16,16 +16,19 @@ import {
 import { useDemoMode } from '@/demo/demoMode'
 import { usePinPrefs } from '@/features/views/pinPrefsStore'
 import { viewsQueue } from '@/features/views/refreshQueue'
-import { viewsKeys } from '@/features/views/viewsCache'
+import { useScopeErrorStore } from '@/features/views/useViewsAccess'
+import { useItemErrors, viewsKeys } from '@/features/views/viewsCache'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 
 import { clearWidgetState, startChartWidgetSync, syncWidgetCatalog, syncWidgetCredentials } from './chartWidgetSync'
 
+const mockWidgetState = jest.fn()
 const mockSetCredentials = jest.fn()
 const mockClearCredentials = jest.fn()
 const mockSetCatalog = jest.fn()
 jest.mock('../../../modules/chart-widget', () => ({
     isAvailable: () => true,
+    getWidgetState: () => mockWidgetState(),
     setCredentials: (credentials: unknown) => mockSetCredentials(credentials),
     clearCredentials: () => mockClearCredentials(),
     setCatalog: (json: string) => mockSetCatalog(json),
@@ -113,6 +116,13 @@ describe('chart widget sync', () => {
     beforeEach(() => {
         // A sync without a cached pin list prefetches it, so no test may reach the network.
         viewsQueue.reset()
+        useItemErrors.getState().reset()
+        useScopeErrorStore.getState().clear()
+        mockWidgetState.mockResolvedValue({
+            installed: true,
+            pinIds: ['s-signups', 's-kpis', 'a', 'b'],
+            usesDefault: false,
+        })
         resetBudgets()
         fetchMock.mockReset()
         fetchMock.mockResolvedValue(json(404, { detail: 'Not found.' }))
@@ -135,7 +145,9 @@ describe('chart widget sync', () => {
 
     it('writes the session once while it stays the same, and again when a refresh rotates the token', async () => {
         signIn(OAUTH)
-        stop = startChartWidgetSync(testClient())
+        const client = testClient()
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
 
         useAuthStore.setState({ accountLoading: true })
         syncWidgetCredentials('launch')
@@ -157,7 +169,9 @@ describe('chart widget sync', () => {
 
     it('clears the widget when the session ends, and writes again when the same account signs in', async () => {
         signIn(KEY)
-        stop = startChartWidgetSync(testClient())
+        const client = testClient()
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
 
         await useAuthStore.getState().signOut()
 
@@ -166,12 +180,15 @@ describe('chart widget sync', () => {
 
         signIn(KEY)
 
+        await syncWidgetCatalog(client)
         expect(mockSetCredentials).toHaveBeenCalledTimes(2)
     })
 
     it('clears the widget when demo mode starts and writes nothing while it lasts, even with a session', async () => {
         signIn(OAUTH)
-        stop = startChartWidgetSync(testClient())
+        const client = testClient()
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
 
         useDemoMode.setState({ enabled: true })
         await saveRefreshedTokens({ ...OAUTH, accessToken: 'example-rotated' }, sessionGeneration())
@@ -222,7 +239,9 @@ describe('chart widget sync', () => {
                 ? json(200, { count: 1, next: null, results: [shortcut('s-kpis', '12', 'dashboard')] })
                 : json(404, { detail: 'Not found.' })
         )
-        stop = startChartWidgetSync(testClient())
+        const client = testClient()
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
 
         signIn(KEY)
 
@@ -419,5 +438,92 @@ describe('chart widget sync', () => {
             await jest.advanceTimersByTimeAsync(0)
             jest.useRealTimers()
         }
+    })
+    it('keeps picker metadata but sends no credentials, results or background reads without a placed widget', async () => {
+        signIn(KEY)
+        mockWidgetState.mockResolvedValue({ installed: false, pinIds: [], usesDefault: false })
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        client.setQueryData(viewsKeys.pinMetadata(scope, 'sig1'), {
+            id: 123,
+            short_id: 'sig1',
+            query: { kind: 'TrendsQuery' },
+        })
+        client.setQueryData(
+            viewsKeys.insight(scope, 'sig1', null, '-'),
+            insightSnapshot(
+                {
+                    id: 123,
+                    short_id: 'sig1',
+                    name: 'Example',
+                    query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery' }, display: 'BoldNumber' },
+                    result: [[42]],
+                    columns: ['value'],
+                    types: [['value', 'UInt64']],
+                } as unknown as InsightApi,
+                undefined,
+                { readAt: Date.now(), serverNow: Date.now() }
+            )
+        )
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mockSetCredentials).not.toHaveBeenCalled()
+        expect(mockClearCredentials).toHaveBeenCalled()
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({
+            id: 's-signups',
+            eligible: true,
+        })
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].snapshot).toBeUndefined()
+    })
+
+    it('removes cached values from a pin that loses access', async () => {
+        signIn(KEY)
+        const client = testClient()
+        const scope = { host: HOST, projectId: 2 }
+        const key = viewsKeys.insight(scope, 'sig1', null, '-')
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        client.setQueryData(
+            key,
+            insightSnapshot(
+                {
+                    id: 123,
+                    short_id: 'sig1',
+                    name: 'Signups',
+                    query: { kind: 'TrendsQuery' },
+                    result: [],
+                } as unknown as InsightApi,
+                undefined,
+                { readAt: Date.now(), serverNow: Date.now() }
+            )
+        )
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
+        useItemErrors.getState().set(JSON.stringify(key), 'no_access')
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0]).toMatchObject({ eligible: false })
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].snapshot).toBeUndefined()
+    })
+    it('lets a new project sync while the old placement check is pending', async () => {
+        signIn(KEY)
+        const client = testClient()
+        for (const projectId of [2, 3]) {
+            client.setQueryData(viewsKeys.shortcuts({ host: HOST, projectId }), { count: 0, next: null, results: [] })
+        }
+        mockWidgetState.mockImplementationOnce(() => new Promise(() => undefined))
+        stop = startChartWidgetSync(client)
+        await waitFor(() => expect(mockWidgetState).toHaveBeenCalled())
+        useAuthStore.setState({ projectId: 3, projectName: 'Second project' })
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').projectId).toBe(3)
     })
 })
