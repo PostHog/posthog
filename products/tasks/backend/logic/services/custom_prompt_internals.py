@@ -1105,8 +1105,13 @@ def _pi_turn_text(lines: list[str]) -> str | None:
     the lines of one poll can hold only its tail. This reads back through the whole log for that
     reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
     strips each entry, which deletes the spaces between words.
+
+    Pi writes a compaction summary as one assistant chunk directly after the completed `compacting`
+    status, with the same timestamp. That chunk is context for the model and not the answer, so this
+    drops it. Text from before a compaction is the answer only when no text follows the compaction.
     """
     parts: list[str] = []
+    earliest_chunk_timestamp: object = None
     turn_closed = False
     for line in reversed(lines):
         try:
@@ -1120,6 +1125,12 @@ def _pi_turn_text(lines: list[str]) -> str | None:
             content = event.get("content")
             if isinstance(content, dict) and isinstance(content.get("text"), str):
                 parts.append(content["text"])
+                earliest_chunk_timestamp = event.get("timestamp")
+        elif event_type == "runtime_status" and event.get("status") == "compacting":
+            if parts and event.get("isComplete") and earliest_chunk_timestamp == event.get("timestamp"):
+                parts.pop()
+            if parts:
+                break
         elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
             break
         elif event_type == "turn_completed":

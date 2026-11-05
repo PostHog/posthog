@@ -51,6 +51,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _console_line,
     _cost_less_usage_update_line,
     _end_turn_line,
+    _pi_compaction_lines,
     _pi_event_line,
     _pi_text_line,
     _pi_turn_completed_line,
@@ -1066,6 +1067,38 @@ class TestPollForTurnPiLog:
                 "the answer",
             ),
             (
+                "compaction_summary_after_the_answer_is_not_the_answer",
+                [[_pi_text_line("the answer"), *_pi_compaction_lines("internal summary"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "compaction_summary_before_the_answer_is_not_part_of_it",
+                [
+                    [
+                        _pi_text_line("earlier text"),
+                        *_pi_compaction_lines("internal summary"),
+                        _pi_text_line("the answer", timestamp=9),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                0,
+                "the answer",
+            ),
+            (
+                "compaction_without_a_summary_keeps_the_whole_answer",
+                [
+                    [
+                        *_pi_compaction_lines(None),
+                        _pi_text_line("the", timestamp=9),
+                        _pi_text_line(" answer", timestamp=9),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                0,
+                "the answer",
+            ),
+            (
                 "earlier_turn_is_not_the_answer",
                 [
                     [
@@ -1093,6 +1126,7 @@ class TestPollForTurnPiLog:
         [
             ("after_prompt_echo", [_pi_event_line({"type": "user_message"}), _pi_turn_completed_line()]),
             ("without_prompt_echo", [_pi_turn_completed_line()]),
+            ("only_a_compaction_summary", [*_pi_compaction_lines("internal summary"), _pi_turn_completed_line()]),
             (
                 "after_tool_call_only",
                 [_pi_event_line({"type": "user_message"}), *_TOOL_CALL, _pi_turn_completed_line()],
