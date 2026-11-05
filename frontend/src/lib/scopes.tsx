@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { RISKY_SCOPE_WARNINGS } from 'lib/oauthScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
@@ -142,6 +143,26 @@ export const riskyScopeWarning = (
     return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
 }
 
+/**
+ * What a personal API key or OAuth scope row warns about at the picked level: the scope's own note, such as a
+ * feature flag it also writes, followed by the backend's risky scope warning.
+ */
+export function scopeRowWarning(
+    apiScope: APIScope | undefined,
+    scopeObject: string,
+    level: ScopeAccessLevel
+): string | JSX.Element | undefined {
+    const note = level === 'none' ? undefined : apiScope?.warnings?.[level]
+    const risky = riskyScopeWarning(scopeObject, level, RISKY_SCOPE_WARNINGS)
+    return note && risky ? (
+        <>
+            {note} {risky}
+        </>
+    ) : (
+        (note ?? risky)
+    )
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -170,6 +191,12 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Workload trust policy',
         objectPlural: 'workload trust policies',
         disabledActions: ['write'],
+    },
+    {
+        key: 'workload_trust_policy_request',
+        objectName: 'Workload trust policy request',
+        objectPlural: 'workload trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a workload trust policy. A request grants nothing until an admin approves it.',
     },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
@@ -282,15 +309,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Organization member',
         objectPlural: 'organization members',
         disabledWhenProjectScoped: true,
-        warnings: {
-            write: (
-                <>
-                    This scope can be used to invite users to your organization,
-                    <br />
-                    effectively <strong>allowing access to other scopes via the added user</strong>.
-                </>
-            ),
-        },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
@@ -347,15 +365,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'User',
         objectPlural: 'users',
         disabledActions: ['write'],
-        warnings: {
-            read: (
-                <>
-                    This scope allows you to retrieve your own user object.
-                    <br />
-                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
-                </>
-            ),
-        },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     {
@@ -699,6 +708,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization_member',
             'project',
             'workload_trust_policy',
+            'workload_trust_policy_request',
             'user',
             'billing',
             'access_control',

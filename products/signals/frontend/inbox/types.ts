@@ -321,6 +321,7 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
+    'outcome-monitoring',
     'resolved',
     'closed',
     'dismissed',
@@ -338,6 +339,7 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
+    'outcome-monitoring': 'Monitoring',
     resolved: 'Resolved',
     closed: 'Closed',
     dismissed: 'Dismissed',
@@ -349,6 +351,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    'outcome-monitoring': 'Reports being monitored to verify their outcome.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
     closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:

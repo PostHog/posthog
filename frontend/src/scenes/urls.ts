@@ -293,7 +293,6 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
-    simpleOnboarding: (): string => '/onboarding/simple',
     onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
@@ -379,6 +378,7 @@ export const urls = {
     projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    workloadTrustPolicyRequest: (id: string): string => `/workload-trust-policy-requests/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     healthAlerts: (presetKinds?: string[]): string =>
