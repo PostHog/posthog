@@ -825,6 +825,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
                 ranking_min_probability: params.ranking_min_probability,
                 scope: params.scope,
