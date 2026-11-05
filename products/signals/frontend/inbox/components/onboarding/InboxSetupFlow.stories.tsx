@@ -313,8 +313,12 @@ export const GithubAccessRequired: Story = {
 export const GithubOptionalReview: Story = {
     play: async ({ canvas }) => {
         await canvas.findByText('Connect GitHub for code context')
-        const activate = canvas.getByText('Activate Self-Driving').closest('button')!
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await waitFor(() =>
+            expect(canvas.getByText('Activate Self-Driving').closest('button')).toHaveAttribute(
+                'aria-disabled',
+                'false'
+            )
+        )
         await expect(canvas.queryByText('Connect GitHub to continue')).not.toBeInTheDocument()
     },
     parameters: { testOptions: { snapshotBrowsers: [] } },
