@@ -83,12 +83,12 @@ WHOLE_DOCUMENT_GROUPING_ERROR = (
 
 class _AliasExpressions(TraversingVisitor):
     """The expression behind each alias, keyed by the alias type the resolver shares between the alias and every field
-    that refers to it, so an alias of the same name in a lambda or a nested query stays apart."""
+    that refers to it, so an alias of the same name in a lambda stays apart."""
 
     def __init__(self, select: ast.SelectQuery) -> None:
         super().__init__()
         self.by_type: dict[int, ast.Expr] = {}
-        self.visit(select)
+        super().visit_select_query(select)
 
     def visit_alias(self, node: ast.Alias) -> None:
         if isinstance(node.type, ast.FieldAliasType):
@@ -98,6 +98,10 @@ class _AliasExpressions(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         """A field holds no alias. The base visitor would walk its type, which the resolver shares between an alias
         and every reference to it, so that walk doubles at every alias referred to twice."""
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        """A nested query is checked on its own, and a key that reads one of its columns is followed through the column
+        type rather than through its aliases."""
 
 
 def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Expr:
@@ -268,6 +272,8 @@ def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLConte
     there while the legacy table accepts it. Both tables reject the key so a query cannot work on one and fail on
     the other.
     """
+    if not is_grouped(node):
+        return
     for key in _grouping_keys(node):
         if isinstance(key, ast.Field) and _reads_events_json_document(key.type, context):
             raise QueryError(WHOLE_DOCUMENT_GROUPING_ERROR, node=key)
