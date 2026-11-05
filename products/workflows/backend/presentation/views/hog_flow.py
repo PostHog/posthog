@@ -6766,15 +6766,13 @@ class HogFlowViewSet(
             require_recent_login_to_move_credentials(self.request, surface="workflow_draft_test")
 
     def _require_recent_authentication_for_variable_overrides(
-        self, hog_flow: Optional[WorkflowEditState], payload: dict
+        self, hog_flow: Optional[WorkflowEditState], overrides: Any, variables: Any
     ) -> None:
-        # A step input can template in a variable, so a live run that sets a variable away from its
+        # A step input can template in a variable, so a real run that sets a variable away from its
         # default can send a kept credential to an address the flow was not saved with.
         if hog_flow is None or not secret_binding_enforced(self.team):
             return
-        configuration = payload.get("configuration") or {}
-        variables = configuration.get("variables", hog_flow.variables) if configuration else hog_flow.variables
-        if not variables_override_defaults((payload.get("globals") or {}).get("variables"), variables):
+        if not variables_override_defaults(overrides, variables):
             return
         draft = hog_flow.draft or {}
         template_cache: TemplateCache = {}
@@ -6832,8 +6830,12 @@ class HogFlowViewSet(
             payload["configuration"] = draft
 
         if not payload.get("mock_async_functions", True):
-            self._require_recent_authentication_for_variable_overrides(hog_flow, payload)
             configuration = payload.get("configuration") or {}
+            self._require_recent_authentication_for_variable_overrides(
+                hog_flow,
+                (payload.get("globals") or {}).get("variables"),
+                configuration.get("variables", hog_flow.variables) if hog_flow else None,
+            )
             self._require_replay_vision_caller_access(
                 request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
             )
@@ -7871,7 +7873,11 @@ class HogFlowViewSet(
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        edit_state = self._edit_state()
+        self._require_replay_vision_caller_access(request, edit_state.actions)
+        self._require_recent_authentication_for_variable_overrides(
+            edit_state, serializer.validated_data["variables"], hog_flow.variables
+        )
 
         variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])

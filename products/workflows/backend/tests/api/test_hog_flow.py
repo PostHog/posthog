@@ -7575,33 +7575,43 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_run_away_from_default", {"host": "attacker.example.com"}, False, 403),
-            ("live_run_with_the_default", {"host": "example.com"}, False, 200),
-            ("mocked_run_away_from_default", {"host": "attacker.example.com"}, True, 200),
+            ("live_test_away_from_default", "invocations", {"host": "attacker.example.com"}, False, 403),
+            ("live_test_with_the_default", "invocations", {"host": "example.com"}, False, 200),
+            ("mocked_test_away_from_default", "invocations", {"host": "attacker.example.com"}, True, 200),
+            # A run now always sends for real.
+            ("run_now_away_from_default", "run", {"host": "attacker.example.com"}, False, 403),
+            ("run_now_with_the_default", "run", {"host": "example.com"}, False, 200),
         ]
     )
-    def test_a_test_run_that_overrides_a_variable_needs_recent_authentication(
-        self, _name: str, overrides: dict, mock_async_functions: bool, expected_status: int
+    def test_a_run_that_overrides_a_variable_needs_recent_authentication(
+        self, _name: str, endpoint: str, overrides: dict, mock_async_functions: bool, expected_status: int
     ) -> None:
         payload = self._linked_flow_payload()
+        if endpoint == "run":
+            payload["actions"][0]["config"] = {"type": "schedule"}
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
         self._make_session_stale()
+        body = (
+            {"variables": overrides}
+            if endpoint == "run"
+            else {
+                "globals": {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides},
+                "mock_async_functions": mock_async_functions,
+            }
+        )
+        dispatch = "create_hog_flow_scheduled_invocation" if endpoint == "run" else "create_hog_flow_invocation_test"
 
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
-        ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+        with patch(f"products.workflows.backend.presentation.views.hog_flow.{dispatch}") as mock_dispatch:
+            mock_dispatch.return_value = MagicMock(
+                status_code=200, json=lambda: {"status": "queued", "invocation_id": "inv-1"}
+            )
             response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
-                data={
-                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides},
-                    "mock_async_functions": mock_async_functions,
-                },
-                format="json",
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{endpoint}/", data=body, format="json"
             )
 
         assert response.status_code == expected_status, response.json()
-        assert mock_invoke.called == (expected_status == 200)
+        assert mock_dispatch.called == (expected_status == 200)
 
     def test_a_test_run_of_a_step_only_in_the_draft_gets_its_own_secret(self) -> None:
         # The builder tests the staged draft by sending it as `configuration`, so a secret saved only
