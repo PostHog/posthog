@@ -163,14 +163,66 @@ function VerificationCodeEntry(): JSX.Element {
     )
 }
 
+function CodeUndeliverable({ verificationEmail }: { verificationEmail?: string }): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
+
+    return (
+        <div className="flex flex-col items-center text-center">
+            <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
+            <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                We can't email you a code
+            </h1>
+            <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                {verificationEmail ? (
+                    <>
+                        Our email provider refuses to send to <strong>{verificationEmail}</strong>, usually because an
+                        earlier email to it bounced.
+                    </>
+                ) : (
+                    <>Our email provider refuses to send to your address, usually because an earlier email bounced.</>
+                )}{' '}
+                Contact support and we'll help you verify your account.
+            </p>
+            <LemonButton
+                type="primary"
+                size="large"
+                center
+                fullWidth
+                data-attr="verify-email-undeliverable-contact-support"
+                onClick={() =>
+                    openSupportForm({
+                        kind: 'support',
+                        email: verificationEmail,
+                        // Prefill only into an empty form, so reopening never overwrites a draft.
+                        message: sendSupportRequest.message
+                            ? undefined
+                            : [
+                                  "I can't verify my email address because the verification code can't be delivered.",
+                                  'Error code: email_verification_code_undeliverable',
+                              ].join('\n'),
+                    })
+                }
+            >
+                Contact support
+            </LemonButton>
+        </div>
+    )
+}
+
 function CheckYourInbox(): JSX.Element {
-    const { uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { uuid, user, reason, verificationEmailSent, codeUndeliverable } = useValues(verifyEmailLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
 
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
     const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
+
+    if (codeUndeliverable) {
+        // The server reports a refusal only for the account address, never for a staged email change.
+        return <CodeUndeliverable verificationEmail={getPendingVerificationEmail(uuid) ?? user?.email} />
+    }
 
     return (
         <div className="flex flex-col items-center text-center">

@@ -56,6 +56,7 @@ from posthog.auth import (
     mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS, seed_dev_oauth_connectors
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
@@ -616,6 +617,29 @@ class TestLoginAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("unverified", False, status.HTTP_400_BAD_REQUEST),
+            ("legacy_null", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch(
+        "posthog.api.email_verification.send_email_verification_code",
+        side_effect=EmailRecipientUndeliverableError("refused"),
+    )
+    def test_login_when_the_verification_code_address_is_refused(
+        self, _name, is_email_verified, expected_status, _mock_send_code, _mock_is_email_available
+    ):
+        self.user.is_email_verified = is_email_verified
+        self.user.save()
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
 
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
     @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))

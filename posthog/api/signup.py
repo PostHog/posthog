@@ -24,7 +24,11 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -93,11 +97,17 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> bool:
+    """Send a verification code or log the user in. Return False when the address refused the code."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailVerificationCodeUndeliverable:
+            # The account already exists, so the verify page tells the user instead of the signup form.
+            return False
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return True
 
 
 def requested_next_url(request) -> str | None:
@@ -109,7 +119,9 @@ def requested_next_url(request) -> str | None:
     return next_url if next_url and is_relative_url(next_url) else None
 
 
-def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
+def get_redirect_url(
+    uuid: str, is_email_verified: bool, next_url: str | None = None, *, code_undeliverable: bool = False
+) -> str:
     user = User.objects.get(uuid=uuid)
 
     require_email_verification = (
@@ -122,8 +134,13 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
     if require_email_verification:
         redirect_url = "/verify_email/" + uuid
 
+        params = []
         if next_url:
-            redirect_url += "?next=" + quote(next_url, safe="")
+            params.append("next=" + quote(next_url, safe=""))
+        if code_undeliverable:
+            params.append("email_sent=undeliverable")
+        if params:
+            redirect_url += "?" + "&".join(params)
 
         return redirect_url
 
@@ -392,7 +409,7 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        self.context["verification_code_undeliverable"] = not verify_email_or_login(request, user)
 
         return user
 
@@ -426,7 +443,12 @@ class SignupSerializer(serializers.Serializer):
     def to_representation(self, instance) -> dict:
         next_url = requested_next_url(self.context.get("request"))
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["redirect_url"] = get_redirect_url(
+            data["uuid"],
+            data["is_email_verified"],
+            next_url,
+            code_undeliverable=self.context.get("verification_code_undeliverable", False),
+        )
         return data
 
 
@@ -558,7 +580,12 @@ class InviteSignupSerializer(serializers.Serializer):
         if self.context.get("delegated_onboarding"):
             next_url = "/onboarding"
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["redirect_url"] = get_redirect_url(
+            data["uuid"],
+            data["is_email_verified"],
+            next_url,
+            code_undeliverable=self.context.get("verification_code_undeliverable", False),
+        )
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -756,7 +783,7 @@ class InviteSignupSerializer(serializers.Serializer):
             if oauth_connection is not None and not is_delegation:
                 apply_connector_signup_onboarding_skip(user, invite.organization)
 
-            verify_email_or_login(self.context["request"], user)
+            self.context["verification_code_undeliverable"] = not verify_email_or_login(self.context["request"], user)
 
             report_user_signed_up(
                 user,

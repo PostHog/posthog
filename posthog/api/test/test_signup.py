@@ -22,6 +22,7 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -198,6 +199,26 @@ class TestSignupAPI(APIBaseTest):
         mock_is_email_available.assert_called()
         # Assert the email was sent.
         mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch(
+        "posthog.api.email_verification.send_email_verification_code",
+        side_effect=EmailRecipientUndeliverableError("refused"),
+    )
+    def test_api_sign_up_points_the_verify_page_at_a_refused_address(self, _mock_send_code, _mock_is_email_available):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="hedgehog@posthog.com")
+        self.assertEqual(response.json()["redirect_url"], f"/verify_email/{user.uuid}?email_sent=undeliverable")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
