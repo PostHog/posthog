@@ -103,14 +103,15 @@ def _error_message_from_response(res: requests.Response) -> str:
 
 def _is_grant_rejection(res: requests.Response) -> bool:
     """HubSpot's OAuth error body names a rejected refresh token with `invalid_grant` (RFC 6749), or with its own
-    older `BAD_REFRESH_TOKEN` status."""
+    older `BAD_REFRESH_TOKEN` status. `BAD_HUB` (with `access_denied`) means the portal of the grant was deleted or
+    disconnected, which `posthog/models/integration/refresh_tracking.py` also treats as a dead grant."""
     try:
         body = res.json()
     except Exception:
         return False
     if not isinstance(body, Mapping):
         return False
-    return body.get("error") == "invalid_grant" or body.get("status") == "BAD_REFRESH_TOKEN"
+    return body.get("error") == "invalid_grant" or body.get("status") in ("BAD_REFRESH_TOKEN", "BAD_HUB")
 
 
 def _hubspot_app_credentials() -> dict[str, str]:

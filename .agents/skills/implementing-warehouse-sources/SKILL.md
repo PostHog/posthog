@@ -511,7 +511,7 @@ A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) ca
 A source opts in with two hooks on its class: `has_legacy_oauth_tokens(job_inputs)` (no network) and `adopt_legacy_oauth(job_inputs)` (can call the provider). HubSpot is the only source that uses them.
 
 - `hubspot_legacy_adopted`: the source has `hubspot_secret_key` and `hubspot_refresh_token` and no `hubspot_integration_id`. With `--execute`, the command exchanges the refresh token, reads the hub id from HubSpot, and reuses the `hubspot` row of the team for that hub id or creates one. It then sets `hubspot_integration_id` and the column, and removes the two legacy keys. Preview only counts. `reconcile_warehouse_source_credentials --verify` reports it as `legacy_oauth_tokens_in_job_inputs`.
-- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, or the inputs changed during the run. The command writes nothing. A later run tries again. A network error, a 429 or a 5xx from HubSpot is a retryable error, not an unusable grant: the backfill counts it as `failed`, and the cleanup command counts it as `skipped_transient`.
+- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, or the inputs changed during the run. The command writes nothing. A later run tries again. Only a confirmed rejection of the refresh token (`invalid_grant`, `BAD_REFRESH_TOKEN` or `BAD_HUB`) makes the grant unusable. Any other failure, such as a network error, a 408, a 429, a 5xx, a malformed body or a refusal of PostHog's app credentials (`invalid_client`), is a retryable error: the backfill counts it as `failed`, and the cleanup command counts it as `skipped_transient`.
 
 #### Cleanup of dead credentials
 

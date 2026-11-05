@@ -494,6 +494,7 @@ class TestLegacyGrantFailures(SimpleTestCase):
         [
             ("rfc_6749", {"error": "invalid_grant", "error_description": "refresh token is invalid"}),
             ("legacy_status", {"status": "BAD_REFRESH_TOKEN", "message": "refresh token is invalid"}),
+            ("deleted_hub", {"status": "BAD_HUB", "error": "access_denied", "message": "missing or unknown hub id"}),
         ]
     )
     def test_only_a_rejected_refresh_token_marks_a_grant_unusable(self, _name: str, body: dict[str, str]) -> None:
