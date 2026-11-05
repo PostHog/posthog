@@ -15,6 +15,8 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 // The last size always fits: 800x800 is under 4 MB even with no compression at all.
 const RESIZE_LONGEST_SIDES_PX = [2000, 1600, 1200, 800]
 const RESIZED_JPEG_QUALITY = 0.85
+// A decoded image takes 4 bytes per pixel, so this keeps resizing under about 400 MB of memory.
+const MAX_DECODED_PIXELS = 100_000_000
 // Unlayer passes `page` but no page size, so the provider decides how many images a page holds.
 const UPLOADS_PAGE_SIZE = 20
 
@@ -87,13 +89,28 @@ function hasTransparency(context: CanvasRenderingContext2D, width: number, heigh
     }
 }
 
-/**
- * Re-encodes an oversized image until it fits the upload limit. Throws when it can't, including
- * for GIFs, because drawing one to a canvas would keep only its first frame.
- */
+// An image element reports its size once loaded, before the browser decodes its pixels.
+async function readPixelCount(image: File): Promise<number> {
+    const url = URL.createObjectURL(image)
+    try {
+        return await new Promise<number>((resolve, reject) => {
+            const element = new Image()
+            element.onload = () => resolve(element.naturalWidth * element.naturalHeight)
+            element.onerror = () => reject(new Error('Image could not be read'))
+            element.src = url
+        })
+    } finally {
+        URL.revokeObjectURL(url)
+    }
+}
+
 async function shrinkToUploadLimit(image: File): Promise<File> {
+    // Drawing a GIF to a canvas keeps only its first frame.
     if (image.type === 'image/gif') {
         throw new Error('GIFs cannot be resized')
+    }
+    if ((await readPixelCount(image)) > MAX_DECODED_PIXELS) {
+        throw new Error('Image has too many pixels to resize safely')
     }
     const bitmap = await createImageBitmap(image)
     try {

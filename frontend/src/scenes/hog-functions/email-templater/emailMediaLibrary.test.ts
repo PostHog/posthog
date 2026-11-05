@@ -95,8 +95,22 @@ describe('registerEmailMediaLibrary', () => {
         const RESIZE_FAILED =
             "Couldn't resize this image automatically, and it's over the 4 MB limit. Use a smaller image and try again."
 
-        // jsdom has no image decoding or canvas encoding, so those browser APIs are the boundary.
+        function mockImageElement(size: { width: number; height: number } | 'unreadable'): void {
+            URL.createObjectURL = jest.fn(() => 'blob:test')
+            URL.revokeObjectURL = jest.fn()
+            ;(globalThis as any).Image = class {
+                onload = (): void => {}
+                onerror = (): void => {}
+                naturalWidth = size === 'unreadable' ? 0 : size.width
+                naturalHeight = size === 'unreadable' ? 0 : size.height
+                set src(_url: string) {
+                    size === 'unreadable' ? this.onerror() : this.onload()
+                }
+            }
+        }
+
         function mockBrowserImageApis(alpha: number, encodedSizes: number[]): jest.Mock {
+            mockImageElement({ width: 3000, height: 1500 })
             ;(globalThis as any).createImageBitmap = jest.fn(async () => ({
                 width: 3000,
                 height: 1500,
@@ -130,8 +144,11 @@ describe('registerEmailMediaLibrary', () => {
             return uploads
         }
 
+        const originalImage = globalThis.Image
+
         afterEach(() => {
             jest.restoreAllMocks()
+            globalThis.Image = originalImage
             delete (globalThis as any).createImageBitmap
         })
 
@@ -151,20 +168,19 @@ describe('registerEmailMediaLibrary', () => {
         })
 
         it.each([
-            ['a GIF, which would lose its animation', 'animated.gif', 'image/gif', false],
-            ['an image the browser cannot decode', 'broken.png', 'image/png', true],
-        ])('explains the failure without uploading for %s', async (_name, fileName, type, decodeFails) => {
-            ;(globalThis as any).createImageBitmap = jest.fn(async () => {
-                if (decodeFails) {
-                    throw new Error('decode failed')
-                }
-                return { width: 800, height: 600, close: jest.fn() }
-            })
+            ['a GIF, which would lose its animation', 'animated.gif', 'image/gif', { width: 800, height: 600 }],
+            ['an image the browser cannot read', 'broken.png', 'image/png', 'unreadable' as const],
+            ['an image too large to decode safely', 'huge.png', 'image/png', { width: 12000, height: 12000 }],
+        ])('explains the failure without decoding or uploading %s', async (_name, fileName, type, size) => {
+            mockImageElement(size)
+            const decode = jest.fn()
+            ;(globalThis as any).createImageBitmap = decode
             const uploads = useUploadCapture()
             const done = jest.fn()
 
             await registerOnFakeEditor()['image']({ attachments: [overLimitFile(fileName, type)] }, done)
 
+            expect(decode).not.toHaveBeenCalled()
             expect(uploads).toEqual([])
             expect(done).toHaveBeenLastCalledWith({ error: RESIZE_FAILED })
         })
