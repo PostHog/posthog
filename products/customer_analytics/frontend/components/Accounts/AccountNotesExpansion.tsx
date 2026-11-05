@@ -15,6 +15,7 @@ import { tagsModel } from '~/models/tagsModel'
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
+import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
 import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
@@ -50,9 +51,11 @@ export function AccountNotesExpansion({
         sorting,
         pagination,
         tagsFilter,
+        createdByFilter,
         updatingShortId,
     } = useValues(logic)
-    const { setSearchTerm, setSorting, createNote, setTagsFilter, updateNotebook } = useActions(logic)
+    const { setSearchTerm, setSorting, createNote, setTagsFilter, setCreatedByFilter, updateNotebook } =
+        useActions(logic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -61,6 +64,7 @@ export function AccountNotesExpansion({
         {
             title: 'Note',
             key: 'title',
+            sorter: true,
             render: (_, notebook) => {
                 const preview = getPreview(notebook)
                 return (
@@ -134,6 +138,13 @@ export function AccountNotesExpansion({
             sorter: true,
             render: (_, notebook) => <TZLabel time={notebook.created_at} />,
         },
+        {
+            title: 'Last modified',
+            key: 'last_modified_at',
+            width: 140,
+            sorter: true,
+            render: (_, notebook) => (notebook.last_modified_at ? <TZLabel time={notebook.last_modified_at} /> : null),
+        },
     ]
 
     return (
@@ -154,6 +165,7 @@ export function AccountNotesExpansion({
                         onChange={setTagsFilter}
                         data-attr="account-notes-tags-filter"
                     />
+                    <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
                 </div>
                 <LemonButton
                     type="primary"
@@ -178,7 +190,7 @@ export function AccountNotesExpansion({
                 emptyState={
                     notebooks === null
                         ? 'Failed to load account notes.'
-                        : searchTerm || tagsFilter.length > 0
+                        : searchTerm || tagsFilter.length > 0 || createdByFilter.length > 0
                           ? 'No notes match your filters.'
                           : 'No notes linked to this account yet.'
                 }

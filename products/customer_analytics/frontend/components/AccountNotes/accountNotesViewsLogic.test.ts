@@ -21,7 +21,9 @@ import { accountNotebooksLogic } from '../Accounts/accountNotebooksLogic'
 import { accountNotesLogic } from './accountNotesLogic'
 import {
     ACCOUNT_NOTES_VIEWS_CONTEXT_KEY,
+    ACCOUNT_NOTES_VIEW_COLUMNS,
     accountNotesViewsLogic,
+    describeAccountNotesView,
     deserializeAccountNotesView,
     serializeAccountNotesView,
 } from './accountNotesViewsLogic'
@@ -171,7 +173,7 @@ describe('accountNotesViewsLogic', () => {
             context_key: ACCOUNT_NOTES_VIEWS_CONTEXT_KEY,
             name: 'Onboarding',
             visibility: 'private',
-            columns: [],
+            columns: ACCOUNT_NOTES_VIEW_COLUMNS,
             order_by: ['-last_modified_at'],
             filters: {
                 search: 'onboarding',
@@ -273,7 +275,7 @@ describe('accountNotesViewsLogic', () => {
                 context_key: ACCOUNT_NOTES_VIEWS_CONTEXT_KEY,
                 name: 'Calls',
                 visibility: 'shared',
-                columns: [],
+                columns: ACCOUNT_NOTES_VIEW_COLUMNS,
                 order_by: ['-created_at'],
                 filters: {
                     search: '',
@@ -285,6 +287,26 @@ describe('accountNotesViewsLogic', () => {
                 },
             })
             expect(tileViewsLogic.values.currentViewId).toBe('view-3')
+        })
+
+        it('"All notes" clears the tile back to newest first, its own default', async () => {
+            await expectLogic(tileViewsLogic).toFinishAllListeners()
+            tileViewsLogic.actions.selectView('view-1')
+            await expectLogic(tileLogic).toFinishAllListeners()
+            expect(tileLogic.values.sorting).toEqual({ columnKey: 'title', order: 1 })
+
+            tileViewsLogic.actions.clearView()
+            await expectLogic(tileViewsLogic).toFinishAllListeners()
+            await expectLogic(tileLogic).toFinishAllListeners()
+
+            expect(tileViewsLogic.values.currentViewId).toBeNull()
+            expect(tileLogic.values.tagsFilter).toEqual([])
+            expect(tileLogic.values.sorting).toEqual({ columnKey: 'created_at', order: -1 })
+            expect(mockNotebooksList).toHaveBeenLastCalledWith(
+                expect.any(String),
+                'acc-1',
+                expect.objectContaining({ ordering: '-created_at', tags: undefined })
+            )
         })
     })
 })
@@ -320,7 +342,7 @@ describe('account notes view serialization', () => {
             })
         )
         expect(serializeAccountNotesView(full)).toEqual({
-            columns: [],
+            columns: ACCOUNT_NOTES_VIEW_COLUMNS,
             order_by: ['-title'],
             filters: {
                 search: 'x',
@@ -330,6 +352,52 @@ describe('account notes view serialization', () => {
                 account_id: 'acc',
                 account_name: 'Acme Example',
             },
+        })
+    })
+})
+
+describe('what a view saves', () => {
+    const names: Record<number, string> = { 7: 'Leo', 9: 'Kaya' }
+    const memberName = (id: number): string => names[id] ?? `user ${id}`
+    const state = {
+        filters: {
+            search: ' renewal ',
+            tags: ['account-plan', 'risk'],
+            created_by: [7, 9],
+            assigned_to: [9],
+            account_id: 'acc',
+            account_name: 'Acme Example',
+        },
+        ordering: '-title' as const,
+    }
+
+    it('lists every saved filter and the sort on the team Notes tab', () => {
+        expect(describeAccountNotesView(state, memberName, 'notes_tab')).toEqual({
+            applied: [
+                'Tags: account-plan, risk',
+                'Created by: Leo, Kaya',
+                'Search: "renewal"',
+                'Account: Acme Example',
+                'My accounts only',
+                'Sort: Title, Z to A',
+            ],
+            teamTabOnly: [],
+        })
+    })
+
+    it('marks the account and "My accounts" filters as team-tab only inside an account', () => {
+        const summary = describeAccountNotesView(state, memberName, 'account')
+
+        expect(summary.applied).not.toContain('Account: Acme Example')
+        expect(summary.teamTabOnly).toEqual(['Account: Acme Example', 'My accounts only'])
+    })
+
+    it('describes an empty view as just its sort', () => {
+        const empty = deserializeAccountNotesView(buildView({ filters: {}, order_by: ['-created_at'] }))
+
+        expect(describeAccountNotesView(empty, memberName, 'account')).toEqual({
+            applied: ['Sort: Created, newest first'],
+            teamTabOnly: [],
         })
     })
 })

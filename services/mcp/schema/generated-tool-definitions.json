@@ -444,8 +444,24 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
+        "description": "List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array, e.g. `[\"renewal\",\"risk\"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List account notebooks",
@@ -461,11 +477,11 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-notebooks-partial-update": {
-        "description": "Update an account notebook's `title` or `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. Fields left out are untouched. Content is not edited here, use `notebooks-partial-update` for that.",
+        "description": "Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the notebook first and send the full list to add one. The title and content are not edited here: a note's title comes from its first line, so use `notebooks-partial-update` to change the content.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
-        "summary": "Update account notebook tags or title",
-        "title": "Update account notebook tags or title",
+        "summary": "Update account notebook tags",
+        "title": "Update account notebook tags",
         "required_scopes": ["account:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/accounts/{account_id}/notebooks/{short_id}/"],
         "annotations": {

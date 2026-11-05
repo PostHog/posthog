@@ -81511,14 +81511,10 @@ export namespace Schemas {
     }
 
     /**
-     * Partial update of an account notebook: title and tags only. Content is edited in the notebook itself.
+     * Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+     * since a note's title comes from its first line.
      */
     export interface PatchedAccountNotebookUpdate {
-      /**
-         * @maxLength 256
-         * @nullable
-         */
-      title?: string | null;
       /**
          * Replaces the notebook's tags. Omit to leave them untouched.
          * @items.maxLength 255
@@ -123888,6 +123884,10 @@ export namespace Schemas {
     };
 
     export type AccountsNotebooksListParams = {
+    /**
+     * Only return notebooks created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
     /**
      * Number of results to return per page.
      */

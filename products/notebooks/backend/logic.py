@@ -291,13 +291,16 @@ def list_account_notebooks(
     search: str | None = None,
     order: str | None = None,
     tags: Iterable[str] | None = None,
+    created_by_ids: Iterable[int] | None = None,
 ) -> list[Notebook]:
     queryset = _account_notebook_queryset(account_id)
+    if created_by_ids:
+        queryset = queryset.filter(created_by_id__in=list(created_by_ids))
     if search:
         # Mirror the main notebooks list: full-text over title and content (some notebooks
         # have no text_content until their next save, so title is matched too).
         queryset = queryset.filter(Q(title__search=search) | Q(text_content__search=search))
-    if tags is not None:
+    if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=[tagify(t) for t in tags]).distinct()
     ordering = _ACCOUNT_NOTEBOOK_ORDERING.get(order or "", _DEFAULT_ACCOUNT_NOTEBOOK_ORDERING)
     return list(queryset.order_by(*ordering))
@@ -311,21 +314,17 @@ def update_account_notebook(
     account_id: str | UUID,
     short_id: str,
     *,
-    title: str | None = None,
     tags: Iterable[str] | None = None,
-    last_modified_by_id: int | None = None,
 ) -> Notebook | None:
-    """Update the title or tags of an account notebook. `None` leaves a field untouched."""
+    """Replace the tags of an account notebook. `None` leaves them untouched.
+
+    The title is not editable here: a note's displayed title comes from its first line, so it is
+    renamed by editing the note."""
     notebook = get_account_notebook(account_id, short_id)
     if notebook is None:
         return None
-    with transaction.atomic():
-        if title is not None:
-            notebook.title = title
-            notebook.last_modified_at = timezone.now()
-            notebook.last_modified_by_id = last_modified_by_id
-            notebook.save(update_fields=["title", "last_modified_at", "last_modified_by"])
-        if tags is not None:
+    if tags is not None:
+        with transaction.atomic():
             set_notebook_tags(notebook, tags)
     return get_account_notebook(account_id, short_id)
 
@@ -406,7 +405,7 @@ def list_team_account_notes(
             | Q(notebook__text_content__search=search)
             | Q(account__name__icontains=search)
         )
-    if tags is not None:
+    if tags:
         queryset = queryset.filter(notebook__tagged_items__tag__name__in=[tagify(t) for t in tags]).distinct()
     queryset = queryset.order_by(*_TEAM_ACCOUNT_NOTE_ORDERING.get(order or "", _DEFAULT_TEAM_ACCOUNT_NOTE_ORDERING))
     return list(queryset[offset : offset + limit]), queryset.count()
@@ -419,6 +418,8 @@ _TEAM_ACCOUNT_NOTE_ORDERING: dict[str, tuple[str, ...]] = {
     "-created_at": ("-notebook__created_at",),
     "title": ("notebook__title",),
     "-title": ("-notebook__title",),
+    "created_by": ("notebook__created_by__first_name", "notebook__created_by__last_name"),
+    "-created_by": ("-notebook__created_by__first_name", "-notebook__created_by__last_name"),
     "account_name": ("account__name", "-notebook__last_modified_at"),
     "-account_name": ("-account__name", "-notebook__last_modified_at"),
 }

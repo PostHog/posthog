@@ -5,7 +5,11 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { accountNotesList, accountsList } from 'products/customer_analytics/frontend/generated/api'
+import {
+    accountNotesList,
+    accountsList,
+    accountsNotebooksPartialUpdate,
+} from 'products/customer_analytics/frontend/generated/api'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { accountNotesLogic } from './accountNotesLogic'
@@ -13,10 +17,12 @@ import { accountNotesLogic } from './accountNotesLogic'
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountNotesList: jest.fn(),
     accountsList: jest.fn(),
+    accountsNotebooksPartialUpdate: jest.fn(),
 }))
 
 const mockAccountNotesList = accountNotesList as jest.MockedFunction<typeof accountNotesList>
 const mockAccountsList = accountsList as jest.MockedFunction<typeof accountsList>
+const mockPartialUpdate = accountsNotebooksPartialUpdate as jest.MockedFunction<typeof accountsNotebooksPartialUpdate>
 
 const CURRENT_USER_ID = 42
 
@@ -186,5 +192,48 @@ describe('accountNotesLogic', () => {
         })
         expect(logic.values.accountFilter).toEqual({ id: 'acc-1', name: 'Example account' })
         expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+    })
+
+    it('sorts by author', async () => {
+        logic = accountNotesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setOrdering('-created_by')
+        }).toFinishAllListeners()
+
+        expect(logic.values.sorting).toEqual({ columnKey: 'created_by', order: -1 })
+        expect(mockAccountNotesList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ ordering: '-created_by' })
+        )
+    })
+
+    it('edits the tags of a note on its own account and patches the row without reloading', async () => {
+        const note = { short_id: 'note-1', account_id: 'acc-9', tags: [] } as any
+        mockAccountNotesList.mockResolvedValue({ count: 1, results: [note] } as any)
+        mockPartialUpdate.mockResolvedValue({ short_id: 'note-1', tags: ['risk'] } as any)
+        logic = accountNotesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const callsBefore = mockAccountNotesList.mock.calls.length
+
+        logic.actions.updateNoteTags(note, ['risk'])
+        expect(logic.values.updatingNoteShortId).toBe('note-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockPartialUpdate).toHaveBeenCalledWith(expect.any(String), 'acc-9', 'note-1', { tags: ['risk'] })
+        expect(logic.values.accountNotes[0].tags).toEqual(['risk'])
+        expect(logic.values.updatingNoteShortId).toBeNull()
+        expect(mockAccountNotesList).toHaveBeenCalledTimes(callsBefore)
+    })
+
+    it('"All notes" goes back to no filters and last modified first', () => {
+        logic = accountNotesLogic()
+        logic.mount()
+
+        expect(logic.values.defaultViewState.ordering).toBe('-last_modified_at')
+        expect(logic.values.defaultViewState.filters.tags).toEqual([])
     })
 })

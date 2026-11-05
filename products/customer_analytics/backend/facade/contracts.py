@@ -1343,9 +1343,8 @@ class CreateAccountNotebookInput:
 
 @dataclass(frozen=True)
 class UpdateAccountNotebookInput:
-    """Validated body for a partial update of an account notebook. ``None`` leaves a field untouched."""
+    """Validated body for a partial update of an account notebook. ``None`` leaves the tags untouched."""
 
-    title: str | None = None
     tags: list[str] | None = None
 
 

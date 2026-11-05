@@ -445,6 +445,24 @@ const accountsNotebooksCreate = (): ToolBase<
     },
 })
 
+const AccountsNotebooksDestroySchema = () => {
+    const AccountsNotebooksDestroyParams = orvalSchemas.AccountsNotebooksDestroyParams()
+    return AccountsNotebooksDestroyParams.omit({ project_id: true })
+}
+
+const accountsNotebooksDestroy = (): ToolBase<ReturnType<typeof AccountsNotebooksDestroySchema>, unknown> => ({
+    name: 'accounts-notebooks-destroy',
+    schema: AccountsNotebooksDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
 const AccountsNotebooksListSchema = () => {
     const AccountsNotebooksListParams = orvalSchemas.AccountsNotebooksListParams()
     const AccountsNotebooksListQueryParams = orvalSchemas.AccountsNotebooksListQueryParams()
@@ -463,6 +481,7 @@ const accountsNotebooksList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -491,9 +510,6 @@ const accountsNotebooksPartialUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof AccountsNotebooksPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -2365,6 +2381,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-list': accountsList,
     'accounts-meetings-list': accountsMeetingsList,
     'accounts-notebooks-create': accountsNotebooksCreate,
+    'accounts-notebooks-destroy': accountsNotebooksDestroy,
     'accounts-notebooks-list': accountsNotebooksList,
     'accounts-notebooks-partial-update': accountsNotebooksPartialUpdate,
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,

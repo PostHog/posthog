@@ -726,7 +726,7 @@ export const getAccountsNotebooksPartialUpdateUrl = (projectId: string, accountI
 }
 
 /**
- * Update the title or tags of an account notebook. Fields left out stay as they are.
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
  */
 export const accountsNotebooksPartialUpdate = async (
     projectId: string,
