@@ -14,6 +14,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
@@ -31,6 +32,8 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
+    DrivePolicy,
     Read,
     Repository,
     SourceKind,
@@ -593,6 +596,195 @@ class TestFacadeReadsAndMappers(TestCase):
         with self.assertNumQueries(1):
             assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
         assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
+
+    @parameterized.expand(
+        [
+            ("run_view_in_log_mode", "run_view", DrivePolicy.NONE, frozenset(), True, False, True),
+            ("run_view_enforced", "run_view", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True, False, False),
+            (
+                "run_view_enforced_for_reading",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_the_owner",
+                "run_view",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_a_sandbox",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                True,
+                True,
+            ),
+            (
+                "run_view_with_another_check_enforced",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.RUNTIMES}),
+                True,
+                False,
+                True,
+            ),
+            ("task_visible_in_log_mode", "task_visible", DrivePolicy.NONE, frozenset(), True, False, True),
+            (
+                "task_visible_enforced",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                False,
+            ),
+            (
+                "task_visible_enforced_for_reading",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "task_visible_enforced_for_the_owner",
+                "task_visible",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_control_gates_apply_the_profile_drive_policy(
+        self,
+        _name: str,
+        gate: str,
+        drive: DrivePolicy,
+        enforced: frozenset[ContractCheck],
+        for_control: bool,
+        bypass_visibility: bool,
+        allowed: bool,
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "run_view":
+                with self.assertNumQueries(1):
+                    result = facade.task_accessible_for_run_view(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        for_control=for_control,
+                        bypass_visibility=bypass_visibility,
+                    )
+            else:
+                result = facade.task_visible(task.id, self.team.id, self.user.id, for_control=for_control)
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            ("token_bound_to_this_task", True, "own", True),
+            ("token_bound_to_another_task", True, "other", False),
+            ("token_without_a_bound_task", True, None, False),
+            ("no_sandbox_token", False, None, False),
+        ]
+    )
+    def test_only_a_sandbox_token_bound_to_the_task_skips_the_drive_policy(
+        self, _name: str, sandbox_request: bool, bound: str | None, allowed: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"),
+            key="test.drive_sandbox",
+            drive=DrivePolicy.NONE,
+            enforced_checks=frozenset({ContractCheck.DRIVE}),
+        )
+        task = self._make_task(profile=profile.key)
+        sandbox_task_id = {"own": task.id, "other": uuid4(), None: None}[bound]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            result = facade.task_accessible_for_run_view(
+                task.id,
+                self.team.id,
+                self.user.id,
+                for_control=True,
+                sandbox_request=sandbox_request,
+                sandbox_task_id=sandbox_task_id,
+            )
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            (f"{gate}_{mode}", gate, drive, enforced, refused)
+            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume", "update", "delete", "handoff")
+            for mode, drive, enforced, refused in (
+                ("none_policy_in_log_mode", DrivePolicy.NONE, frozenset(), False),
+                ("none_policy_enforced", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True),
+                ("owner_policy_enforced", DrivePolicy.OWNER, frozenset({ContractCheck.DRIVE}), False),
+            )
+        ]
+    )
+    def test_control_gates_outside_the_run_views_apply_the_drive_policy(
+        self, _name: str, gate: str, drive: DrivePolicy, enforced: frozenset[ContractCheck], refused: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive_steering", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+        sample = {"check": ContractCheck.DRIVE.value, "profile": profile.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+        if gate == "handoff":
+            recipient = User.objects.create(email="recipient@example.com", distinct_id="recipient-distinct")
+            self.organization.members.add(recipient)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "prepare_artifacts":
+                refused_by_gate = (
+                    facade.prepare_task_staged_artifacts(
+                        task.id, self.team.id, self.user.id, artifacts=[], upload_expiration_seconds=60
+                    )
+                    is None
+                )
+            elif gate == "finalize_artifacts":
+                refused_by_gate = (
+                    facade.finalize_task_staged_artifacts(task.id, self.team.id, self.user.id, artifacts=[]) is None
+                )
+            elif gate == "update":
+                refused_by_gate = (
+                    facade.update_task(task.id, self.team.id, self.user.id, validated_data={"title": "Renamed"}) is None
+                )
+            elif gate == "delete":
+                refused_by_gate = not facade.soft_delete_task(task.id, self.team.id, self.user.id)
+            elif gate == "handoff":
+                refused_by_gate = (
+                    facade.handoff_task(task.id, self.team.id, self.user.id, target_user_id=recipient.id) is None
+                )
+            else:
+                refused_by_gate = (
+                    facade.warm_task_resume_sandbox(task.id, self.team.id, self.user.id, resume_from_run_id=uuid4())
+                    is None
+                )
+
+        counted = (REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0) - before
+        self.assertEqual(counted, 1 if drive == DrivePolicy.NONE else 0)
+        if gate != "warm_resume":
+            self.assertEqual(refused_by_gate, refused)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)

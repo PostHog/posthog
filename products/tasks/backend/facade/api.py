@@ -103,9 +103,11 @@ from products.tasks.backend.constants import (
     is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
+from products.tasks.backend.contract_checks import drive_allowed
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import (
+    GithubAccess,
     NetworkAccess,
     TaskProfile,
     TaskRunOptions,
@@ -3390,12 +3392,17 @@ def task_accessible_for_run_view(
             is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
             accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
         )
-        .values("is_trial", "accessible")
+        .values("is_trial", "accessible", "profile", "created_by_id")
         .first()
     )
     if task is not None and task["is_trial"]:
         tag_queries(is_scout_experiment=True)
-    return task is not None and bool(task["accessible"])
+    if task is None or not task["accessible"]:
+        return False
+    acts_on_its_own_task = sandbox_task_id is not None and str(sandbox_task_id) == str(task_id)
+    if for_control and not (bypass_visibility or acts_on_its_own_task):
+        return drive_allowed(task["profile"], created_by_id=task["created_by_id"], user_id=user_id)
+    return True
 
 
 def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
@@ -6488,6 +6495,9 @@ def _resolve_cloud_pr_authorship_mode(
             )
         return None, None
 
+    if task.github_access_limit == GithubAccess.NONE:
+        return PrAuthorshipMode.BOT, None
+
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
@@ -7228,7 +7238,18 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
     the task.
     """
-    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
+    visible = _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id)
+    if not for_control:
+        return visible.exists()
+    row = visible.values_list("profile", "created_by_id").first()
+    if row is None:
+        return False
+    profile_key, created_by_id = row
+    return drive_allowed(profile_key, created_by_id=created_by_id, user_id=user_id)
+
+
+def _task_drive_allowed(task: Task, user_id: int | None) -> bool:
+    return drive_allowed(task.profile, created_by_id=task.created_by_id, user_id=user_id)
 
 
 def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
@@ -8444,6 +8465,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        if not _task_drive_allowed(task, user_id):
+            return None
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -8471,11 +8494,15 @@ def update_task(
         changes_github_access = not validated_data.keys().isdisjoint(
             {"repository", "repositories", "github_integration", "github_user_integration"}
         )
+        github_access = task.github_access_limit
         if (
-            profile is not None
+            (profile is not None or github_access == GithubAccess.NONE)
             and changes_github_access
             and not Task.attaches_github(
-                task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+                task.origin_product,
+                profile,
+                has_repository=bool(validated_data.get("repository", task.repository)),
+                github_access=github_access,
             )
         ):
             validated_data.pop("github_integration", None)
@@ -8530,6 +8557,8 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return False
+        if not _task_drive_allowed(task, user_id):
+            return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
@@ -8550,6 +8579,8 @@ def handoff_task(
     if task is None:
         return None
     if user_id is None or task.created_by_id != user_id:
+        return None
+    if not _task_drive_allowed(task, user_id):
         return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
@@ -8686,7 +8717,7 @@ def prepare_task_staged_artifacts(
 
     # Staged artifacts feed the task's next run, so this is control, not viewing.
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     prepared: list[contracts.StagedArtifactPreparedDTO] = []
@@ -8747,7 +8778,7 @@ def finalize_task_staged_artifacts(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
@@ -9493,7 +9524,7 @@ def warm_task_resume_sandbox(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     previous_run = task.runs.filter(id=resume_from_run_id).first()

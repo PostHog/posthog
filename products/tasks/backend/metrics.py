@@ -71,6 +71,12 @@ TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
     ],
 )
 
+TASK_CONTRACT_VIOLATION_TOTAL = Counter(
+    "posthog_tasks_contract_violation_total",
+    "Task profile checks that a call failed. A profile that enforces the check refuses the call. Any other profile only counts it.",
+    labelnames=["check", "profile"],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -617,6 +623,10 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
 
 def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
     TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_contract_violation(*, check: str, profile: str) -> None:
+    TASK_CONTRACT_VIOLATION_TOTAL.labels(check=check, profile=profile).inc()
 
 
 def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
