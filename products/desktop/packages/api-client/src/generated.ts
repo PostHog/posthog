@@ -17140,6 +17140,7 @@ export namespace Schemas {
      * * `project` - Project
      * * `replay` - Replay
      * * `survey` - Survey
+     * * `external` - External link
      * * `other` - Other
      */
     export type TicketBriefItemKindEnum =
@@ -17150,6 +17151,7 @@ export namespace Schemas {
         | "project"
         | "replay"
         | "survey"
+        | "external"
         | "other";
     export type TicketBriefAffectedItem = {
         /**
@@ -17162,6 +17164,7 @@ export namespace Schemas {
          * * `project` - Project
          * * `replay` - Replay
          * * `survey` - Survey
+         * * `external` - External link
          * * `other` - Other
          */
         kind: TicketBriefItemKindEnum;
@@ -17179,6 +17182,7 @@ export namespace Schemas {
          * What the customer needs from PostHog, in one or two sentences. The line to read first.
          */
         ask: string;
+        purpose?: (string | null) | undefined;
         /**
          * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
          */
@@ -17187,11 +17191,12 @@ export namespace Schemas {
          * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
          */
         questions: Array<string>;
-        affected_items?: Array<TicketBriefAffectedItem> | undefined;
-        replay_url?: (string | null) | undefined;
-        screenshot_urls?: Array<string> | undefined;
-        facts?: Array<string> | undefined;
         tried?: Array<string> | undefined;
+        error_message?: (string | null) | undefined;
+        affected_items?: Array<TicketBriefAffectedItem> | undefined;
+        screenshot_urls?: Array<string> | undefined;
+        replay_url?: (string | null) | undefined;
+        facts?: Array<string> | undefined;
     };
     /**
      * Fields accepted when updating a ticket.
@@ -17206,7 +17211,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
-        ticket_brief: TicketBrief;
+        ticket_brief: TicketBrief | null;
     }>;
     export type PatchedUser = Partial<{
         date_joined: string;
@@ -19273,7 +19278,7 @@ export namespace Schemas {
         sla_due_at: string | null;
         snoozed_until: string | null;
         tags: Array<string>;
-        ticket_brief: TicketBrief;
+        ticket_brief: TicketBrief | null;
     }>;
     export type UserGithubLogin = {
         /**
