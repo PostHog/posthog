@@ -202,7 +202,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
         )
         backup = {**self._email(), "from": {"integrationId": own_sender.id}}
-        mapping = {
+        mapping: dict[str, Any] = {
             "name": "Mapping",
             "inputs_schema": [*self.email_schema, {**self.email_schema[0], "key": "backup"}],
             "inputs": {"email": {"value": self._email()}, "backup": {"value": backup}},
