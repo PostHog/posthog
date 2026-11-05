@@ -81,18 +81,25 @@ class TestPlatformAlertDestinations(APIBaseTest):
     @parameterized.expand(
         [
             # The alert is hidden from a caller who cannot read its product.
-            ("alert_only", ["alert:read"], status.HTTP_404_NOT_FOUND),
-            ("metrics_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
-            ("alert_and_metrics", ["alert:read", "metrics:read"], status.HTTP_200_OK),
+            ("read_alert_only", "get", ["alert:read"], status.HTTP_404_NOT_FOUND),
+            ("read_metrics_only", "get", ["metrics:read"], status.HTTP_403_FORBIDDEN),
+            ("read_both", "get", ["alert:read", "metrics:read"], status.HTTP_200_OK),
+            ("write_with_read_scopes", "post", ["alert:read", "metrics:read"], status.HTTP_403_FORBIDDEN),
+            ("write_alert_without_metrics", "post", ["alert:write", "metrics:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_reading_destinations_needs_the_alert_and_the_kinds_scope(
-        self, _name: str, scopes: list[str], expected: int
+    def test_destinations_need_the_alert_and_the_kinds_scope(
+        self, _name: str, method: str, scopes: list[str], expected: int
     ) -> None:
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
 
-        response = self.client.get(self.url)
+        if method == "get":
+            response = self.client.get(self.url)
+        else:
+            response = self.client.post(
+                self.url, {"type": "pagerduty", "pagerduty_routing_key": _ROUTING_KEY}, format="json"
+            )
 
         assert response.status_code == expected, response.json()
 
@@ -107,6 +114,7 @@ class TestPlatformAlertDestinations(APIBaseTest):
             ),
             ("short_pagerduty_key", {"type": "pagerduty", "pagerduty_routing_key": "abc"}, "pagerduty_routing_key"),
             ("email", {"type": "email"}, "type"),
+            ("slack_without_workspace", {"type": "slack", "slack_channel_id": "C123"}, "slack_workspace_id"),
         ]
     )
     def test_a_destination_that_could_never_deliver_is_refused(

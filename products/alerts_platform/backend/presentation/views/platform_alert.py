@@ -563,14 +563,18 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _writable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("editor", "write")
 
-    def _writable_configuration(
-        self, team_id: int, configuration_id: UUID, verb: str
-    ) -> PlatformAlertConfigurationView:
+    def _readable_configuration(self, team_id: int, configuration_id: UUID) -> PlatformAlertConfigurationView:
         current = platform_api.get_configuration(
             team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
         )
         if current is None:
             raise NotFound()
+        return current
+
+    def _writable_configuration(
+        self, team_id: int, configuration_id: UUID, verb: str
+    ) -> PlatformAlertConfigurationView:
+        current = self._readable_configuration(team_id, configuration_id)
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
@@ -748,15 +752,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _destination_configuration(self, pk: str, *, write: bool) -> PlatformAlertConfigurationView:
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
-        if write:
-            current = self._writable_configuration(team_id, configuration_id, "change destinations of")
-        else:
-            found = platform_api.get_configuration(
-                team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
-            )
-            if found is None:
-                raise NotFound()
-            current = found
+        current = (
+            self._writable_configuration(team_id, configuration_id, "change destinations of")
+            if write
+            else self._readable_configuration(team_id, configuration_id)
+        )
         spec = editable_source_configs().get(SourceKind(current.source_kind))
         # Only a kind the platform creates natively keeps its destinations as `AlertDestination` rows.
         # Every other kind's destinations belong to its source product.

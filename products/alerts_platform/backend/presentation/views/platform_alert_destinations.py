@@ -12,6 +12,7 @@ from django.db import models
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from products.alerts_platform.backend.facade.api import redact_destination_data
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -21,7 +22,6 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.delivery import refused_destination
-from products.alerts_platform.backend.logic.alert_destinations import redact_destination_data
 
 # Each destination is another message every time the alert fires, so one alert has only a few.
 MAX_DESTINATIONS_PER_ALERT: Final = 5
@@ -48,6 +48,13 @@ _MESSAGE_EVENT_KINDS: Final = (
 )
 _WEBHOOK_FIELDS: Final = ("webhook_url",)
 _PAGERDUTY_ROUTING_KEY_RE: Final = re.compile(r"[A-Za-z0-9]{32}")
+_REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
+    DestinationType.WEBHOOK: _WEBHOOK_FIELDS,
+    DestinationType.TEAMS: _WEBHOOK_FIELDS,
+    DestinationType.DISCORD: _WEBHOOK_FIELDS,
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+}
 # The fields each type stores. Redaction knows only its own type's credential, so a field of another
 # type would be stored and then shown in full.
 _FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
@@ -161,6 +168,9 @@ class PlatformAlertCreateDestinationSerializer(serializers.Serializer):
             {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
         )
         data["type"] = destination_type
+        # Checked before the view reads them, so a missing field answers 400 with its name.
+        if missing := [key for key in _REQUIRED_FIELDS[destination_type] if not data.get(key)]:
+            raise ValidationError(dict.fromkeys(missing, f"Required for {destination_type.label} destinations."))
         routing_key = data.get("pagerduty_routing_key")
         if routing_key is not None and not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
             raise ValidationError(
