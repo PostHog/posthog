@@ -17,6 +17,8 @@ export default meta
 
 type Story = StoryObj<typeof LinkedReportsSection>
 
+const noop = (): void => {}
+
 function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     return {
         id: '019f9582-93e7-77c1-8912-4f541d70cb13',
@@ -42,7 +44,7 @@ function Pane({ children }: { children: React.ReactNode }): JSX.Element {
 export const FixProposed: Story = {
     render: () => (
         <Pane>
-            <LinkedReportsSection reports={[makeReport()]} />
+            <LinkedReportsSection reports={[makeReport()]} open onToggle={noop} />
         </Pane>
     ),
 }
@@ -51,6 +53,8 @@ export const SeveralReportsAcrossStates: Story = {
     render: () => (
         <Pane>
             <LinkedReportsSection
+                open
+                onToggle={noop}
                 reports={[
                     makeReport(),
                     makeReport({
@@ -88,6 +92,8 @@ export const ManyReports: Story = {
         <div className="w-[700px] h-[400px] flex flex-col">
             <div className="flex flex-col flex-1 min-h-0">
                 <LinkedReportsSection
+                    open
+                    onToggle={noop}
                     reports={Array.from({ length: 12 }, (_, index) =>
                         makeReport({
                             id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
@@ -107,7 +113,19 @@ export const ManyReports: Story = {
 export const NarrowPane: Story = {
     render: () => (
         <div className="w-[375px]">
-            <LinkedReportsSection reports={[makeReport()]} />
+            <LinkedReportsSection reports={[makeReport()]} open onToggle={noop} />
         </div>
+    ),
+}
+
+export const Closed: Story = {
+    render: () => (
+        <Pane>
+            <LinkedReportsSection
+                reports={[makeReport(), makeReport({ id: '019f954a-8ed0-7a18-a198-3ffed1a2def0' })]}
+                open={false}
+                onToggle={noop}
+            />
+        </Pane>
     ),
 }
