@@ -36818,6 +36818,26 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailAttachment {
+      /**
+         * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+         * @maxLength 255
+         */
+      filename: string;
+      /** The file's bytes as standard base64, without line breaks. */
+      content: string;
+      /**
+         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * @maxLength 78
+         */
+      content_type?: string;
+      /**
+         * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+         * @maxLength 78
+         */
+      content_id?: string;
+    }
+
     /**
      * * `queued` - Queued
      * * `failed` - Failed
@@ -104727,6 +104747,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      cc?: string | string[] | null;
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      bcc?: string | string[] | null;
+      /**
+         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * @maxItems 10
+         * @nullable
+         */
+      attachments?: EmailAttachment[] | null;
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
       /**
@@ -124513,6 +124543,7 @@ export namespace Schemas {
     dataset: string;
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number;
     /**
@@ -124566,6 +124597,7 @@ export namespace Schemas {
     export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124587,6 +124619,7 @@ export namespace Schemas {
     id__in?: string[];
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124633,6 +124666,7 @@ export namespace Schemas {
     export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130352,6 +130386,7 @@ export namespace Schemas {
     export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -130370,6 +130405,7 @@ export namespace Schemas {
     export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -135875,6 +135911,7 @@ export namespace Schemas {
     export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135917,6 +135954,7 @@ export namespace Schemas {
     export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
