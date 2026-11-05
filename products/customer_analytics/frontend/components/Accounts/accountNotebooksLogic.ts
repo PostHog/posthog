@@ -225,7 +225,7 @@ export interface accountNotebooksLogicMeta {
         viewState: (
             searchTerm: string,
             tagsFilter: string[],
-            createdByFilter: any,
+            createdByFilter: number[],
             sorting: Sorting | null,
             passthroughViewFilters: PassthroughViewFilters
         ) => AccountNotesViewState
