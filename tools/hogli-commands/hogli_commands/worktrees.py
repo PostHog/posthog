@@ -1309,11 +1309,12 @@ def _squash_merge(worktree: Path) -> str | None:
         return None
     sha = head.stdout.strip()
     default = _default_branch_ref(worktree)
-    if default is not None:
-        commit = _squash_commit(worktree, sha, default)
-        if commit is not None:
-            return commit[:10]
-    return _merged_pull_request(worktree, sha)
+    if default is None:
+        return None
+    commit = _squash_commit(worktree, sha, default)
+    if commit is not None:
+        return commit[:10]
+    return _merged_pull_request(worktree, sha, default.removeprefix("origin/"))
 
 
 def _default_branch_ref(worktree: Path) -> str | None:
@@ -1410,7 +1411,10 @@ def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> di
     return commits
 
 
-def _merged_pull_request(worktree: Path, head: str) -> str | None:
+def _merged_pull_request(worktree: Path, head: str, base: str) -> str | None:
+    """A pull request merged into *base* that contains HEAD. A stacked pull request merged into a
+    branch that never reached *base* does not count."""
+
     gh = shutil.which("gh")
     if gh is None:
         return None
@@ -1418,7 +1422,21 @@ def _merged_pull_request(worktree: Path, head: str) -> str | None:
     query = f'[.[] | select(any(.commits[]; .oid == "{head}")) | .number][0] // empty'
     try:
         result = subprocess.run(
-            [gh, "pr", "list", "--state", "merged", "--search", head, "--json", "number,commits", "--jq", query],
+            [
+                gh,
+                "pr",
+                "list",
+                "--state",
+                "merged",
+                "--base",
+                base,
+                "--search",
+                head,
+                "--json",
+                "number,commits",
+                "--jq",
+                query,
+            ],
             cwd=worktree,
             capture_output=True,
             text=True,
