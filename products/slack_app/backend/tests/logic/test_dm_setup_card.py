@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.dm_setup import dispatch
-from products.slack_app.backend.logic.dm_setup.card import render_dm_setup_card
+from products.slack_app.backend.logic.dm_setup.card import edit_dm_setup_message, plan_dm_setup, post_dm_setup_message
 from products.slack_app.backend.logic.dm_setup.interactivity import dm_setup_integration_hint, handle_dm_setup_action
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
@@ -68,7 +68,8 @@ def _click(integration: WorkspaceIntegration, action_id: str, **value: str) -> d
 def slack_client() -> Iterator[MagicMock]:
     with patch("posthog.models.integration.slack.WebClient") as web_client:
         client = web_client.return_value
-        client.chat_postMessage.return_value = {"channel": "D1", "ts": "111.1"}
+        posted = iter(range(1, 100))
+        client.chat_postMessage.side_effect = lambda **_: {"channel": "D1", "ts": f"100.{next(posted)}"}
         yield client
 
 
@@ -78,36 +79,53 @@ def capture() -> Iterator[MagicMock]:
         yield mock_capture
 
 
+def _refresh(integration: WorkspaceIntegration) -> bool:
+    """Run one refresh the way the workflow does: plan, then its edits, then at most one post."""
+    for _ in range(3):
+        plan = plan_dm_setup(integration, SLACK_USER_ID)
+        for edit in plan.edits:
+            edit_dm_setup_message(integration, SLACK_USER_ID, edit)
+        if plan.post is not None:
+            post_dm_setup_message(integration, SLACK_USER_ID, plan.post)
+        if not plan.plan_again:
+            return plan.finished
+    return False
+
+
+def _posts(slack_client: MagicMock) -> list[dict]:
+    return [call.kwargs for call in slack_client.chat_postMessage.call_args_list]
+
+
+def _edits(slack_client: MagicMock) -> dict[str, str]:
+    return {call.kwargs["ts"]: _block_text(call.kwargs["blocks"]) for call in slack_client.chat_update.call_args_list}
+
+
 @pytest.mark.django_db
-def test_first_render_posts_the_card_once_and_later_renders_edit_it(
+def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post_nothing_new(
     org_team_user, slack_client: MagicMock, capture: MagicMock
 ) -> None:
     _, team, _ = org_team_user
     integration = _install(team)
 
-    assert render_dm_setup_card(integration, SLACK_USER_ID) is False
-    assert render_dm_setup_card(integration, SLACK_USER_ID) is False
+    assert _refresh(integration) is False
+    assert _refresh(integration) is False
 
-    slack_client.chat_postMessage.assert_called_once()
-    posted = slack_client.chat_postMessage.call_args.kwargs
-    assert posted["channel"] == SLACK_USER_ID
-    assert "step 1 of 3" in _block_text(posted["blocks"])
-    assert "Link your PostHog account" in _block_text(posted["blocks"])
-    updated = slack_client.chat_update.call_args.kwargs
-    assert (updated["channel"], updated["ts"]) == ("D1", "111.1")
-    state = resolve_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID)
-    assert state is not None and (state.channel, state.ts, state.completed) == ("D1", "111.1", False)
-    capture.assert_called_once_with(
-        integration,
-        "slack app dm setup card shown",
-        slack_user_id=SLACK_USER_ID,
-        pending_steps=["link_account", "model", "replies_in_threads"],
-        step_count=3,
-    )
+    root, step = _posts(slack_client)
+    assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
+    assert "0 of 3 steps done" in _block_text(root["blocks"])
+    assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
+    assert f"<@{SLACK_USER_ID}> Step 1 of 3" in _block_text(step["blocks"])
+    assert "Link your PostHog account" in _block_text(step["blocks"])
+    # The second refresh only renders the shown step again, which keeps its link fresh.
+    assert list(_edits(slack_client)) == ["100.2"]
+    assert [call.args[1] for call in capture.call_args_list] == [
+        "slack app dm setup started",
+        "slack app dm setup step shown",
+    ]
 
 
 @pytest.mark.django_db
-def test_person_with_nothing_to_set_up_gets_no_card(
+def test_person_with_nothing_to_set_up_gets_no_thread(
     org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
 ) -> None:
     _, team, user = org_team_user
@@ -116,45 +134,48 @@ def test_person_with_nothing_to_set_up_gets_no_card(
     set_auto_model_choice(SLACK_TEAM_ID, SLACK_USER_ID, True)
     set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.ASK)
 
-    assert render_dm_setup_card(integration, SLACK_USER_ID) is True
+    assert _refresh(integration) is True
 
     slack_client.chat_postMessage.assert_not_called()
     state = resolve_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID)
-    assert state is not None and state.completed and state.ts is None
+    assert state is not None and state.completed and state.root_ts is None
     capture.assert_not_called()
 
 
 @pytest.mark.django_db
-def test_card_moves_through_the_steps_and_lists_skipped_ones_when_ready(
+def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
 ) -> None:
     _, team, user = org_team_user
     integration = _install(team)
-    render_dm_setup_card(integration, SLACK_USER_ID)
-    link_user(user)
+    _refresh(integration)
 
-    render_dm_setup_card(integration, SLACK_USER_ID)
-    model_card = _block_text(slack_client.chat_update.call_args.kwargs["blocks"])
+    link_user(user)
+    _refresh(integration)
+    model_step = _posts(slack_client)[-1]
+    edits_after_link = _edits(slack_client)
     update_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID, skip_step="model")
     set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.AUTO)
     capture.reset_mock()
-    finished = render_dm_setup_card(integration, SLACK_USER_ID)
+    finished = _refresh(integration)
 
-    assert "step 2 of 3" in model_card and "Choose your model" in model_card
-    ready_card = _block_text(slack_client.chat_update.call_args.kwargs["blocks"])
+    assert "Step 2 of 3" in _block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
+    assert ":white_check_mark: PostHog account linked" in edits_after_link["100.2"]
+    assert "Link account" not in edits_after_link["100.2"]
+    assert "1 of 3 steps done" in edits_after_link["100.1"]
+    ready = _posts(slack_client)[-1]
+    edits = _edits(slack_client)
     assert finished is True
-    assert "You're all set" in ready_card
-    assert "You skipped: Your model" in ready_card
+    assert ready["thread_ts"] == "100.1"
+    assert "You skipped: Your model" in _block_text(ready["blocks"])
+    assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
+    assert "PostHog is set up" in edits["100.1"] and "3 of 3 steps done" in edits["100.1"]
     capture.assert_called_once_with(
-        integration,
-        "slack app dm setup completed",
-        slack_user_id=SLACK_USER_ID,
-        step_count=3,
-        skipped_steps=["model"],
+        integration, "slack app dm setup completed", slack_user_id=SLACK_USER_ID, skipped_steps=["model"]
     )
-    slack_client.chat_update.reset_mock()
-    assert render_dm_setup_card(integration, SLACK_USER_ID) is True
-    slack_client.chat_update.assert_not_called()
+    posts_before = slack_client.chat_postMessage.call_count
+    assert _refresh(integration) is True
+    assert slack_client.chat_postMessage.call_count == posts_before
 
 
 @pytest.mark.django_db
@@ -231,7 +252,7 @@ def test_only_people_with_a_card_to_render_start_the_workflow(
     _, team, _ = org_team_user
     integration = _install(team)
     if stored == "open":
-        update_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID, channel="D1", ts="111.1", completed=False)
+        update_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID, root=("D1", "100.1"))
     elif stored == "completed":
         update_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID, completed=True)
 

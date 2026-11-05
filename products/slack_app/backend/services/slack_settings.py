@@ -190,14 +190,24 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
-@frozen
+@frozen(slots=False)
 class DmSetupCardState:
-    """A person's DM setup card. ``ts`` is None when PostHog found nothing to set up and posted no card."""
+    """A person's DM setup thread: a top message with the progress, and one reply for each step.
+
+    ``root_ts`` is None when PostHog found nothing to set up and posted nothing.
+    """
 
     channel: str | None
-    ts: str | None
-    completed: bool
+    root_ts: str | None
+    progress: str | None
+    step_ts: dict[str, str]
+    summarized: tuple[str, ...]
     skipped: tuple[str, ...]
+    completed: bool
+
+
+def _keys(value: object) -> tuple[str, ...]:
+    return tuple(str(key) for key in value) if isinstance(value, list) else ()
 
 
 def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetupCardState | None:
@@ -210,25 +220,36 @@ def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetu
     )
     if not isinstance(stored, dict):
         return None
-    skipped = stored.get("skipped")
+    step_ts = stored.get("step_ts")
     return DmSetupCardState(
         channel=stored.get("channel") or None,
-        ts=stored.get("ts") or None,
+        root_ts=stored.get("root_ts") or None,
+        progress=stored.get("progress") or None,
+        step_ts={str(key): str(ts) for key, ts in step_ts.items()} if isinstance(step_ts, dict) else {},
+        summarized=_keys(stored.get("summarized")),
+        skipped=_keys(stored.get("skipped")),
         completed=bool(stored.get("completed")),
-        skipped=tuple(str(key) for key in skipped) if isinstance(skipped, list) else (),
     )
+
+
+def _append_key(card: dict, field: str, key: str) -> None:
+    card[field] = [*(existing for existing in card.get(field) or [] if existing != key), key]
 
 
 def update_dm_setup_card(
     slack_workspace_id: str,
     slack_user_id: str,
     *,
-    channel: str | None = None,
-    ts: str | None = None,
-    completed: bool | None = None,
+    root: tuple[str, str] | None = None,
+    progress: str | None = None,
+    step_ts: tuple[str, str] | None = None,
+    summarized_step: str | None = None,
     skip_step: str | None = None,
+    completed: bool | None = None,
 ) -> None:
-    """Change only the given parts. The row lock keeps a skip click and a render from losing each other's write."""
+    """Change only the given parts. ``root`` is the (channel, ts) of the top message, and ``step_ts`` is
+    the (step key, ts) of a step reply. The row lock keeps a skip click and a workflow write from losing
+    each other's change."""
     from products.slack_app.backend.models import SlackSettings
 
     with transaction.atomic():
@@ -236,13 +257,18 @@ def update_dm_setup_card(
             slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id
         )
         card = dict(row.dm_setup_card) if isinstance(row.dm_setup_card, dict) else {}
-        if channel is not None and ts is not None:
-            card["channel"], card["ts"] = channel, ts
+        if root is not None:
+            card["channel"], card["root_ts"] = root
+        if progress is not None:
+            card["progress"] = progress
+        if step_ts is not None:
+            card["step_ts"] = {**(card.get("step_ts") or {}), step_ts[0]: step_ts[1]}
+        if summarized_step is not None:
+            _append_key(card, "summarized", summarized_step)
+        if skip_step is not None:
+            _append_key(card, "skipped", skip_step)
         if completed is not None:
             card["completed"] = completed
-        if skip_step is not None:
-            skipped = [key for key in card.get("skipped") or [] if key != skip_step]
-            card["skipped"] = [*skipped, skip_step]
         row.dm_setup_card = card
         row.save(update_fields=["dm_setup_card", "updated_at"])
 

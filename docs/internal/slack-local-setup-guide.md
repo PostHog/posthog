@@ -141,8 +141,8 @@ Django must be up at that moment.
 > otherwise) and the coding agent doesn't use it.
 
 > The `app_home` block + `app_home_opened` bot event power the App Home tab. The same event, for the
-> Messages tab, starts the `posthog-slack-dm-setup` Temporal workflow, which posts the setup card in the
-> PostHog DM when the `slack-app-dm-setup-card` flag is on. The card needs the Temporal worker running. The
+> Messages tab, starts the `posthog-slack-dm-setup` Temporal workflow, which posts the setup thread in the
+> PostHog DM when the `slack-app-dm-setup-card` flag is on. The thread needs the Temporal worker running. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the

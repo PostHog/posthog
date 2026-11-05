@@ -7,11 +7,20 @@ from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.slack_app.backend.temporal.activities.dm_setup import render_slack_dm_setup_card_activity
-from products.slack_app.backend.temporal.types import SlackDmSetupInputs
+from products.slack_app.backend.temporal.activities.dm_setup import (
+    edit_slack_dm_setup_message_activity,
+    plan_slack_dm_setup_activity,
+    post_slack_dm_setup_message_activity,
+)
+from products.slack_app.backend.temporal.types import SlackDmSetupInputs, SlackDmSetupMessageInputs
 
 SLACK_DM_SETUP_IDLE_TIMEOUT = timedelta(days=7)
-SLACK_DM_SETUP_RENDER_TIMEOUT = timedelta(seconds=60)
+SLACK_DM_SETUP_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+# A refresh needs at most two plans: one to post the top message, one to post the first step under it.
+SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH = 3
+# Plans and edits can run again safely. A post cannot: a retry after a post could send the message twice.
+_SAFE_TO_RETRY = RetryPolicy(maximum_attempts=3)
+_ONE_ATTEMPT = RetryPolicy(maximum_attempts=1)
 
 
 def slack_dm_setup_workflow_id(slack_team_id: str, slack_user_id: str) -> str:
@@ -20,12 +29,13 @@ def slack_dm_setup_workflow_id(slack_team_id: str, slack_user_id: str) -> str:
 
 @workflow.defn(name="posthog-slack-dm-setup")
 class SlackDmSetupWorkflow(PostHogWorkflow):
-    """One run per person keeps their DM setup card up to date.
+    """One run per person keeps their DM setup thread up to date.
 
-    The webhook, the account link and the card buttons only save their change and send ``refresh``;
-    this workflow renders the card. One workflow id per person means renders never overlap, so the
-    card is posted once. The run ends when the setup is done, or after a week without a ``refresh``.
-    The next open of the DM starts a new run.
+    The webhook, the account link and the setup buttons only save their change and send ``refresh``.
+    For each refresh this workflow runs the same commands: a plan activity, then the edits the plan
+    lists, then at most one post. The plan decides everything from the database, so adding or
+    reordering setup steps changes no workflow command and needs no ``workflow.patched``.
+    The run ends when the setup is done, or after a week without a ``refresh``.
     """
 
     @staticmethod
@@ -41,6 +51,33 @@ class SlackDmSetupWorkflow(PostHogWorkflow):
     async def refresh(self) -> None:
         self._render_requested = True
 
+    async def _render(self, inputs: SlackDmSetupInputs) -> bool:
+        """Apply the plans for one refresh. Returns True when the setup is finished."""
+        for _ in range(SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH):
+            plan = await workflow.execute_activity(
+                plan_slack_dm_setup_activity,
+                inputs,
+                start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
+                retry_policy=_SAFE_TO_RETRY,
+            )
+            for edit in plan.edits:
+                await workflow.execute_activity(
+                    edit_slack_dm_setup_message_activity,
+                    SlackDmSetupMessageInputs(setup=inputs, message=edit),
+                    start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
+                    retry_policy=_SAFE_TO_RETRY,
+                )
+            if plan.post is not None:
+                await workflow.execute_activity(
+                    post_slack_dm_setup_message_activity,
+                    SlackDmSetupMessageInputs(setup=inputs, message=plan.post),
+                    start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
+                    retry_policy=_ONE_ATTEMPT,
+                )
+            if not plan.plan_again:
+                return plan.finished
+        return False
+
     @workflow.run
     async def run(self, inputs: SlackDmSetupInputs) -> None:
         while True:
@@ -55,14 +92,9 @@ class SlackDmSetupWorkflow(PostHogWorkflow):
 
             self._render_requested = False
             try:
-                finished = await workflow.execute_activity(
-                    render_slack_dm_setup_card_activity,
-                    inputs,
-                    start_to_close_timeout=SLACK_DM_SETUP_RENDER_TIMEOUT,
-                    # Single attempt: posting the card is not idempotent. The next refresh renders again.
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                finished = await self._render(inputs)
             except ActivityError:
+                # The next refresh plans again from the database, so a failed step is not lost.
                 workflow.logger.warning(
                     "slack_app_dm_setup_render_failed", extra={"slack_user_id": inputs.slack_user_id}
                 )

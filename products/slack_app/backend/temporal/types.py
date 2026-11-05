@@ -27,6 +27,41 @@ class SlackDmSetupInputs:
     slack_user_id: str
 
 
+@frozen
+class SlackDmSetupMessage:
+    """One message of a person's DM setup thread, to post or to edit.
+
+    ``kind`` is "root" for the top message, "step" for a step reply and "ready" for the last reply.
+    For an edit, ``ts`` is the message to change. ``progress`` is stored after a root post or edit, and
+    ``summarizes_step`` marks a step reply that the edit turns into its one-line summary.
+    """
+
+    kind: Literal["root", "step", "ready"]
+    text: str
+    blocks: list[dict[str, Any]]
+    step: str | None = None
+    ts: str | None = None
+    progress: str | None = None
+    summarizes_step: bool = False
+
+
+@frozen
+class SlackDmSetupPlan:
+    """What one refresh changes. ``plan_again`` asks for one more plan in the same refresh, after a
+    post that the next message needs, such as the top message that the first step reply goes under."""
+
+    edits: list[SlackDmSetupMessage]
+    post: SlackDmSetupMessage | None
+    finished: bool
+    plan_again: bool
+
+
+@frozen
+class SlackDmSetupMessageInputs:
+    setup: SlackDmSetupInputs
+    message: SlackDmSetupMessage
+
+
 def insight_render_key(insight_id: int) -> str:
     return f"insight:{insight_id}"
 
