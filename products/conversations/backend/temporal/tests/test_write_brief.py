@@ -38,12 +38,35 @@ class TestWriteBrief(SimpleTestCase):
         brief = _build_brief({**BASE, field: ""})
         assert field not in brief
 
+    async def test_a_team_that_has_not_opted_in_gets_no_brief_and_no_model_call(self):
+        # The gate is the whole safety story for shipping this: until a team turns the setting
+        # on, merging must change nothing a support engineer sees and must spend no tokens.
+        with (
+            patch(
+                "products.conversations.backend.temporal.ai_reply.activities.write_brief._brief_enabled",
+                return_value=False,
+            ),
+            patch(
+                "products.conversations.backend.temporal.ai_reply.activities.write_brief.get_async_anthropic_gateway_client"
+            ) as client,
+        ):
+            output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
+        assert output.written is False
+        assert output.reason == "disabled"
+        assert client.call_count == 0
+
     async def test_a_failing_model_call_returns_rather_than_raises(self):
         # The brief rides inside the reply pipeline. An exception here would fail a run whose
         # real job is drafting a reply, so a gateway blip must cost the brief and nothing else.
-        with patch(
-            "products.conversations.backend.temporal.ai_reply.activities.write_brief.get_async_anthropic_gateway_client",
-            side_effect=RuntimeError("gateway down"),
+        with (
+            patch(
+                "products.conversations.backend.temporal.ai_reply.activities.write_brief._brief_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.conversations.backend.temporal.ai_reply.activities.write_brief.get_async_anthropic_gateway_client",
+                side_effect=RuntimeError("gateway down"),
+            ),
         ):
             output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
         assert output.written is False

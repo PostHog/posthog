@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from temporalio import activity
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -38,6 +39,11 @@ logger = structlog.get_logger(__name__)
 # The ticket context the model reads. The brief restates a ticket rather than investigating it,
 # so it needs less than the draft loop does.
 MAX_CONTEXT_CHARS = 6000
+
+# Off until a team turns it on, so merging this ships nothing a support engineer sees. The gate
+# is read inside the activity rather than in the workflow body: a workflow command gated on a
+# database read would make replay non-deterministic.
+BRIEF_SETTING = "ai_ticket_brief_enabled"
 
 
 class BriefResult(BaseModel):
@@ -135,7 +141,15 @@ async def support_write_brief_activity(input: WriteBriefInput) -> WriteBriefOutp
         return replace(await _write_brief(input), llm_attempts=llm_attempts())
 
 
+def _brief_enabled(team_id: int) -> bool:
+    settings_dict = Team.objects.filter(id=team_id).values_list("conversations_settings", flat=True).first()
+    return bool((settings_dict or {}).get(BRIEF_SETTING, False))
+
+
 async def _write_brief(input: WriteBriefInput) -> WriteBriefOutput:
+    if not await database_sync_to_async(_brief_enabled, thread_sensitive=False)(input.team_id):
+        return WriteBriefOutput(written=False, reason="disabled")
+
     user_content = (
         f"Ticket context (untrusted data):\n<ticket_context>\n"
         f"{input.ticket_context[:MAX_CONTEXT_CHARS]}\n</ticket_context>"
