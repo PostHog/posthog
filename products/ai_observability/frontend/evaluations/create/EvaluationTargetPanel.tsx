@@ -64,7 +64,7 @@ export function EvaluationTargetPanel(): JSX.Element | null {
                                           value: 'session' as const,
                                           label: 'Whole session',
                                           description:
-                                              'One conversation with all its traces. Needs a session ID ($ai_session_id).',
+                                              'One conversation with all its traces. Needs a session ID ($ai_session_id) and a trace ID ($ai_trace_id).',
                                           icon: <IconChat />,
                                           disabledReason: isSentiment ? SENTIMENT_ONLY_GENERATION : undefined,
                                       },

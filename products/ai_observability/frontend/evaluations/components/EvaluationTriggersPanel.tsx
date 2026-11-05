@@ -28,9 +28,10 @@ export function EvaluationTriggersPanel(): JSX.Element | null {
     const testAccountFilters = currentTeam?.test_account_filters ?? []
     const usableInternalFilters = internalUserFilters(testAccountFilters).length
     const disabledReason = (key: QuickFilterKey): string | undefined => {
-        // The judge skips errored runs without grading them, so this filter would leave it nothing to grade.
-        if (key === 'errors' && evaluation.evaluation_type === 'llm_judge') {
-            return 'The LLM judge skips runs with errors, so this would leave it nothing to grade.'
+        // A generation judge skips errored generations without grading them. Trace and session judges grade the
+        // whole transcript, errors included, so the filter stays useful there.
+        if (key === 'errors' && evaluation.evaluation_type === 'llm_judge' && evaluation.target === 'generation') {
+            return 'The LLM judge skips generations with errors, so this would leave it nothing to grade.'
         }
         if (quickFilterApplied(key, evaluation.conditions, testAccountFilters)) {
             return 'Already added'
