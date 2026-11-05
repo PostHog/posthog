@@ -29,9 +29,8 @@ logger = structlog.get_logger(__name__)
 
 SERVICES_LIMIT = 500
 
-# Every signal's time_bucket is at most one day wide, so this bound adds no rows. It lets ClickHouse
-# prune parts by the primary key before it reads timestamps. The day is cut in UTC because buckets
-# start at UTC midnight; the project timezone would move the bound past buckets inside the window.
+# This bound lets ClickHouse prune parts by primary key. Buckets start at UTC midnight, so the day is cut
+# in UTC: the project timezone would move the bound past buckets inside the window.
 _WINDOW_WHERE = (
     "timestamp >= {date_from} AND timestamp < {date_to} "
     "AND time_bucket >= toStartOfDay({date_from}, 'UTC') AND time_bucket <= {date_to}"
@@ -70,9 +69,8 @@ METRIC_POINTS_USAGE_QUERY = f"""
     LIMIT {{limit}}
 """
 
-# metric_series keeps one row per series and hour, so a series counts when it was active in any hour
-# that overlaps the window. Each series has one service, so the sum of the service counts counts
-# each series once.
+# metric_series keeps one row per series and hour, so a series counts if any of its hours overlaps the
+# window. Each series has one service, so the total counts it once.
 METRIC_SERIES_USAGE_QUERY = """
     SELECT service_name, uniq(series_fingerprint) AS series, sum(uniq(series_fingerprint)) OVER () AS total_series
     FROM posthog.metric_series
@@ -119,7 +117,6 @@ class ServiceUsageResult:
 class _SignalRows:
     # One tuple per service: the service name, then the signal's values in field order.
     rows: list[tuple]
-    # The window totals, in the same field order as the values.
     totals: tuple[int, ...]
 
 
