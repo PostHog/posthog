@@ -96,7 +96,8 @@ export function ChatsScreen(): ReactElement {
             router.push({
                 pathname: '/chat',
                 params: {
-                    [item.kind === 'conversation' ? 'conversationId' : 'taskId']: item.sourceId,
+                    [item.conversationId || item.kind === 'conversation' ? 'conversationId' : 'taskId']:
+                        item.conversationId ?? item.sourceId,
                     entry,
                     origin: item.origin,
                 },

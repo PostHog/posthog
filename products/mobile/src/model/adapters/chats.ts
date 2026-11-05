@@ -39,9 +39,23 @@ export function mergeChatLists(
     conversations: ConversationMinimalApi[] | undefined,
     scope: ProjectScope | null
 ): ChatListItem[] {
-    const classic = (conversations ?? []).filter((conversation) => !conversation.task)
+    const visibleConversations = (conversations ?? []).filter((conversation) => !conversation.task?.archived)
+    const taskIds = new Set(sessions?.map((session) => session.id))
+    const linkedConversations = new Map(
+        visibleConversations.flatMap((conversation) =>
+            conversation.task ? [[conversation.task.id, conversation.id] as const] : []
+        )
+    )
+    const classic = visibleConversations.filter(
+        (conversation) => !conversation.task || !taskIds.has(conversation.task.id)
+    )
     return [
-        ...chatListFromSessions(sessions, scope),
+        ...chatListFromSessions(sessions, scope).map((item) => {
+            const conversationId = linkedConversations.get(item.sourceId)
+            return conversationId
+                ? { ...item, conversationId, webUrl: conversationWebUrl(scope, conversationId) }
+                : item
+        }),
         ...classic.map(
             (conversation): ChatListItem => ({
                 id: `conversation:${conversation.id}`,

@@ -68,11 +68,21 @@ describe('chatListFromSessions', () => {
         ])
     })
 
-    test('keeps linked conversations as task rows without requiring list runtime metadata', () => {
-        const conversations = [{ id: 'linked-chat', task: { id: 't1' } }] as ConversationMinimalApi[]
-        const items = mergeChatLists([session()], conversations, scope)
-        expect(items).toHaveLength(1)
-        expect(items[0]).toMatchObject({ kind: 'session', sourceId: 't1', status: 'completed' })
+    test.each([
+        [true, false],
+        [false, false],
+        [false, true],
+    ])('merges a linked conversation with task present %s and archived %s', (taskPresent, archived) => {
+        const conversations = [{ id: 'linked-chat', task: { id: 't1', archived } }] as ConversationMinimalApi[]
+        const items = mergeChatLists(taskPresent ? [session()] : [], conversations, scope)
+        expect(items).toHaveLength(archived ? 0 : 1)
+        if (archived) return
+        expect(items[0]).toMatchObject(
+            taskPresent
+                ? { kind: 'session', sourceId: 't1', conversationId: 'linked-chat', status: 'completed' }
+                : { kind: 'conversation', sourceId: 'linked-chat' }
+        )
+        expect(items[0]?.webUrl).toBe('https://us.posthog.com/project/7/ai?chat=linked-chat')
     })
 
     test('leaves the web link out without a project scope', () => {

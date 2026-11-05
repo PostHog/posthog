@@ -394,6 +394,7 @@ export interface ChatListItem {
     /** Stable list key: `session:<task id>`. */
     id: string
     kind: 'session' | 'conversation'
+    conversationId?: string
     /** The task id. */
     sourceId: string
     origin: ChatOrigin
