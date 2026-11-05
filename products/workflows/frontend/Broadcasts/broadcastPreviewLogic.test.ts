@@ -158,9 +158,8 @@ describe('broadcastPreviewLogic', () => {
         expect(logic.values).toMatchObject({ personsFailed: false, personsLoading: false })
     })
 
-    it('renders the email and push merge tags for the person the sender picked', async () => {
+    it('re-renders the email and push merge tags when the sender picks another person', async () => {
         await mountWith([ADA, GRACE])
-        logic.actions.selectPerson('person-grace')
         const tag = '{{ person.properties.name }}'
         wizard.actions.setEmail({
             ...DEFAULT_BROADCAST_EMAIL,
@@ -169,15 +168,19 @@ describe('broadcastPreviewLogic', () => {
             text: `Text ${tag}`,
         })
         wizard.actions.setPush({ channels: [], title: `Title ${tag}`, body: `Body ${tag}` })
-
-        expect(logic.values).toMatchObject({
-            previewTo: 'grace@example.com',
-            previewSubject: 'Subject Grace',
-            previewHtml: '<p>Html Grace</p>',
-            previewText: 'Text Grace',
-            previewPushTitle: 'Title Grace',
-            previewPushBody: 'Body Grace',
+        const rendered = (name: string): Record<string, string> => ({
+            previewTo: `${name.toLowerCase()}@example.com`,
+            previewSubject: `Subject ${name}`,
+            previewHtml: `<p>Html ${name}</p>`,
+            previewText: `Text ${name}`,
+            previewPushTitle: `Title ${name}`,
+            previewPushBody: `Body ${name}`,
         })
+        expect(logic.values).toMatchObject(rendered('Ada'))
+
+        logic.actions.selectPerson('person-grace')
+
+        expect(logic.values).toMatchObject(rendered('Grace'))
     })
 
     it('previews an empty recipient when the email has none', async () => {
