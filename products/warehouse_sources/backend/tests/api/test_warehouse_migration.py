@@ -391,7 +391,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             ("migration_over_the_total_cap", False, [{"connection": _fivetran_connection("conn_a")}], 100),
             ("deeply_nested_config", False, [{"connection": _fivetran_connection("conn_deep", config=_nested(200))}]),
             ("nul_character", False, [{"connection": _fivetran_connection("conn_nul", config={"host": "db\x00"})}]),
-            ("nul_in_the_account", False, [], 50_000_000, {"account": {"account_name": "Example\x00"}}),
+            ("lone_surrogate", False, [{"connection": _fivetran_connection("conn_bad", config={"host": "db\ud800"})}]),
+            ("nul_in_the_account", False, [], 10_000_000, {"account": {"account_name": "Example\x00"}}),
             (
                 "interval_past_float_range",
                 False,
@@ -404,7 +405,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         _name: str,
         has_vendor_key: bool,
         connections: list[dict[str, Any]],
-        max_snapshot_bytes: int = 50_000_000,
+        max_snapshot_bytes: int = 10_000_000,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
         migration = WarehouseMigration.objects.for_team(self.team.pk).create(

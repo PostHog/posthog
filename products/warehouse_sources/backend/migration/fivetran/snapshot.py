@@ -79,8 +79,9 @@ class UploadedSnapshot:
 
 
 MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
-# Without a total cap, repeated uploads could grow the stored snapshot that every later upload loads and plans again.
-MAX_UPLOADED_SNAPSHOT_BYTES = 50_000_000
+# Every upload loads, checks and rewrites the whole stored snapshot in one web worker, so the cap bounds that work.
+# A larger account migrates with an API key, and the crawl reads it outside the web worker.
+MAX_UPLOADED_SNAPSHOT_BYTES = 10_000_000
 _ITEM_COLUMN_MAX_LENGTH = 400
 # Fivetran responses nest a few levels. A deeper upload would make the recursive parsers below overflow the stack.
 _MAX_UPLOAD_DEPTH = 64
@@ -181,12 +182,22 @@ def _upload_problem(value: Any) -> str | None:
             pending.extend((child, depth + 1) for child in item.values())
         elif isinstance(item, list):
             pending.extend((child, depth + 1) for child in item)
-        # Postgres stores no NUL character in a JSON column.
-        elif isinstance(item, str) and "\x00" in item:
-            return "it holds a NUL character, so it is not a Fivetran response."
+        # Postgres stores no NUL character and no lone UTF-16 surrogate such as `"\ud800"`.
+        elif isinstance(item, str) and not _storable(item):
+            return "it holds a NUL character or a broken Unicode character, so it is not a Fivetran response."
     if len(json.dumps(value)) > MAX_UPLOADED_CONNECTION_BYTES:
         return "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
     return None
+
+
+def _storable(text: str) -> bool:
+    if "\x00" in text:
+        return False
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _label_id(raw: Mapping[str, Any]) -> str:
