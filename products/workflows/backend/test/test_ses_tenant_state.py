@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
-from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError, SSLError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    EndpointConnectionError,
+    NoCredentialsError,
+    SSLError,
+)
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -290,6 +296,11 @@ class TestSandboxTenantStateSync(BaseTest):
         [
             ("throttled", ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant"), "transient"),
             ("connection_lost", EndpointConnectionError(endpoint_url="https://email.example.com"), "transient"),
+            (
+                "reset_mid_response",
+                ConnectionClosedError(endpoint_url="https://email.example.com", error="connection reset"),
+                "transient",
+            ),
             (
                 "ses_outage",
                 ClientError(
