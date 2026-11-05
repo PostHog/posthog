@@ -78,9 +78,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
+    mcp_exclude_tools_for_task,
     posthog_code_keeps_bundled_skills,
     unmounted_mcp_installations_log_fields,
     unmounted_mcp_installations_notice,
@@ -425,17 +426,6 @@ def _report_unmounted_mcp_installations(ctx: TaskProcessingContext, unmounted: S
         emit_agent_log(ctx.run_id, "warn", notice)
 
 
-def _include_personal_mcp_for_task(task: Task) -> bool:
-    """Whether a run may pull the task creator's *personal* MCP installations.
-
-    Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds. Agent-specific grant filtering happens
-    in the MCP Store facade.
-    User-initiated Code runs get shared + the creator's personal installs.
-    """
-    return not task.internal
-
-
 def _start_protected_base_branch_lookup(
     ctx: TaskProcessingContext,
 ) -> tuple[ThreadPoolExecutor, Future[str | None]] | None:
@@ -534,10 +524,10 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+        exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
         bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
-    include_personal = _include_personal_mcp_for_task(task)
+    include_personal = include_personal_mcp_for_task(task)
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,
@@ -550,6 +540,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_agent_key=task.mcp_builtin_agent_key,
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        profile=task.stored_profile,
     )
     if user_mcp.configs:
         mcp_configs = mcp_configs + user_mcp.configs

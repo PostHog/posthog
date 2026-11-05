@@ -102,6 +102,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'scout-trials': true,
         'signals-report-checks-replace': true,
         'inbox-report-actions-mcp': true,
+        'inbox-reports-create-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
         'workflows-supabase-auth-emails': true,
@@ -115,6 +116,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-sending-tier-requests': true,
         'insight-data-checks': true,
         'workflows-transactional-email-api': true,
+        'workflows-email-from-code': true,
         'activity-summary': true,
         'activity-summary-search': true,
         'personal-inbox-ranking': true,
@@ -123,7 +125,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'anomalies-search': true,
         'warehouse-multi-destination': true,
         'feature-flag-rules-v2-mcp': true,
-        'support-macros': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

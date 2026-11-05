@@ -225,7 +225,7 @@ const InboxReportArtefactsCreateSchema = () => {
         .extend(SignalsReportArtefactsCreateBody.shape)
         .extend({
             content: SignalsReportArtefactsCreateBody.shape['content'].describe(
-                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
+                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form, for annotating a report with context; to also steer the scouts use `scout-notes-create` with `report_id`, which records the note on the report too. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
             ),
         })
 }
@@ -627,6 +627,74 @@ const inboxReportsClaim = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
+const InboxReportsCreateSchema = () => {
+    const SignalsReportsCreateBody = orvalSchemas.SignalsReportsCreateBody()
+    return SignalsReportsCreateBody.meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
+}
+
+const inboxReportsCreate = (): ToolBase<
+    ReturnType<typeof InboxReportsCreateSchema>,
+    WithPostHogUrl<Schemas.EmitReportResponse>
+> => ({
+    name: 'inbox-reports-create',
+    schema: InboxReportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        const result = await context.api.request<Schemas.EmitReportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
     },
 })
 
@@ -1704,6 +1772,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
         }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -2016,6 +2087,9 @@ const scoutNotesCreate = (): ToolBase<ReturnType<typeof ScoutNotesCreateSchema>,
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
         }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
@@ -3188,6 +3262,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
         }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -3688,6 +3765,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-reviewers-update': inboxReportReviewersUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-create': inboxReportsCreate,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
     'inbox-reports-for-me': inboxReportsForMe,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,

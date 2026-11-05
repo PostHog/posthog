@@ -314,6 +314,51 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('inbox-first guidance', () => {
+        it.each([
+            { name: 'tools mode', mode: 'tools', claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', mode: 'exec', claim: true, list: '`call inbox-reports-list <json_input>`' },
+            {
+                name: 'exec mode without claim',
+                mode: 'exec',
+                claim: false,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+            {
+                name: 'the compact exec reference',
+                mode: 'compact',
+                claim: true,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ] as const)('renders the section in $name', ({ mode, claim, list }) => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
+            const formatter = new InstructionsFormatter()
+            const rendered = {
+                tools: () => formatter.buildToolsInstructions(ctx),
+                exec: () => formatter.buildExecCommandReference(ctx),
+                compact: () => formatter.buildCompactExecCommandReference(ctx),
+            }[mode]()
+
+            expect(rendered).toContain('### Existing Inbox reports')
+            expect(rendered).toContain(`Look for a report with ${list}`)
+            expect(rendered).toContain('`suppression_source` is `safety_judge`')
+            expect(rendered.includes('inbox-reports-claim')).toBe(claim)
+            expect(rendered).not.toMatch(/\{inbox_/)
+        })
+
+        it('omits the section when it is not enabled', () => {
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions(fullCtx),
+                formatter.buildExecCommandReference(fullCtx),
+                formatter.buildCompactExecCommandReference(fullCtx),
+                formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
+            ]) {
+                expect(rendered).not.toContain('Existing Inbox reports')
+            }
+        })
+    })
+
     describe('buildExecCommandReference', () => {
         it.each([
             { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },

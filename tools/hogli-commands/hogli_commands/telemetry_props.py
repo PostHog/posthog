@@ -14,6 +14,7 @@ import sys
 import json
 import time
 import fcntl
+import shutil
 import socket
 import hashlib
 import secrets
@@ -490,6 +491,33 @@ def _pr_number() -> int | None:
     return None
 
 
+@functools.cache
+def _worktree_count() -> int | None:
+    """Linked worktrees of this repo, read from the shared gitdir so no git process runs."""
+    git = REPO_ROOT / ".git"
+    try:
+        if git.is_file():
+            # "gitdir: <common>/worktrees/<name>" for a linked worktree.
+            pointer = git.read_text().strip().removeprefix("gitdir:").strip()
+            common = (REPO_ROOT / pointer).parent.parent
+        else:
+            common = git
+        worktrees = common / "worktrees"
+        if not worktrees.is_dir():
+            return 0
+        with os.scandir(worktrees) as entries:
+            return sum(1 for entry in entries if entry.is_dir())
+    except OSError:
+        return None
+
+
+def _disk_free_gb() -> float | None:
+    try:
+        return round(shutil.disk_usage(REPO_ROOT).free / 1e9, 1)
+    except OSError:
+        return None
+
+
 def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
     # Agent-driven traffic (e.g. skills running metabase:query) otherwise
     # swamps human usage stats.
@@ -503,6 +531,8 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
         "in_flox": os.environ.get("FLOX_ENV") is not None,
         "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
+        "worktree_count": _worktree_count(),
+        "disk_free_gb": _disk_free_gb(),
         "is_posthog_dev": _is_posthog_dev(),
         "process_manager": _infer_process_manager(command),
         "git_branch": _git_branch(),

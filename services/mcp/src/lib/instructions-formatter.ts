@@ -33,6 +33,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
+import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
@@ -90,6 +91,10 @@ export interface InstructionsContext {
      *  `analytics` guide leaves it out instead of repeating it. */
     queryRoutingInline?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
+    inboxFirstEnabled?: boolean | undefined
+    /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
+    inboxClaimEnabled?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
@@ -258,6 +263,24 @@ export class InstructionsFormatter {
         ]
     }
 
+    /** Kept out of the exec tool description: Claude Code cuts it at 2,048 characters. */
+    private inboxFirstSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+        if (!ctx.inboxFirstEnabled) {
+            return []
+        }
+        const toolRef = (name: string): string =>
+            execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+        return [
+            formatPrompt(INBOX_FIRST, {
+                inbox_list: toolRef('inbox-reports-list'),
+                inbox_retrieve: toolRef('inbox-reports-retrieve'),
+                inbox_claim_line: ctx.inboxClaimEnabled
+                    ? `- When you fix the problem, attach your pull request to the report with ${toolRef('inbox-reports-claim')} and \`pr_url\`. Its merge then resolves the report.`
+                    : '',
+            }),
+        ]
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
@@ -286,6 +309,7 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
+                ...this.inboxFirstSections(ctx, false),
                 TOOL_SEARCH,
                 METRIC_DISCOVERY,
                 RETRIEVING_DATA,
@@ -467,6 +491,7 @@ export class InstructionsFormatter {
                 CLI_SYNTAX,
                 ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
+                ...this.inboxFirstSections(ctx, true),
                 METRIC_DISCOVERY_COMPACT,
                 // Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it inline.
                 ...(claudeChat ? [] : [QUERY_TOOL_ROUTING]),
@@ -496,6 +521,7 @@ export class InstructionsFormatter {
     buildExecCommandReference(ctx: InstructionsContext): string {
         const sections = [
             CLI_SYNTAX,
+            ...this.inboxFirstSections(ctx, true),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,

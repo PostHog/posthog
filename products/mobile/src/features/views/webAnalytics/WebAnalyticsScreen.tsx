@@ -10,7 +10,6 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { DeltaPill } from '../DeltaPill'
-import { PinButton } from '../PinButton'
 import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
 import { ViewChrome } from '../screen/ViewChrome'
@@ -80,7 +79,6 @@ function WebAnalyticsBody({
         <ViewTitle
             onTitleLayout={scrollTitle.onTitleLayout}
             title="Web analytics"
-            accessories={<PinButton target={{ kind: 'web_analytics' }} match={{ kind: 'web_analytics', ref: null }} />}
             refresh={refresh}
             range={
                 // No compare row: the overview always compares with the previous period, as the web's overview tile does.

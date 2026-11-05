@@ -492,6 +492,24 @@ The reporting integration uses the existing ledger schema without an additional 
 Temporal computes the offline ledger's exclusive day end inside the aggregation activity.
 The shared workflow window and already serialized reports are unchanged.
 
+## Dataset retention
+
+Datasets expire after inactivity: 90 days for active datasets and their current revision, and 30 days for archived datasets and historical revisions. Creating a dataset starts its first retention period. Archiving or restoring a dataset restarts its period, and replacing the current revision starts a new 30-day period for that historical revision. Existing data gets a full period from the retention migration, rather than being judged by its creation date.
+
+Opening a dataset, reading its items through the UI or API, editing it, exporting it, and using it in an offline evaluation count as use. Reading a particular snapshot refreshes that revision and its dataset; it does not refresh unrelated historical revisions. Reading item version history preserves the returned item versions. Dataset lists, revision lists, and export status polling do not refresh usage.
+
+Usage is recorded in Postgres at most once per 12 hours per resource on read paths. Requests with a recent timestamp do not issue a usage write. Expiry includes an extra 12 hours so coalescing cannot shorten the promised inactivity period. Usage writes and cleanup lock the same dataset row; cleanup rechecks eligibility under that lock. Uploading experiments protect their referenced snapshots while snapshot use is within the 30-day history window, including the 12-hour margin. Uploads of new items or results refresh usage, as does closing an experiment. An abandoned upload cannot protect an unused snapshot indefinitely.
+
+The hourly cleanup marks expired datasets and snapshots unavailable before deleting item versions in bounded batches. A version is removable only when no retained snapshot needs it, it is not the item's current version, and it has not been read recently. Archive markers follow the same rule so pruning cannot make an archived item reappear. Expiring a whole dataset immediately releases its name for reuse and eventually removes all its item versions, items, and revisions. Names remain unique across active and archived datasets that have not expired. Completed experiments, evaluation items, scores, scorer versions, and usage ledger rows remain; optional dataset foreign keys become null in bounded batches while their provenance identifiers remain intact. Versions and revisions are deleted only after their references have been detached. Completed evaluation reads do not keep source datasets alive.
+
+A failed dataset cleanup rolls back its content changes but preserves its attempt timestamp, so later candidates can still be processed. The next sweep rotates past the failed dataset before retrying it. Task time limits still stop the sweep. Cleanup reports failed dataset counts and uses `completed_with_errors` when it finishes with individual failures.
+
+Dataset and revision responses expose `expires_at` and `expiring_soon`. The UI shows **Expiring soon** in the final seven days, replacing the Active or Archived status label, without an extension button. Normal use refreshes retention. The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion. Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
+
+Staff can pause or resume cleanup under **Organization tools > AI observability dataset retention** in Django admin (`/admin/posthog/organization/ai-observability-dataset-retention/`). The `AI_OBSERVABILITY_DATASET_RETENTION_ENABLED` instance setting defaults to enabled and applies separately to each region. Disabling stops both new expiry and unfinished deletion; a running sweep checks the setting before each dataset and finishes its current dataset before stopping. Re-enabling resumes the hourly schedule. Disabling does not restore deleted content or make already expired datasets available. Successful expiry/deletion logs include the team and dataset IDs after the transaction commits, and setting changes log the staff user and old/new state.
+
+Candidate selection skips expired revisions that are retained only for shared versions or evaluation provenance, while continuing unfinished version and reference deletion. HogQL's `system.datasets` and `system.dataset_revisions` expose `expired_at`; queries must check the dataset and requested snapshot are available. Do not filter out a version solely because its introducing revision expired: retained snapshots can still need that version. HogQL queries and listing metadata do not refresh usage.
+
 ## Resource tags
 
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.

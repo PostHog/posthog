@@ -3,6 +3,7 @@
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
+along with invalid agent output and failed sandbox runs
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
 fallback, so the shared module's operational-vs-semantic distinction has
 nowhere to land; `summary.py` treats `repository=None` as
@@ -27,6 +28,7 @@ from products.signals.backend.report_monitoring_provenance import (
     monitoring_repository_sources,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import SandboxRunFailed
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
@@ -91,8 +93,8 @@ async def select_repository_for_team(
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
+    signals or a custom agent's initial prompt). Rejection, unavailability, invalid output,
+    and failed sandbox runs collapse into ``RepoSelectionResult(repository=None, ...)``
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
 
@@ -149,6 +151,13 @@ async def select_repository_for_team(
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
         return RepoSelectionResult(repository=None, reason=exc.reason)
+    except (ValueError, SandboxRunFailed):
+        logger.exception("repo selection agent failed", extra={"team_id": team_id, "report_id": signal_report_id})
+        return RepoSelectionResult(
+            repository=None,
+            reason="Repository selection failed. Choose a repository to continue.",
+            autostart_eligible=False,
+        )
 
 
 async def select_repository_for_report(
