@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -148,7 +148,7 @@ describe('DashboardModals', () => {
     it.each([
         ['image', ImageTileModal, 'showImageTileModal'],
         ['button', ButtonTileCardModal, 'showButtonTileModal'],
-    ] as const)('closes a new %s modal without navigating', (_type, modal, visibleKey) => {
+    ] as const)('closes a new %s modal without navigating', async (_type, modal, visibleKey) => {
         mockedUseValues.mockImplementation((logic) =>
             logic === dashboardLogic
                 ? {
@@ -170,6 +170,8 @@ describe('DashboardModals', () => {
         )
 
         render(<DashboardModals dashboard={{ id: 5, tiles: [] } as unknown as DashboardType} />)
+        // The image modal loads lazily.
+        await waitFor(() => expect(modal).toHaveBeenCalled())
         const modalProps = (modal as jest.Mock).mock.calls[0][0]
         modalProps.onClose()
 
@@ -197,7 +199,7 @@ describe('dashboard layout edit shortcut with a tile dialog', () => {
         jest.clearAllMocks()
     })
 
-    const renderActions = (visibleKey?: string): ReturnType<typeof render> => {
+    const renderActions = (overrides: Record<string, boolean> = {}): ReturnType<typeof render> => {
         mockedUseValues.mockImplementation((logic) =>
             logic === dashboardLogic
                 ? {
@@ -206,11 +208,8 @@ describe('dashboard layout edit shortcut with a tile dialog', () => {
                       canEditDashboard: true,
                       layoutEditMode: true,
                       dashboardLoading: false,
-                      showImageTileModal: false,
-                      showButtonTileModal: false,
-                      showTextTileModal: false,
-                      addWidgetModalOpen: false,
-                      ...(visibleKey ? { [visibleKey]: true } : {}),
+                      layoutEditShortcutsEnabled: true,
+                      ...overrides,
                   }
                 : {}
         )
@@ -218,21 +217,16 @@ describe('dashboard layout edit shortcut with a tile dialog', () => {
         return render(<EditModeActions />)
     }
 
-    it.each(['showImageTileModal', 'showButtonTileModal', 'showTextTileModal', 'addWidgetModalOpen'] as const)(
-        'does not bind Escape to discard while %s is open',
-        (visibleKey) => {
-            const { container } = renderActions(visibleKey)
+    it('does not bind Escape to discard while layout edit shortcuts are off', () => {
+        const { container } = renderActions({ layoutEditShortcutsEnabled: false })
 
-            expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).toBeNull()
-            const cancelButton = container.querySelector(
-                '[data-attr="dashboard-edit-mode-discard"]'
-            ) as HTMLButtonElement
-            expect(cancelButton.disabled).toBe(false)
-            expect(cancelLayoutEdit).not.toHaveBeenCalled()
-        }
-    )
+        expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).toBeNull()
+        const cancelButton = container.querySelector('[data-attr="dashboard-edit-mode-discard"]') as HTMLButtonElement
+        expect(cancelButton.disabled).toBe(false)
+        expect(cancelLayoutEdit).not.toHaveBeenCalled()
+    })
 
-    it('binds Escape to discard when no tile dialog is open', () => {
+    it('binds Escape to discard while layout edit shortcuts are on', () => {
         const { container } = renderActions()
 
         expect(container.querySelector('[data-shortcut-name="CancelDashboardEdit"]')).not.toBeNull()

@@ -1,11 +1,12 @@
 import re
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Model
 from django.utils import timezone
 
 import requests
@@ -15,7 +16,7 @@ from structlog.contextvars import bound_contextvars, get_contextvars
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -82,7 +83,7 @@ def _log_manual_action_after_commit(
 
 
 def _log_issue_fetch_failure(
-    integration: Integration, *, stage: str, error_type: str, status_code: int | None = None
+    integration: IntegrationRecord, *, stage: str, error_type: str, status_code: int | None = None
 ) -> None:
     logger.warning(
         "feature_request_github_issue_fetch_failed",
@@ -179,10 +180,13 @@ def _integration(
     integration_id: int | None,
     installation_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
-) -> Integration:
+) -> IntegrationRecord:
     if integration_id is None:
         raise FeatureRequestValidationError("integration_id", "Reconnect the GitHub integration before resuming sync.")
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    try:
+        integration: IntegrationRecord | None = IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        integration = None
     if (
         integration is None
         or not integration.integration_id
@@ -195,14 +199,14 @@ def _integration(
             "integration_id", "Select an available GitHub integration for this project."
         )
     if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        integration, required_level="viewer"
+        cast(Model, integration), required_level="viewer"
     ):
         raise FeatureRequestValidationError("integration_id", "Select a GitHub integration you can access.")
     return integration
 
 
 def _fetch_issue(
-    integration: Integration, repository: str, issue_number: int, *, priority: Priority = Priority.NORMAL
+    integration: IntegrationRecord, repository: str, issue_number: int, *, priority: Priority = Priority.NORMAL
 ) -> GitHubIssueState:
     try:
         response = GitHubIntegration(integration, source="customer_analytics", priority=priority).api_request(
@@ -321,7 +325,7 @@ def link_feature_request_github(
                 "issue_url", "This request already has a GitHub issue. Unlink it before adding another."
             )
     integration = _integration(team_id, input.integration_id, user_access_control=user_access_control)
-    installation_id = integration.integration_id
+    installation_id = integration.integration_id or ""
     with bound_contextvars(
         team_id=team_id,
         feature_request_id=str(feature_request_id),
@@ -342,7 +346,7 @@ def link_feature_request_github(
         link = FeatureRequestGitHubLink.objects.for_team(team_id).create(
             team_id=team_id,
             feature_request=request,
-            integration=integration,
+            integration_id=integration.id,
             installation_id=installation_id,
             repository=repository,
             issue_number=issue_number,
@@ -475,7 +479,7 @@ def unlink_feature_request_github(
     )
 
 
-def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[Integration | None, str | None]:
+def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[IntegrationRecord | None, str | None]:
     if not link.sync_enabled:
         return None, "paused"
     if link.feature_request.archived_at is not None:

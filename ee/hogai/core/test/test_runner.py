@@ -828,8 +828,8 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
         mock_graph.aupdate_state.assert_called_once()
 
-    @parameterized.expand([("approve",), ("reject",)])
-    async def test_response_targets_selected_parallel_approval(self, action: str) -> None:
+    @parameterized.expand([("approve", None), ("reject", None), ("reject", "make them monthly")])
+    async def test_response_targets_selected_parallel_approval(self, action: str, feedback: str | None) -> None:
         executed: list[str] = []
 
         def operation(name: str) -> Callable[[AssistantState], dict[str, object]]:
@@ -864,11 +864,24 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
             self.conversation.approval_decisions[approval.proposal_id] = {"decision_status": "pending"}
         await self.conversation.asave(update_fields=["approval_decisions"])
         runner._resume_payload = {"action": action, "proposal_id": approvals["second"].proposal_id}
+        if feedback:
+            runner._resume_payload["feedback"] = feedback
         command = await runner._init_or_update_state()
         await graph.ainvoke(command, config)
         self.assertEqual(executed, ["second"] if action == "approve" else [])
         after = await graph.aget_state(config)
         remaining = [pending.value for task in after.tasks if task.result is None for pending in task.interrupts]
+        if feedback:
+            await self.conversation.arefresh_from_db()
+            self.assertEqual(remaining, [])
+            self.assertEqual(
+                {
+                    name: self.conversation.approval_decisions[approval.proposal_id]["decision_status"]
+                    for name, approval in approvals.items()
+                },
+                {"first": "auto_rejected", "second": "rejected"},
+            )
+            return
         self.assertEqual([request.proposal_id for request in remaining], [approvals["first"].proposal_id])
         await self.conversation.arefresh_from_db()
         self.assertEqual(

@@ -34,15 +34,13 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
 from products.posthog_ai.evals.experiments.scorers import AskedForConfirmation
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from products.posthog_ai.evals.offline_config import offline_suite
-
-NO_SEND_LOGS = True
 
 # Event name chosen to be obviously fictional so the agent can't plausibly
 # justify it as a typo of a real PostHog event in the seeded team.
@@ -67,8 +65,7 @@ async def eval_unknown_events_confirmation(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-unknown-events-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(

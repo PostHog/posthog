@@ -6,7 +6,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
 import { PROMPT_CHECKS_PAGE_SIZE, contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { engineLabel } from './utils'
+import { checkPromptVersion, engineLabel } from './utils'
 
 export const ContentAutopilotPromptChecks = (): JSX.Element => {
     const { checks, checksLoading, checksFailed, checksPage, selectedCheck } = useValues(
@@ -63,6 +63,11 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                         title: 'Engine',
                         key: 'engine',
                         render: (_, { engine }) => <span className="whitespace-nowrap">{engineLabel(engine)}</span>,
+                    },
+                    {
+                        title: 'Version',
+                        key: 'prompt_version',
+                        render: (_, check) => checkPromptVersion(check),
                     },
                     {
                         title: 'Result',

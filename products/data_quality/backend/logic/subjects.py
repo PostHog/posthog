@@ -66,7 +66,7 @@ def unqueryable_table_ids(team_id: int) -> set[UUID]:
     return excluded
 
 
-def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[SelectableSubject]:
+def selectable_subjects(team_id: int, kinds: Collection[SubjectType], search: str = "") -> list[SelectableSubject]:
     """Everything in this team a check can be authored on, of the kinds asked for.
 
     The catalog, not the gate: narrowing it to what the caller may read is the caller's job.
@@ -117,7 +117,11 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
             )
             for metric in testable_metric_subjects(team_id)
         )
-    return sorted(subjects, key=lambda subject: (subject.subject_type, subject.name))
+    if needle := search.strip().lower():
+        subjects = [
+            subject for subject in subjects if needle in subject.name.lower() or needle in subject.display_name.lower()
+        ]
+    return sorted(subjects, key=lambda subject: (subject.subject_type, subject.name, subject.id))
 
 
 def testable_metric_subjects(team_id: int) -> list[MetricSubject]:

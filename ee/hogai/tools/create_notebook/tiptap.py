@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -6,6 +5,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from posthog.schema import MarkdownBlock, SessionReplayBlock
+
+from posthog.comment.tiptap import markdown_to_tiptap_nodes
 
 from ee.hogai.artifacts.types import VisualizationRefBlock
 
@@ -95,204 +96,10 @@ def _visualization_ref_to_tiptap(
     ]
 
 
-def markdown_to_tiptap_nodes(text: str) -> list[dict]:
-    """
-    Convert a markdown string to a list of tiptap nodes.
-
-    Supports:
-    - Headings (# to ######)
-    - Paragraphs
-    - Bullet lists (- or *)
-    - Ordered lists (1.)
-    - Code blocks (triple backtick)
-    - Inline: **bold**, *italic*, `code`, [text](url)
-    """
-    if not text or not text.strip():
-        return []
-
-    lines = text.split("\n")
-    nodes: list[dict] = []
-    i = 0
-
-    while i < len(lines):
-        line = lines[i]
-
-        # Code block
-        if line.strip().startswith("```"):
-            code_lines: list[str] = []
-            lang = line.strip()[3:].strip() or None
-            i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
-                code_lines.append(lines[i])
-                i += 1
-            i += 1  # skip closing ```
-            attrs = {}
-            if lang:
-                attrs["language"] = lang
-            node: dict = {
-                "type": "codeBlock",
-                "content": [{"type": "text", "text": "\n".join(code_lines)}],
-            }
-            if attrs:
-                node["attrs"] = attrs
-            nodes.append(node)
-            continue
-
-        # Heading
-        heading_match = re.match(r"^(#{1,6})\s+(.+)$", line)
-        if heading_match:
-            level = len(heading_match.group(1))
-            inline = _parse_inline(heading_match.group(2).strip())
-            nodes.append(
-                {
-                    "type": "heading",
-                    "attrs": {"level": level},
-                    "content": inline,
-                }
-            )
-            i += 1
-            continue
-
-        # Unordered list
-        if re.match(r"^\s*[-*]\s+", line):
-            items: list[dict] = []
-            while i < len(lines) and re.match(r"^\s*[-*]\s+", lines[i]):
-                item_text = re.sub(r"^\s*[-*]\s+", "", lines[i])
-                items.append(
-                    {
-                        "type": "listItem",
-                        "content": [_paragraph(_parse_inline(item_text))],
-                    }
-                )
-                i += 1
-            nodes.append({"type": "bulletList", "content": items})
-            continue
-
-        # Ordered list
-        if re.match(r"^\s*\d+\.\s+", line):
-            items = []
-            while i < len(lines) and re.match(r"^\s*\d+\.\s+", lines[i]):
-                item_text = re.sub(r"^\s*\d+\.\s+", "", lines[i])
-                items.append(
-                    {
-                        "type": "listItem",
-                        "content": [_paragraph(_parse_inline(item_text))],
-                    }
-                )
-                i += 1
-            nodes.append({"type": "orderedList", "content": items})
-            continue
-
-        # Empty line
-        if not line.strip():
-            i += 1
-            continue
-
-        # Paragraph (collect consecutive non-empty, non-special lines)
-        para_lines: list[str] = []
-        while i < len(lines) and lines[i].strip() and not _is_special_line(lines[i]):
-            para_lines.append(lines[i])
-            i += 1
-        if para_lines:
-            inline = _parse_inline(" ".join(para_lines))
-            nodes.append(_paragraph(inline))
-
-    return nodes
-
-
-def _is_special_line(line: str) -> bool:
-    if line.strip().startswith("```"):
-        return True
-    if re.match(r"^#{1,6}\s+", line):
-        return True
-    if re.match(r"^\s*[-*]\s+", line):
-        return True
-    if re.match(r"^\s*\d+\.\s+", line):
-        return True
-    return False
-
-
 def _paragraph(content: list[dict]) -> dict:
     if not content:
         return {"type": "paragraph"}
     return {"type": "paragraph", "content": content}
-
-
-def _parse_inline(text: str) -> list[dict]:
-    """
-    Parse inline markdown into tiptap text nodes with marks.
-
-    Handles: **bold**, *italic*, `code`, [text](url)
-    """
-    if not text:
-        return []
-
-    nodes: list[dict] = []
-    # Pattern matches: **bold**, *italic*, `code`, [text](url), or plain text
-    pattern = re.compile(
-        r"(\*\*(.+?)\*\*)"  # bold
-        r"|(\*(.+?)\*)"  # italic
-        r"|(`(.+?)`)"  # inline code
-        r"|(\[([^\]]+)\]\(([^)]+)\))"  # link
-    )
-
-    pos = 0
-    for match in pattern.finditer(text):
-        # Add preceding plain text
-        if match.start() > pos:
-            plain = text[pos : match.start()]
-            if plain:
-                nodes.append({"type": "text", "text": plain})
-
-        if match.group(2) is not None:
-            # Bold
-            nodes.append(
-                {
-                    "type": "text",
-                    "text": match.group(2),
-                    "marks": [{"type": "bold"}],
-                }
-            )
-        elif match.group(4) is not None:
-            # Italic
-            nodes.append(
-                {
-                    "type": "text",
-                    "text": match.group(4),
-                    "marks": [{"type": "italic"}],
-                }
-            )
-        elif match.group(6) is not None:
-            # Inline code
-            nodes.append(
-                {
-                    "type": "text",
-                    "text": match.group(6),
-                    "marks": [{"type": "code"}],
-                }
-            )
-        elif match.group(8) is not None:
-            # Link
-            nodes.append(
-                {
-                    "type": "text",
-                    "text": match.group(8),
-                    "marks": [{"type": "link", "attrs": {"href": match.group(9)}}],
-                }
-            )
-
-        pos = match.end()
-
-    # Add remaining plain text
-    if pos < len(text):
-        remaining = text[pos:]
-        if remaining:
-            nodes.append({"type": "text", "text": remaining})
-
-    if not nodes and text:
-        nodes.append({"type": "text", "text": text})
-
-    return nodes
 
 
 # ---------------------------------------------------------------------------

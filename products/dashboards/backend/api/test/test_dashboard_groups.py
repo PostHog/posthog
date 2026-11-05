@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.dashboards.backend.api.dashboard import _stored_groups
+from products.dashboards.backend.customization import stored_groups
 
 
 class TestStoredGroups(SimpleTestCase):
@@ -56,4 +56,4 @@ class TestStoredGroups(SimpleTestCase):
 
     @parameterized.expand(cases)
     def test_reads_stored_groups(self, _name: str, customization: Any, expected: dict) -> None:
-        assert _stored_groups(customization) == expected
+        assert stored_groups(customization) == expected

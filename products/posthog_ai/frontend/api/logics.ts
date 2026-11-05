@@ -16,6 +16,7 @@ export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/run
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
 export { messageRatingsLogic } from '../logics/messageRatingsLogic'
+export type { MessageRating, MessageRatingOrNull } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
@@ -37,13 +38,15 @@ export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
-// --- Attached-context store + injection hook (headless) ---
-// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
-// trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
-export { attachedContextLogic } from '../logics/attachedContextLogic'
+// --- Chat skin ---
+// Here, not in ./primitives, because surfaces that load eagerly (the composer on the AI-first homepage) read it.
+export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
+
+// --- Attached-context injection hook (headless) ---
+// `useAttachedContext` registers a provider in the shell's context store for the lifetime of a mount.
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
-export { attachedContextItemKey } from '../types/contextTypes'
 // Contextual welcome headlines: a host registers headlines matching what the user is looking at,
 // and the composer's empty state picks from them instead of the generic defaults.
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
@@ -59,9 +62,10 @@ export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
-// `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
-// the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.
-export { contextPickerLogic, taxonomicItemToAttachedContext, PICKER_PROVIDER_ID } from '../logics/contextPickerLogic'
+// `contextPickerLogic` turns a selection into a pick, and `chatContextLogic` combines picks with the rest of a
+// chat's context; the `AttachedContextBar` component (Tier 2 `api/primitives`) is the prepackaged UI.
+export { chatContextLogic, chatSendItems } from '../logics/chatContextLogic'
+export { contextPickerLogic, taxonomicItemToAttachedContext } from '../logics/contextPickerLogic'
 export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
 
 // --- Tool-stream event bus + subscription hook (headless) ---
@@ -84,12 +88,6 @@ export { foregroundStreamLogic } from '../logics/foregroundStreamLogic'
 export { useForegroundStream } from '../hooks/useForegroundStream'
 export { useMcpToolApplyBack } from '../hooks/useMcpToolApplyBack'
 export type { ApplyOn, McpToolApplyContext, UseMcpToolApplyBackOptions } from '../hooks/useMcpToolApplyBack'
-
-// --- Panel view state (headless) ---
-// Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a
-// header back button — outside the lazy panel chunk (Tier 1 `api/runner`).
-export { runnerPanelLogic } from '../logics/runnerPanelLogic'
-export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPanelLogic'
 
 // --- Composer seed hand-off (headless) ---
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally

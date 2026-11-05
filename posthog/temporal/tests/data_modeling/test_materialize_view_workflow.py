@@ -26,7 +26,6 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -62,11 +61,9 @@ class TestQualityGateBranching:
         activity_results: list,
         child_result: dict | Exception,
         *,
-        shadow_handle: AsyncMock | None = None,
         start_child: AsyncMock | None = None,
         inputs: MaterializeViewWorkflowInputs | None = None,
         execute_activity: AsyncMock | None = None,
-        patched: bool = True,
     ) -> tuple:
         execute_activity = execute_activity or AsyncMock(side_effect=activity_results)
         child = (
@@ -85,31 +82,29 @@ class TestQualityGateBranching:
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
-            stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
+            stack.enter_context(patch.object(temporalio.workflow, "deprecate_patch"))
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
-            if shadow_handle is not None:
-                stack.enter_context(patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle))
             for metric in (
                 "get_node_finished_metric",
                 "get_node_duration_metric",
                 "get_node_rows_materialized_metric",
                 "get_node_storage_delta_mib_metric",
                 "get_node_total_storage_mib_metric",
-                "get_managed_warehouse_shadow_finished_metrics",
-                "get_clickhouse_materialization_duration_metric",
-                "get_managed_warehouse_shadow_duration_metrics",
-                "get_managed_warehouse_shadow_rows_materialized_metrics",
-                "get_managed_warehouse_shadow_row_count_match_metrics",
-                "get_managed_warehouse_shadow_storage_mib_metrics",
-                "get_managed_warehouse_shadow_storage_delta_mib_metrics",
             ):
                 self.metrics[metric] = stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
             result = await MaterializeViewWorkflow().run(inputs or _inputs())
         return result, execute_activity
 
-    @pytest.mark.parametrize("shadow_error,blocked", [(None, False), ("Upstream write failed", False), (None, True)])
-    async def test_a_history_without_the_patch_replays_the_in_workflow_shadow(
-        self, shadow_error: str | None, blocked: bool
+    @pytest.mark.parametrize(
+        "shadow_error,skipped,expected_status,expected_error_class",
+        [
+            (None, False, "completed", "none"),
+            ("Trino write failed", False, "failed", "other"),
+            ("Trino write failed: upstream table missing", True, "skipped", "none"),
+        ],
+    )
+    async def test_trino_only_reports_materialization_failure(
+        self, shadow_error: str | None, skipped: bool, expected_status: str, expected_error_class: str
     ) -> None:
         shadow = asyncio.get_running_loop().create_future()
         shadow.set_result(
@@ -119,39 +114,8 @@ class TestQualityGateBranching:
                 schema_name="models",
                 table_name="orders",
                 error=shadow_error,
-            )
-        )
-        activity_results = [
-            True,
-            "shadow-job",
-            "job-1",
-            _materialize_result("skip"),
-            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
-            None,
-            None,
-        ]
-        if blocked:
-            activity_results.pop(1)
-        with patch.object(temporalio.workflow, "start_activity", return_value=shadow) as start_shadow:
-            result, _ = await self._run(
-                activity_results, {}, inputs=dataclasses.replace(_inputs(), skip_trino=blocked), patched=False
-            )
-        assert start_shadow.called is not blocked
-        assert result.job_id == "job-1"
-        assert result.rows_materialized == 10
-        assert result.trino_materialized is (not blocked and shadow_error is None)
-
-    @pytest.mark.parametrize("shadow_error", [None, "Trino write failed"])
-    async def test_trino_only_reports_materialization_failure(self, shadow_error: str | None) -> None:
-        shadow = asyncio.get_running_loop().create_future()
-        shadow.set_result(
-            ManagedWarehouseShadowResult(
-                row_count=10,
-                duration_seconds=1,
-                schema_name="models",
-                table_name="orders",
-                error=shadow_error,
                 run_mode="incremental",
+                skipped=skipped,
             )
         )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
@@ -168,8 +132,8 @@ class TestQualityGateBranching:
                 assert result.job_id == "shadow-job"
 
         finished = self.metrics["get_node_finished_metric"]
-        assert finished.call_args.args == ("failed" if shadow_error else "completed", "managed_warehouse")
-        assert finished.call_args.kwargs.get("error_class", "none") == ("other" if shadow_error else "none")
+        assert finished.call_args.args == (expected_status, "managed_warehouse")
+        assert finished.call_args.kwargs.get("error_class", "none") == expected_error_class
         assert finished.call_args.kwargs["run_mode"] == "incremental"
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
 
@@ -277,6 +241,10 @@ class TestQualityGateBranching:
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
+        materialize_call = next(
+            call for call in execute_activity.await_args_list if call.args[0].__name__ == "materialize_view_activity"
+        )
+        assert "ClickHouseUserQueryError" in materialize_call.kwargs["retry_policy"].non_retryable_error_types
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
@@ -318,31 +286,6 @@ class TestQualityGateBranching:
 
         assert result.quality_audited is expected_audited
         assert result.quality_blocking_failures is None
-
-    async def test_a_replayed_blocked_publish_still_settles_the_managed_warehouse_shadow(self):
-        # In a history recorded before the patch, the blocked branch returns early. Leaving the
-        # shadow activity unawaited there orphans the shadow job.
-        shadow_handle = AsyncMock()
-        shadow_handle.__await__ = lambda self=None: iter([])
-        activity_results = [
-            True,  # managed warehouse shadow enabled
-            "managed-warehouse-job-1",
-            "job-1",  # create clickhouse job
-            _materialize_result("gate"),
-            StageQueryableFilesResult(staged_folder_path="staged_1"),
-            None,  # quality_block_materialization
-        ]
-
-        with (
-            patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect,
-            patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle) as start_shadow,
-        ):
-            result, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 1}, patched=False)
-
-        assert result.quality_blocking_failures == 1
-        assert execute_activity.await_args_list[1].args[1].engine == DataModelingJobEngine.MANAGED_WAREHOUSE
-        collect.assert_awaited_once()
-        assert start_shadow.call_args.args[1].use_trino is True
 
 
 def _cancelled_child_error() -> ChildWorkflowError:
@@ -412,10 +355,14 @@ class TestStagedAudit:
 
 
 class TestFinalizeOrphanedManagedWarehouseJob:
-    async def test_marks_orphaned_job_failed_without_touching_node(self):
+    @pytest.mark.parametrize(
+        "error,cancelled",
+        [(RuntimeError("activity died"), False), (CancelledError("activity died"), True)],
+    )
+    async def test_marks_orphaned_job_failed_without_touching_node(self, error, cancelled):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), error)
 
         execute_activity.assert_awaited_once()
         assert execute_activity.await_args is not None
@@ -426,11 +373,13 @@ class TestFinalizeOrphanedManagedWarehouseJob:
         # shadow job has no node properties to update — only finalize the job row
         assert payload.update_node is False
         assert "activity died" in payload.error
+        # a cancelled shadow never got to fail on its own merits, so it must not count toward suspension
+        assert payload.cancelled is cancelled
 
     async def test_noop_when_no_managed_warehouse_job(self):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_managed_warehouse_job(None, _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job(None, _inputs(), RuntimeError("activity died"))
         execute_activity.assert_not_awaited()
 
     async def test_finalization_is_best_effort(self):
@@ -440,7 +389,7 @@ class TestFinalizeOrphanedManagedWarehouseJob:
             patch.object(temporalio.workflow, "logger"),
         ):
             # a failure to finalize must never propagate out of the shadow path
-            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), RuntimeError("activity died"))
 
 
 class TestMaybeStageAccountProperties:
@@ -531,30 +480,6 @@ class TestMaybeEnrichViewSemantics:
             patch.object(temporalio.workflow, "logger"),
         ):
             await workflow._maybe_enrich_view_semantics(_inputs(), result)
-
-
-class TestCollectShadowComparison:
-    async def test_finalizes_orphaned_job_when_shadow_handle_errors(self):
-        workflow = MaterializeViewWorkflow()
-
-        async def dead_handle():
-            raise RuntimeError("shadow activity died before finalizing")
-
-        with (
-            patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity,
-            patch.object(temporalio.workflow, "logger"),
-            patch(f"{WORKFLOW_MODULE}.capture_exception"),
-            patch(f"{WORKFLOW_MODULE}.get_managed_warehouse_shadow_finished_metrics"),
-        ):
-            await workflow._collect_shadow_comparison(dead_handle(), "job-123", 5, 1.0, _inputs())
-
-        # the activity died without self-finalizing, so the workflow must back it up
-        execute_activity.assert_awaited_once()
-        assert execute_activity.await_args is not None
-        activity, payload = execute_activity.await_args.args
-        assert activity is fail_materialization_activity
-        assert payload.job_id == "job-123"
-        assert payload.update_node is False
 
 
 def _person_sync_result(**overrides) -> MaterializeViewResult:

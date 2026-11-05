@@ -14,6 +14,7 @@ import {
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
@@ -25,6 +26,7 @@ import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic 
 
 jest.mock('./generated/api', () => ({
     warehouseSuggestionsAcceptCreate: jest.fn(),
+    warehouseSuggestionsAssignCreate: jest.fn(),
     warehouseSuggestionsDismissCreate: jest.fn(),
     warehouseSuggestionsList: jest.fn(),
     warehouseSuggestionsResumeCreate: jest.fn(),
@@ -38,6 +40,7 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 const mockList = warehouseSuggestionsList as jest.MockedFunction<typeof warehouseSuggestionsList>
 const mockStatus = warehouseSuggestionsStatusRetrieve as jest.MockedFunction<typeof warehouseSuggestionsStatusRetrieve>
 const mockAccept = warehouseSuggestionsAcceptCreate as jest.MockedFunction<typeof warehouseSuggestionsAcceptCreate>
+const mockAssign = warehouseSuggestionsAssignCreate as jest.MockedFunction<typeof warehouseSuggestionsAssignCreate>
 const mockDismiss = warehouseSuggestionsDismissCreate as jest.MockedFunction<typeof warehouseSuggestionsDismissCreate>
 const mockResume = warehouseSuggestionsResumeCreate as jest.MockedFunction<typeof warehouseSuggestionsResumeCreate>
 const mockSavedQuery = warehouseSavedQueriesRetrieve as jest.MockedFunction<typeof warehouseSavedQueriesRetrieve>
@@ -70,6 +73,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
         unknown_sources: { names: [], hidden_count: 0 },
         refresh_mode: 'full',
         refresh_interval_basis: 'savings',
+        main_saving: null,
     },
     payload_version: 1,
     evidence: { human_requests: 200, human_users: 6, human_days: 25 },
@@ -87,6 +91,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
     realized_seconds_saved_per_month: null,
     realized_bytes_saved_per_month: null,
     can_act: true,
+    assignee: null,
 }
 
 function materialize(id: string, savesSeconds: number, savesBytes = 0): WarehouseSuggestionApi {
@@ -95,6 +100,19 @@ function materialize(id: string, savesSeconds: number, savesBytes = 0): Warehous
         id,
         subject_id: `view-${id}`,
         payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
+    }
+}
+
+function ledBy(id: string, main: 'waiting' | 'scanned', amount: number): WarehouseSuggestionApi {
+    const suggestion = materialize(id, main === 'waiting' ? amount : 0, main === 'scanned' ? amount : 0)
+    return {
+        ...suggestion,
+        payload: {
+            ...suggestion.payload,
+            main_saving: main,
+            waiting_seconds_saved_per_month: main === 'waiting' ? amount : 0,
+            background_seconds_saved_per_month: 0,
+        },
     }
 }
 
@@ -256,6 +274,18 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(logic.values.surfaceSuggestions).toEqual([])
         finish({ ...MATERIALIZE, status: 'dismissed' })
+    })
+
+    it('shows the new assignee on the row and keeps the row listed', async () => {
+        const assignee = { id: 7, first_name: 'Ana', email: 'ana@example.com' }
+        mockAssign.mockResolvedValue({ ...MATERIALIZE, assignee })
+        await mountLogic()
+
+        logic.actions.assignSuggestion(MATERIALIZE.id, assignee.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAssign).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id, { assignee_id: assignee.id })
+        expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.assignee)).toEqual([assignee])
     })
 
     it('ignores a second accept while the first is in flight', async () => {
@@ -492,10 +522,10 @@ describe('warehouseSuggestionsLogic', () => {
                 unmaterialize('unread-mid', 3000, 1500),
                 materialize('time-big', 2400),
             ],
-            ['time-big', 'unread-mid', 'time-small', 'bytes-big'],
+            ['time-big', 'time-small', 'bytes-big', 'unread-mid'],
         ],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
-    ])('orders %s suggestions by what they are worth', async (surface, results, expectedOrder) => {
+    ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))
 
         await mountLogic(surface)
@@ -503,17 +533,36 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
-    it('counts time and bytes savings separately', async () => {
-        mockList.mockResolvedValue(page([materialize('a', 1800), materialize('b', 1200), materialize('c', 0, 3e12)]))
+    it('sums time and bytes across every view, including views that save both', async () => {
+        mockList.mockResolvedValue(
+            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12)])
+        )
 
         await mountLogic()
 
         expect(logic.values.savingsSummary).toEqual({
-            timeViews: 2,
-            savedSeconds: 3000,
-            bytesViews: 1,
-            savedBytes: 3e12,
+            views: 3,
+            saving: { seconds: 3000, bytes: 5e12 },
+            split: null,
         })
+    })
+
+    it('lists rows by the saving they lead with, so equal units sit together and larger comes first', async () => {
+        mockList.mockResolvedValue(
+            page([
+                ledBy('scanned', 'scanned', 100e12),
+                ledBy('ten-minutes', 'waiting', 600),
+                ledBy('half-hour', 'waiting', 1800),
+            ])
+        )
+
+        await mountLogic()
+
+        expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual([
+            'half-hour',
+            'ten-minutes',
+            'scanned',
+        ])
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {
@@ -526,7 +575,7 @@ describe('warehouseSuggestionsLogic', () => {
             logic.actions.acceptSuggestion('a', { refresh_interval_seconds: 86400 })
             await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-            expect(logic.values.savingsSummary.savedSeconds).toEqual(1200)
+            expect(logic.values.savingsSummary.saving.seconds).toEqual(1200)
             expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['a', 'b'])
 
             jest.advanceTimersByTime(ROW_LEAVE_MS)
@@ -658,29 +707,48 @@ describe('warehouseSuggestionsLogic', () => {
     }
 
     it.each([MATERIALIZE, unmaterialize('unread', 3000, 1500)])(
-        'sends the strip toast View for $kind to the view in the SQL editor',
+        'sends the strip toast View for $kind to the materialization tab of its model page',
         async (accepted) => {
             await acceptAndClickView('models', accepted)
 
             expect(router.values.location.pathname + router.values.location.search).toContain(
-                urls.sqlEditor({ view_id: accepted.subject_id })
+                `${urls.nodeDetail(accepted.subject_id, 'materialization')}?lookup=saved_query`
             )
         }
     )
 
-    it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
-        ['stops refreshing by default', false, undefined, 'Marked old_rollup as deprecated and stopped its refreshes.'],
-        ['keeps refreshing when asked', true, { keep_materialized: true }, 'Marked old_rollup as deprecated.'],
-    ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
+    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+        [
+            'stops refreshing by default',
+            false,
+            false,
+            undefined,
+            { certification_id: 'cert-1', stopped_materialization: true },
+            'Marked old_rollup as deprecated and stopped its refreshes.',
+        ],
+        [
+            'keeps refreshing when asked',
+            true,
+            false,
+            { keep_materialized: true },
+            { certification_id: 'cert-1', stopped_materialization: false },
+            'Marked old_rollup as deprecated.',
+        ],
+        [
+            'deletes it when asked',
+            false,
+            true,
+            { delete_view: true },
+            { saved_query_id: 'view-1', stopped_materialization: true },
+            'Deleted old_rollup.',
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
-        mockAccept.mockResolvedValue({
-            ...DEPRECATE,
-            status: 'accepted',
-            created_asset: { certification_id: 'cert-1', stopped_materialization: !keep },
-        })
+        mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
+        logic.actions.setDeleteView(deleteView)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])

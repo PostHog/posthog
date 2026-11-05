@@ -1,0 +1,29 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/5bc1ff01b0e9ecb77f4ad91c1730de63676cab0a9d97ea60035260aa03a17ef3285528dc929279ba232254dfad7b9aba2726a64018044b4d65060641ab631eee",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"5bc1ff01b0e9ecb77f4ad91c1730de63676cab0a9d97ea60035260aa03a17ef3285528dc929279ba232254dfad7b9aba2726a64018044b4d65060641ab631eee\",\"version\":\"4.0.0\",\"project\":\"com.example.app\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "rn/index.android.bundle": "sha512:7a288200bed529fe6441685bdb0299122749177803ffb8a2c453cd65d026022188ba61494a47729875eb593abf017971805bb8a7927055111a2baa7ec05df8f0",
+    "rn/react-native-hermes.map": "sha512:aa6405878079437c3cd45e570014a7ad34fa9e09b1d32797ff58d5f086f09d7cb23b88f330d2d8d34ae936b74c072d299de31b1909cc9291ee405c344e938513",
+    "rn/react-native-metro.js.map": "sha512:dc2eb8eb5ed1419d643ab454ba73f91e820eba8dbc4bfa2f4cf05b21afec7fdcddd31dd3993021de04ae08830c74ee801835aebbb7a8336825df3bd2f27cdb06"
+  }
+}

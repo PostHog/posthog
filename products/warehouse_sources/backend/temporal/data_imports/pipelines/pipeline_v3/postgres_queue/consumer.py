@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_should_sync,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -96,6 +97,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     DEPTH_PROBE_TIMEOUTS_TOTAL,
     DEPTH_SAMPLE_AGE_SECONDS,
     DRAINED_AFTER_FAILURE_TOTAL,
+    OLDEST_SERIALIZED_BATCH_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_FAILED_AGED_OUT_TOTAL,
@@ -172,6 +174,9 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # the access rules changed after the migration linked a self-managed table, so the first sync
+    # must not replace it — only an admin can fix the rules
+    ADOPTION_ACCESS_ERROR,
 )
 
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
@@ -931,8 +936,8 @@ class DeltaBatchConsumerAdapter:
         that value as if it were fresh.
 
         Each probe statement has a server-side timeout. Past it, the freshness
-        probe skips its sample and its gauges stay NaN, except that the age gauge
-        saturates on any timeout, because a queue DB too degraded to measure
+        probe skips its sample and its gauges stay NaN, except that the slot-wait
+        age gauge saturates on any timeout, because a queue DB too degraded to measure
         freshness must read as stale. The depth gauges behave differently: the
         queue is deepest exactly when the depth probe is slowest, so NaN would
         read as an empty queue on a panel. The slot holder repeats its last good
@@ -985,7 +990,8 @@ class DeltaBatchConsumerAdapter:
             return
         # Set immediately, so a failure in the depth probe below can never
         # blind the age gauge this alert hangs off.
-        OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.slot_wait_age_seconds or 0.0)
+        OLDEST_SERIALIZED_BATCH_SECONDS.set(freshness.serialized_age_seconds or 0.0)
         BLOCKED_BATCHES.set(freshness.blocked_batches)
         BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
         # Depth rides the same slot and timeout: age says how stale the head of

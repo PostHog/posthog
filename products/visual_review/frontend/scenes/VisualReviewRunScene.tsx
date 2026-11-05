@@ -7,9 +7,9 @@ import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'

@@ -7,8 +7,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ConversionRecommendationApi } from '../generated/api.schemas'
 import { conversionGoalFormLogic } from './conversionGoalFormLogic'
@@ -28,10 +31,9 @@ export function ConversionGoalRecommendations({
 }): JSX.Element | null {
     const { currentTeamId, currentTeamLoading } = useValues(teamLogic)
     const { isSaving } = useValues(conversionGoalFormLogic({ projectId: currentTeamId ?? -1 }))
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const enabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]
@@ -136,7 +138,7 @@ export function ConversionGoalRecommendations({
                                 onUseSuggestion={() => onUseSuggestion(recommendation)}
                                 onDismiss={() => dismissRecommendation(recommendation)}
                                 disabledReason={
-                                    restrictedReason ||
+                                    editDisabledReason ||
                                     (currentTeamLoading || isSaving
                                         ? 'Wait for the project settings to finish saving.'
                                         : undefined)
@@ -243,7 +245,7 @@ export function ConversionGoalRecommendations({
                         type="secondary"
                         size="small"
                         loading={isAnalyzing || stateLoading}
-                        disabledReason={scanDisabledReason}
+                        disabledReason={editDisabledReason ?? scanDisabledReason}
                         onClick={() => requestAnalysis(true)}
                         data-attr="marketing-conversion-update-recommendations"
                     >

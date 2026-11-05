@@ -10,18 +10,20 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
-import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { aiSceneView } from '../aiSceneView'
 import { Intro } from '../Intro'
-import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
@@ -270,7 +272,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
                             </LemonBanner>
                         </div>
                     )}
-                    <Thread className="p-3" />
+                    <Thread />
                 </ThreadAutoScroller>
             )}
 

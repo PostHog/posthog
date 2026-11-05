@@ -11,24 +11,40 @@ export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled
 
 interface SourceKind {
     label: string
-    // The source product's own page for the alert, reached through the legacy configuration id.
-    alertUrl?: (legacyConfigurationId: string) => string
+    // The source product's own page for the alert, or null when the configuration cannot reach it.
+    alertUrl: (configuration: PlatformAlertConfigurationApi) => string | null
+}
+
+function legacyAlertUrl(url: (legacyConfigurationId: string) => string): SourceKind['alertUrl'] {
+    return ({ legacy_configuration_id }) => (legacy_configuration_id ? url(legacy_configuration_id) : null)
 }
 
 export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, SourceKind> = {
     [PlatformAlertConfigurationSourceKindEnumApi.Logs]: {
         label: 'Logs',
-        alertUrl: (legacyConfigurationId) => urls.logsAlertDetail(legacyConfigurationId),
+        alertUrl: legacyAlertUrl(urls.logsAlertDetail),
     },
     [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
         label: 'Insight',
-        alertUrl: (legacyConfigurationId) => urls.alert(legacyConfigurationId),
+        alertUrl: legacyAlertUrl(urls.alert),
+    },
+    // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
+        label: 'Warehouse source',
+        alertUrl: () => urls.sources(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
+        label: 'Warehouse destination',
+        alertUrl: () => urls.warehouseDestinations(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
+        label: 'Metrics',
+        alertUrl: () => urls.metrics(),
     },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
-    const { alertUrl } = SOURCE_KINDS[configuration.source_kind]
-    return alertUrl && configuration.legacy_configuration_id ? alertUrl(configuration.legacy_configuration_id) : null
+    return SOURCE_KINDS[configuration.source_kind].alertUrl(configuration)
 }
 
 // Most urgent first, so a configuration shows the state that needs attention.

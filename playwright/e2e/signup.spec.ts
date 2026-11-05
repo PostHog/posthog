@@ -30,11 +30,11 @@ const startSignupFlow = async (page: Page, email: string, password: string): Pro
     await expect(page.locator('[data-attr=signup-name]')).toBeVisible()
 }
 
-const submitEmailAndExpectExistingAccount = async (page: Page, email: string): Promise<void> => {
+const submitEmailAndExpectLoginStep = async (page: Page, email: string): Promise<void> => {
     await page.locator('[data-attr=signup-email]').fill(email)
     await page.locator('[data-attr=signup-start]').click()
 
-    await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
+    await expect(page.locator('[data-attr=password-login]')).toBeVisible()
     await expect(page.locator('[data-attr=signup-auth-continue]')).not.toBeVisible()
 }
 
@@ -55,9 +55,9 @@ test.describe('Signup', () => {
         await page.goto('/signup')
     })
 
-    test('Cannot create account with existing email', async ({ page, request }) => {
+    test('An existing email goes to the login step', async ({ page, request }) => {
         await ensureExistingUser(request, 'test@posthog.com')
-        await submitEmailAndExpectExistingAccount(page, 'test@posthog.com')
+        await submitEmailAndExpectLoginStep(page, 'test@posthog.com')
     })
 
     test('Can create user account with first name, last name and organization name', async ({ page }) => {
@@ -119,10 +119,10 @@ test.describe('Signup', () => {
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
         await page.goto('/signup')
 
-        // Try to recreate account with same email- should fail
-        await submitEmailAndExpectExistingAccount(page, email)
+        // The same email now has an account, so it goes to the login step instead of signup
+        await submitEmailAndExpectLoginStep(page, email)
 
-        // Update email to generic email and retry
+        // Typing a new email closes the login step's password field and retries the signup
         const newEmail = `${randomString('new_user')}@posthog.com`
         await startSignupFlow(page, newEmail, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')

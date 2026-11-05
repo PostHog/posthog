@@ -5,15 +5,15 @@ import { Extensions } from '@tiptap/react'
 import { useActions } from 'kea'
 import { useRef, useState } from 'react'
 
+import { LemonTextAreaMarkdown } from 'lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown'
 import { createInlineMarkdownSlashCommandsExtension } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
 import { RichMarkdownEditor } from 'lib/components/MarkdownEditor/rich/RichMarkdownEditor'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { METRIC_MARKDOWN_MAX_LENGTH } from '../common'
 import { CatalogReferencePickerModal } from './CatalogReferencePickerModal'
-import { METRIC_MARKDOWN_EXTENSIONS, metricMarkdownConverter } from './metricMarkdown'
+import { METRIC_MARKDOWN_EXTENSIONS, metricMarkdownConverter, MetricMarkdownPaste } from './metricMarkdown'
 import {
     CatalogReferenceKind,
     CatalogReferencePickerHost,
@@ -49,6 +49,7 @@ export function MetricMarkdownEditor({ value, onChange }: MetricMarkdownEditorPr
     // Built once per mount: the slash extension captures the host ref, which stays stable.
     const [editorExtensions] = useState<Extensions>(() => [
         ...METRIC_MARKDOWN_EXTENSIONS,
+        MetricMarkdownPaste,
         Placeholder.configure({
             placeholder: 'Describe how to calculate this metric, step by step. Type / for commands',
         }),

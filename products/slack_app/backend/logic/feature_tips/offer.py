@@ -22,16 +22,17 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_distinct_id
-from products.slack_app.backend.feature_flags import is_slack_app_feature_tips_enabled
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG, TipContext, TipFeature
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.picker import choose_tip
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, mark_shown, parse_state
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, section_block
+from products.slack_app.backend.services.slack_settings import parse_onboarding
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -52,7 +53,7 @@ FEATURE_TIP_ACTION_IDS = frozenset(
 
 @frozen
 class TipRequest:
-    integration: Integration
+    integration: WorkspaceIntegration
     slack_user_id: str
     posthog_user: User | None
     channel: str
@@ -70,13 +71,18 @@ class _Reservation:
 
 def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     integration = request.integration
-    stored = list(
+    rows = list(
         SlackSettings.objects.filter(
             slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id
-        ).values_list("feature_tips", flat=True)[:1]
+        ).values_list("feature_tips", "onboarding")[:1]
     )
+    stored = [rows[0][0]] if rows else []
+    # The onboarding thread already teaches the basics, so a tip during it would be a second message to read.
+    onboarding = parse_onboarding(rows[0][1]) if rows else None
+    if onboarding is not None and not onboarding.completed:
+        return None
     # Most answers come from a reader who opted out or already got today's tip. They stop here,
-    # before the flag call and the lock. Their interaction count no longer gates anything.
+    # before the lock. Their interaction count no longer gates anything.
     if stored and _skip_without_counting(parse_state(stored[0]), timezone.now()):
         return None
     distinct_id = (
@@ -84,8 +90,6 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
         if request.posthog_user is not None and request.posthog_user.distinct_id
         else slack_distinct_id(integration, request.slack_user_id)
     )
-    if not is_slack_app_feature_tips_enabled(integration, distinct_id):
-        return None
     if not stored:
         SlackSettings.objects.get_or_create(
             slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id

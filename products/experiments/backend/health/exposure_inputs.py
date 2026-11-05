@@ -18,7 +18,11 @@ from products.experiments.backend.hogql_queries.experiment_exposures_query_runne
     build_experiment_exposure_query,
 )
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
-from products.experiments.backend.hogql_queries.exposure_query_logic import aggregates_by_group
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    aggregates_by_group,
+    applies_test_account_filters,
+    has_positive_test_account_filter,
+)
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -88,9 +92,13 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
                 query.exposure_criteria, experiment.team, experiment.start_date
             ).multiple_variant_handling,
             sample_ratio_mismatch_p_value=srm.p_value if srm else None,
+            sample_ratio_expected={},
+            daily_exposures={},
             # The checks read the hours at computation, not now.
             hours_since_launch=(computed_at - experiment.start_date).total_seconds() / 3600 if computed_at else None,
             counts_groups=aggregates_by_group(runner.group_type_index),
+            filters_test_accounts=applies_test_account_filters(experiment.team, query.exposure_criteria),
+            has_positive_test_account_filter=has_positive_test_account_filter(experiment.team),
         ),
         findings=tuple(response.health_findings or ()),
         error=calculation_error,

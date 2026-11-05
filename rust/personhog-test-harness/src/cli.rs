@@ -210,7 +210,7 @@ pub struct GateArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]
@@ -502,7 +502,7 @@ pub struct StackArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]
@@ -690,6 +690,13 @@ pub struct TrafficArgs {
         default_value = "personhog-writer"
     )]
     pub chaos_writer_namespace: String,
+
+    #[arg(
+        long,
+        env = "CHAOS_IDENTITY_NAMESPACE",
+        default_value = "personhog-identity"
+    )]
+    pub chaos_identity_namespace: String,
 
     /// etcd endpoints of the stack under test (comma-separated). Enables
     /// the coordinator-targeted scenarios, which resolve the live

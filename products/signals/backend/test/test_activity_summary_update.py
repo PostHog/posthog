@@ -13,10 +13,18 @@ from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.activity_summary import mcp_buffer
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import user_activity
-from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
+from products.signals.backend.activity_summary.logic import (
+    ActivitySummaryUpdate,
+    UpdateStatus,
+    build_summary_as_of,
+    update_activity_summary,
+)
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
-from products.signals.backend.activity_summary.render import RENDER_VERSION, RenderLimits
+from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
+from products.signals.backend.activity_summary.render import MCP_HEADER, RENDER_VERSION, Product, RenderLimits
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
@@ -26,11 +34,12 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 @time_machine.travel(NOW, tick=False)
@@ -83,7 +92,7 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert stored.status == UserActivitySummary.Status.OK
-        assert stored.summary_text == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert stored.summary_text == "Builds the signup funnel.\nThemes: Signup funnel"
         assert stored.input_watermark == NOW - datetime.timedelta(days=1)
         assert stored.next_eligible_at == NOW + datetime.timedelta(days=1)
         assert (stored.tokens_in, stored.tokens_out) == (100, 20)
@@ -102,6 +111,16 @@ class TestUpdateActivitySummary(BaseTest):
         assert self._versions() == [1, 2]
         first = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=1)
         assert (first.summary_text, first.input_watermark) == (stored.summary_text, stored.input_watermark)
+        # The second update read only the rows after the watermark, but its computed fields cover the full window.
+        assert latest.computed is not None
+        assert {entry["id"] for entry in latest.computed["owned"]} == {
+            "Funnel 0",
+            "Funnel 1",
+            "Funnel 2",
+            "Signup funnel",
+        }
+        second = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=2)
+        assert second.computed == latest.computed
 
     def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
@@ -133,10 +152,10 @@ class TestUpdateActivitySummary(BaseTest):
         assert result.rendered_input is not None
         assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
         assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
-        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        assert "Experiments pages" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
-        assert stored.inputs_used["view_lines"] == 3
+        assert (stored.inputs_used["view_lines"], stored.inputs_used["page_units"]) == (2, 1)
         assert stored.inputs_used["drops"] == {"generic_scene": 1}
         assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
@@ -172,6 +191,53 @@ class TestUpdateActivitySummary(BaseTest):
         ]
         assert result.inputs_used["drops"] == {"grouped_into_parent": 2}
 
+    def test_the_mcp_buffer_reaches_the_input_only_when_enabled_and_moves_the_watermark(self) -> None:
+        client = mcp_buffer._redis_client()
+        self.addCleanup(lambda: [client.delete(key) for key in client.keys("as:mcp:*")])
+        buffer = mcp_buffer.McpIntentBuffer(start_thread=False)
+        buffer.buffer_settings = mcp_buffer.BufferSettings(team_ids=frozenset({self.team.id}))
+        newest = NOW - datetime.timedelta(days=1) + datetime.timedelta(minutes=1)
+        for at, intent in (
+            (newest - datetime.timedelta(minutes=1), "why signups dropped"),
+            (newest, "signups by country"),
+        ):
+            with time_machine.travel(at, tick=False):
+                buffer.append(
+                    team_id=self.team.id, user_id=self.user.id, session_id="s1", route_name=None, intent=intent
+                )
+        buffer.flush()
+        self._changes(3, days_ago=2)
+
+        off = self._update(FakeLLM([ANSWER]), dry_run=True)
+        on = self._update(FakeLLM([ANSWER]), mcp_buffer_days=10)
+
+        assert off.rendered_input is not None and MCP_HEADER not in off.rendered_input
+        assert off.inputs_used is not None and "mcp_records" not in off.inputs_used
+        assert on.status == UpdateStatus.OK and on.rendered_input is not None
+        section = f"{MCP_HEADER}\n- m1 2026-10-18, 2 calls: why signups dropped --> signups by country"
+        assert section in on.rendered_input
+        assert on.inputs_used is not None
+        assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
+            "mcp_sessions": 1,
+            "mcp_burst_cap_drops": 0,
+            "mcp_sample_cap_drops": 0,
+            "mcp_budget_drops": 0,
+            "mcp_lines": 1,
+            "mcp_chars": len(section),
+            "mcp_records": 2,
+            "mcp_truncated_days": 0,
+            "mcp_read_error": False,
+        }
+        stored = self._stored()
+        assert stored is not None and stored.input_watermark == newest
+        assert stored.computed is not None
+        assert stored.computed["mcp_sessions"] == [{"ref": "m1", "last_at": "2026-10-18"}]
+
+        self._changes(3, days_ago=0.5)
+        with time_machine.travel(NOW + datetime.timedelta(days=2), tick=False):
+            later = self._update(FakeLLM([ANSWER]), mcp_buffer_days=10)
+        assert later.inputs_used is not None and later.inputs_used["mcp_records"] == 0
+
     @parameterized.expand(
         [
             ("an older prompt version", {"prompt_version": PROMPT_VERSION - 1}, {}, True),
@@ -202,10 +268,55 @@ class TestUpdateActivitySummary(BaseTest):
         assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
         sent = json.dumps(llm.requests[0]["messages"])
         assert ("Old stored summary." not in sent) == rebuilt
-        assert ("Old dashboard" in sent) == rebuilt
+        assert ("Old dashboard" in sent.split("Recent activity")[1]) == rebuilt
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
+
+    @parameterized.expand(
+        [
+            ("stale, too few units", True, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, empty profile", True, 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, failed", True, 3, FakeLLM([(ANSWER, "length")], usage=False), ActivitySummaryStatus.READY),
+            ("current, too few units", False, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
+        ]
+    )
+    def test_a_skipped_rebuild_of_a_stale_summary_reads_not_ready_until_a_good_build(
+        self, _name: str, stale: bool, changes: int, llm: FakeLLM, read_status: ActivitySummaryStatus
+    ) -> None:
+        old_summary = json.loads(ANSWER) | {"headline": "Old stored summary."}
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            status=UserActivitySummary.Status.OK,
+            summary=old_summary,
+            generated_at=NOW - datetime.timedelta(days=2),
+            input_watermark=NOW - datetime.timedelta(days=2),
+            prompt_version=PROMPT_VERSION - 1 if stale else PROMPT_VERSION,
+            render_version=RENDER_VERSION,
+            version=1,
+        )
+        self._changes(changes, days_ago=1)
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
+
+        with patch("products.signals.backend.activity_summary.read.read_config", return_value=config):
+            self._update(llm)
+            skipped = get_summary(self.team, self.user.id)
+            self._changes(3, days_ago=0.5)
+            assert self._update(FakeLLM([ANSWER]), force=True).status == UpdateStatus.OK
+            rebuilt = get_summary(self.team, self.user.id)
+
+        stored = self._stored()
+        assert skipped is not None and rebuilt is not None and stored is not None
+        assert skipped.status == read_status
+        if read_status == ActivitySummaryStatus.READY:
+            assert (skipped.headline, skipped.stale) == ("Old stored summary.", stale)
+        assert (rebuilt.status, rebuilt.headline, rebuilt.stale) == (
+            ActivitySummaryStatus.READY,
+            "Builds the signup funnel.",
+            False,
+        )
+        assert stored.version == 2
 
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)
@@ -226,6 +337,54 @@ class TestUpdateActivitySummary(BaseTest):
         assert after.next_eligible_at == NOW + datetime.timedelta(hours=6)
         assert after.version == before.version == 1
         assert self._versions() == [1]
+
+    def test_an_empty_first_profile_is_a_paid_skip_that_backs_off_and_doubles(self) -> None:
+        self._changes(3)
+        llm = FakeLLM([EMPTY_PROFILE_ANSWER])
+
+        result = self._update(llm)
+
+        assert (result.status, result.summary, result.error) == (UpdateStatus.SKIPPED_EMPTY_PROFILE, None, None)
+        assert len(llm.requests) == 1
+        skipped = self._stored()
+        assert skipped is not None
+        assert (skipped.status, skipped.summary, skipped.generated_at, skipped.input_watermark) == (
+            UserActivitySummary.Status.EMPTY_PROFILE,
+            None,
+            None,
+            None,
+        )
+        assert (skipped.tokens_in, skipped.tokens_out, skipped.cost_usd) == (100, 20, result.cost_usd)
+        assert result.cost_usd
+        assert skipped.updated_at == NOW
+        assert skipped.next_eligible_at == NOW + datetime.timedelta(hours=6)
+        assert self._versions() == []
+
+        with time_machine.travel(NOW + datetime.timedelta(hours=7), tick=False):
+            assert self._update(llm).status == UpdateStatus.SKIPPED_EMPTY_PROFILE
+        skipped_again = self._stored()
+        assert skipped_again is not None
+        assert skipped_again.next_eligible_at == NOW + datetime.timedelta(hours=7 + 12)
+
+    def test_an_empty_profile_on_an_incremental_update_fails_and_keeps_the_stored_summary(self) -> None:
+        self._changes(3, days_ago=2)
+        self._update(FakeLLM([ANSWER]))
+        before = self._stored()
+        assert before is not None
+        self._changes(3, days_ago=0.5)
+        llm = FakeLLM([EMPTY_PROFILE_ANSWER])
+
+        result = self._update(llm, force=True)
+
+        assert result.status == UpdateStatus.FAILED
+        assert len(llm.requests) == 2
+        after = self._stored()
+        assert after is not None
+        assert (after.status, after.error) == (
+            UserActivitySummary.Status.FAILED,
+            "malformed_output: response has no profile",
+        )
+        assert (after.summary, after.input_watermark, after.version) == (before.summary, before.input_watermark, 1)
 
     def test_keeps_the_latest_max_versions_and_deletes_them_with_the_summary(self) -> None:
         for update in range(3):
@@ -304,3 +463,32 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(llm).status == UpdateStatus.SKIPPED_AI_NOT_APPROVED
         assert llm.requests == []
+
+    def test_a_build_as_of_a_past_date_reads_only_the_rows_before_it_and_writes_nothing(self) -> None:
+        self._changes(3, days_ago=11)
+        self._change("Weekly digest", days_ago=10.5, scope="SignalReport")
+        self._change("Funnel after as of", days_ago=9)
+        self._change("Funnel at as of", days_ago=10)
+        self._update(FakeLLM([ANSWER]))
+        stored = self._stored()
+        assert stored is not None
+        llm = FakeLLM([ANSWER])
+
+        with patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=llm):
+            result = build_summary_as_of(
+                self.team.id,
+                self.user.id,
+                NOW - datetime.timedelta(days=10),
+                exclude_products=frozenset({Product.INBOX}),
+            )
+
+        assert result.status == UpdateStatus.OK
+        sent = json.dumps(llm.requests[0]["messages"])
+        assert "Funnel 2" in sent
+        assert "Funnel after as of" not in sent and "Funnel at as of" not in sent
+        assert "Weekly digest" not in sent
+        assert "Builds the signup funnel." not in sent
+        assert result.inputs_used is not None and result.inputs_used["drops"]["excluded_product"] == 1
+        after = self._stored()
+        assert after is not None and (after.version, after.updated_at) == (stored.version, stored.updated_at)
+        assert self._versions() == [1]

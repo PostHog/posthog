@@ -23,9 +23,10 @@ from posthog.credentials_service.instance_settings import get_many_or_instance_s
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking
@@ -49,6 +50,11 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
         return text[:300] if text else None
 
     if isinstance(body, dict):
+        graph_error = body.get("error")
+        if isinstance(graph_error, dict):
+            # Meta's Graph API nests the error in an object whose trace id and codes mean nothing to the customer.
+            message = graph_error.get("message")
+            return str(message) if message else None
         description = body.get("error_description") or body.get("message")
         code = body.get("error")
         if description and code:
@@ -66,6 +72,58 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     return snippet[:300] if snippet else None
 
 
+_INVALID_GRANT_MESSAGE = (
+    "This authorization is no longer valid. Start the connection again and approve access without waiting in between."
+)
+
+_STRIPE_MODE_MISMATCH_MESSAGE = (
+    "Stripe approved this connection in test mode or a sandbox, but PostHog can only connect live mode Stripe accounts. "
+    "Starting the connection again won't fix this. To sync your live data, change Authentication type to "
+    "Restricted API key and use a key you create in live mode."
+)
+
+
+_CLIENT_CREDENTIALS_REJECTED_MESSAGE = (
+    "This connection failed because of a problem on PostHog's side, and nothing in your account needs to change. "
+    "Contact support so we can fix it."
+)
+
+
+def _oauth_error_field(res: requests.Response, field: str) -> str | None:
+    try:
+        body = res.json()
+    except Exception:
+        return None
+    value = body.get(field) if isinstance(body, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def _oauth_error_code(res: requests.Response) -> str | None:
+    return _oauth_error_field(res, "error")
+
+
+def _is_client_credentials_rejected(res: requests.Response) -> bool:
+    # The provider refused PostHog's client id or secret, so starting the connection again fails the same way.
+    if _oauth_error_code(res) == "invalid_client":
+        return True
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    graph_error = body.get("error") if isinstance(body, dict) else None
+    message = graph_error.get("message") if isinstance(graph_error, dict) else None
+    return isinstance(message, str) and "validating client secret" in message.lower()
+
+
+def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
+    # The install link that issued the code fixes its mode, and Stripe redeems it only with the secret
+    # key of that mode. A retry gets a code from the same link, so it fails the same way.
+    if kind != "stripe":
+        return False
+    description = _oauth_error_field(res, "error_description") or ""
+    return "authorization code only supports returning" in description
+
+
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
     """Raise a ValidationError describing a failed OAuth token exchange.
 
@@ -73,6 +131,14 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
     a useful message instead of the generic "Something went wrong" fallback that follows from a
     bare Exception (which surfaces as a 500 with no detail).
     """
+    if _oauth_error_code(res) == "invalid_grant":
+        if _is_stripe_mode_mismatch(kind, res):
+            raise ValidationError(_STRIPE_MODE_MISMATCH_MESSAGE)
+        # The code expired, was already exchanged, or was issued for another account. The
+        # provider's description can echo the code itself, so it stays in the logs.
+        raise ValidationError(_INVALID_GRANT_MESSAGE)
+    if _is_client_credentials_rejected(res):
+        raise ValidationError(_CLIENT_CREDENTIALS_REJECTED_MESSAGE)
     provider_error = _extract_oauth_error_message(res)
     if provider_error:
         raise ValidationError(f"{kind} OAuth failed: {provider_error}")
@@ -132,10 +198,15 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# Every scope here is approved for the public Cloud app, so the same list is requested on every
-# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
-# note by SlackIntegrationScope in frontend/src/types.ts.
+# Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+
+def posthog_slack_scope() -> str:
+    # See SlackIntegrationScopeInReview in frontend/src/types.ts for why only DEV and local request these.
+    if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
+        return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
+    return POSTHOG_SLACK_SCOPE
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
@@ -265,7 +336,7 @@ _POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2
 
 POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
 
-POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write", "inbox:read", "inbox:write")
 
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 
@@ -516,8 +587,8 @@ class OauthIntegration:
     def __str__(self) -> str:
         return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -603,7 +674,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                scope=POSTHOG_SLACK_SCOPE,
+                scope=posthog_slack_scope(),
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -653,14 +724,15 @@ class OauthIntegration:
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
                     # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
                     # mandatory scope would fail the whole authorization for portals that lack it.
-                    # The owners/commerce/product scopes are the same story: the data warehouse
-                    # source offers those tables, but the objects only exist on portals with the
-                    # matching hub, so they stay optional and their tables start deselected.
+                    # The owners/commerce/product/forecast/conversation scopes are the same story: the
+                    # data warehouse source offers those tables, but the objects only exist on portals
+                    # with the matching hub, so they stay optional and their tables start deselected.
                     "optional_scope": (
                         "analytics.behavioral_events.send behavioral_events.event_definitions.read_write "
                         "crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read "
                         "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
-                        "crm.objects.subscriptions.read crm.objects.commercepayments.read"
+                        "crm.objects.subscriptions.read crm.objects.commercepayments.read "
+                        "crm.objects.forecasts.read conversations.read"
                     )
                 },
                 id_path="hub_id",
@@ -705,7 +777,9 @@ class OauthIntegration:
         elif kind == "google-search-console":
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                # `consent` forces a refresh token. `select_account` always shows the account chooser,
+                # so a user whose signed-in account owns no property can reconnect with the one that does.
+                additional_authorize_params={"access_type": "offline", "prompt": "consent select_account"},
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
@@ -1430,6 +1504,10 @@ class OauthIntegration:
             config["expires_in"] = 3600
 
         config["refreshed_at"] = int(time.time())
+        if kind == "linear":
+            # A token refresh rewrites `refreshed_at` and a reconnect keeps `created_at`, so neither says
+            # when the workspace last authorized the app. See `LinearIntegration.authorized_before_webhooks`.
+            config["authorized_at"] = config["refreshed_at"]
 
         integration, created = model.Integration.objects.update_or_create(
             team_id=team_id,

@@ -16,15 +16,7 @@ import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils/guards'
 
-import {
-    ActionType,
-    BaseMathType,
-    DashboardTemplateVariableType,
-    EntityType,
-    EntityTypes,
-    FilterType,
-    TemplateVariableStep,
-} from '~/types'
+import { ActionType, BaseMathType, DashboardTemplateVariableType, EntityTypes, TemplateVariableStep } from '~/types'
 
 export interface DashboardTemplateVariablesLogicProps {
     variables: DashboardTemplateVariableType[]
@@ -85,9 +77,9 @@ export interface dashboardTemplateVariablesLogicActions {
     }
     setVariable: (
         variableName: string,
-        filterGroup: FilterType
+        step: TemplateVariableStep | undefined
     ) => {
-        filterGroup: FilterType
+        step: TemplateVariableStep | undefined
         variable_name: string
     }
     setVariableForPageview: (
@@ -139,9 +131,9 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        setVariable: (variableName: string, filterGroup: FilterType) => ({
+        setVariable: (variableName: string, step: TemplateVariableStep | undefined) => ({
             variable_name: variableName,
-            filterGroup,
+            step,
         }),
         setVariableFromAction: (variableName: string, action: ActionType) => ({ variableName, action }),
         setVariableForPageview: (variableName: string, url: string) => ({ variableName, url }),
@@ -167,24 +159,14 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                         return { ...v, default: FALLBACK_EVENT } as unknown as DashboardTemplateVariableType
                     })
                 },
-                setVariable: (state, { variable_name: variableName, filterGroup }): DashboardTemplateVariableType[] => {
-                    // There is only one type with contents at a time
-                    // So iterate through the types to find the first one with contents
-                    const typeWithContents: EntityType = Object.keys(filterGroup).filter(
-                        (group) => (filterGroup[group as EntityType] || [])?.length > 0
-                    )?.[0] as EntityType
-
-                    if (!typeWithContents) {
+                setVariable: (state, { variable_name: variableName, step }): DashboardTemplateVariableType[] => {
+                    if (!step) {
                         return state
                     }
 
                     return state.map((v: DashboardTemplateVariableType) => {
-                        if (
-                            v.name === variableName &&
-                            filterGroup?.[typeWithContents]?.length &&
-                            filterGroup?.[typeWithContents]?.[0]
-                        ) {
-                            return { ...v, default: filterGroup[typeWithContents]?.[0] || {}, touched: true }
+                        if (v.name === variableName) {
+                            return { ...v, default: step, touched: true }
                         }
                         return { ...v }
                     })
@@ -272,10 +254,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 href: action.steps?.[0]?.href,
                 url: action.steps?.[0]?.url,
             }
-            const filterGroup: FilterType = {
-                actions: [step],
-            }
-            actions.setVariable(originalVariableName, filterGroup)
+            actions.setVariable(originalVariableName, step)
             actions.setIsCurrentlySelectingElement(false)
         },
         setVariableForPageview: ({ variableName, url }) => {
@@ -295,10 +274,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                     },
                 ],
             }
-            const filterGroup: FilterType = {
-                events: [step],
-            }
-            actions.setVariable(variableName, filterGroup)
+            actions.setVariable(variableName, step)
             actions.setIsCurrentlySelectingElement(false)
         },
         setVariableForScreenview: ({ variableName }) => {
@@ -310,10 +286,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 name: '$screenview',
                 custom_name: variableName,
             }
-            const filterGroup: FilterType = {
-                events: [step],
-            }
-            actions.setVariable(variableName, filterGroup)
+            actions.setVariable(variableName, step)
             actions.setIsCurrentlySelectingElement(false)
         },
         toolbarMessageReceived: ({ type, payload }) => {

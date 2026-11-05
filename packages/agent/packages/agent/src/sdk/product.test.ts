@@ -97,4 +97,13 @@ describe("buildPullRequestFooter", () => {
   ] as const)("formats the %s footer", (_name, options, footer, expected) => {
     expect(buildPullRequestFooter(launch(options), footer)).toBe(expected);
   });
+
+  it("credits PostHog for a task from the web chat", () => {
+    const webLaunch = { ...launch(), clientProvenance: "posthog_web" };
+    const source = { label: "PostHog AI chat", url: "https://example.com/c" };
+
+    expect(buildPullRequestFooter(webLaunch, { source })).toBe(
+      "*Created with [PostHog](https://posthog.com?ref=pr) from a [PostHog AI chat](https://example.com/c)*",
+    );
+  });
 });

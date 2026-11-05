@@ -92,7 +92,11 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 should not replay the initial loading animation. */}
             <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
+                    <LogsViewer
+                        id={LOGS_SCENE_VIEWER_ID}
+                        showSavedViewsButton
+                        keyboardShortcutsEnabled={activeTab === 'viewer'}
+                    />
                 </div>
             </div>
             {showServices && showServicesV2 && <LogsServicesV2 />}

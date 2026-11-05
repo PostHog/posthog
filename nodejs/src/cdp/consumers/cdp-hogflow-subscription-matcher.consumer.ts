@@ -12,6 +12,7 @@ import {
 import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
 import {
     KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_EVENTS_JSON,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
@@ -33,6 +34,7 @@ import {
     Team,
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -46,6 +48,8 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
+import { CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
 import { ParseBatchOptions, parseBatch, skipIfMalformed } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
@@ -136,11 +140,11 @@ const histogramHogflowMatcherFindParkedJobs = new Histogram({
 
 // Which Kafka stream a batch came from. Labels the find_parked_jobs metric so the person and
 // internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
-type WakeSource = 'events' | 'person' | 'internal_events'
+type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
 export const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
-    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, or unknown team.',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), an invalid team id, unknown team, a backfilled cohort membership change, or a captured event that uses the reserved cohort membership event name.',
     labelNames: ['reason'],
 })
 
@@ -212,6 +216,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // realtime_only_events_json carries the $feature_flag_called events that ingestion stops writing to
     // clickhouse_events_json for a FLAG_EVALUATIONS_ONLY organization.
     private realtimeOnlyEventsKafkaConsumer?: KafkaConsumerInterface
+    // cohort_membership_changed carries realtime cohort joins and leaves. Each one becomes a
+    // `$cohort_membership_changed` event, so event waits and event conversion goals can match it.
+    private cohortMembershipKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
@@ -250,6 +257,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             {
                 groupId: 'cdp-hogflow-subscription-matcher-person-distinct-id-consumer',
                 topic: KAFKA_PERSON_DISTINCT_ID,
+            },
+            startAtLatest
+        )
+        this.cohortMembershipKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-cohort-membership-consumer',
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
             },
             startAtLatest
         )
@@ -325,10 +339,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return fg
         }
 
+        // A cohort membership change carries no person properties. A filter that reads the person would see
+        // an empty person, so a negative filter such as "is not set" would match. Such a change is judged
+        // only by event entries that do not read the person.
+        const eventsOnly = source === 'cohort_membership'
+
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove.
-        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor)
+        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor, eventsOnly)
         counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
 
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
@@ -374,9 +393,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 continue
             }
 
-            const action = candidate.actionId
+            const parkedOn = candidate.actionId
                 ? hogflow.actions.find((a: HogFlowAction) => a.id === candidate.actionId)
                 : undefined
+            const action =
+                eventsOnly && parkedOn?.type === 'wait_until_condition'
+                    ? {
+                          ...parkedOn,
+                          config: {
+                              ...parkedOn.config,
+                              condition: { filters: null },
+                              events: parkedOn.config.events?.filter(
+                                  (eventConfig) => !readsPerson(eventConfig.filters?.bytecode)
+                              ),
+                          },
+                      }
+                    : parkedOn
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
@@ -402,7 +434,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals, eventsOnly))) {
                     conversionMatched = true
                     // Remember who converted (and via which event) so we can emit $workflows_conversion.
                     conversionDistinctId = globals.event.distinct_id
@@ -450,11 +482,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
+    private async evaluateConversionEvents(
+        hogflow: HogFlow,
+        filterGlobals: FilterGlobals,
+        eventsOnly: boolean
+    ): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
             if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
+            if (eventsOnly && readsPerson(eventConfig.filters?.bytecode)) {
                 continue
             }
             if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
@@ -615,7 +654,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
      */
     private async claimConversionWatchers(
         indexed: IndexedBatch,
-        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals
+        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
+        eventsOnly: boolean
     ): Promise<number> {
         const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
 
@@ -661,8 +701,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 byDistinctId,
                 byPersonId
             )
+            const goal: PinnedConversionGoal = eventsOnly
+                ? { events: row.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
+                : row.goal
             for (const globals of candidateGlobals) {
-                const conversionType = await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)
+                const conversionType = await matchesPinnedGoal(goal, filterGlobalsFor(globals), row.function_id)
                 if (conversionType) {
                     converted.push({
                         row,
@@ -777,9 +820,32 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                 return null
             }
+            // Only the cohort membership topic says who joined or left a cohort. Anyone with the
+            // project token can capture an event with this name, and it would count as a conversion.
+            if (clickHouseEvent.event === COHORT_MEMBERSHIP_CHANGED_EVENT) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'reserved_event_name' }).inc()
+                return null
+            }
             return {
                 teamId: clickHouseEvent.team_id,
                 toGlobals: (team) => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
+            }
+        })
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.parseCohortMembershipMessages')
+    public async _parseCohortMembershipBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        return await this.parseMatcherBatch(messages, 'Error parsing cohort membership change', (message) => {
+            const change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+            // Seed and reconcile changes restate membership the person already had. They are not a join
+            // or a leave, so they must not satisfy a wait or a conversion goal.
+            if (change.origin) {
+                counterHogflowMatcherEventSkipped.labels({ reason: 'cohort_membership_backfill' }).inc()
+                return null
+            }
+            return {
+                teamId: change.team_id,
+                toGlobals: (team) => convertCohortMembershipChangeToGlobals(change, team, this.config.SITE_URL),
             }
         })
     }
@@ -1180,6 +1246,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.realtimeOnlyEventsKafkaConsumer?.connect(
                 this.eventsBatchHandler('cdpHogflowSubscriptionMatcher.handleRealtimeOnlyEventsBatch')
             ),
+            this.cohortMembershipKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleCohortMembershipBatch', async () => ({
+                    backgroundTask: this.processBatch(
+                        await this._parseCohortMembershipBatch(messages),
+                        'cohort_membership'
+                    ),
+                }))
+            }),
         ])
     }
 
@@ -1203,6 +1277,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.internalEventsKafkaConsumer.disconnect(),
             this.personDistinctIdKafkaConsumer.disconnect(),
             this.realtimeOnlyEventsKafkaConsumer?.disconnect(),
+            this.cohortMembershipKafkaConsumer.disconnect(),
         ])
         await this.cyclotronPool.end()
         await super.stop()
@@ -1217,6 +1292,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.internalEventsKafkaConsumer.isHealthy(),
             this.personDistinctIdKafkaConsumer.isHealthy(),
             ...(this.realtimeOnlyEventsKafkaConsumer ? [this.realtimeOnlyEventsKafkaConsumer.isHealthy()] : []),
+            this.cohortMembershipKafkaConsumer.isHealthy(),
         ]
         return results.find((r) => r.status !== 'ok') ?? results[0]
     }
@@ -1294,6 +1370,12 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     }
     const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+// Compiled filters read `person.properties.<key>` by pushing the string 'person' as the root of the field
+// chain. A literal 'person' value in a filter also matches, which only drops that entry for membership changes.
+function readsPerson(bytecode: unknown): boolean {
+    return Array.isArray(bytecode) && bytecode.includes('person')
 }
 
 // A pinned goal converts when the property branch matches, or any event branch does. The two are

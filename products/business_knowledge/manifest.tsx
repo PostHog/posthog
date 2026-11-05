@@ -20,7 +20,7 @@ export const manifest: ProductManifest = {
             activityScope: 'KnowledgeSource',
             iconType: 'business_knowledge',
             description:
-                'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+                'Upload text, public URLs, or files so AI can understand your business context, vision, and policies.',
         },
         BusinessKnowledgePlayground: {
             name: 'Business knowledge playground',

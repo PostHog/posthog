@@ -2520,7 +2520,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
                 "string_empty_prop",
                 "",
                 PropertyType.String,
-                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+                self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
             ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),

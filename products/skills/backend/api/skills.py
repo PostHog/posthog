@@ -39,12 +39,15 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_analytics import record_skill_event, skill_analytics_props
 from .skill_catalog import list_queryset
+from .skill_manifest import build_skill_manifests
 from .skill_permissions import CommunityPublishFeatureFlagPermission, CommunityPublishOwnerPermission
 from .skill_search import SkillSearchTimeout, search_skills
 from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
+    LLMSkillManifestListQuerySerializer,
+    LLMSkillManifestSerializer,
     LLMSkillSearchErrorSerializer,
     LLMSkillSearchQuerySerializer,
     LLMSkillSearchResponseSerializer,
@@ -113,9 +116,9 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
-        if self.action == "list":
+        if self.action in ["list", "manifests"]:
             return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
-        if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
+        if self.action in ["update_by_name", "get_by_name", "resolve_by_name", "manifest"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 
@@ -222,7 +225,46 @@ class LLMSkillViewSet(
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
         version = team_skills_version(self.team)
-        list_response = self._list_response(request)
+        return self._conditional_list_response(request, self._list_response(request), version)
+
+    @extend_schema(
+        parameters=[LLMSkillManifestListQuerySerializer],
+        responses={
+            200: LLMSkillManifestSerializer(many=True),
+            304: OpenApiResponse(
+                description="Not modified. The client sent an If-None-Match that matches the current manifests."
+            ),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="manifests", required_scopes=["llm_skill:read"])
+    @llma_track_latency("llma_skills_manifests")
+    @monitor(feature=None, endpoint="llma_skills_manifests", method="GET")
+    def manifests(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        """The resource manifest of the latest version of each skill, paged and filtered like the list."""
+        version = team_skills_version(self.team)
+        return self._conditional_list_response(request, self._manifests_response(request), version)
+
+    def _manifests_response(self, request: Request) -> Response:
+        params = self._validated_query(LLMSkillManifestListQuerySerializer, request)
+        queryset = self.filter_queryset(
+            list_queryset(
+                team=self.team,
+                user_access_control=self.user_access_control,
+                params=params,
+                query_params=request.query_params,
+            )
+        ).defer("body")
+        if "exclude_category" in params:
+            queryset = queryset.exclude(category=params["exclude_category"])
+
+        page = self.paginate_queryset(queryset)
+        skills = [self._apply_trial_skill(request, skill) for skill in (queryset if page is None else page)]
+        data = LLMSkillManifestSerializer(instance=build_skill_manifests(skills), many=True).data
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response({"count": len(data), "results": data})
+
+    def _conditional_list_response(self, request: Request, list_response: Response, version: str) -> HttpResponseBase:
         validators = self._list_validators(request, list_response, version)
         # Validate and apply access rules before a conditional response can reuse a cached body.
         response = get_conditional_response(request._request, etag=validators.etag) or list_response

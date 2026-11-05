@@ -25,12 +25,11 @@ import {
     trackToolsList,
     trackToolSpan,
 } from '@/hono/analytics'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
@@ -79,6 +78,8 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         },
         allTools: [],
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
+        supportsStepUp: false,
         flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
@@ -203,12 +204,19 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
-    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
-        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+    it.each([
+        [MCP_INTENT_PROMPT_FLAG, true],
+        [MCP_INTENT_PROMPT_FLAG, false],
+        [MCP_INTENT_PROMPT_FLAG, undefined],
+        [MCP_INBOX_FIRST_FLAG, true],
+        [MCP_INBOX_FIRST_FLAG, false],
+        [MCP_INBOX_FIRST_FLAG, undefined],
+    ])('records the evaluated experiment flag %s: %s', async (flagKey, flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [flagKey]: flagValue } })
 
         await trackToolCall('user-get', 12, false, state)
 
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${flagKey}`]).toBe(flagValue)
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
@@ -273,74 +281,6 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
-    })
-
-    // The no-data experiment compares variants on projects without events, so these properties
-    // must reach every event for those projects and stay off events for projects with data.
-    it.each([
-        {
-            name: 'an untouched call on a project without events',
-            projectHasData: false,
-            variant: 'block',
-            noDataAction: undefined,
-            expected: {
-                mcp_project_has_data: false,
-                mcp_no_data_action: 'none',
-                '$feature/mcp-no-data-install-notice': 'block',
-            },
-        },
-        {
-            name: 'a blocked call on a project without events',
-            projectHasData: false,
-            variant: 'block',
-            noDataAction: 'blocked' as const,
-            expected: {
-                mcp_project_has_data: false,
-                mcp_no_data_action: 'blocked',
-                '$feature/mcp-no-data-install-notice': 'block',
-            },
-        },
-        {
-            name: 'a warned call on a project without events',
-            projectHasData: false,
-            variant: 'warn',
-            noDataAction: 'warned' as const,
-            expected: {
-                mcp_project_has_data: false,
-                mcp_no_data_action: 'warned',
-                '$feature/mcp-no-data-install-notice': 'warn',
-            },
-        },
-        {
-            name: 'a call on a project with events',
-            projectHasData: true,
-            variant: 'block',
-            noDataAction: undefined,
-            expected: {
-                mcp_project_has_data: true,
-                mcp_no_data_action: undefined,
-                '$feature/mcp-no-data-install-notice': undefined,
-            },
-        },
-    ])('stamps the project data state for $name', async ({ projectHasData, variant, noDataAction, expected }) => {
-        const state = makeState({
-            projectHasData,
-            noDataAction,
-            toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
-            reqCtx: {
-                ...makeState().reqCtx,
-                safelyGetAnalyticsContext: vi.fn(async () => ({ projectId: '1', projectHasData })),
-            } as any,
-        })
-
-        await trackToolCall('query-trends', 0, false, state)
-        await trackInitEvent(state)
-
-        const toolCallProperties = mockCaptureToolCall.mock.calls[0]![0].properties
-        for (const [key, value] of Object.entries(expected)) {
-            expect(toolCallProperties[key]).toBe(value)
-        }
-        expect(mockCaptureInitialize.mock.calls[0]![0].properties.mcp_project_has_data).toBe(projectHasData)
     })
 
     it('categorizes a proxied third-party tool and names its server', async () => {
@@ -609,6 +549,47 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            [
+                'execute-sql wrapped in a connection call',
+                'posthog-connection-call',
+                { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
+                false,
+            ],
+            [
+                'a connection forward',
+                'posthog-connection-forward',
+                { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
+                false,
+            ],
+            [
+                'preparing an email send',
+                'workflows-send-email-prepare',
+                { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
+            [
+                'an email send through exec',
+                'exec',
+                { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            [
+                'an email send forwarded through a PostHog connection',
+                'exec',
+                {
+                    command:
+                        'call posthog-connection-call {"connection_id":"1","tool":"workflows-send-email-prepare","arguments":{"html":"<p>code 123456</p>"}}',
+                },
+                false,
+            ],
+            [
+                'an email send exec rejects for a missing verb',
+                'exec',
+                { command: 'workflows-send-email-prepare {"html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            ['another tool through exec', 'exec', { command: 'call feature-flag-get-all {}' }, true],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

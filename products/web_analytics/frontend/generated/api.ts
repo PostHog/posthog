@@ -12,13 +12,16 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
+    AEOPromptVersionApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
+    AeoPromptsOverviewParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -119,7 +122,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -138,7 +141,7 @@ export const getAeoPromptsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Gets one prompt from the project's AEO prompt set, with its latest check per answer engine.
+ * Gets one prompt from the project's AEO prompt set, archived ones included, with its latest check per answer engine.
  * @summary Get an AEO prompt
  */
 export const aeoPromptsRetrieve = async (
@@ -157,8 +160,8 @@ export const getAeoPromptsPartialUpdateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.
- * @summary Turn an AEO prompt on or off
+ * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
+ * @summary Update an AEO prompt
  */
 export const aeoPromptsPartialUpdate = async (
     projectId: string,
@@ -171,6 +174,21 @@ export const aeoPromptsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOPromptUpdateRequestApi),
+    })
+}
+
+export const getAeoPromptsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * Archives a prompt: it is turned off and never runs again. Nothing is deleted, and its versions and checks are kept. Restore it with a PATCH of archived=false.
+ * @summary Archive an AEO prompt
+ */
+export const aeoPromptsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoPromptsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -191,7 +209,7 @@ export const getAeoPromptsChecksUrl = (projectId: string, id: string, params?: A
 }
 
 /**
- * Lists every check of one prompt, newest first, one page at a time. Each check has the engine's answer, the URLs it cited and the searches it ran.
+ * Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.
  * @summary List an AEO prompt's checks
  */
 export const aeoPromptsChecks = async (
@@ -211,7 +229,7 @@ export const getAeoPromptsStatsUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Gets citation totals per answer engine for one prompt, plus per-day counts for the last 30 days in the project's timezone.
+ * Gets citation and brand-mention totals per answer engine for one prompt, plus, for the last 30 days in the project's timezone, per-day counts, which engines cite which domains, brand sentiment per engine, and the words of the web searches the engines ran.
  * @summary Get an AEO prompt's citation stats
  */
 export const aeoPromptsStats = async (
@@ -225,12 +243,31 @@ export const aeoPromptsStats = async (
     })
 }
 
+export const getAeoPromptsVersionsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/versions/`
+}
+
+/**
+ * Lists every version of a prompt's text, newest first. A text edit adds a version, and one of them is current.
+ * @summary List an AEO prompt's versions
+ */
+export const aeoPromptsVersions = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOPromptVersionApi[]> => {
+    return apiMutator<AEOPromptVersionApi[]>(getAeoPromptsVersionsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAeoPromptsBulkImportUrl = (projectId: string) => {
     return `/api/projects/${projectId}/aeo_prompts/bulk_import/`
 }
 
 /**
- * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
  * @summary Import AEO prompts
  */
 export const aeoPromptsBulkImport = async (
@@ -243,6 +280,37 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/overview/`
+}
+
+/**
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * @summary Get the AEO prompt set overview
+ */
+export const aeoPromptsOverview = async (
+    projectId: string,
+    params?: AeoPromptsOverviewParams,
+    options?: RequestInit
+): Promise<AEOPromptSetOverviewApi> => {
+    return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

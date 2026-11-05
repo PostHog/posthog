@@ -1,8 +1,8 @@
 import { mswDecorator } from '~/mocks/browser'
 
 import { NEW_WORKFLOW } from '../../workflowLogic'
-import { EXAMPLE_WORKFLOWS } from '../tree/exampleWorkflows'
 import type { HogFlow, HogFlowAction } from '../types'
+import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 
 export const CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID = 'storybook-complex-workflow'
 export const CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW: HogFlow = {
@@ -292,6 +292,7 @@ export function createWorkflowEditorStoryDecorator(
             ],
             // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
             '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
+            '/api/projects/:team_id/workflow_imports/for_workflow/': [204],
         },
         patch: {
             // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.

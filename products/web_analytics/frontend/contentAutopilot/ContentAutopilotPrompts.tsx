@@ -1,6 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -11,6 +21,7 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { engineLabel } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
@@ -22,9 +33,20 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
-    const { prompts, promptsLoading, promptsError, promptsPage, promptsTopic, promptTopics, promptEngines } =
-        useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, setPromptsPage, setPromptsTopic } = useActions(contentAutopilotPromptsLogic)
+    const {
+        prompts,
+        promptsLoading,
+        promptsError,
+        promptsPage,
+        promptsTopic,
+        promptTopics,
+        promptTopicsError,
+        promptTopicsLoading,
+        promptEngines,
+        showArchived,
+    } = useValues(contentAutopilotPromptsLogic)
+    const { loadAeoPrompts, loadAeoPromptTopics, setPromptsPage, setPromptsTopic, setShowArchived } =
+        useActions(contentAutopilotPromptsLogic)
     const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
     if (promptsError === 'forbidden') {
@@ -48,9 +70,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 it ran.
             </p>
             <p className="m-0 text-muted max-w-3xl">
-                You can view tracked prompts and turn them on or off here. To add prompts or change their text, use the
-                API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
+                You can view tracked prompts, turn them on or off, and archive them here. To add prompts or change their
+                text, use the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog
+                MCP tools. A text change adds a new version of the prompt.
             </p>
+            <ContentAutopilotPromptsOverview />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"
@@ -65,6 +89,28 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         })),
                     ]}
                     data-attr="content-autopilot-prompts-topic-filter"
+                />
+                {promptTopicsError ? (
+                    <span className="flex items-center gap-1 text-danger text-sm">
+                        Couldn't load topics.
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={loadAeoPromptTopics}
+                            loading={promptTopicsLoading}
+                            data-attr="content-autopilot-prompts-topics-retry"
+                        >
+                            Try again
+                        </LemonButton>
+                    </span>
+                ) : null}
+                <LemonSwitch
+                    checked={showArchived}
+                    onChange={setShowArchived}
+                    label="Show archived"
+                    bordered
+                    size="small"
+                    data-attr="content-autopilot-prompts-show-archived"
                 />
             </div>
 
@@ -81,7 +127,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 promptsError ? null : (
                     <LemonSkeleton className="h-40 w-full" />
                 )
-            ) : count === 0 && promptsTopic === null ? (
+            ) : count === 0 && promptsTopic === null && !showArchived ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
@@ -94,7 +140,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     dataSource={prompts.results}
                     rowKey="id"
                     loading={promptsLoading}
-                    emptyState="No prompts have this topic"
+                    emptyState={promptsTopic === null ? 'No prompts to show' : 'No prompts have this topic'}
                     pagination={{
                         controlled: true,
                         pageSize: PROMPTS_PAGE_SIZE,
@@ -149,9 +195,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         {
                             title: 'Active',
                             key: 'active',
-                            render: (_, { id, active }) => (
-                                <ContentAutopilotPromptActiveSwitch promptId={id} active={active} />
-                            ),
+                            render: (_, { id, active, archived_at }) =>
+                                archived_at ? (
+                                    <LemonTag type="muted">Archived</LemonTag>
+                                ) : (
+                                    <ContentAutopilotPromptActiveSwitch promptId={id} active={active} />
+                                ),
                         },
                     ]}
                 />

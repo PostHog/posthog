@@ -13,7 +13,7 @@ import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api
 import { PANEL_LOAD_TIMEOUT_MS } from '../utils/panelLoadTimeout'
 import { forgetUnreachableReports } from '../utils/unreachableReports'
 import {
-    SCRATCHPAD_FETCH_LIMIT,
+    SCRATCHPAD_WINDOW_PAGE_SIZE,
     SCRATCHPAD_PREVIEW_CHARS,
     describeLoadedSpan,
     entriesForSkill,
@@ -185,15 +185,15 @@ describe('scratchpadLogic', () => {
             ...entry(`pattern:${i}`, 'note'),
             updated_at: new Date().toISOString(),
         })
-        const full = Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => fresh(i))
+        const full = Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => fresh(i))
 
         logic.actions.loadEntriesSuccess(full)
-        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_FETCH_LIMIT)
+        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_WINDOW_PAGE_SIZE)
         expect(logic.values.recentlyLearnedCountCapped).toBe(true)
 
         // One stale entry in a full fetch means the window ended inside it, so the count is exact.
         logic.actions.loadEntriesSuccess([...full.slice(1), WHOLE])
-        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_FETCH_LIMIT - 1)
+        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_WINDOW_PAGE_SIZE - 1)
         expect(logic.values.recentlyLearnedCountCapped).toBe(false)
 
         logic.actions.loadEntriesSuccess(full.slice(0, 10))
@@ -336,11 +336,11 @@ describe('scratchpadLogic', () => {
     })
 
     // Older pages walk the unfiltered window with a cursor, and a search is a separate one-shot
-    // read they never reach. A control offered during a search spends a page of up to a thousand
+    // read they never reach. A control offered during a search spends a page of up to a few hundred
     // rows the table cannot show, and moves the header counts while the listed rows stay put.
     it('offers no older pages while a search is active', async () => {
         logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
         )
         expect(logic.values.canLoadOlderEntries).toBe(true)
 
@@ -357,7 +357,7 @@ describe('scratchpadLogic', () => {
     // older is left. A control left live over that gap pages from the window that just went away.
     it('retires the older-page control while the first page reloads', async () => {
         logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
         )
         expect(logic.values.hasMoreOlderEntries).toBe(true)
 
@@ -406,7 +406,7 @@ describe('scratchpadLogic', () => {
     // spinner just stops, and the reader reads a failed press as an empty memory.
     it('records a failed older page and clears the record on the retry', async () => {
         logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => entry(`pattern:${i}`, 'note'))
+            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
         )
         useMocks({ get: { [SCRATCHPAD_URL]: () => [500, {}] } })
 
@@ -441,12 +441,15 @@ describe('scratchpadLogic', () => {
         })
         logic.actions.loadEntries()
         await expectLogic(logic).toFinishAllListeners()
+        // The unfiltered window is the wide read, so both pages ask for the smaller page.
+        expect(searchRequests[0].get('limit')).toEqual(String(SCRATCHPAD_WINDOW_PAGE_SIZE))
         searchRequests = []
 
         logic.actions.loadOlderEntries()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(searchRequests[0].get('date_to')).toEqual(WHOLE.updated_at)
+        expect(searchRequests[0].get('limit')).toEqual(String(SCRATCHPAD_WINDOW_PAGE_SIZE))
         expect(logic.values.olderEntries).toEqual([older])
         expect(logic.values.windowEntries?.map((e) => e.key)).toEqual([TRUNCATED.key, WHOLE.key, older.key])
         // A short page is the end of the memory, so the button goes away.

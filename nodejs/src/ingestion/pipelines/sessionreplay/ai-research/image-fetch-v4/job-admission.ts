@@ -9,7 +9,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef } from './v4-native'
 
 /** Each lookup's read budget starts when it starts, so a batch of many new team months must not start them all at once. */
 const KEY_LOOKUP_CONCURRENCY = 16
@@ -37,7 +37,7 @@ const DEFERRED = Symbol('deferred')
 /**
  * Drops a v4 job before any request when nothing could store its image: its team month has no live key, because the
  * key row expired, is missing or is a tombstone. The recorder stores the row before it sends a URL, so a missing row
- * means it expired.
+ * means it expired. A public font is stored for no team, so it needs no key.
  */
 export class V4JobAdmission {
     private readonly keyLookups = pLimit(KEY_LOOKUP_CONCURRENCY)
@@ -76,11 +76,15 @@ export class V4JobAdmission {
         budget: AbortSignal
     ): Promise<FetchCandidate[]> {
         const keys = new Map<string, Promise<TeamMonthKey | typeof DEFERRED>>()
-        const live: { candidate: FetchCandidate; teamMonth: string }[] = []
+        const live: { candidate: FetchCandidate; teamMonth?: string }[] = []
         for (const candidate of candidates) {
             const ref = parseV4UrlRef(candidate.originalRef)
             if (!ref) {
                 droppedJobs.labels('foreign_ref').inc()
+                continue
+            }
+            if (ref.scope === 'public') {
+                live.push({ candidate })
                 continue
             }
             // DynamoDB removes an expired row some time after `expires_at`, so the row may still be there.
@@ -103,8 +107,10 @@ export class V4JobAdmission {
         const admitted: FetchCandidate[] = []
         let deferred = 0
         for (const { candidate, teamMonth } of live) {
-            const key = resolved.get(teamMonth)!
-            if (key === DEFERRED) {
+            const key = teamMonth === undefined ? undefined : resolved.get(teamMonth)!
+            if (key === undefined) {
+                admitted.push(candidate)
+            } else if (key === DEFERRED) {
                 deferred++
                 admitted.push({
                     ...candidate,
@@ -136,10 +142,16 @@ export class V4JobAdmission {
                 budget
             )
         } catch (error) {
-            if (budget.aborted) {
+            // A key read that timed out is as transient as a spent budget. Thrown, it fails the whole batch and restarts the pod.
+            if (budget.aborted || isTimeout(error)) {
                 return DEFERRED
             }
             throw error
         }
     }
+}
+
+/** The AWS SDK rejects a call whose own timeout fired with an `AbortError`, and `AbortSignal.timeout` with a `TimeoutError`. */
+function isTimeout(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
 }
