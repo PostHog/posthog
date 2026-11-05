@@ -21,7 +21,7 @@ func TestLoadConfig(t *testing.T) {
 				// Values already set in setupTestConfig
 				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
 				t.Setenv("LIVESTREAM_TRUSTED_PROXIES", "10.0.0.2/32,2001:db8::1/128")
-				t.Setenv("LIVESTREAM_JWT_AUTHORIZATION_SIGNING_KEYS", "test-primary-service-key,test-old-service-key")
+				t.Setenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", "test-primary-service-key,test-old-service-key")
 			},
 			want: &Config{
 				Debug:            true,

@@ -101,7 +101,7 @@ func InitConfigs(filename, configPath string) {
 
 	// Core settings
 	_ = viper.BindEnv("trusted_proxies")
-	_ = viper.BindEnv("jwt.authorization_signing_keys")
+	_ = viper.BindEnv("jwt.authorization_signing_keys", "LIVESTREAM_AUTHORIZATION_SIGNING_KEYS")
 	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG
 	_ = viper.BindEnv("parallelism")        // LIVESTREAM_PARALLELISM
 	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
