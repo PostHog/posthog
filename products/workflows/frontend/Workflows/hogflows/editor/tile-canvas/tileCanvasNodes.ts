@@ -240,13 +240,12 @@ function isAwaitedStepDrag(event: StepDragEvent, canvas: StepDropCanvas): boolea
     return canvas.isWaitingForStep && event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)
 }
 
-// A release on the moving step or on the path trail, command bar or zoom controls is how a user cancels the drag.
-function isOverNoDropArea(event: StepDragEvent): boolean {
+function isReleasedWhereDragCancels(event: StepDragEvent): boolean {
     return event.target instanceof Element && !!event.target.closest(`[${MOVING_STEP_ATTR}], .react-flow__panel`)
 }
 
 function placeableEdgeUnderDrag(event: StepDragEvent, canvas: StepDropCanvas): HogFlowEdge | null {
-    if (isOverNoDropArea(event)) {
+    if (isReleasedWhereDragCancels(event)) {
         return null
     }
     const point = canvas.toFlowPoint({ x: event.clientX, y: event.clientY })
