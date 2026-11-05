@@ -2684,9 +2684,7 @@ def backfill_through_trino(
             context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
             continue
         replacement = item.replacement if config.cleanup_existing_partition_data else None
-        # An export can run longer than the Trino service credential lives, and an expired credential cannot be
-        # renewed. So each registration opens its own connection after the export, and no connection stays open
-        # while an export runs.
+        # An export can outlive the Trino service credential, which cannot be renewed after it expires.
         with connect() as catalog:
             if rebuild:
                 # The rebuild waits until the export finished, to keep the window with an empty table short. A file
