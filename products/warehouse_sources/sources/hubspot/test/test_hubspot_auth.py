@@ -205,14 +205,16 @@ def test_token_refresh_saves_the_token_only_for_a_source_with_its_own_token(
 
     with (
         _patch_post(response),
+        patch("products.warehouse_sources.sources.hubspot.auth.transaction.atomic"),
         patch.object(ExternalDataSource, "objects") as objects,
-        patch.object(SourceInputsStore, "load", return_value=stored_inputs),
+        patch.object(SourceInputsStore, "load_stored", return_value=stored_inputs),
         patch.object(SourceInputsStore, "update_oauth_inputs") as update_oauth_inputs,
     ):
-        objects.get.return_value = source
+        locked_sources = objects.select_related.return_value.select_for_update.return_value
+        locked_sources.get.return_value = source
         assert hubspot_refresh_access_token("fake-refresh", source_id="source-id") == "fake-new"
 
-    objects.get.assert_called_once_with(id="source-id")
+    locked_sources.get.assert_called_once_with(id="source-id")
     if expected_write:
         # Not a full save, so the reference column keeps its value.
         update_oauth_inputs.assert_called_once_with(source, {"hubspot_secret_key": "fake-new"}, extra_update_fields=())

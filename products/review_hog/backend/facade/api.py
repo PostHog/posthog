@@ -201,6 +201,7 @@ def _repository_settings(
         full_name=row.full_name,
         selected=row.selected,
         flash_for=AutomaticFlashFor(row.flash_for) if row.flash_for is not None else None,
+        review_drafts=row.review_drafts,
         people=_person_entries(people.get(row.id, [])),
         created_by=_user_ref(row.created_by),
         created_at=row.created_at,
@@ -255,6 +256,7 @@ def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
         selected=entry.selected,
         repository_id=repository.id if repository is not None else None,
         exception=exception,
+        review_drafts=repository is not None and repository.review_drafts,
         my_choice=ReviewUserRepositoryChoiceMode(entry.my_choice.mode) if entry.my_choice is not None else None,
         my_choice_id=entry.my_choice.id if entry.my_choice is not None else None,
         my_result=entry.my_result,
@@ -294,14 +296,19 @@ def save_review_repository(
     github_repo_id: int | None,
     selected: bool | None,
     flash_for: AutomaticFlashFor | None | Unset = UNSET,
+    review_drafts: bool | None = None,
 ) -> ReviewRepositoryWriteOutcome:
-    """Include or remove a repository, or set or clear its exception. Omitted fields keep their value.
+    """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
+
+    Omitted fields keep their value.
 
     Raises `OwnershipConflict` when another project holds the repository, and `RepositorySettingsError`
     when the rules forbid the write.
     """
     ref = RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=full_name)
-    result = _project_repositories(team_id, user_id).save_repository(ref, selected=selected, flash_for=flash_for)
+    result = _project_repositories(team_id, user_id).save_repository(
+        ref, selected=selected, flash_for=flash_for, review_drafts=review_drafts
+    )
     repository = None
     if result.repository is not None:
         repository = _repository_settings(result.repository, load_people(team_id, [result.repository.id]))

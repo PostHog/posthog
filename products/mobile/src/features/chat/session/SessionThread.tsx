@@ -1,4 +1,5 @@
 import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import type { ScrollViewInstance } from 'react-native'
 import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
@@ -69,7 +70,7 @@ function statusLine(session: SessionThreadState): string | null {
 export function SessionThread({ session, onRetryHistory, topInset = 0 }: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const positioned = useRef(false)
     const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])

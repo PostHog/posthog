@@ -1,5 +1,5 @@
 import { forwardRef, type ReactElement } from 'react'
-import { ActivityIndicator, TextInput, View } from 'react-native'
+import { ActivityIndicator, TextInput, type TextInputInstance, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -16,7 +16,7 @@ interface ClassicComposerProps {
     stopping: boolean
 }
 
-export const ClassicComposer = forwardRef<TextInput, ClassicComposerProps>(function ClassicComposer(
+export const ClassicComposer = forwardRef<TextInputInstance, ClassicComposerProps>(function ClassicComposer(
     { text, onChangeText, onSend, onStop, disabled, working, stopping },
     ref
 ): ReactElement {

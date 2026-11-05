@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import math
 import time
 import fcntl
@@ -13,6 +14,7 @@ from unittest.mock import Mock, patch
 import click
 from hogli import telemetry
 from hogli_commands import worktrees
+from hogli_commands.cargo_targets import unused_legacy_cargo_target, worktrees_running_cargo
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -30,6 +32,7 @@ from hogli_commands.worktrees import (
     _is_under,
     _match_worktree_boxes,
     _parse_cutoff,
+    _populate_sizes,
     _reclaimed_bytes,
     _registered_worktrees,
     _resolve_box_action,
@@ -261,6 +264,87 @@ class TestCollectDepsItems:
         assert (worktree / "node_modules").resolve() in items
         assert all(_is_under(item, worktree_resolved) for item in items)
         assert (external / "dist").resolve() not in items
+
+    def test_deps_mode_keeps_a_cargo_target_built_after_the_cutoff(self, tmp_path) -> None:
+        cutoff = time.time() - 7 * 86400
+        worktree = tmp_path / "wt"
+        (worktree / "node_modules").mkdir(parents=True)
+        stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
+        # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
+        _write_cargo_target(worktree / "cli" / "target", time.time())
+        _write_cargo_target(worktree / "plugin" / "target", time.time(), profile=Path("wasm32-wasip1") / "release")
+        wt = _make_worktree(worktree)
+
+        _populate_sizes([wt], "deps", cutoff)
+
+        assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
+
+
+def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = Path("debug")) -> Path:
+    unit = target / profile / ".fingerprint" / "posthog-unit"
+    unit.mkdir(parents=True)
+    (unit / "lib-posthog").write_bytes(b"x" * 1024)
+    os.utime(unit / "lib-posthog", (last_build_epoch, last_build_epoch))
+    (target / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+    month_ago = time.time() - 30 * 86400
+    directory = unit
+    while directory != target.parent:
+        os.utime(directory, (month_ago, month_ago))
+        directory = directory.parent
+    return target
+
+
+def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: bool = True) -> None:
+    def fake_run(args, **kwargs):
+        if args[0] == "pgrep":
+            return subprocess.CompletedProcess(
+                args, 0 if cargo_cwd else 1, stdout=f"{os.getpid()}\n" if cargo_cwd else ""
+            )
+        if not lsof_available:
+            raise FileNotFoundError("lsof")
+        return subprocess.CompletedProcess(args, 0, stdout=f"p{os.getpid()}\nn{cargo_cwd}\n")
+
+    monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
+
+
+class TestCargoTargets:
+    @pytest.mark.parametrize("lsof_available", [True, False], ids=["traced", "lsof_unavailable"])
+    def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch, lsof_available) -> None:
+        idle, building = tmp_path / "idle", tmp_path / "building"
+        cargo_cwd = building / "rust" / "capture"
+        cargo_cwd.mkdir(parents=True)
+        idle.mkdir()
+        _fake_cargo_processes(monkeypatch, cargo_cwd, lsof_available)
+
+        # A live cargo process that cannot be traced to a directory must block every worktree, not none.
+        assert worktrees_running_cargo([idle, building]) == ({building} if lsof_available else None)
+
+    @pytest.mark.parametrize(
+        "cargo_target_dir_set,days_since_build,cargo_running,expected_offered",
+        [(False, 10, False, True), (True, 10, False, False), (False, 1, False, False), (False, 10, True, False)],
+        ids=["unused", "cargo_target_dir_set", "built_recently", "cargo_running_elsewhere"],
+    )
+    def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
+        self,
+        tmp_path,
+        monkeypatch,
+        cargo_target_dir_set: bool,
+        days_since_build: int,
+        cargo_running: bool,
+        expected_offered: bool,
+    ) -> None:
+        home = tmp_path / "home"
+        target = _write_cargo_target(home / ".cargo" / "target", time.time() - days_since_build * 86400)
+        monkeypatch.setattr(Path, "home", lambda: home)
+        _fake_cargo_processes(monkeypatch, tmp_path if cargo_running else None)
+        if cargo_target_dir_set:
+            monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+        else:
+            monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+
+        offered = unused_legacy_cargo_target(time.time() - 7 * 86400)
+
+        assert offered == (target if expected_offered else None)
 
 
 class TestRegisteredWorktrees:
@@ -498,15 +582,126 @@ class TestWorktreeBoxes:
         assert boxes == (expected if pending else [])
 
     @pytest.mark.parametrize(
-        ("action", "status", "live_id", "last_used_at", "expected_calls"),
+        ("path_arg", "expected_workspaces"),
         [
-            ("delete", "running", "id-a", None, [("delete", "devbox-test-user-a")]),
-            ("stop", "running", "id-a", None, [("stop", "devbox-test-user-a")]),
-            ("stop", "stopped", "id-a", None, []),
-            ("delete", "running", "id-recreated", None, []),
-            ("delete", "running", "id-a", "2026-01-01T00:00:00.123456789Z", [("delete", "devbox-test-user-a")]),
-            ("delete", "running", "id-a", "2026-03-01T00:00:00Z", []),
-            ("delete", "running", "id-a", "", []),
+            (None, ["devbox-test-user-feature", "devbox-test-user-other"]),
+            ("link/.herdr-wt/feature", ["devbox-test-user-feature"]),
+        ],
+        ids=["every-removed-worktree", "only-the-path-herdr-reports-through-a-symlink"],
+    )
+    def test_prune_acts_on_removed_worktrees_or_only_the_given_path(
+        self, tmp_path, monkeypatch, path_arg: str | None, expected_workspaces: list[str]
+    ) -> None:
+        repo = tmp_path / "repo"
+        common = repo / ".git"
+        (common / "worktrees").mkdir(parents=True)
+        (tmp_path / "link").symlink_to(repo, target_is_directory=True)
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(worktrees, "_git_common_dir", lambda start: common)
+        for name in ("feature", "other"):
+            devbox_config.record_worktree_box(
+                repo / ".herdr-wt" / name,
+                _box(f"devbox-test-user-{name}", git_dir=common / "worktrees" / name, worktree_id=f"id-{name}"),
+            )
+        cleaned: list[tuple[list[str], str, bool]] = []
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action, keep_stopped_records=False: cleaned.append(
+                ([b.workspace for b in boxes], action, keep_stopped_records)
+            ),
+        )
+
+        worktrees.prune_boxes_of_removed_worktrees(
+            repo, "stop", None if path_arg is None else tmp_path / path_arg, dry_run=False
+        )
+
+        assert cleaned == [(expected_workspaces, "stop", False)]
+
+    @pytest.mark.parametrize(
+        ("same_worktree", "background", "keep_record", "expected_calls"),
+        [
+            (True, False, False, ["mirror", "stop"]),
+            (True, False, True, ["mirror", "stop:keeps-record"]),
+            (True, True, False, ["mirror", "background:stop"]),
+            (False, False, False, []),
+        ],
+        ids=[
+            "own-box",
+            "own-box-of-an-archived-worktree",
+            "own-box-in-the-background",
+            "box-of-an-earlier-worktree-at-the-path",
+        ],
+    )
+    def test_teardown_stops_the_mirror_before_acting_on_its_own_box(
+        self, tmp_path, monkeypatch, same_worktree: bool, background: bool, keep_record: bool, expected_calls: list[str]
+    ) -> None:
+        worktree = tmp_path / "wt"
+        admin = tmp_path / "admin"
+        admin.mkdir()
+        worktree_id = devbox_config.ensure_worktree_id(admin)
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(
+            worktree,
+            _box(
+                "devbox-test-user-wt",
+                git_dir=admin,
+                worktree_id=worktree_id if same_worktree else "id-of-an-earlier-worktree",
+            ),
+        )
+        calls: list[str] = []
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: calls.append("mirror"))
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action, keep_stopped_records=False: calls.append(
+                f"{action}:keeps-record" if keep_stopped_records else action
+            ),
+        )
+
+        act_on_box = (lambda box, action: calls.append(f"background:{action}")) if background else None
+
+        box = worktrees.teardown_worktree_box(
+            worktree, admin, "stop", dry_run=False, keep_record=keep_record, act_on_box=act_on_box
+        )
+
+        assert (box is not None) is same_worktree
+        assert calls == expected_calls
+
+    @pytest.mark.parametrize(
+        ("registered_worktree_id", "expected_cleaned"),
+        [("id-checked-by-teardown", ["devbox-test-user-wt"]), ("id-of-a-worktree-recreated-since", [])],
+        ids=["box-still-held", "box-taken-over-by-a-recreated-worktree"],
+    )
+    def test_background_box_action_skips_a_box_taken_over_since_the_teardown(
+        self, tmp_path, monkeypatch, registered_worktree_id: str, expected_cleaned: list[str]
+    ) -> None:
+        worktree = tmp_path / "wt"
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(worktree, _box("devbox-test-user-wt", worktree_id=registered_worktree_id))
+        cleaned: list[str] = []
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action, keep_stopped_records=False: cleaned.extend(box.workspace for box in boxes),
+        )
+
+        worktrees.clean_registered_box(worktree, "id-checked-by-teardown", "stop", keep_record=False)
+
+        assert cleaned == expected_cleaned
+
+    @pytest.mark.parametrize(
+        ("action", "status", "live_id", "last_used_at", "keep_stopped", "expected_calls"),
+        [
+            ("delete", "running", "id-a", None, False, [("delete", "devbox-test-user-a")]),
+            ("stop", "running", "id-a", None, False, [("stop", "devbox-test-user-a")]),
+            ("stop", "stopped", "id-a", None, False, []),
+            ("delete", "running", "id-recreated", None, False, []),
+            ("delete", "running", "id-a", "2026-01-01T00:00:00.123456789Z", False, [("delete", "devbox-test-user-a")]),
+            ("delete", "running", "id-a", "2026-03-01T00:00:00Z", False, []),
+            ("delete", "running", "id-a", "", False, []),
+            ("stop", "running", "id-a", None, True, [("stop", "devbox-test-user-a")]),
+            ("delete", "running", "id-a", None, True, [("delete", "devbox-test-user-a")]),
         ],
         ids=[
             "delete",
@@ -516,10 +711,12 @@ class TestWorktreeBoxes:
             "idle-past-cutoff",
             "used-after-cutoff-kept",
             "unknown-last-use-kept",
+            "stopped-box-keeps-its-record-for-a-recreated-worktree",
+            "deleted-box-forgotten-even-when-keeping-stopped",
         ],
     )
     def test_acts_on_existing_box_and_forgets_it(
-        self, tmp_path, monkeypatch, registry_path, action, status, live_id, last_used_at, expected_calls
+        self, tmp_path, monkeypatch, registry_path, action, status, live_id, last_used_at, keep_stopped, expected_calls
     ) -> None:
         calls: list[tuple[str, str]] = []
         terminated: list[str] = []
@@ -543,13 +740,14 @@ class TestWorktreeBoxes:
                 WorktreeBox(worktree_path=tmp_path / "b", record=box_b),
             ],
             action,
+            keep_stopped_records=keep_stopped,
             **({} if last_used_at is None else {"idle_before": datetime(2026, 2, 1, tzinfo=UTC).timestamp()}),
         )
 
         assert calls == expected_calls
         acted = live_id == box_a.workspace_id and (last_used_at is None or bool(expected_calls))
         assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if acted else [])
-        kept = live_id == box_a.workspace_id and not acted
+        kept = live_id == box_a.workspace_id and (not acted or (keep_stopped and action == "stop"))
         assert devbox_config.load_worktree_boxes() == ({str(tmp_path / "a"): box_a} if kept else {})
 
     @pytest.mark.parametrize(

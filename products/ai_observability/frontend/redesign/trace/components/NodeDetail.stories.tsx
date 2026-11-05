@@ -93,8 +93,8 @@ export const ContentNotFound: Story = {
         },
     },
 }
-export const RawTabWhileLoading: Story = {
-    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+export const DetailsTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'details' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {

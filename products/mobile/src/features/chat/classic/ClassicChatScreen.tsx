@@ -1,6 +1,14 @@
 import { BlurTargetView } from 'expo-blur'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Keyboard, ScrollView, Text, type TextInput, View } from 'react-native'
+import {
+    ActivityIndicator,
+    Keyboard,
+    ScrollView,
+    Text,
+    type TextInputInstance,
+    View,
+    type ViewInstance,
+} from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
@@ -52,8 +60,8 @@ export function ClassicChatScreen({
     )
     const scope = useProjectScope()
     const insets = useScreenInsets()
-    const blurTarget = useRef<View>(null)
-    const input = useRef<TextInput>(null)
+    const blurTarget = useRef<ViewInstance>(null)
+    const input = useRef<TextInputInstance>(null)
     const draft = useChatDraft(chat.id, undefined, false, 'conversation')
     const [sending, setSending] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -126,7 +134,7 @@ export function ClassicChatScreen({
     }
     const approval = chat.state.approval
     const inputRef = useCallback(
-        (node: TextInput | null): void => {
+        (node: TextInputInstance | null): void => {
             input.current = node
             if (autoFocus) node?.focus()
         },
