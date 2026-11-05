@@ -36,7 +36,7 @@ export function useReplayVideoSource(
             }
             renewing = true
             clearTimeout(timer)
-            let currentTime = player.currentTime
+            let currentTime: number | undefined
             try {
                 const fresh = await resolveReplayVideoSource(exportId, controller.signal)
                 if (!isCurrent()) {
@@ -68,7 +68,7 @@ export function useReplayVideoSource(
                         const retryAfter = error instanceof ApiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0
                         timer = setTimeout(() => void renew(), Math.max(RENEW_RETRY_MS, retryAfter))
                     } else {
-                        onError(currentTime)
+                        onError(currentTime ?? player.currentTime)
                     }
                 }
             } finally {

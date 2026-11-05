@@ -228,7 +228,13 @@ describe('ReplayVideoPlayer', () => {
             reused: true,
             waitedMs: 0,
         }
-        jest.mocked(resolveReplayVideoSource).mockRejectedValue(new TransportError())
+        let failRenewal: (error: Error) => void = () => undefined
+        jest.mocked(resolveReplayVideoSource).mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    failRenewal = reject
+                })
+        )
         const { updateState } = renderPlayer(ready)
         const player = screen.getByTestId('replay-video-view').props.player as VideoPlayer
         player.currentTime = 173
@@ -236,12 +242,16 @@ describe('ReplayVideoPlayer', () => {
         await act(async () => {
             await jest.advanceTimersByTimeAsync(1_000)
         })
+        player.currentTime = 183
+        await act(async () => {
+            failRenewal(new TransportError())
+        })
         expect(screen.getByText("Couldn't play this video. Try again.")).toBeTruthy()
         fireEvent.press(screen.getByTestId('replay-video-error-action'))
         expect(controls.retry).toHaveBeenCalledTimes(1)
         updateState({ ...ready, source: { uri: 'https://example.com/replay.mp4?retry=1' } })
         const retried = screen.getByTestId('replay-video-view').props.player as VideoPlayer
-        expect(retried.currentTime).toBe(173)
+        expect(retried.currentTime).toBe(183)
     })
 
     test('aborts renewal on close and ignores a late response', async () => {
