@@ -65,6 +65,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
+from posthog.hogql.database.raw_trino_view import RawTrinoViewTable, raw_trino_view_sql
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
@@ -281,6 +282,8 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+    # Only Trino can run these, so the build adds them only for a database that compiles to Trino.
+    raw_trino_saved_queries: list[DataWarehouseSavedQuery] = dataclasses.field(default_factory=list)
 
     def copy_for_request(
         self,
@@ -317,6 +320,7 @@ class HogQLDatabaseSources:
             data_warehouse_expressions=list(self.data_warehouse_expressions),
             event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
             virtual_schemas=list(self.virtual_schemas),
+            raw_trino_saved_queries=list(self.raw_trino_saved_queries),
         )
 
 
@@ -1866,12 +1870,14 @@ class Database(BaseModel):
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
         include_flag_evaluations_table: bool | None = None,
+        include_raw_trino_views: bool = False,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
         whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
+        ``include_raw_trino_views`` adds the views that hold raw Trino SQL. Only a Trino compilation can print them.
         """
         build_started = time.perf_counter()
 
@@ -1942,7 +1948,10 @@ class Database(BaseModel):
             HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources"}
         ):
             database = Database._build_from_sources(
-                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+                sources,
+                timings=timings,
+                build_postgres_foreign_keys=build_postgres_foreign_keys,
+                include_raw_trino_views=include_raw_trino_views,
             )
 
         total_seconds = time.perf_counter() - build_started
@@ -2421,6 +2430,7 @@ class Database(BaseModel):
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
+            raw_trino_saved_queries=[sq for sq in all_saved_queries if sq.is_raw_managed_trino],
         )
 
     @staticmethod
@@ -2428,6 +2438,7 @@ class Database(BaseModel):
         sources: HogQLDatabaseSources,
         timings: HogQLTimings | None = None,
         build_postgres_foreign_keys: bool = True,
+        include_raw_trino_views: bool = False,
     ) -> Database:
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
         Postgres query and feature-flag check was done up front in Database._fetch_sources."""
@@ -2633,6 +2644,34 @@ class Database(BaseModel):
                         TableNode.create_nested_for_chain(
                             saved_query.name.split("."),
                             table=saved_query.hogql_definition(modifiers),
+                        ),
+                        table_conflict_mode="ignore",
+                    )
+
+        if include_raw_trino_views and not database._is_direct_query():
+            with timings.measure("raw_trino_saved_query", emit_span=True):
+                readable_raw_views = [
+                    saved_query
+                    for saved_query in sources.raw_trino_saved_queries
+                    if not is_reserved_system_name(saved_query.name)
+                    and not (
+                        sources.is_hogql_warehouse_access_control_enabled
+                        and not sources.bypass_warehouse_access_control
+                        and database._is_warehouse_view_denied(saved_query)
+                    )
+                ]
+                # Built from readable views only, so a readable view cannot inline a denied one.
+                raw_trino_views = {sq.name: raw_trino_view_sql(sq.query) for sq in readable_raw_views}
+                for saved_query in readable_raw_views:
+                    views.add_child(
+                        TableNode(
+                            name=saved_query.name,
+                            table=RawTrinoViewTable(
+                                name=saved_query.name,
+                                fields=saved_query.hogql_fields(),
+                                trino_sql=raw_trino_view_sql(saved_query.query),
+                                raw_trino_views=raw_trino_views,
+                            ),
                         ),
                         table_conflict_mode="ignore",
                     )

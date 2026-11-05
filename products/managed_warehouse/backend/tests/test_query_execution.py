@@ -19,6 +19,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import Organization, Team, User
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
@@ -145,6 +146,7 @@ def test_the_cache_key_and_the_connection_share_one_canary_decision(
     assert used_canary is first
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("canary", [False, True])
 def test_a_managed_trino_run_connects_the_way_the_runner_decided(team: Team, canary: bool) -> None:
     user = User(id=9, distinct_id="user-9")
@@ -369,3 +371,59 @@ def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -
     assert response.results == [("100%",)]
     assert response.clickhouse == sql
     assert response.hogql is None
+
+
+@pytest.mark.parametrize(
+    "sql,expected",
+    [
+        (
+            "select * from __ph_debug_view",
+            'WITH "__ph_debug_view" AS (\nSELECT 1 AS id\n)\nselect * from __ph_debug_view',
+        ),
+        ("select * from other_team_view", "select * from other_team_view"),
+        ("select * from deleted_view", "select * from deleted_view"),
+        ("select * from denied_view", "select * from denied_view"),
+    ],
+)
+@pytest.mark.django_db
+def test_raw_query_expands_the_raw_trino_views_the_user_can_read(sql: str, expected: str) -> None:
+    organization = Organization.objects.create(name="Example organization")
+    team = Team.objects.create(organization=organization)
+    other_team = Team.objects.create(organization=organization)
+    user = User.objects.create_and_join(organization, "reader@example.com", "password")
+    raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
+    for view_team, name, deleted in [
+        (team, "__ph_debug_view", False),
+        (other_team, "other_team_view", False),
+        (team, "deleted_view", True),
+        (team, "denied_view", False),
+    ]:
+        DataWarehouseSavedQuery.objects.create(
+            team=view_team, name=name, deleted=deleted, query={**raw, "query": "SELECT 1 AS id;"}
+        )
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = [(1,)]
+    cursor.description = [("id", "integer")]
+    connection = MagicMock()
+    connection.cursor.return_value = cursor
+    with (
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda view, required_level: view.name != "denied_view",
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino",
+            return_value=nullcontext(connection),
+        ),
+    ):
+        execute_managed_trino_query(
+            HogQLQuery(query=sql, executionTarget="managed_trino", sendRawQuery=True),
+            team=team,
+            user=user,
+            user_access_control=None,
+            settings=HogQLGlobalSettings(),
+            timings=HogQLTimings(),
+            limit_context=LimitContext.QUERY,
+        )
+    cursor.execute.assert_called_once_with(expected)

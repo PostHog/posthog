@@ -485,6 +485,46 @@ class TestCompileHogQLToTrinoSQL:
         assert "signup" in compiled.values.values()
         assert "translation_source" in compiled.hogql
 
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            ("SELECT id FROM __ph_debug_view", '(\nSELECT 1 AS id\n) AS "__ph_debug_view"'),
+            (
+                "SELECT id FROM orders_daily",
+                '(\nWITH "__ph_debug_view" AS (\nSELECT 1 AS id\n)\nSELECT id FROM __ph_debug_view\n) AS "orders_daily"',
+            ),
+        ],
+    )
+    def test_django_inlines_raw_trino_views(self, query: str, expected: str) -> None:
+        organization = Organization.objects.create(name="trino-raw-views")
+        team = Team.objects.create(organization=organization)
+        raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
+        columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+        for name, sql in [("__ph_debug_view", "SELECT 1 AS id;"), ("orders_daily", "SELECT id FROM __ph_debug_view")]:
+            DataWarehouseSavedQuery.objects.create(team=team, name=name, query={**raw, "query": sql}, columns=columns)
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=_membership(team_id=team.pk, organization_id=str(organization.pk)),
+            ),
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query=query),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+
+        assert expected in compiled.sql
+
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()
 

@@ -8,6 +8,7 @@ from posthog.schema import HogQLQuery, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.raw_trino_view import expand_raw_trino_view_references, raw_trino_view_sql
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -21,6 +22,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
@@ -71,6 +73,19 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         validate_managed_trino_raw_access(team, user)
 
 
+def readable_raw_trino_views(team: Team, user_access_control: UserAccessControl) -> dict[str, str]:
+    """The SQL of each raw Trino view of the team that the user can read, keyed by view name."""
+    views = DataWarehouseSavedQuery.objects.filter(
+        team_id=team.pk, query__executionTarget="managed_trino", query__sendRawQuery=True
+    ).exclude(deleted=True)
+    return {
+        view.name: raw_trino_view_sql(view.query)
+        for view in views
+        if user_access_control.is_organization_admin
+        or user_access_control.check_access_level_for_object(view, required_level="viewer")
+    }
+
+
 def execute_managed_trino_query(
     query: HogQLQuery,
     *,
@@ -95,7 +110,11 @@ def execute_managed_trino_query(
         return paginator.paginate(parsed) if paginator is not None else parsed
 
     if query.sendRawQuery:
-        sql = query.query
+        # Raw views exist only as stored SQL, so Trino would not find a table of that name.
+        sql = expand_raw_trino_view_references(
+            query.query,
+            readable_raw_trino_views(team, user_access_control or UserAccessControl(user=user, team=team)),
+        )
         values = None
         hogql = None
     else:
