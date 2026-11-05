@@ -147,6 +147,7 @@ class ResourceType(StrEnum):
     INSIGHT_VARIABLE = "insight_variable"
     INTERACTIVE_RUN = "interactive_run"
     INTERNAL_RUN = "internal_run"
+    KNOWLEDGE_WRITER = "knowledge_writer"
     LEGAL_DOCUMENT = "legal_document"
     LINK = "link"
     LIVE_DEBUGGER = "live_debugger"
@@ -187,6 +188,7 @@ class ResourceType(StrEnum):
     WIZARD_RUN = "wizard_run"
     WIZARD_SESSION = "wizard_session"
     WORKLOAD_TRUST_POLICY = "workload_trust_policy"
+    WORKLOAD_TRUST_POLICY_REQUEST = "workload_trust_policy_request"
 
 
 class SubjectType(StrEnum):
