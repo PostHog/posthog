@@ -664,6 +664,8 @@ SPECTACULAR_SETTINGS = {
             # The ai_observability playground asks the same System One question kinds, so both share one name.
             "DecisionQuestionTypeEnum": "products.ml_inference.backend.facade.enums.DecisionQuestionType.choices",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # The logs alert signal and the traces alert condition both compare a value above or below a bound.
+            "ThresholdOperatorEnum": ["above", "below"],
             # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
             # a plain enum no class can carry.
             "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
