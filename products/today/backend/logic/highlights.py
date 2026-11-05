@@ -29,13 +29,11 @@ from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightS
 from ..facade.enums import (
     HighlightInterval,
     HighlightLabel,
-    HighlightMetricReason,
     HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     PulseSlotStatus,
 )
-from ..feature_flags import progressive_pulse_enabled
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -51,6 +49,7 @@ from . import pulse_pins
 from .highlight_registry import load_sources, source_product
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 from .pinned import PINNED_METRICS
+from .today_highlights.routine import PULSE_CANDIDATES
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +59,6 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
-PULSE_CANDIDATES = 6
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
 PINNED_SOURCE = "pinned"
@@ -89,9 +87,6 @@ def get_highlights(
     ]
     key = _key(team, user, scopes)
     pins_key = _pins_key(pins)
-    progressive = progressive_pulse_enabled(user, team)
-    if progressive:
-        key = hashlib.sha256(f"{key}:progressive".encode()).hexdigest()[:32]
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
@@ -99,8 +94,7 @@ def get_highlights(
     )
     latest = rows.first()
     retry_failed = (
-        progressive
-        and refresh
+        refresh
         and latest is not None
         and latest.failed_sources
         and latest.status != HighlightsStatus.COMPUTING
@@ -116,7 +110,6 @@ def get_highlights(
             pins,
             pins_key,
             after=latest.id if latest else None,
-            progressive=progressive,
         )
         status = HighlightsStatus.COMPUTING
     else:
@@ -126,7 +119,7 @@ def get_highlights(
         if latest is not None and latest.status == HighlightsStatus.READY
         else rows.filter(status=HighlightsStatus.READY).first()
     )
-    if progressive and latest is not None and latest.content.get("pulse_slots"):
+    if latest is not None and latest.content.get("pulse_slots"):
         with suppress(ValidationError):
             content = _HIGHLIGHTS.validate_python(latest.content)
             if status == HighlightsStatus.COMPUTING and ready is not None and ready.id != latest.id:
@@ -159,7 +152,7 @@ def get_highlights(
         refresh_at=_refresh_at(team, day),
         pulse=[],
         items=[],
-        pulse_slots=[] if progressive else None,
+        pulse_slots=[],
     )
 
 
@@ -192,7 +185,6 @@ def _start(
     pins: list[PinnedNumber],
     pins_key: str,
     after: UUID | None,
-    progressive: bool = False,
 ) -> None:
     lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}:{after}"
     if not cache.add(lock, True, START_LOCK_SECONDS):
@@ -208,7 +200,6 @@ def _start(
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
         pins=pins,
-        progressive=progressive,
     )
     try:
         asyncio.run(
@@ -262,7 +253,6 @@ def _pulse_content(
         key=lambda slot: (
             slot.key not in pin_order,
             pin_order.get(slot.key, 0),
-            slot.reason == HighlightMetricReason.POPULAR,
             owners.get(slot.key, 0),
         )
     )
@@ -341,8 +331,7 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)
     with tags_context(product=Product.TODAY, feature=Feature.QUERY, team_id=context.team.id):
         found = context.guard(source.name, partial(source.find, context), HighlightFindings())
-    if context.publish_pulse is not None:
-        context.publish_pulse(found, [])
+    context.publish_pulse(found, [])
     return HighlightSourceResult(
         source_name=source.name, found=_FINDINGS.dump_json(found).decode(), failed=bool(context.failures)
     )
@@ -416,10 +405,7 @@ def build_highlights(
             offered.setdefault(metric.key, metric)
     resolved = {**offered, **(pinned or {})}
     chosen = [resolved[key] for key in pins if key in resolved]
-    suggested = sorted(
-        (metric for key, metric in offered.items() if key not in pins),
-        key=lambda metric: metric.reason == HighlightMetricReason.POPULAR,
-    )
+    suggested = [metric for key, metric in offered.items() if key not in pins]
     pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
