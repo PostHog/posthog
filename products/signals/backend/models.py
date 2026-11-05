@@ -1499,6 +1499,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        SOURCE_ISSUE = "source_issue"
         AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
@@ -1573,6 +1574,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.SOURCE_ISSUE,
             ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,

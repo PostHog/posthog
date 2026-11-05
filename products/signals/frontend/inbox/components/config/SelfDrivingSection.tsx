@@ -734,8 +734,8 @@ function PullRequestLabelRow(): JSX.Element {
 }
 
 /**
- * Team-wide opt-out of anomaly scoring. PostHog decides which projects scoring covers, so the row
- * only renders for a covered project, and the switch can stop scoring but cannot start it.
+ * The Product analytics source controls anomaly scoring now. This row only renders for a covered project
+ * that turned scoring off with the older setting, so it can turn scoring back on.
  */
 function AnomalyScoringRow(): JSX.Element {
     const { anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
@@ -744,7 +744,7 @@ function AnomalyScoringRow(): JSX.Element {
     return (
         <AutonomySettingRow
             title="Anomaly scoring"
-            description="Check your active trends insights for anomalies every hour. Results are saved as $anomaly_score events, which are free. Turn this off to stop new events. Events already saved stay."
+            description="Scoring is off for this project from an earlier setting. Turn it on to check your active trends insights for anomalies again. After that, the Product analytics source turns scoring on and off."
             control={
                 <LemonSwitch
                     checked={anomalyScoringEnabled}
@@ -942,7 +942,8 @@ function PullRequestGenerationRow(): JSX.Element {
  * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
-    const { teamConfig, teamConfigLoading, anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading, anomalyScoringAvailable, anomalyScoringEnabled } =
+        useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -969,7 +970,7 @@ export function SelfDrivingSection(): JSX.Element {
             </AutonomySettingGroup>
             <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />
-                {anomalyScoringAvailable && <AnomalyScoringRow />}
+                {anomalyScoringAvailable && !anomalyScoringEnabled && <AnomalyScoringRow />}
             </AutonomySettingGroup>
         </div>
     )
