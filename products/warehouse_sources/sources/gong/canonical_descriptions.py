@@ -66,7 +66,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "calls_media": {
-        "description": "Download URLs for the audio and video recording of a Gong call, sourced from the /v2/calls/extensive endpoint. Gong keeps each URL valid for 8 hours, so a URL from an earlier sync has usually expired.",
+        "description": "Download URLs for the audio and video recording of a Gong call, sourced from the /v2/calls/extensive endpoint. Gong keeps each URL valid for 8 hours, so the table is rewritten on every sync and only URLs from the latest sync work.",
         "docs_url": "https://gong.app.gong.io/settings/api/documentation#post-/v2/calls/extensive",
         "columns": {
             "id": "Unique identifier for the call. Join to `calls` or `calls_extensive` on this.",

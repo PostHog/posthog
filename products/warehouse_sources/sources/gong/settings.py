@@ -173,17 +173,18 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         ],
     ),
     # Download URLs for each call's audio and video recording, from `/v2/calls/extensive` with the
-    # `media` block of the selector requested. Gong signs these URLs for 8 hours only, so a synced
-    # URL stops working soon after the sync that wrote it. Kept as its own default-off table
-    # because the URLs open the recording to anyone who reads them, and because asking for media
-    # needs the `api:calls:read:media-url` scope: a key without it must not break `calls_extensive`.
+    # `media` block of the selector requested. Gong signs these URLs for 8 hours only, so the table
+    # is full refresh only: an incremental sync would fetch each call once and keep its URL long
+    # after it stopped working, while a full refresh rewrites every URL each run. Kept as its own
+    # default-off table because the URLs open the recording to anyone who reads them, and because
+    # asking for media needs the `api:calls:read:media-url` scope: a key without it must not break
+    # `calls_extensive`.
     "calls_media": GongEndpointConfig(
         name="calls_media",
         path="/v2/calls/extensive",
         response_key="calls",
         primary_key="id",
         partition_key="started",
-        supports_incremental=True,
         uses_date_window=True,
         uses_extensive=True,
         capture_http_samples=False,
@@ -194,14 +195,6 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         },
         extensive_row_keys=("media",),
         extensive_row_columns={"media": "mediaUrls"},
-        incremental_fields=[
-            {
-                "label": "started",
-                "type": IncrementalFieldType.DateTime,
-                "field": "started",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
     ),
     # Transcript text for the same calls, from `POST /v2/calls/transcript`, which returns only
     # `callId` and `transcript`. Each row is stamped with the `started` of the call it belongs to,

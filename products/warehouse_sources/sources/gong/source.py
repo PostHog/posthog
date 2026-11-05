@@ -123,7 +123,11 @@ To also sync these tables, additionally grant the scope listed next to each:
                 incremental_fields=endpoint_config.incremental_fields,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
                 should_sync_default=endpoint_config.should_sync_default,
-                description="Only syncs the last 365 days on initial sync"
+                description=(
+                    "Only syncs the last 365 days on initial sync"
+                    if endpoint_config.supports_incremental
+                    else "Syncs the last 365 days on every sync"
+                )
                 if endpoint_config.uses_date_window
                 else None,
             )
