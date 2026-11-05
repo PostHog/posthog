@@ -3,6 +3,7 @@ from typing import Optional
 
 import time_machine
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.impact_partner._config import ImpactPartnerSourceConfig
@@ -132,6 +133,50 @@ class TestGetRowsActions:
 
         assert result.raised is None
         assert result.params("Page") == ["1"]
+
+
+class TestActionsWindowNarrowing:
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_a_400_narrows_the_window_instead_of_failing_the_sync(self) -> None:
+        # A 12-day window: too short to split into more than one level before hitting real rows.
+        result = _driver().run(
+            "Actions",
+            [
+                ScriptedResponse(status=400),
+                ScriptedResponse(json={"Actions": [{"Id": "a1"}], "@numpages": "1"}),
+                ScriptedResponse(json={"Actions": [{"Id": "a2"}], "@numpages": "1"}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"Id": "a1"}], [{"Id": "a2"}]]
+        assert len(result.requests) == 3
+        full_start, full_end = result.requests[0].param("ActionDateStart"), result.requests[0].param("ActionDateEnd")
+        assert (full_start, full_end) == ("2026-05-20T00:00:00Z", "2026-06-01T00:00:00Z")
+        first_half_end = result.requests[1].param("ActionDateEnd")
+        assert result.requests[1].param("ActionDateStart") == full_start
+        assert result.requests[2].param("ActionDateStart") == first_half_end
+        assert result.requests[2].param("ActionDateEnd") == full_end
+        # Resume state bookmarks the narrowed window actually fetched, not the original one.
+        assert [state.window_start for state in result.saved_states] == [
+            datetime.fromisoformat(full_start.replace("Z", "+00:00")).isoformat(),
+            datetime.fromisoformat(first_half_end.replace("Z", "+00:00")).isoformat(),
+        ]
+
+    @time_machine.travel("2026-06-01", tick=False)
+    def test_a_400_on_a_window_already_at_the_floor_still_raises(self) -> None:
+        # A 12-hour window is already below the 1-day floor, so there's nothing left to narrow.
+        result = _driver().run(
+            "Actions",
+            [ScriptedResponse(status=400)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 31, 12, tzinfo=UTC),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestImpactPartnerSourceResponse:

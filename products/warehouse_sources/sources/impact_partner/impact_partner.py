@@ -105,6 +105,41 @@ def _iter_windows(start: datetime, end: datetime, max_days: int) -> Iterator[tup
         cursor = window_end
 
 
+# Impact caps a date-windowed query at 10 pages, 400ing every page of a denser window regardless
+# of which one is requested. Our 45-day span cap doesn't prevent that, so narrow and retry instead.
+MIN_SPLIT_WINDOW = timedelta(days=1)  # floor so an unrelated, persistent 400 still surfaces
+
+
+def _split_window(window: tuple[datetime, datetime]) -> tuple[tuple[datetime, datetime], tuple[datetime, datetime]]:
+    start, end = window
+    midpoint = start + (end - start) / 2
+    return (start, midpoint), (midpoint, end)
+
+
+def _fetch_actions_window(
+    session: requests.Session,
+    account_sid: str,
+    config: ImpactPartnerEndpointConfig,
+    window: tuple[datetime, datetime],
+    logger: FilteringBoundLogger,
+    start_param: str,
+    end_param: str,
+    start_page: int,
+) -> Iterator[tuple[tuple[datetime, datetime], int, list[dict[str, Any]]]]:
+    """Yield (window, page, rows) for `window`, narrowing it if Impact rejects it as too large."""
+    params: dict[str, Any] = {start_param: _format_datetime(window[0]), end_param: _format_datetime(window[1])}
+    try:
+        for page, rows in _paginate_endpoint(session, account_sid, config, params, logger, start_page=start_page):
+            yield window, page, rows
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status != 400 or (window[1] - window[0]) <= MIN_SPLIT_WINDOW:
+            raise
+        logger.debug(f"Impact Partner: narrowing a {window[1] - window[0]} Actions window after a 400")
+        for half in _split_window(window):
+            yield from _fetch_actions_window(session, account_sid, config, half, logger, start_param, end_param, 1)
+
+
 def _paginate_endpoint(
     session: requests.Session,
     account_sid: str,
@@ -218,16 +253,14 @@ def _get_rows_windowed(
         start_page = 1
         if resume is not None and index == resume_index and resume.page:
             start_page = resume.page
-        params: dict[str, Any] = {
-            start_param: _format_datetime(window[0]),
-            end_param: _format_datetime(window[1]),
-        }
-        for page, rows in _paginate_endpoint(session, account_sid, config, params, logger, start_page=start_page):
+        for current_window, page, rows in _fetch_actions_window(
+            session, account_sid, config, window, logger, start_param, end_param, start_page
+        ):
             if rows:
                 yield rows
             # Save after yielding: a crash re-fetches this same page and merge dedupes it.
             resumable_source_manager.save_state(
-                ImpactPartnerResumeConfig(page=page, window_start=window[0].isoformat())
+                ImpactPartnerResumeConfig(page=page, window_start=current_window[0].isoformat())
             )
 
 
