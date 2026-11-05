@@ -1484,7 +1484,7 @@ class TestTaskActivityClock(TestCase):
     def test_thread_message_moves_the_clock_without_touching_updated_at(self):
         task = self._task()
 
-        with team_scope(self.team.id):
+        with team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
             TaskThreadMessage.objects.create(
                 team=self.team, task=task, author=self.user, content="Any news?", author_kind="human"
             )
@@ -1509,7 +1509,10 @@ class TestTaskActivityClock(TestCase):
         Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
 
         run.status = TaskRun.Status.IN_PROGRESS
-        run.save(update_fields=update_fields)
+        with self.captureOnCommitCallbacks(execute=True):
+            run.save(update_fields=update_fields)
+            task.refresh_from_db()
+            self.assertEqual(task.last_activity_at, STALE_ACTIVITY_AT)
 
         task.refresh_from_db()
         assert task.last_activity_at is not None

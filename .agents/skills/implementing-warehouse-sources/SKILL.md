@@ -504,6 +504,14 @@ A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) ca
 - The default walks the form (`sources/common/oauth_pointers.py`). It reads only the shape that `serialize_config` writes: a select as a mapping with `selection`, a switch group as a mapping with `enabled`. Any other shape (a flat legacy key, a select stored as a string) raises `OAuthPointerShapeError`. Callers then leave the source alone. They never guess.
 - Override `in_use_oauth_slot` and `oauth_pointer_paths` on your source class only for a pointer that no form field declares. Slack does this for its legacy `slack_integration_id`, which a pasted `slack_access_token` overrides.
 
+#### Backfill outcomes for legacy OAuth tokens
+
+`backfill_warehouse_source_credentials` moves legacy OAuth tokens that sit in `job_inputs` into an OAuth `Integration` row.
+A source opts in with two hooks on its class: `has_legacy_oauth_tokens(job_inputs)` (no network) and `adopt_legacy_oauth(job_inputs)` (can call the provider). HubSpot is the only source that uses them.
+
+- `hubspot_legacy_adopted`: the source has `hubspot_secret_key` and `hubspot_refresh_token` and no `hubspot_integration_id`. With `--execute`, the command exchanges the refresh token, reads the hub id from HubSpot, and reuses the `hubspot` row of the team for that hub id or creates one. It then sets `hubspot_integration_id` and the column, and removes the two legacy keys. Preview only counts. `reconcile_warehouse_source_credentials --verify` reports it as `legacy_oauth_tokens_in_job_inputs`.
+- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, failed after the retries, or the inputs changed during the run. The command writes nothing. A later run tries again.
+
 ## Implementing `source_for_pipeline`
 
 Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_response` for new sources — DLT is being removed.

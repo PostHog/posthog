@@ -18,7 +18,7 @@ from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend import setup_context as setup_context_module
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -993,7 +993,7 @@ class TestPostgresSections(APIBaseTest):
         assert previous.summary.using_uneven_split == 0
 
     def test_an_action_exposure_is_reported_as_an_action(self) -> None:
-        action = Action.objects.create(team=self.team, name="Saw pricing", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Saw pricing", steps_json=[{"event": "$pageview"}])
         self._experiment(
             "action-exposure", exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.id}}
         )
@@ -1138,7 +1138,7 @@ class TestPostgresSections(APIBaseTest):
 
         popular = self._saved_metric("Popular", _mean_metric("popular", event="signup"))
         inflated = self._saved_metric("Inflated by deleted", _mean_metric("inflated", event="signup"))
-        action = Action.objects.create(team=self.team, name="Bought", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Bought", steps_json=[{"event": "purchase"}])
         via_action = self._saved_metric(
             "Via action",
             {

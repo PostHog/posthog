@@ -484,6 +484,23 @@ def _is_app_db_failure(internal_error: str) -> bool:
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
 
 
+def _non_retryable_error_message(non_retryable_errors: dict[str, str | None], internal_error: str) -> str | None:
+    """Customer-facing copy for a non-retryable failure: the first matching entry that has one.
+
+    A `None` entry only marks the error non-retryable. Temporal prefixes the driver's class name, so
+    a class-name key such as `InsufficientPrivilege` matches the same error as a later key that
+    carries the message, and it must not hide that message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in non_retryable_errors.items()
+            if message is not None and error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
+
+
 def _transient_error_message(internal_error: str) -> str | None:
     """Customer-facing copy for a transient failure that outlived its retries, if we have any.
 
@@ -654,15 +671,10 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         )
 
         if has_non_retryable_error:
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error_message_matches(internal_error_normalized, [error])
-            ]
-
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from
