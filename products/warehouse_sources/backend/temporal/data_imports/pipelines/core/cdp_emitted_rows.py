@@ -94,7 +94,8 @@ class EmittedRowStore:
         """Read the previous run's record.
 
         Also reads back the rows earlier attempts of this job recorded before their last checkpoint,
-        since a retry does not produce those rows again. Every id there was delivered by this job.
+        since a retry does not produce those rows again. Every id there was delivered by this job or,
+        for a suppressed repeat, by an earlier run.
         """
         if not self._enabled:
             return
