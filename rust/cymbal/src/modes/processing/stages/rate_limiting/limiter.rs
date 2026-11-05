@@ -151,7 +151,7 @@ impl RedisRateLimiter {
             shadow_redis::submit(
                 "processing_rate_limit",
                 async move { shadow.eval_int_vec(RATE_LIMIT_LUA, keys, args).await },
-                async move { healing.heal().await },
+                async move { healing.reconnect().await },
             );
         }
 

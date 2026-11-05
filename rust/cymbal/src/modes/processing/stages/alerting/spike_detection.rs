@@ -128,7 +128,7 @@ async fn try_increment_issue_buckets(
                     .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
                     .await
             },
-            async move { healing.heal().await },
+            async move { healing.reconnect().await },
         );
     }
 }
@@ -185,7 +185,7 @@ async fn try_increment_team_buckets(
                     .batch_incr_by_expire_nx(items, ISSUE_BUCKET_TTL_SECONDS)
                     .await
             },
-            async move { healing.heal().await },
+            async move { healing.reconnect().await },
         );
     }
 
@@ -219,7 +219,7 @@ async fn try_increment_team_buckets(
                     .batch_sadd_expire(issue_set_items, ISSUE_BUCKET_TTL_SECONDS)
                     .await
             },
-            async move { healing.heal().await },
+            async move { healing.reconnect().await },
         );
     }
 }
@@ -334,7 +334,7 @@ async fn acquire_cooldown_locks_mirrored(
         crate::modes::shadow_redis::submit(
             "cooldown_acquire",
             async move { acquire_cooldown_locks(&*shadow, &items).await },
-            async move { healing.heal().await },
+            async move { healing.reconnect().await },
         );
     }
     Ok(result)
@@ -353,7 +353,7 @@ async fn release_cooldown_locks_mirrored(
         crate::modes::shadow_redis::submit(
             "cooldown_release",
             async move { shadow.batch_del(keys).await },
-            async move { healing.heal().await },
+            async move { healing.reconnect().await },
         );
     }
     Ok(())

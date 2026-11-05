@@ -147,7 +147,7 @@ impl TokenBucket {
             shadow_redis::submit(
                 "notifications_charge",
                 async move { shadow.eval_int_vec(CHARGE_SCRIPT, vec![key], args).await },
-                async move { healing.heal().await },
+                async move { healing.reconnect().await },
             );
         }
         Ok(res.first().copied().unwrap_or(0) > 0)
@@ -169,7 +169,7 @@ impl TokenBucket {
             shadow_redis::submit(
                 "notifications_refund",
                 async move { shadow.eval_int_vec(REFUND_SCRIPT, vec![key], args).await },
-                async move { healing.heal().await },
+                async move { healing.reconnect().await },
             );
         }
         Ok(())
