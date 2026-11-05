@@ -185,7 +185,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {!!isTimeToConvertFunnel && (
+                {!!isTimeToConvertFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>
