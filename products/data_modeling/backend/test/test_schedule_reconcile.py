@@ -737,7 +737,9 @@ class TestMaybeReconcileDag(BaseTest):
             dispatch.assert_not_called()
 
             old = timezone.now() - timedelta(hours=5)
-            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(requested_at=old)
+            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(
+                requested_at=old, plan_changed_at=old
+            )
             retry_pending_organization_reconciles()
             retry_pending_organization_reconciles()
             dispatch.assert_called_once_with(organization_id)
@@ -774,10 +776,43 @@ class TestMaybeReconcileDag(BaseTest):
                 organization_id=organization_id, defaults={"requested_at": stamp, "plan_changed_at": stamp}
             )
 
-        with mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_change_commits):
+        with (
+            mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_change_commits),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.apply_async"),
+        ):
             reconcile_organization_schedules(organization_id)
 
         self.assertTrue(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
+
+    def test_plan_change_reconciles_again_once_the_schedule_listing_has_caught_up(self):
+        dag = self._dag_with_target()
+        organization_id = str(self.organization.id)
+        now = timezone.now()
+        PendingOrganizationReconcile.objects.create(
+            organization_id=organization_id, requested_at=now, plan_changed_at=now
+        )
+        pending = PendingOrganizationReconcile.objects.filter(organization_id=organization_id)
+
+        with (
+            mock.patch(
+                f"{RECONCILE}.list_existing_schedule_ids",
+                side_effect=[set(), {tier_schedule_id(str(dag.id), M15)}],
+            ),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", return_value=[]) as reconcile,
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.apply_async") as second_pass,
+        ):
+            with time_machine.travel(now, tick=False):
+                reconcile_organization_schedules(organization_id)
+            reconcile.assert_not_called()
+            second_pass.assert_called_once_with((organization_id,), countdown=300)
+            self.assertTrue(pending.exists())
+
+            second_pass.reset_mock()
+            with time_machine.travel(now + timedelta(minutes=5), tick=False):
+                reconcile_organization_schedules(organization_id)
+            reconcile.assert_called_once()
+            second_pass.assert_not_called()
+            self.assertFalse(pending.exists())
 
     @parameterized.expand(
         [

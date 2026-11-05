@@ -17,6 +17,9 @@ RECONCILE_RETRY_OPTIONS = {
 }
 PENDING_RECONCILE_RETRY_AFTER = timedelta(hours=4)  # past the roughly three hours RECONCILE_RETRY_OPTIONS can take
 PENDING_RECONCILE_GIVE_UP_AFTER = timedelta(days=7)
+# Temporal's schedule listing is eventually consistent, so a reconcile right after a plan change can miss a
+# schedule created just before it. A second pass this long after the change reads a listing that has caught up.
+SCHEDULE_LISTING_SETTLE_TIME = timedelta(minutes=5)
 
 logger = structlog.get_logger(__name__)
 
@@ -28,11 +31,19 @@ def reconcile_organization_schedules(organization_id: str) -> None:
     from products.data_modeling.backend.models.pending_organization_reconcile import PendingOrganizationReconcile
 
     pending = PendingOrganizationReconcile.objects.filter(organization_id=organization_id)
-    seen_request = pending.values_list("requested_at", flat=True).first()
+    started_at = timezone.now()
+    seen_request = pending.values_list("requested_at", "plan_changed_at").first()
     reconcile_organization_dags(organization_id)
+    if seen_request is None:
+        return
+    requested_at, plan_changed_at = seen_request
+    if started_at - plan_changed_at < SCHEDULE_LISTING_SETTLE_TIME:
+        reconcile_organization_schedules.apply_async(
+            (organization_id,), countdown=SCHEDULE_LISTING_SETTLE_TIME.total_seconds()
+        )
+        return
     # A plan change that commits during the reconcile may not have been read, whatever time it was stamped with.
-    if seen_request is not None:
-        pending.filter(requested_at=seen_request).delete()
+    pending.filter(requested_at=requested_at).delete()
 
 
 @shared_task(ignore_result=True)
