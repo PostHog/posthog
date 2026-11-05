@@ -6604,6 +6604,8 @@ export interface ExperimentExposureHealthFinding {
     actions: ExperimentExposureHealthFindingActionKind[]
     /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
     diagnostic_ref: string | null
+    /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+    check?: ExperimentExposureHealthCheckKey
 }
 
 export type ExperimentExposureHealthCheckKey =
@@ -6615,20 +6617,42 @@ export type ExperimentExposureHealthCheckKey =
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
-export type ExperimentExposureHealthMeasurementUnit = 'percentage' | 'p_value'
+/** The keys in the `values` of an exposure check. Same meaning as in the experiment's `health.checks`. */
+export type ExperimentExposureHealthValueKey =
+    | 'exposed_count'
+    | 'compared_count'
+    | 'multiple_variant_count'
+    | 'multiple_variant_percentage'
+    | 'multiple_variant_handling'
+    | 'p_value'
+    | 'since_launch_hours'
+    | 'exposed_without_test_account_filter_count'
+    | 'kept_by_test_account_filter_percentage'
 
-export type ExperimentExposureHealthMeasurementSide = 'above' | 'below'
+export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 
-/** The value that decided a passed exposure check, against its threshold. */
-export interface ExperimentExposureHealthMeasurement {
-    /** The value that the check measured on the experiment. */
-    value: number
-    /** The value at which the check reports a finding. */
+export type ExperimentExposureHealthRuleTest = 'chi_squared'
+
+/** What an exposure check needs before it judges. */
+export interface ExperimentExposureHealthRuleMinimum {
+    /** The key in `values` that must reach the threshold before the check judges. */
+    value: ExperimentExposureHealthValueKey
+    /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
-    /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
-    unit: ExperimentExposureHealthMeasurementUnit
-    /** The side of the threshold that reports a finding. */
-    warns: ExperimentExposureHealthMeasurementSide
+}
+
+/** How an exposure check decides. Same shape as the `rule` of the experiment's `health.checks`. */
+export interface ExperimentExposureHealthCheckRule {
+    /** The key in `values` that the check compares with the threshold. */
+    value: ExperimentExposureHealthValueKey
+    /** The threshold, in the unit that the suffix of the key gives. */
+    threshold: number
+    /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+    warns: ExperimentExposureHealthRuleSide
+    /** The statistical test that computes the value. Null for a count or a share. */
+    test: ExperimentExposureHealthRuleTest | null
+    /** What the check needs before it judges. Null when the check judges from the first value. */
+    minimum: ExperimentExposureHealthRuleMinimum | null
 }
 
 /** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
@@ -6643,8 +6667,10 @@ export interface ExperimentExposureHealthCheck {
     status: ExperimentExposureHealthCheckStatus
     /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
     reason: string | null
-    /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
-    measurement?: ExperimentExposureHealthMeasurement | null
+    /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+    values?: Record<string, string | number | boolean | null>
+    /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+    rule?: ExperimentExposureHealthCheckRule | null
 }
 
 export interface ExperimentExposureQueryResponse {
