@@ -141,8 +141,9 @@ new sync succeeds. No MCP tool uploads or replaces a file, so ask the user to do
 Find the text in `latest_error` on the schema. These are the exact messages from the code. Some errors turn syncing
 off (`should_sync` becomes `false`), and `latest_error` then shows a shorter message, given below. After the user
 fixes the cause, turn syncing on again with `external-data-schemas-partial-update` (`{"should_sync": true}`); waiting
-alone does not resume the sync. Then check the sync as in step 5, and call `external-data-schemas-reload` only if no sync
-starts.
+alone does not resume the sync. Turning a failed schema back on only resumes its schedule and does not start a sync,
+and the schema keeps its old `Failed` status. So call `external-data-schemas-reload` to retry now; the last sync
+failed, so this does not import the rows twice. Then check the sync as in step 5.
 
 - `The storage provider denied access to the bucket '<location>'. Check the access key and secret, and that the key can
 list and read objects in this bucket.` The key from the old table is no longer valid, or it cannot list and read the
