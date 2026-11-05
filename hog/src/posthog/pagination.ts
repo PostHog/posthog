@@ -15,43 +15,28 @@ export interface Page<T> {
     next?: URL
 }
 
-const PageBody = z.object({ results: z.array(z.unknown()), count: z.number().nullish(), next: z.string().nullish() })
-
-// Checks each result against `item`, and names a failing one by its place, as in `results.3.name`.
-function pageOf<T>(item: Schema<T>): Schema<Page<T>> {
-    return {
-        safeParse(raw) {
-            const body = PageBody.safeParse(raw)
-            if (!body.success) {
-                return body
-            }
-            const results: T[] = []
-            for (const [index, result] of body.data.results.entries()) {
-                const parsed = item.safeParse(result)
-                if (!parsed.success) {
-                    const issues = parsed.error.issues.map((issue) => ({
-                        ...issue,
-                        path: ['results', index, ...issue.path],
-                    }))
-                    return { success: false, error: { issues } }
-                }
-                results.push(parsed.data)
-            }
-            const { count, next } = body.data
-            return {
-                success: true,
-                data: {
-                    results,
-                    ...(typeof count === 'number' ? { count } : {}),
-                    ...(next ? { next: new URL(next) } : {}),
-                },
-            }
-        },
-    }
+// Lets a zod schema hold a hog Schema, so zod adds the place of a failing item, as in `results.3.name`.
+function zodOf<T>(schema: Schema<T>): z.ZodType<T> {
+    return z.unknown().transform((raw, ctx) => {
+        const parsed = schema.safeParse(raw)
+        if (parsed.success) {
+            return parsed.data
+        }
+        for (const issue of parsed.error.issues) {
+            ctx.addIssue({ code: 'custom', message: issue.message, path: [...issue.path] })
+        }
+        return z.NEVER
+    })
 }
 
-export function getPage<T>(api: PostHogApi, path: string, item: Schema<T>): Promise<Page<T>> {
-    return api.get(path, pageOf(item))
+export async function getPage<T>(api: PostHogApi, path: string, item: Schema<T>): Promise<Page<T>> {
+    const page = z.object({ results: z.array(zodOf(item)), count: z.number().nullish(), next: z.string().nullish() })
+    const { results, count, next } = await api.get(path, page)
+    return {
+        results,
+        ...(typeof count === 'number' ? { count } : {}),
+        ...(next ? { next: new URL(next) } : {}),
+    }
 }
 
 // False when it stops at MAX_PAGES before `visit` returns true or the list ends. A `next` link keeps

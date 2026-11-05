@@ -6,7 +6,6 @@ import { failWith, parseOrThrow, type ParseFailure, type Schema } from './schema
 // caller casts JSON to the type it hopes for.
 
 export const JsonObject = z.record(z.string(), z.unknown())
-export type JsonObject = z.output<typeof JsonObject>
 
 export function parseJson<T>(text: string, schema: Schema<T>, failure: ParseFailure): T {
     let raw: unknown

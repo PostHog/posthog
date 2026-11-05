@@ -1,14 +1,12 @@
 import { z } from 'zod'
 
 import { defineCommand } from '@/core/command'
-import { JsonObject } from '@/core/json'
 import type { ColumnKind } from '@/core/output'
-import { parseOrThrow } from '@/core/schema'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 
 // HogQLQueryResponse declares `columns` and `types` optional.
-const QueryTable = z.object({
+const QueryResponse = z.looseObject({
     columns: z.array(z.string()).nullish(),
     types: z.array(z.tuple([z.string(), z.string()])).nullish(),
     results: z.array(z.array(z.unknown())),
@@ -43,25 +41,21 @@ export default defineCommand({
 
     async run({ args, ctx }) {
         const api = await ctx.posthog()
-        let response: JsonObject
+        let response: z.output<typeof QueryResponse>
         try {
             const body = { query: { kind: 'HogQLQuery', query: args.query }, refresh: 'blocking' }
-            response = await api.post('query', body, JsonObject)
+            response = await api.post('query', body, QueryResponse)
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')
             }
             throw error
         }
-        const table = parseOrThrow(QueryTable, response, {
-            code: 'unexpected_response',
-            context: "PostHog's answer to the query isn't what hog expects.",
-            hint: 'Check that the host runs a recent version of PostHog.',
-        })
+        // `response` keeps every field PostHog sent, for --raw.
         return {
-            columns: (table.columns ?? []).map((name, index) => ({ name, type: table.types?.[index]?.[1] })),
-            rows: table.results,
-            hasMore: table.hasMore === true,
+            columns: (response.columns ?? []).map((name, index) => ({ name, type: response.types?.[index]?.[1] })),
+            rows: response.results,
+            hasMore: response.hasMore === true,
             response,
         }
     },
