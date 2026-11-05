@@ -214,6 +214,84 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     ).toHaveLength(0);
   });
 
+  it.each(["after_response", "during_response"])(
+    "preserves an early echo %s until its separate result arrives",
+    async (delivery) => {
+      const { agent, client } = makeAgent();
+      const sessionId = "s-early-echo";
+      const { query, input } = installFakeSession(agent, sessionId, true);
+      const settled = vi.fn();
+      const prompt = agent
+        .prompt({ sessionId, prompt: [{ type: "text", text: "Research." }] })
+        .then(settled);
+      await tick();
+      await echoUserMessage(query, input);
+      try {
+        await send(query, {
+          type: "system",
+          subtype: "task_started",
+          task_id: "worker",
+          run_id: "run-worker",
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+        if (delivery === "during_response") {
+          await send(query, {
+            type: "stream_event",
+            parent_tool_use_id: null,
+            session_id: sessionId,
+            event: {
+              type: "message_start",
+              message: { id: "waiting", usage: {}, content: [] },
+            },
+          });
+        } else {
+          await send(
+            query,
+            assistantMessage(sessionId, "waiting", "Research is pending."),
+          );
+        }
+        await send(query, {
+          type: "system",
+          subtype: "task_notification",
+          task_id: "worker",
+          run_id: "run-worker",
+          status: "completed",
+          summary: "Worker ended.",
+        });
+        await send(query, {
+          ...taskNotificationUserMessage(sessionId, "worker"),
+          origin: { kind: "task-notification", runId: "run-worker" },
+          isReplay: true,
+        });
+        await send(
+          query,
+          assistantMessage(sessionId, "waiting", "Still pending."),
+        );
+        await send(query, resultSuccess(sessionId, "initial"));
+        expect(settled).not.toHaveBeenCalled();
+        await send(
+          query,
+          assistantMessage(sessionId, "final", '{"repository":"example/app"}'),
+        );
+        await send(
+          query,
+          taskNotificationResult(sessionId, "final", "run-worker"),
+        );
+        expect(settled).toHaveBeenCalledOnce();
+        await prompt;
+        expect(
+          extNotificationCalls(
+            client.extNotification.mock.calls,
+            "_posthog/background_turn_complete",
+          ),
+        ).toHaveLength(0);
+      } finally {
+        await agent.cancel({ sessionId });
+      }
+    },
+  );
+
   it.each([
     ...["completed", "failed", "stopped"].flatMap((status) =>
       [true, false].map((echo) => ({ status, echo, inline: false })),

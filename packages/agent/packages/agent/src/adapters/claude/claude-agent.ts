@@ -1135,10 +1135,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
     interface SubagentReplyBatch {
       runId?: string;
-      inOriginalTurn: boolean;
+      replyMessageId?: string;
       tasks: Map<string, string | undefined>;
     }
     const subagentReplyBatches: SubagentReplyBatch[] = [];
+    let parentReplyMessageId: string | undefined;
+    const recordParentReply = (messageId: string): void => {
+      if (messageId === parentReplyMessageId) return;
+      parentReplyMessageId = messageId;
+      for (const batch of subagentReplyBatches) {
+        batch.replyMessageId = messageId;
+      }
+    };
     const hasPendingSubagents = () =>
       pendingSubagents.size > 0 ||
       completedSubagents.size > 0 ||
@@ -1207,6 +1215,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       completedSubagents.clear();
       endedSubagentRuns.clear();
       subagentReplyBatches.length = 0;
+      parentReplyMessageId = undefined;
       lastAssistantTotalUsage = null;
       lastRefusalExplanation = null;
       lastRefusalCategory = null;
@@ -1635,9 +1644,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 }
               }
             } else {
-              // Notifications consumed inside the original turn share its normal result.
+              // An early echo can precede the old result; require a new parent response before retiring it.
               for (let i = subagentReplyBatches.length - 1; i >= 0; i--) {
-                if (subagentReplyBatches[i]?.inOriginalTurn) {
+                if (
+                  parentReplyMessageId !== undefined &&
+                  subagentReplyBatches[i]?.replyMessageId ===
+                    parentReplyMessageId
+                ) {
                   subagentReplyBatches.splice(i, 1);
                   session.backgroundTurnActive = false;
                 }
@@ -1899,6 +1912,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 message.event.type === "message_delta")
             ) {
               if (message.event.type === "message_start") {
+                recordParentReply(message.event.message.id);
                 const u = message.event.message.usage;
                 lastStreamUsage = {
                   input_tokens: u.input_tokens ?? 0,
@@ -1941,6 +1955,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           case "user":
           case "assistant": {
             if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null
+            ) {
+              recordParentReply(message.message.id);
+            }
+            if (
               message.type === "user" &&
               (message as { origin?: { kind?: string } }).origin?.kind ===
                 "task-notification"
@@ -1969,7 +1989,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 }
                 subagentReplyBatches.push({
                   runId: origin?.runId,
-                  inOriginalTurn: !session.activeTurn.waitingForSubagents,
                   tasks: batch,
                 });
               }
