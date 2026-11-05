@@ -69,6 +69,7 @@ export const INBOX_EVENTS = {
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
+    SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -969,6 +970,27 @@ export function captureSignalSourceAlertScopeChanged(params: {
         source_type: SignalSourceType.AnomalyInvestigation,
         alert_scope: params.alertScope,
         previous_alert_scope: params.previousAlertScope,
+        success: params.success,
+    })
+}
+
+/**
+ * The product analytics source's allow or block patterns were saved. Carries only counts: the patterns
+ * name the customer's own alerts and insights, so they never leave their project. `droppedAlertCount`
+ * is how many alerts the preview showed as dropped, or null when the preview had not loaded.
+ */
+export function captureSignalSourceAlertPatternsChanged(params: {
+    allowCount: number
+    blockCount: number
+    droppedAlertCount: number | null
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_ALERT_PATTERNS_CHANGED, {
+        source_product: SignalSourceProduct.Analytics,
+        source_type: SignalSourceType.AnomalyInvestigation,
+        allow_pattern_count: params.allowCount,
+        block_pattern_count: params.blockCount,
+        dropped_alert_count: params.droppedAlertCount,
         success: params.success,
     })
 }

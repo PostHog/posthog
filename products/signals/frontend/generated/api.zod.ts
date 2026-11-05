@@ -4865,6 +4865,31 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Check allow and block patterns for the product analytics source before saving them. Returns why each list would be rejected, and what the patterns do to the project's enabled alerts: which ones they let through and which ones they drop. Saves nothing.
+ * @summary Preview product analytics alert patterns
+ */
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsItemMax = 1000
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsMax = 100
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsItemMax = 1000
+
+export const signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax = 100
+
+export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */ zod.object({
+    alert_allow_patterns: zod
+        .array(zod.string().max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsItemMax))
+        .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertAllowPatternsMax)
+        .optional()
+        .describe('Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.'),
+    alert_block_patterns: zod
+        .array(zod.string().max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsItemMax))
+        .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax)
+        .optional()
+        .describe('Block patterns to try, as they would be saved in `config.alert_block_patterns`.'),
+})
+
+/**
  * Per-user signal autonomy config (singleton keyed by user).
  *
  * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
