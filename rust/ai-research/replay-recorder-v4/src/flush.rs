@@ -15,6 +15,7 @@ use metrics::counter;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
+use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::keys::batch::{FlushKeys, KeyStore, SessionId};
 use replay_core_v4::keys::kms::AwsKms;
@@ -254,10 +255,11 @@ pub async fn write_flush(
         }
     }
     // Before the index is written: building the jobs counts each block's image URLs into its stats. A dropped block's
-    // images are not stored, so the fetcher does not fetch them.
+    // images are not stored, and a block past the edit budget holds no reference to its images, so the fetcher does not
+    // fetch them.
     let mut kept = vec![false; blocks.len()];
     for &index in &indices {
-        kept[index] = true;
+        kept[index] = blocks[index].url_limit != Some(UrlLimit::Edits);
     }
     let jobs = fetch_jobs(
         &urls,

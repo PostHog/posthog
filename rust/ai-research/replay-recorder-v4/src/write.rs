@@ -1084,10 +1084,14 @@ mod tests {
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 2}),
             json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 2}),
         ] {
-            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
+            let image = |id: i64| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/read{id}.png")}, "childNodes": [], "id": id});
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [image(3), node, image(4)]}}}]).to_string();
             let (lines, counts) = written(block_of("kept", &events));
             assert_eq!(counts.unread, Some("too_many_nested_blocks"));
-            assert!(lines.contains("token=secret"), "{lines:.80}");
+            assert!(lines.contains("example.com/deep."), "{lines:.80}");
+            // A URL the inspector did read still gets its reference.
+            assert!(!lines.contains("/read"), "{lines:.80}");
+            assert_eq!(lines.matches("imageurl:v4:7:").count(), 2);
         }
         // posthog-js compresses these, so the message read does not see how deep they nest.
         let cv = |value: Value| -> String {

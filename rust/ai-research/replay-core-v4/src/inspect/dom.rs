@@ -190,7 +190,7 @@ struct WindowDom {
     page_base: Option<Arc<Url>>,
 }
 
-/// Why the inspector could not read a block in full. A URL in the part it did not read went unchecked, so the writer drops the block.
+/// Why the inspector could not read a block in full. A URL in the part it did not read went unchecked, and the block's index row names this reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlLimit {
     AttributeItems,
@@ -308,9 +308,9 @@ impl Urls {
         }
     }
 
-    /// A block past any limit is dropped, so it takes no more of the budget and builds no more edits.
+    /// A block past the edit budget keeps no edits, so it takes no more of the budget and builds no more edits.
     fn take_edit_bytes(&mut self, budget: Option<&AtomicUsize>, bytes: usize) -> bool {
-        if self.limit.is_some() {
+        if self.limit == Some(UrlLimit::Edits) {
             return false;
         }
         let within_budget = budget.is_none_or(|budget| {
