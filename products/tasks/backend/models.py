@@ -987,17 +987,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if mode != "background":
             return False
         if self.origin_product == self.OriginProduct.SIGNALS_SCOUT:
-            return True
+            return not self.is_scout_experiment
         if self.origin_product != self.OriginProduct.SIGNAL_REPORT:
             return False
-        if self.internal or self.signal_report_id is None:
+        if self.internal or self.signal_report_source_id is None:
             return True
         from products.signals.backend.task_run_artefacts import (
             is_report_implementation_task,  # noqa: PLC0415 -- Signals models depend on Tasks
         )
 
         return is_report_implementation_task(
-            team_id=self.team_id, report_id=str(self.signal_report_id), task_id=str(self.id)
+            team_id=self.team_id, report_id=str(self.signal_report_source_id), task_id=str(self.id)
         )
 
     def create_run(
@@ -1031,7 +1031,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         trial_admission = (
             (
                 prepare_task_trial(
-                    team=self.team, origin=self.origin_product, report_id=self.signal_report_id, mode=mode
+                    team=self.team, origin=self.origin_product, report_id=self.signal_report_source_id, mode=mode
                 )
                 if _trial_admission is False
                 else _trial_admission
@@ -1045,7 +1045,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         with transaction.atomic():
             if trial_admission is not None:
-                trial_admission.lock_report(self.signal_report_id)
+                trial_admission.lock_report(self.signal_report_source_id)
             task = (
                 Task.objects.select_for_update(of=("self",))
                 .select_related("created_by", "team")
@@ -2061,7 +2061,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         trial_admission = prepare_task_trial(
             team=task.team,
             origin=task.origin_product,
-            report_id=task.signal_report_id,
+            report_id=task.signal_report_source_id,
             mode=mode if task.uses_self_driving_billing(mode) else "interactive",
         )
         with transaction.atomic():

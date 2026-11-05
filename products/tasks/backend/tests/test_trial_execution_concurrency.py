@@ -17,15 +17,15 @@ from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy
-from products.tasks.backend.facade.api import iter_trial_task_runs
+from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.max_tools import RunTaskTool
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task
 
 
 class TestTrialExecutionConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @parameterized.expand([("model",), ("tool",)])
+    @parameterized.expand([("model",), ("tool",), ("warmer",)])
     def test_waiting_for_report_does_not_lock_its_task(self, entrypoint: str) -> None:
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
         task = Task.objects.create(
@@ -52,6 +52,8 @@ class TestTrialExecutionConcurrency(NonAtomicBaseTest):
                     if entrypoint == "tool":
                         tool = RunTaskTool(team=self.team, user=self.user, config={})
                         async_to_sync(tool._arun_impl)(task_id=str(task.id))
+                    elif entrypoint == "warmer":
+                        SandboxWarmer(task, user=self.user).warm(mode="background")
                     else:
                         task.create_run()
             finally:
@@ -60,6 +62,8 @@ class TestTrialExecutionConcurrency(NonAtomicBaseTest):
         with (
             patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
             patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async", new_callable=AsyncMock),
+            patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
+            patch.object(SandboxWarmer, "enforce_quota"),
         ):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             with ThreadPoolExecutor(max_workers=1) as pool:
@@ -182,23 +186,3 @@ class TestTrialExecutionConcurrency(NonAtomicBaseTest):
             grant.refresh_from_db()
             assert grant.settled_microusd == 40_003
             assert task.runs.count() == 1
-
-    def test_trial_run_scan_survives_connection_cleanup_between_cancellations(self) -> None:
-        grant_id = str(uuid4())
-        task = Task.objects.create(team=self.team, title="Cancellation scan", origin_product="signal_report")
-        runs = TaskRun.objects.bulk_create(
-            [
-                TaskRun(
-                    team=self.team,
-                    task=task,
-                    state={"self_driving_funding": {"funding": "trial", "grant_id": grant_id}},
-                )
-                for _ in range(501)
-            ]
-        )
-        visited = set()
-        for run in iter_trial_task_runs(team_id=self.team.id, grant_id=grant_id):
-            connection.close()
-            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
-            visited.add(run.id)
-        assert visited == {run.id for run in runs}

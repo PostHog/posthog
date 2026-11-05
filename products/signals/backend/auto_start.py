@@ -829,7 +829,12 @@ def _create_implementation_task_if_absent(
     exempt_reason: str | None = None
     task_id: str | None = None
     with (
-        task_trial_admission(team=Team.objects.get(id=team_id), origin="signal_report", report_id=report_id),
+        task_trial_admission(
+            team=Team.objects.get(id=team_id),
+            origin="signal_report",
+            report_id=report_id,
+            continue_admitted_pipeline=True,
+        ),
         transaction.atomic(),
     ):
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
@@ -1133,7 +1138,9 @@ def start_requested_implementation(
     from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
 
     with (
-        task_trial_admission(team=team, origin="signal_report", report_id=request.report_id),
+        task_trial_admission(
+            team=team, origin="signal_report", report_id=request.report_id, continue_admitted_pipeline=True
+        ),
         transaction.atomic(),
     ):
         current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)

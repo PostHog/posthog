@@ -168,13 +168,13 @@ Use this tool when the user wants to:
             trial_admission = prepare_task_trial(
                 team=self._team,
                 origin=admission_task.origin_product,
-                report_id=admission_task.signal_report_id,
+                report_id=admission_task.signal_report_source_id,
                 mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
             )
 
             with transaction.atomic():
                 if trial_admission is not None:
-                    trial_admission.lock_report(admission_task.signal_report_id)
+                    trial_admission.lock_report(admission_task.signal_report_source_id)
                 task = tasks.select_for_update(of=("self",)).first()
                 if task is None:
                     return None
