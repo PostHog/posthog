@@ -334,6 +334,8 @@ When a project member adds a reviewer, the report shows "Added by" and that memb
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
+If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
+Slack still sends the report to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
