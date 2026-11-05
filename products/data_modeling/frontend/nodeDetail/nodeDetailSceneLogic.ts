@@ -745,6 +745,12 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                   })
                 : null
         return {
+            updateNodeDescriptionSuccess: ({ node }) => {
+                posthog.capture('model description edited', {
+                    node_type: node.type,
+                    cleared: !node.description,
+                })
+            },
             setLineageTypeFilter: ({ typeFilter }) => {
                 posthog.capture(LINEAGE_TYPE_FILTER_CHANGED_EVENT, {
                     surface: 'node_detail',
