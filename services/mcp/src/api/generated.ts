@@ -120887,8 +120887,9 @@ export namespace Schemas {
 
     export type OrganizationEventsRetentionDeletionCountParams = {
     /**
-     * The period in months to count for. Only events older than this period are counted.
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
      * @minimum 1
+     * @maximum 1200
      */
     retention_months: number;
     };
@@ -127464,8 +127465,9 @@ export namespace Schemas {
 
     export type EventsRetentionDeletionCountParams = {
     /**
-     * The period in months to count for. Only events older than this period are counted.
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
      * @minimum 1
+     * @maximum 1200
      */
     retention_months: number;
     };

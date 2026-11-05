@@ -316,14 +316,31 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert TeamEventsRetentionConfig.objects.get(team=self.team).events_retention_months == 12
         assert not TeamEventsPlanDeletion.objects.filter(team=self.team).exists()
 
-    @parameterized.expand([("project",), ("organization",)])
-    def test_only_organization_admins_count_deleted_events(self, scope: str) -> None:
-        self._set_membership("project_admin")
+    @parameterized.expand(
+        [
+            ("project_admin", "project_admin", "project", 3, status.HTTP_403_FORBIDDEN),
+            ("project_admin", "project_admin", "organization", 3, status.HTTP_403_FORBIDDEN),
+            ("period_before_any_date", "organization_admin", "project", 100000, status.HTTP_400_BAD_REQUEST),
+            ("period_before_any_date", "organization_admin", "organization", 100000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_rejects_a_deletion_count(
+        self, _name: str, level: str, scope: str, months: int, expected_status: int
+    ) -> None:
+        self._set_membership(level)
         url = self.url() if scope == "project" else self.organization_url()
 
-        response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
+        response = self.client.get(f"{url}deletion_count/", {"retention_months": months})
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == expected_status
+
+    def test_stops_an_organization_count_past_its_time_budget(self) -> None:
+        self._set_membership("organization_admin")
+
+        with patch("products.product_analytics.backend.events_retention.EVENTS_DELETED_QUERY_SECONDS", 0):
+            response = self.client.get(f"{self.organization_url()}deletion_count/", {"retention_months": 3})
+
+        assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
 
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:
@@ -476,11 +493,14 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
         own_period_team = Team.objects.create(organization=self.organization, name="Own period")
         TeamEventsRetentionConfig.objects.create(team=own_period_team, events_retention_months=12)
         default_team = Team.objects.create(organization=self.organization, name="Default")
+        unset_period_team = Team.objects.create(organization=self.organization, name="Unset period")
+        TeamEventsRetentionConfig.objects.create(team=unset_period_team, events_retention_months=None)
         for team, timestamp in [
             (self.team, "2026-08-31T23:59:59Z"),
             (self.team, "2026-09-01T00:00:00Z"),
             (own_period_team, "2026-08-01T00:00:00Z"),
             (default_team, "2026-08-01T00:00:00Z"),
+            (unset_period_team, "2026-08-01T00:00:00Z"),
         ]:
             _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
 
@@ -490,4 +510,27 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert project.json() == {"retention_months": 3, "events_deleted": 1}
-        assert organization.json() == {"retention_months": 3, "events_deleted": 2}
+        assert organization.json() == {"retention_months": 3, "events_deleted": 3}
+
+    @parameterized.expand(
+        [
+            ("project", ["project:read"], status.HTTP_403_FORBIDDEN),
+            ("project", ["project:read", "query:read"], status.HTTP_200_OK),
+            ("organization", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("organization", ["organization:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_tokens_need_query_access_to_count(self, scope: str, scopes: list[str], expected_status: int) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
+        url = (
+            f"/api/projects/{self.team.id}/events_retention/"
+            if scope == "project"
+            else f"/api/organizations/{self.organization.id}/events_retention_setting/"
+        )
+
+        response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
+
+        assert response.status_code == expected_status

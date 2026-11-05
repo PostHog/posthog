@@ -137,7 +137,8 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
 class EventsDeletedQuerySerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         min_value=1,
-        help_text="The period in months to count for. Only events older than this period are counted.",
+        max_value=1200,
+        help_text="The period in months to count for, at most 1200. Only events older than this period are counted.",
     )
 
 
@@ -260,7 +261,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         methods=["GET"],
         detail=False,
         url_path="deletion_count",
-        required_scopes=["project:read"],
+        required_scopes=["project:read", "query:read"],
         permission_classes=[OrganizationAdminReadPermissions],
     )
     def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
@@ -341,7 +342,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         methods=["GET"],
         detail=False,
         url_path="deletion_count",
-        required_scopes=["organization:read"],
+        required_scopes=["organization:read", "query:read"],
         permission_classes=[OrganizationAdminReadPermissions],
     )
     def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
