@@ -281,23 +281,23 @@ uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
 uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
 ```
 
+Every candidate is tied to the person: routed to them, waiting on their input, or claimed by them.
+A person with no such report gets `status: empty` with no model call.
+
 An optional `pools` list in the payload replaces the default candidate pools, in merge order:
 
 ```json
 {
   "pools": [
-    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "assigned", "size": 5 },
     { "source": "for_you_recommended", "size": 10 },
-    { "source": "assigned", "size": 0 },
-    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+    { "source": "for_you_updated", "size": 0 }
   ]
 }
 ```
 
-Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
-`scored` needs a `head` (`open`, `action` or `fixed`) and only joins for a person who can see the ranking model.
-`scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
-The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated` or `assigned`), a `size` (0 turns it off) and an optional `name`.
+The build logs and drops an invalid entry, such as one with the removed `scored` or `priority` source, and uses the default pools when no entry is valid.
 
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.

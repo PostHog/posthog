@@ -1,4 +1,5 @@
 import { parseBucketStart } from '@/lib/dates'
+import { asRecord } from '@/lib/records'
 import { breakdownLabel, isRankingQuery } from '@/model/adapters/breakdown'
 import { isDrawableFunnel } from '@/model/adapters/funnel'
 import { formatInsightValue } from '@/model/adapters/insightFormatting'
@@ -10,7 +11,7 @@ import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
 import { formatAxisDate } from '@/ui/chart/chartMath'
 import { seriesColor } from '@/ui/chart/palette'
-import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
+import type { BarLayout, ChartPoint, ChartSeries } from '@/ui/chart/types'
 
 import { hasGoodValue } from './freshness'
 import { formatRangeSpan, rangeLabel } from './rangePresets'
@@ -148,6 +149,17 @@ export function snapshotChartSeries(snapshot: InsightSnapshot, palette: readonly
         })
     }
     return result
+}
+
+export function snapshotBarLayout(
+    snapshot: Pick<InsightSnapshot, 'query'>,
+    preferredLayout?: BarLayout | null
+): BarLayout {
+    if (preferredLayout) {
+        return preferredLayout
+    }
+    const filter = asRecord(asTrendsInsight(snapshot.query)?.source.trendsFilter)
+    return filter?.display === 'ActionsBar' || filter?.display === 'ActionsStackedBar' ? 'stacked' : 'grouped'
 }
 
 /** The series behind a chart key, for the actors query at a point. */

@@ -81,15 +81,14 @@ The dummy's normal development shortcut can choose the latest project; the expli
 
 ## Duo and resizable windows
 
-Use Xcode 27.1 or newer with an iPhone Duo runtime. Simulator checks supplement the required
-physical iOS and Android before-and-after screenshots.
+Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native before-and-after screens on iOS and Android; simulators and emulators qualify, as described in `../AGENTS.md`.
 
 1. Open a report unfolded, scroll it, open Resolve and enter a note. Fold, unfold, rotate and
-   enter Split View on either side. Verify the report, scroll position and note remain.
+   enter Split View on either side. Include a half-open pose with an active fold. Verify the report, scroll position and note remain, and sheets stay within one safe pane. In a short horizontal pane, open Model, scroll to its last option, and use Reset. When a fold leaves panes too small for an inbox/report pair, verify that the single report stays on one side.
 2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
    data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
 3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
-   Check pinned Errors and Sessions slots, larger text and shorter windows too.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too. On Duo with a vertical system rail, verify the original icons and Chat action occupy native tabs and toolbars, without tab labels or a second app rail. On a regular iPhone and on Android, verify the original floating pill and Chat button. Opening a sheet must block the header and navigation behind its scrim. Rotate back to horizontal bars from a report, Chat, and each tab; verify that no native header remains above the custom controls. Pin and unpin Errors or Sessions from Views and use Undo after the tab host remounts.
 4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
    keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
 5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin
@@ -216,6 +215,11 @@ Keep matching ordinary-phone screenshots for each changed screen. Record unreach
 After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
 
 ## Chat navigation and header
+
+In a new chat, fail a send with a multi-line error while the keyboard is open. Check that the full notice and Dismiss button stay above the composer without overlapping suggestions.
+Tap empty space to dismiss the keyboard, refocus the draft, then drag down in the suggestions area to dismiss it again.
+Repeat with larger system text. Suggestions must scroll when they do not fit, and dismissing the notice must preserve the draft.
+For an unsaved draft, check that Retry save remains visible and disabled while saving. For a lost connection, check Reconnect and Dismiss.
 
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
 sheet grabber or drag-down dismissal. Header Back and platform Back return to the previous page;

@@ -54,7 +54,10 @@ from products.tasks.backend.dev_stack_image_models import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.profiles import (
+    GithubAccess,
+    GithubResolution,
     PrAuthorship,
+    SourceKind,
     TaskProfile,
     TaskProfileError,
     TaskRunOptions,
@@ -78,9 +81,9 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
-from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record
+from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
 from products.tasks.backend.storage import append_jsonl_object
-from products.tasks.backend.task_sources import apply_task_source, source_from_columns
+from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
 
@@ -577,6 +580,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     # workflow engine redelivery) returns the existing task instead of making a second one.
     origin_key = models.CharField(max_length=128, null=True, blank=True)
 
+    source_kind = models.CharField(max_length=32, null=True, blank=True)
+    source_id = models.CharField(max_length=64, null=True, blank=True)
+    idempotency_key = models.CharField(max_length=128, null=True, blank=True)
+
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
@@ -662,12 +669,22 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
             models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"),
+            models.Index(
+                fields=["source_kind", "source_id", "-created_at"],
+                condition=models.Q(source_kind__isnull=False),
+                name="posthog_task_source_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "origin_key"],
                 condition=models.Q(origin_key__isnull=False),
                 name="posthog_task_origin_key_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "idempotency_key"],
+                condition=models.Q(idempotency_key__isnull=False),
+                name="posthog_task_idempotency_key_uniq",
             ),
         ]
 
@@ -693,6 +710,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             transaction.on_commit(self._track_task_created)
 
     @property
+    def github_access_limit(self) -> GithubAccess | None:
+        value = (self.options or {}).get("github_access")
+        return GithubAccess(value) if value else None
+
+    @property
     def stored_profile(self) -> TaskProfile | None:
         if not self.profile:
             return None
@@ -702,15 +724,47 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             logger.warning("task_profile_not_registered", task_id=str(self.id), profile=self.profile)
             return None
 
+    @property
+    def stored_source(self) -> TaskSource | None:
+        if self.source_kind is not None and self.source_id is not None:
+            if self.source_kind == SourceKind.SIGNAL_REPORT and self.signal_report_id is None:
+                return None
+            return TaskSource(kind=SourceKind(self.source_kind), id=self.source_id)
+        if self.signal_report_id is not None:
+            return TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(self.signal_report_id))
+        if self.hog_flow_id is not None:
+            return TaskSource(kind=SourceKind.HOG_FLOW, id=str(self.hog_flow_id))
+        return None
+
+    @property
+    def signal_report_source_id(self) -> uuid.UUID | None:
+        source = self.stored_source
+        return uuid.UUID(source.id) if source is not None and source.kind == SourceKind.SIGNAL_REPORT else None
+
+    @property
+    def hog_flow_source_id(self) -> uuid.UUID | None:
+        source = self.stored_source
+        return uuid.UUID(source.id) if source is not None and source.kind == SourceKind.HOG_FLOW else None
+
+    @property
+    def stored_idempotency_key(self) -> str | None:
+        return self.idempotency_key if self.idempotency_key is not None else self.origin_key
+
     def _resolves_pr_authorship_per_run(self) -> bool:
         profile = self.stored_profile
         if profile is None:
             return self.origin_product == Task.OriginProduct.POSTHOG_AI
         return profile.user_authorable_prs and profile.default_pr_authorship == PrAuthorship.BOT
 
+    @staticmethod
+    def mcp_agent_key_for(origin_product: str, profile: TaskProfile | None) -> MCPBuiltInAgentKey | None:
+        if profile is not None:
+            return cast("MCPBuiltInAgentKey | None", profile.mcp_agent)
+        return MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
-        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        expected_key = Task.mcp_agent_key_for(self.origin_product, self.stored_profile)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
 
@@ -767,15 +821,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
         prefix = {"": "", "task": "task__"}[relation]
         return models.Q(**{f"{prefix}origin_product": cls.OriginProduct.SIGNALS_SCOUT}) & (
-            models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_ORIGIN_KEY_PREFIX})
-            | models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX})
+            idempotency_key_startswith_q(SCOUT_TRIAL_ORIGIN_KEY_PREFIX, via=prefix)
+            | idempotency_key_startswith_q(SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX, via=prefix)
         )
 
     @property
     def is_scout_experiment(self) -> bool:
-        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
-            (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
-        )
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (
+            self.stored_idempotency_key or ""
+        ).startswith((SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX))
 
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
@@ -795,12 +849,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
-            if self.origin_key:
-                all_properties["origin_key"] = self.origin_key
+            if self.stored_idempotency_key:
+                all_properties["origin_key"] = self.stored_idempotency_key
             if self.channel_id:
                 all_properties["channel_id"] = str(self.channel_id)
-            if self.signal_report_id:
-                all_properties["signal_report_id"] = str(self.signal_report_id)
+            if self.signal_report_source_id:
+                all_properties["signal_report_id"] = str(self.signal_report_source_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -1034,7 +1088,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # and would otherwise land on the wider interactive cap.
             interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
             if interactive_stage and not state.get("ai_stage") and not task.internal:
-                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
+                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_source_id:
                     state["ai_stage"] = interactive_stage
             internal_stage = INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
             if internal_stage and not state.get("ai_stage") and task.internal:
@@ -1101,7 +1155,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
                 task.observe_run_started_beside_live_runs(task_run)
 
-            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_source_id:
                 from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
                     register_report_task_spend,
                 )
@@ -1109,7 +1163,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 register_report_task_spend(
                     team_id=task.team_id,
                     run_id=str(task_run.id),
-                    report_id=str(task.signal_report_id),
+                    report_id=str(task.signal_report_source_id),
                     stage=state.get("ai_stage"),
                     signal_id=spend_signal_id,
                     implementation_kind=implementation_spend_kind,
@@ -1297,20 +1351,32 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     @staticmethod
     def _github_resolution_allowed(origin_product: str, *, has_repository: bool) -> bool:
-        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
-        # credential. Provisioning injects any attached integration; these runs read member-authored
-        # text, so an attached token turns planted text into repository access.
-        return origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
-            has_repository
-            or origin_product
-            not in (
-                Task.OriginProduct.SIGNALS_CHAT,
-                Task.OriginProduct.SIGNAL_REPORT,
-                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                Task.OriginProduct.AUTORESEARCH,
-                Task.OriginProduct.METRICS_IMPORT,
-            )
+        # Repo-less tokens are unscoped. Scouts are listed so their read-only token keeps refreshing.
+        if origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+            return False
+        return has_repository or origin_product in (
+            Task.OriginProduct.USER_CREATED,
+            Task.OriginProduct.SLACK,
+            Task.OriginProduct.POSTHOG_AI,
+            Task.OriginProduct.IMAGE_BUILDER,
+            Task.OriginProduct.SIGNALS_SCOUT,
         )
+
+    @staticmethod
+    def attaches_github(
+        origin_product: str,
+        profile: TaskProfile | None,
+        *,
+        has_repository: bool,
+        github_access: GithubAccess | None = None,
+    ) -> bool:
+        if github_access == GithubAccess.NONE:
+            return False
+        if profile is None:
+            return Task._github_resolution_allowed(origin_product, has_repository=has_repository)
+        if profile.github_resolution == GithubResolution.WITH_REPOSITORY:
+            return has_repository
+        return profile.github_resolution == GithubResolution.ALWAYS
 
     @staticmethod
     def _build_task(
@@ -1330,6 +1396,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         signal_report_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
+        source: TaskSource | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
@@ -1360,6 +1427,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
         profile: TaskProfile | None = None,
+        github_access: GithubAccess | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1396,7 +1464,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
+        github_resolution_allowed = Task.attaches_github(
+            origin_product, profile, has_repository=bool(repository), github_access=github_access
+        )
         github_integration = None
         if github_resolution_allowed:
             github_integration = next(
@@ -1459,9 +1529,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
-        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+        expected_agent_key = Task.mcp_agent_key_for(origin_product, profile)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+        if profile is not None:
+            mcp_builtin_agent_key = expected_agent_key
 
         initial_state: dict[str, Any] = {}
         if mcp_builtin_agent_key:
@@ -1495,6 +1567,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state=initial_state,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
+            source_kind=source.kind.value if source is not None else None,
+            source_id=source.id if source is not None else None,
+            idempotency_key=origin_key,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -1674,11 +1749,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
         if profile is not None:
-            check_task_source(
-                profile=profile,
-                source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
-            )
+            check_task_source(profile=profile, source=columns.source)
         runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+        validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1710,6 +1783,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             branch=branch,
             signal_report_id=columns.signal_report_id,
             hog_flow_id=columns.hog_flow_id,
+            source=columns.source,
             sandbox_environment_id=sandbox_environment_id,
             internal=origin.internal,
             output_schema=output_schema,
@@ -1721,6 +1795,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            github_access=options.github_access if options is not None else None,
         )
         if options is not None:
             task.options = run_options_record(options)
@@ -1812,9 +1887,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
         if profile is not None:
-            check_task_source(
-                profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
-            )
+            check_task_source(profile=profile, source=columns.source)
+        validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1870,6 +1944,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             signal_report_id=signal_report_id,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
+            source=columns.source,
             sandbox_environment_id=sandbox_environment_id,
             internal=internal,
             client_provenance=client_provenance,
@@ -1899,6 +1974,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            github_access=options.github_access if options is not None else None,
         )
         if options is not None:
             task.options = run_options_record(options)
@@ -3274,7 +3350,7 @@ class TaskRun(models.Model):
             ),
             "origin_product": self.task.origin_product,
             "title": self.task.title,
-            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "signal_report_id": str(self.task.signal_report_source_id) if self.task.signal_report_source_id else None,
             "environment": self.environment,
             # The bare `environment` property gets clobbered by the analytics
             # client's deployment-region super-property, so ship the run's

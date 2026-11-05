@@ -18,6 +18,26 @@
             "usage": "@posthog assign"
         },
         {
+            "verb": "docs",
+            "aliases": [],
+            "summary": "Ask the knowledge writer to open a posthog.com docs pull request for this change.",
+            "dispatches_to": "Knowledge writer",
+            "options": [],
+            "text": {
+                "name": "note",
+                "required": false,
+                "help": "What should change in the docs. The writer gets it as your instruction.",
+                "verbatim": true
+            },
+            "subject_kinds": ["pull_request"],
+            "refuses_forks": true,
+            "access": {
+                "resource": "task",
+                "level": "editor"
+            },
+            "usage": "@posthog docs [<note>]"
+        },
+        {
             "verb": "help",
             "aliases": [],
             "summary": "List these commands.",
