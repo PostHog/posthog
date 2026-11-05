@@ -4,7 +4,10 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../local-tools";
-import { buildStoreSkillsInstructions } from "../skills-store";
+import {
+  buildStoreSkillsInstructions,
+  type StoreSkillsListing,
+} from "../skills-store";
 import {
   buildTaskSummaryInstructions,
   TASK_SUMMARY_TOOL_NAME,
@@ -20,7 +23,7 @@ export interface CloudTaskPromptOptions {
   hasGithubToken: boolean;
   repositoryAttached: boolean;
   shouldAutoPublish: boolean;
-  storeSkillsInstalledCount: number;
+  storeSkills: StoreSkillsListing;
   taskId: string;
   taskRepositories: string[];
 }
@@ -188,7 +191,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.options.deliveryInstructions ?? ""}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.options.deliveryInstructions ?? ""}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkills)}
 ${buildTaskSummaryInstructions()}`;
 
     // The shared block above is shaped for a run that ends with work landed. A

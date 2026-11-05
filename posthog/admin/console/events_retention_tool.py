@@ -29,7 +29,7 @@ def _source(retention: ConfiguredEventsRetention) -> str:
         return "Team setting"
     if retention.organization_default_months is not None:
         return "Organization default"
-    return "Not set, events are kept"
+    return "Not set"
 
 
 def _organization_row(retention: ConfiguredEventsRetention) -> GroupRow:
@@ -95,8 +95,9 @@ class EventsRetentionTool(ConsoleTool):
                 Notice(
                     text=(
                         "Billing months come from the team's billing plan. They only hide older events in queries. "
-                        "Retention is the staff setting that the monthly cleanup enforces. The cleanup deletes one "
-                        "calendar month at a time, and only when every event in that month is older than the retention."
+                        "Retention is the period set in settings. The cleanup deletes past it every month. The "
+                        "cleanup deletes one calendar month at a time, and only when every event in that month is "
+                        "older than the retention."
                     )
                 ),
                 Table(
