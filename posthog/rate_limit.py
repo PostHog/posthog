@@ -451,6 +451,26 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -1096,12 +1116,19 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
-class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+class LLMPromptFetchRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
     # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
     # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
-    # feature_flag_remote_config throttle.
+    # feature_flag_remote_config throttle. Project secret keys get the same budget per key.
     scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
+class LLMPromptFetchProjectSecretApiKeyTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # One budget for all of a project's secret keys together, the same size as the per-key
+    # budget, so creating more keys does not raise a project's total.
+    scope = "llm_prompt_fetch_psak_team"
     rate = "600/minute"
 
 

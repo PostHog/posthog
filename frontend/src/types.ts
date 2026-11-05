@@ -6152,6 +6152,7 @@ export enum ActivityScope {
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
     OAUTH_APPLICATION = 'OAuthApplication',
     WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
+    WORKLOAD_TRUST_POLICY_REQUEST = 'WorkloadTrustPolicyRequest',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
@@ -6894,7 +6895,7 @@ export type BatchExportServiceRedshift = {
         properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
         // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
-        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
@@ -8122,7 +8123,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    MCP = 'mcp',
 }
 
 // Managed viewset

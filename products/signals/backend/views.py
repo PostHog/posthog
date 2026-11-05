@@ -26,7 +26,6 @@ from django.db.models import (
     Sum,
     Value,
     When,
-    Window,
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Coalesce
@@ -182,7 +181,7 @@ from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
     cancel_check,
-    replace_metric_check,
+    replace_check_with_metric,
 )
 from products.signals.backend.report_claim_follow_up import record_report_claimed
 from products.signals.backend.report_claims import (
@@ -246,7 +245,11 @@ from products.signals.backend.reviewer_correction_notes import ReviewerCorrectio
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
-from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
+from products.signals.backend.scout_harness.serializers import (
+    TRIGRAM_INDEXABLE_TEXT,
+    EmitReportRequestSerializer,
+    EmitReportResponseSerializer,
+)
 from products.signals.backend.scout_harness.tools.report_author import (
     AI_PROCESSING_NOT_APPROVED_REASON,
     USER_REPORT_DAILY_LIMIT,
@@ -315,6 +318,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -1339,49 +1343,53 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
 
 
 class SignalReportListPagination(FacadeLimitOffsetPagination):
+    # A full search page counts at most this many rows past its end, so `next` still works at any depth.
+    SEARCH_COUNT_HEADROOM = 1000
+
+    count_is_capped: bool = False
+    # How a search page got its count, for the list span. None without a search.
+    search_count_query: Literal["skipped", "bounded"] | None = None
+
     def paginate_queryset(self, queryset, request, view=None):
         # Fetch the page before the count. A page that ends before the limit already gives the
         # total, so the second scan is not needed. A `search` filter rechecks the text of every
-        # candidate report, and that scan costs seconds in a large team.
+        # candidate report, so a full search page counts only up to a cap past its end.
         self.limit = self.get_limit(request)
         if self.limit is None:
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        page, window_count = self._page_by_ids(
-            queryset, self.offset, self.limit, with_window_count=bool(request.query_params.get("search"))
-        )
+        searched = bool(request.query_params.get("search"))
+        page = self._page_by_ids(queryset, self.offset, self.limit)
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
-        elif window_count is not None:
-            self.count = window_count
+            self.search_count_query = "skipped" if searched else None
+        elif searched:
+            cap = self.offset + self.limit + self.SEARCH_COUNT_HEADROOM
+            bounded_count = queryset.order_by().values("pk")[: cap + 1].count()
+            self.count_is_capped = bounded_count > cap
+            self.count = min(bounded_count, cap)
+            self.search_count_query = "bounded"
         else:
             self.count = self.get_count(queryset)
         if self.count > self.limit and self.template is not None:
             self.display_page_controls = True
         return page
 
-    def _page_by_ids(
-        self, queryset, offset: int, limit: int, *, with_window_count: bool
-    ) -> tuple[list[SignalReport], int | None]:
+    def _page_by_ids(self, queryset, offset: int, limit: int) -> list[SignalReport]:
         # The sort covers every matching report in the team, so it selects ids only. Full rows would
-        # carry the wide report columns and the refund and tracker issue joins through that sort, and
-        # COUNT(*) OVER () would buffer them and spill to disk. The full rows load for the page alone.
-        if with_window_count:
-            rows = list(
-                queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                    offset : offset + limit
-                ]
-            )
-            page_ids = [pk for pk, _ in rows]
-            window_count = rows[0][1] if rows else None
-        else:
-            page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
-            window_count = None
+        # carry the wide report columns and the refund and tracker issue joins through that sort.
+        # The full rows load for the page alone.
+        page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
         if not page_ids:
-            return [], None
+            return []
         reports = {report.pk: report for report in queryset.filter(pk__in=page_ids).order_by()}
-        return [reports[pk] for pk in page_ids if pk in reports], window_count
+        return [reports[pk] for pk in page_ids if pk in reports]
+
+    def get_paginated_response(self, data):
+        response = super().get_paginated_response(data)
+        response.data["count_is_capped"] = self.count_is_capped
+        return response
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
@@ -1392,6 +1400,13 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                 "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
                 "for that outcome of the served ranking model. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
+            ),
+        }
+        paginated["properties"]["count_is_capped"] = {
+            "type": "boolean",
+            "description": (
+                "True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. "
+                "Only a search with a full page can cap the count."
             ),
         }
         paginated["properties"]["ranking_pill"] = {
@@ -1814,11 +1829,12 @@ class SignalReportViewSet(
         description=(
             "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
             "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
-            "The request never waits on the model. A current stored list returns quickly. Otherwise the request "
-            "reads every candidate report, which can take some seconds, starts a background build and returns the "
-            "last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, "
-            "and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list "
-            "is about can read it."
+            "The request never waits on the model. By default it returns the last stored list quickly, and "
+            "`checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every "
+            "candidate report, which can take some seconds. `refresh`, `focus` and your first request start a "
+            "background build and set `building: true`. With no stored list, the request returns your reports in "
+            "inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new "
+            "list. Only the user the list is about can read it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["inbox:read"], pagination_class=None)
@@ -1841,6 +1857,7 @@ class SignalReportViewSet(
             refresh=query["refresh"],
             focus=query.get("focus"),
             wait_seconds=query["wait_seconds"],
+            max_age_minutes=query.get("max_age_minutes"),
         )
         report_user_action(
             user,
@@ -1856,6 +1873,7 @@ class SignalReportViewSet(
                 "refresh": query["refresh"],
                 "has_focus": bool(query.get("focus")),
                 "wait_seconds": query["wait_seconds"],
+                "max_age_minutes": query.get("max_age_minutes"),
                 "result_count": len(served.results),
                 "duration_ms": round((time.monotonic() - started) * 1000),
                 "check_ms": served.timings.check_ms,
@@ -2121,14 +2139,14 @@ class SignalReportViewSet(
         # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
         # status as a filter that runs on rows the index already made it read.
         statuses = self._visible_statuses()
+        if not self._report_monitoring_enabled:
+            statuses -= {SignalReport.Status.MONITORING}
         if SignalReport.Status.RESOLVED in statuses:
             statuses |= self._resolved_read_statuses()
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
-        filterable_statuses = self._FILTERABLE_STATUSES
-        if self._report_monitoring_enabled:
-            filterable_statuses |= {SignalReport.Status.MONITORING}
+        filterable_statuses = self._FILTERABLE_STATUSES | {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -2858,6 +2876,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
 
     @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
@@ -3135,6 +3154,13 @@ class SignalReportViewSet(
         list_span.set_attribute("signals.reports.list.count_only", count_only)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
         list_span.set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
+        # The search shape only. The term itself never goes on the span.
+        search = request.query_params.get("search")
+        if search:
+            list_span.set_attribute("signals.reports.list.search.length", len(search))
+            list_span.set_attribute(
+                "signals.reports.list.search.trigram_indexable", bool(TRIGRAM_INDEXABLE_TEXT.search(search))
+            )
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
@@ -3167,6 +3193,12 @@ class SignalReportViewSet(
                     list_span.set_attribute(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
+            search_count_query = getattr(self.paginator, "search_count_query", None)
+            if search_count_query is not None:
+                list_span.set_attribute("signals.reports.list.search.count_query", search_count_query)
+                list_span.set_attribute(
+                    "signals.reports.list.search.count_capped", getattr(self.paginator, "count_is_capped", False)
+                )
 
         data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
         self._capture_list_ranking_usage(total_count if page is not None else len(reports))
@@ -3282,6 +3314,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -6403,8 +6436,8 @@ class SignalReportCheckViewSet(
     @validated_request(
         request_serializer=SignalReportCheckReplacementSerializer,
         responses={200: SignalReportCheckSerializer},
-        summary="Replace a metric follow-up check",
-        description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
+        summary="Replace a follow-up check with a metric",
+        description="Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
@@ -6412,7 +6445,7 @@ class SignalReportCheckViewSet(
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
-            replacement = replace_metric_check(
+            replacement = replace_check_with_metric(
                 check=check,
                 title=data["title"],
                 rationale=data.get("rationale", ""),

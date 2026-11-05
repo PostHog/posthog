@@ -1099,7 +1099,7 @@ SelectStar,api_token,,,,,select-star
 SemanticScholar,api_key,,,query,,semantic-scholar
 Semaphore,api_token organization project_id,,,,,semaphore
 Semgrep,api_token,,,,,semgrep
-Semrush,api_key project_id,,,,,semrush
+Semrush,api_key project_id,,,domain database,,semrush
 SendGrid,api_key,,,,,send-grid
 SendPulse,,,,,,send-pulse
 Sendowl,api_key api_secret,,,,,sendowl
@@ -1343,6 +1343,7 @@ Wasabi,api_key,,,,,wasabi
 Watchmode,api_key,,,,,watchmode
 Waydev,api_key,,,,,waydev
 Wayfair,,,,,,wayfair
+Webengage,,,,,,webengage
 Webflow,api_token site_id,,,,,webflow
 WeightsAndBiases,api_key entity host,,,,,weights-and-biases
 WhatsappBusinessManagement,,,,,,whatsapp-business-management

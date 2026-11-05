@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler/jestSetup'
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native'
-import { Text, type View } from 'react-native'
+import { Text, type ViewInstance } from 'react-native'
 import { PointerType, State } from 'react-native-gesture-handler'
 
 import type { PinView } from '@/model/views'
@@ -90,7 +90,7 @@ function setup(tileTop = (index: number): number => 100 + index * 100) {
             hook.result.current.register(pin.shortcutId, {
                 measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) =>
                     callback(20, tileTop(index), 360, 80),
-            } as unknown as View)
+            } as unknown as ViewInstance)
         })
     })
     return { ...hook, options, reorder, scrollTo }
@@ -146,7 +146,7 @@ test('edge scrolling stops at the last pin and after cancellation', () => {
         result.current.register('c', {
             measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) =>
                 callback(20, 900, 360, 80),
-        } as unknown as View)
+        } as unknown as ViewInstance)
     )
     act(() => pickup(result.current))
     act(() => jest.advanceTimersByTime(64))
@@ -158,7 +158,7 @@ test('edge scrolling stops at the last pin and after cancellation', () => {
         result.current.register('c', {
             measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) =>
                 callback(20, 340, 360, 80),
-        } as unknown as View)
+        } as unknown as ViewInstance)
     )
     scrollTo.mockClear()
     act(() => jest.advanceTimersByTime(64))

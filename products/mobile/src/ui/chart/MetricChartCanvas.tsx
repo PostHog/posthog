@@ -1,7 +1,9 @@
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
+import type { ViewInstance } from 'react-native'
 import { type LayoutChangeEvent, Text, View } from 'react-native'
 import type { PointsArray } from 'victory-native'
 
+import { useClockPreference } from '@/lib/useClockPreference'
 import { createStyles, useTheme } from '@/ui/theme'
 import { fonts } from '@/ui/tokens'
 
@@ -74,13 +76,14 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
         accessibilityActions,
         testID,
     } = props
+    const uses24hourClock = useClockPreference()
     const theme = useTheme()
     const styles = useStyles()
     const fullHeight = chartHeight(variant, props.height)
     const allSeries = useStableSeries(chartSeriesOf(props, theme))
     const accent = props.accent ? theme.accentColor[props.accent] : (allSeries[0]?.color ?? theme.colors.blue)
     const [width, setWidth] = useState(0)
-    const viewRef = useRef<View>(null)
+    const viewRef = useRef<ViewInstance>(null)
 
     const [page, setPage] = useState({ data: allSeries, endOffset: 0 })
     const endOffset = page.data === allSeries ? page.endOffset : 0
@@ -109,10 +112,11 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
                 count: totalCount,
                 values: axisValues,
                 dates: [],
+                uses24hourClock,
                 interval,
                 formatValue,
             }),
-        [width, fullHeight, kind, variant, totalCount, axisValues, interval, formatValue]
+        [width, fullHeight, kind, variant, totalCount, axisValues, interval, formatValue, uses24hourClock]
     )
     const pageSize = barPageSize(axisGeometry.plot.right - axisGeometry.plot.left, currentCount, barLayout)
     const paged = kind === 'bar' && variant !== 'compact' && width > 0 && totalCount > pageSize
@@ -137,8 +141,19 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const segments = useMemo(() => barSegments(visible, barLayout), [visible, barLayout])
 
     const geometry = useMemo(() => {
-        return chartGeometry({ width, height, kind, variant, count, values: axisValues, dates, interval, formatValue })
-    }, [width, height, kind, variant, count, axisValues, dates, interval, formatValue])
+        return chartGeometry({
+            width,
+            height,
+            kind,
+            variant,
+            count,
+            values: axisValues,
+            dates,
+            interval,
+            formatValue,
+            uses24hourClock,
+        })
+    }, [width, height, kind, variant, count, axisValues, dates, interval, formatValue, uses24hourClock])
 
     const plotted = useMemo<PlottedSeries[]>(
         () =>
