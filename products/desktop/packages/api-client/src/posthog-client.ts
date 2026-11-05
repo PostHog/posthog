@@ -2145,6 +2145,7 @@ export class PostHogAPIClient {
         appVersion: options.appVersion ?? clientAppVersion,
         fetch: options.fetch,
         userAgent: options.userAgent,
+        taskClientProvenance: this.taskClientProvenance,
       }),
       baseUrl,
     );

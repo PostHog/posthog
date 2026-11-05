@@ -11,6 +11,8 @@ type ApiFetcherConfig = {
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
+  // Sent on every request so the server can tell which client each turn came from.
+  taskClientProvenance?: string;
 };
 
 /**
@@ -71,6 +73,9 @@ export const buildApiFetcher: (
     headers.set("Content-Type", "application/json");
     if (userAgent) {
       headers.set("User-Agent", userAgent);
+    }
+    if (config.taskClientProvenance) {
+      headers.set("X-PostHog-Client-Provenance", config.taskClientProvenance);
     }
 
     if (input.urlSearchParams) {
