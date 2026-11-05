@@ -8,6 +8,10 @@ function ThrowRenderError(): JSX.Element {
     throw new Error('boot render kaboom')
 }
 
+function ThrowNull(): JSX.Element {
+    throw null
+}
+
 function ThrowChunkError(): JSX.Element {
     throw new TypeError('Failed to fetch dynamically imported module: /static/chunk-App.js')
 }
@@ -63,6 +67,17 @@ describe('RootErrorBoundary', () => {
         expect(event.distinct_id).toEqual(expect.any(String))
         expect(event.properties.$exception_list[0].value).toBe('boot render kaboom')
         expect(event.properties.chunk_load_error).toBe(false)
+    })
+
+    it('shows crash copy when a component throws null', () => {
+        render(
+            <RootErrorBoundary>
+                <ThrowNull />
+            </RootErrorBoundary>
+        )
+
+        expect(screen.getByRole('alert')).toHaveTextContent('PostHog crashed while starting.')
+        expect(JSON.parse(sendBeacon.mock.calls[0][1]).properties.$exception_list[0].value).toBe('null')
     })
 
     it('shows load-failure copy for chunk-load errors', () => {
