@@ -29,6 +29,7 @@ import {
     EMAIL_ATTACHMENTS_MISSING,
     EmailAttachmentsMissingError,
     EmailAttachmentsService,
+    emailAttachmentOutcomesTotal,
 } from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -862,6 +863,7 @@ export class EmailService {
                     failureReason = EMAIL_ATTACHMENTS_MISSING
                 } else if (error instanceof EmailAttachmentsUnavailableError) {
                     failureReason = EMAIL_ATTACHMENTS_UNAVAILABLE
+                    emailAttachmentOutcomesTotal.inc({ outcome: 'unavailable' }, params.attachments?.length ?? 0)
                     message = `${EMAIL_ATTACHMENTS_UNAVAILABLE}: the attachment files of this email could not be loaded after ${attachmentLoadTries} tries, so it was not sent.`
                     logger.error('⚠️', 'Gave up loading email attachment rows', {
                         job_id: invocation.id,
