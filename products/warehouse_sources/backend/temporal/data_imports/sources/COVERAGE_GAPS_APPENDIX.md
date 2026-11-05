@@ -10848,14 +10848,14 @@ Note: SentinelOne publishes no public API reference. The console API doc (https:
 
 ## Sequenzy — **thin**
 
-Today (7): `campaigns`, `email_metrics`, `lists`, `segments`, `sequences`, `subscribers`, `tags`
+Today (11): `campaign_events`, `campaigns`, `email_metrics`, `email_sends`, `lists`, `segments`, `sequence_enrollments`, `sequence_events`, `sequences`, `subscribers`, `tags`
 
 Diffed against: <https://docs.sequenzy.com/openapi.yaml>
 
-- [ ] `Campaign events (GET /api/v1/metrics/campaigns/{campaignId}/events)` — analyze recipient-level deliveries, opens, clicks, bounces, and unsubscribes instead of email totals alone (high)
-- [ ] `Sequence events (GET /api/v1/metrics/sequences/{sequenceId}/events)` — connect recipient engagement to individual automation steps and product behavior (high)
-- [ ] `Sequence enrollments (GET /api/v1/sequences/{sequenceId}/enrollments)` — measure automation participation, current steps, waiting contacts, and completion states (high)
-- [ ] `Sent emails (GET /api/v1/email-sends)` — join individual delivery outcomes and recipient records to campaigns, sequences, and transactional sends (high)
+- [x] `Campaign events (GET /api/v1/metrics/campaigns/{campaignId}/events)` — analyze recipient-level deliveries, opens, clicks, bounces, and unsubscribes instead of email totals alone (high) → `campaign_events` (incremental merge on `eventTime`, fan-out over `campaigns`)
+- [x] `Sequence events (GET /api/v1/metrics/sequences/{sequenceId}/events)` — connect recipient engagement to individual automation steps and product behavior (high) → `sequence_events` (incremental merge on `eventTime`, fan-out over `sequences`)
+- [x] `Sequence enrollments (GET /api/v1/sequences/{sequenceId}/enrollments)` — measure automation participation, current steps, waiting contacts, and completion states (high) → `sequence_enrollments` (full refresh, fan-out over `sequences`)
+- [x] `Sent emails (GET /api/v1/email-sends)` — join individual delivery outcomes and recipient records to campaigns, sequences, and transactional sends (high) → `email_sends` (incremental merge on `createdAt`)
 - [ ] `Recipient engagement (GET /api/v1/metrics/recipients)` — compare opens, clicked URLs, and unsubscribe behavior across recipients and campaigns (medium)
 - [ ] `Accounts and account members (GET /api/v1/accounts; GET /api/v1/accounts/{externalId}/members)` — group subscriber engagement by business account and member role (medium)
 - [ ] `Account events (GET /api/v1/accounts/{externalId}/events)` — connect account activity to subscriber engagement and automation results (medium)
