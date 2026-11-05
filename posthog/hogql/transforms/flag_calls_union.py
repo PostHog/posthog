@@ -492,8 +492,9 @@ class _Aliases(CloningVisitor):
     def visit_alias(self, node: ast.Alias):
         # `swap_scans_found_by_type` reads through an alias of a field, but it does not read a comparison inside an
         # alias.
-        if isinstance(unwrap_alias(node), ast.Field):
-            return self.visit(unwrap_alias(node))
+        inner = unwrap_alias(node)
+        if isinstance(inner, ast.Field):
+            return self.visit(inner)
         return super().visit_alias(node)
 
     def _keep(self, node):
