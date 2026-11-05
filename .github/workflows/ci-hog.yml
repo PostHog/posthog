@@ -8,6 +8,9 @@ on:
             - 'hog/**'
             # hog imports its types from the MCP package's CLI library.
             - 'services/mcp/src/cli/library-types.ts'
+            # The lockfile and the workspace catalog decide which dependencies hog installs.
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
             - '.oxlintrc.json'
             - '.github/workflows/ci-hog.yml'
     workflow_dispatch:
