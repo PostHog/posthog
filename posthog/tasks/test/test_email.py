@@ -35,6 +35,7 @@ from posthog.tasks.email import (
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sending_reputation_finding,
+    send_email_sending_tier_demoted,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -250,6 +251,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 2
         assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
+
+    @parameterized.expand(
+        [
+            ("current_release_kwargs", {}),
+            ("older_release_kwargs_with_per_hour", {"per_hour": 200}),
+        ]
+    )
+    def test_send_email_sending_tier_demoted_names_only_the_daily_limit(
+        self, MockEmailMessage: MagicMock, _name: str, extra_kwargs: dict[str, int]
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_email_sending_tier_demoted(
+            team_id=self.team.id, per_day=1000, demoted_at="2026-01-05T07:15:00+00:00", **extra_kwargs
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert "1,000 emails per day" in mocked_email_messages[0].html_body
+        assert "per hour" not in mocked_email_messages[0].html_body
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
