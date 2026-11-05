@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -251,7 +251,6 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import ReportAuthor, ScoutRunReportAuthor
-from products.signals.backend.scout_harness.tools.report_quality import QualityHint
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -628,16 +627,9 @@ def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
             "safety_explanation": result.safety_explanation,
             "remediation": result.remediation,
             "idempotent_replay": result.idempotent_replay,
-            "quality_hints": quality_hints_response_data(result.quality_hints),
+            "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
         }
     ).data
-
-
-def quality_hints_response_data(hints: Sequence[QualityHint]) -> list[dict[str, str]]:
-    return [
-        {"check_id": hint.check_id, "severity": hint.severity, "field": hint.field, "message": hint.message}
-        for hint in hints
-    ]
 
 
 def _resolve_emission_report_links(
@@ -1465,7 +1457,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "corroboration_collapsed": result.corroboration_collapsed,
                     "decision_fields_set": list(result.decision_fields_set),
                     "warnings": [{"field": w.field, "message": w.message} for w in result.warnings],
-                    "quality_hints": quality_hints_response_data(result.quality_hints),
+                    "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
                 }
             ).data,
             status=status.HTTP_200_OK,

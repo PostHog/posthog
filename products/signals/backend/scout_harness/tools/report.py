@@ -455,14 +455,14 @@ def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints
     events."""
     if not hints or _author_trial_store(author) is not None:
         return
+    shared_properties = {**author.event_properties(), "tool": tool}
     for hint in hints:
         try:
             posthoganalytics.capture(
                 event="signals_scout_report_quality_hint",
                 distinct_id=str(team.uuid),
                 properties={
-                    **author.event_properties(),
-                    "tool": tool,
+                    **shared_properties,
                     "check_id": hint.check_id,
                     "severity": hint.severity,
                     "field": hint.field,
@@ -514,9 +514,10 @@ def _report_quality_checks_async(
         async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
             hints = _repair_report_text(cast(dict[str, Any], kwargs))
             result = await function(*args, **kwargs)
-            await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
-                team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
-            )
+            if hints:
+                await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
+                    team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
+                )
             return replace(result, quality_hints=hints)
 
         return wrapped

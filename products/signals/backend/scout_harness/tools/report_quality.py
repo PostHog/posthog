@@ -33,10 +33,7 @@ class QualityHint:
 
 @dataclass(frozen=True)
 class _QualityCheck:
-    check_id: str
-    severity: QualitySeverity
-    field: QualityField
-    message: str
+    hint: QualityHint
     applies: Callable[[str], bool]
     repair: Callable[[str], str] | None = None
 
@@ -52,31 +49,37 @@ def _has_only_escaped_backticks(text: str) -> bool:
 
 _CHECKS: tuple[_QualityCheck, ...] = (
     _QualityCheck(
-        check_id="literal_newline_escapes",
-        severity="repair",
-        field="summary",
-        message=(
-            "The summary had literal \\n sequences and no line breaks, so they were changed to line breaks. "
-            "Send real newlines in the JSON string, escaped one time only."
+        hint=QualityHint(
+            check_id="literal_newline_escapes",
+            severity="repair",
+            field="summary",
+            message=(
+                "The summary had literal \\n sequences and no line breaks, so they were changed to line breaks. "
+                "Send real newlines in the JSON string, escaped one time only."
+            ),
         ),
         applies=_has_only_literal_newlines,
         repair=lambda text: _LITERAL_NEWLINE.sub("\n", text),
     ),
     _QualityCheck(
-        check_id="escaped_backticks",
-        severity="repair",
-        field="summary",
-        message="The summary had only escaped backticks (\\`), so they were changed to plain backticks.",
+        hint=QualityHint(
+            check_id="escaped_backticks",
+            severity="repair",
+            field="summary",
+            message="The summary had only escaped backticks (\\`), so they were changed to plain backticks.",
+        ),
         applies=_has_only_escaped_backticks,
         repair=lambda text: text.replace("\\`", "`"),
     ),
     _QualityCheck(
-        check_id="pr_style_title",
-        severity="hint",
-        field="title",
-        message=(
-            "The title reads like a commit message (for example `fix(scope): ...`). An inbox title names "
-            "the problem a reader has, not the change. Rewrite it with edit_report."
+        hint=QualityHint(
+            check_id="pr_style_title",
+            severity="hint",
+            field="title",
+            message=(
+                "The title reads like a commit message (for example `fix(scope): ...`). An inbox title names "
+                "the problem a reader has, not the change. Rewrite it with edit_report."
+            ),
         ),
         applies=lambda text: _PR_STYLE_TITLE.match(text) is not None,
     ),
@@ -91,12 +94,10 @@ def apply_report_quality_checks(
     fields: dict[QualityField, str | None] = {"title": title, "summary": summary}
     hints: list[QualityHint] = []
     for check in _CHECKS:
-        text = fields[check.field]
+        text = fields[check.hint.field]
         if text is None or not check.applies(text):
             continue
         if check.repair is not None:
-            fields[check.field] = check.repair(text)
-        hints.append(
-            QualityHint(check_id=check.check_id, severity=check.severity, field=check.field, message=check.message)
-        )
+            fields[check.hint.field] = check.repair(text)
+        hints.append(check.hint)
     return fields["title"], fields["summary"], tuple(hints)
