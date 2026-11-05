@@ -697,6 +697,7 @@ export interface MCPIntentDigestApi {
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -715,6 +716,7 @@ export type McpAnalyticsIntentClustersRetrieveParams = {
 export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
