@@ -45,6 +45,7 @@ function notification(identifier: string): Notifications.Notification {
                 body: 'Report update',
                 data: reportData,
                 categoryIdentifier: null,
+                threadIdentifier: null,
                 sound: null,
             },
         },
