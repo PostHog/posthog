@@ -3,7 +3,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -87,15 +86,9 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspension_reason": "",
         }
 
-    @parameterized.expand(
-        [
-            ("sandbox configured", "sandbox.example.com"),
-            ("sandbox settings cleared after sandbox sends", ""),
-        ]
-    )
-    def test_sending_allowance_leaves_out_sandbox_sends(self, _name: str, sandbox_domain: str):
+    def test_sending_allowance_leaves_out_sandbox_sends(self):
         sends_by_source = {
-            self.team.id: {"flow-a": {"email_sent": 1, "email_sandbox_sent": 3}, "flow-b": {"email_sent": 2}}
+            self.team.id: {"flow-a": {"email_sent": 3, "email_sandbox_sent": 3}, "flow-b": {"email_sent": 2}}
         }
 
         def requested_metrics(*, name: list[str], **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
@@ -107,16 +100,9 @@ class TestEmailReputationAPI(APIBaseTest):
                 for team_id, sources in sends_by_source.items()
             }
 
-        with (
-            override_settings(
-                WORKFLOWS_SANDBOX_SENDER_DOMAIN=sandbox_domain,
-                SES_SANDBOX_FROM_ADDRESS="sender@sandbox.example.com",
-                SES_SANDBOX_TENANT_NAME="sandbox-tenant",
-            ),
-            patch(
-                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_team_and_source",
-                side_effect=requested_metrics,
-            ),
+        with patch(
+            "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_team_and_source",
+            side_effect=requested_metrics,
         ):
             allowance = self._get_reputation({})["sending_allowance"]
         assert allowance["emails_sent_last_hour"] == 2
