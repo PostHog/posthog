@@ -50,7 +50,7 @@ class EventDefinitionBasicSerializer(serializers.Serializer):
 
 
 class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
-    properties = SchemaPropertyGroupPropertySerializer(
+    properties = SchemaPropertyGroupPropertySerializer(  # type: ignore[call-arg]
         many=True,
         required=False,
         max_length=MAX_PROPERTIES_PER_GROUP,
