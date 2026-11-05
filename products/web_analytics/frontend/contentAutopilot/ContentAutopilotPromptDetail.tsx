@@ -11,6 +11,7 @@ import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArc
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
 import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
 import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
@@ -54,9 +55,8 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         searchesQuery,
         sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const { closePromptDetail, openPromptDetail, setArchiveConfirming, setVisibilityMetric } = useActions(
-        contentAutopilotPromptDetailLogic
-    )
+    const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
+        useActions(contentAutopilotPromptDetailLogic)
 
     if (!promptId) {
         return null
@@ -119,17 +119,26 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         </span>
                         <span className="text-muted">{pluralize(stats.total_checks, 'check')} in total</span>
                         {prompt.archived_at ? null : (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                status="danger"
-                                className="ml-auto"
-                                onClick={() => setArchiveConfirming(true)}
-                                disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
-                                data-attr="content-autopilot-prompt-archive"
-                            >
-                                Archive
-                            </LemonButton>
+                            <div className="ml-auto flex gap-2">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => setPromptEditing(true)}
+                                    data-attr="content-autopilot-prompt-edit"
+                                >
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={() => setArchiveConfirming(true)}
+                                    disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
+                                    data-attr="content-autopilot-prompt-archive"
+                                >
+                                    Archive
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                     <ContentAutopilotPromptArchiveBanner />
@@ -269,6 +278,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     )}
                 </div>
             )}
+            <ContentAutopilotPromptEditModal />
         </LemonModal>
     )
 }

@@ -5,7 +5,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonCard,
-    LemonCollapse,
     LemonDialog,
     LemonSelect,
     LemonSkeleton,
@@ -15,7 +14,9 @@ import {
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
@@ -68,10 +69,10 @@ export const ContentAutopilot = (): JSX.Element => {
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h1 className="m-0">Content autopilot</h1>
+                    <h1 className="m-0">AI visibility</h1>
                     <p className="m-0 mt-1 text-muted max-w-3xl">
-                        Find questions AI assistants answer without citing your site, and draft the pages that fix it.
-                        Nothing is published until you download a draft and ship it yourself.
+                        Track whether AI assistants mention and cite your site when they answer the prompts you care
+                        about.
                     </p>
                 </div>
                 {profile && !onboardingOpen ? (
@@ -94,7 +95,7 @@ export const ContentAutopilot = (): JSX.Element => {
 
             {workspaceError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadWorkspace, loading }}>
-                    Some content autopilot data could not be loaded. {workspaceError}
+                    Some AI visibility data could not be loaded. {workspaceError}
                 </LemonBanner>
             ) : null}
 
@@ -137,6 +138,16 @@ export const ContentAutopilot = (): JSX.Element => {
                                 }
                                 tabs={[
                                     {
+                                        key: 'overview',
+                                        label: 'Overview',
+                                        content: <ContentAutopilotPromptsOverview />,
+                                    },
+                                    {
+                                        key: 'prompts',
+                                        label: 'Prompts',
+                                        content: <ContentAutopilotPrompts />,
+                                    },
+                                    {
                                         key: 'opportunities',
                                         label: `Opportunities (${visibleOpportunities.length})`,
                                         content: <ContentAutopilotOpportunities />,
@@ -149,27 +160,18 @@ export const ContentAutopilot = (): JSX.Element => {
                                         content: <ContentAutopilotDrafts />,
                                     },
                                     {
-                                        key: 'prompts',
-                                        label: 'Prompts',
-                                        content: <ContentAutopilotPrompts />,
+                                        key: 'settings',
+                                        label: 'Settings',
+                                        content: <ContentAutopilotSetup />,
                                     },
                                 ]}
                             />
                         </>
                     )}
-
-                    <LemonCollapse
-                        panels={[
-                            {
-                                key: 'settings',
-                                header: `Settings for ${profile.name || profile.domain}`,
-                                content: <ContentAutopilotSetup />,
-                            },
-                        ]}
-                    />
                 </>
             )}
             <ContentAutopilotProposalDetail />
+            <ContentAutopilotPromptAddModal />
         </div>
     )
 }

@@ -9,6 +9,7 @@ import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/sche
 import { aeoPromptsOverview } from 'products/web_analytics/frontend/generated/api'
 import type { AEOPromptSetOverviewApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import {
     ContentAutopilotPromptsError,
@@ -46,6 +47,17 @@ export interface contentAutopilotPromptsOverviewLogicActions {
     setPromptsTopic: (topic: string | null) => {
         topic: string | null
     } // contentAutopilotPromptsLogic
+    setWorkspaceTab: (workspaceTab: ContentAutopilotWorkspaceTab) => {
+        workspaceTab: ContentAutopilotWorkspaceTab
+    } // contentAutopilotLogic
+    addPromptsSuccess: (
+        result: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptImportResultApi
+    ) => {
+        result: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptImportResultApi
+    } // contentAutopilotPromptsLogic
+    savePromptEditSuccess: (prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi) => {
+        prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi
+    } // contentAutopilotPromptDetailLogic
     loadPromptSetOverview: () => {
         value: true
     }
@@ -96,9 +108,11 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
         values: [teamLogic, ['currentTeamIdStrict']],
         actions: [
             contentAutopilotPromptsLogic,
-            ['setPromptsTopic', 'setPromptActiveSuccess'],
+            ['setPromptsTopic', 'setPromptActiveSuccess', 'addPromptsSuccess'],
             contentAutopilotPromptDetailLogic,
-            ['setPromptArchivedSuccess'],
+            ['setPromptArchivedSuccess', 'savePromptEditSuccess'],
+            contentAutopilotLogic,
+            ['setWorkspaceTab'],
         ],
     })),
     actions({
@@ -166,10 +180,13 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('web analytics content autopilot prompts overview topic selected')
             actions.setPromptsTopic(topic)
+            actions.setWorkspaceTab('prompts')
         },
-        // Turning a prompt on or off, or archiving one, changes how many prompts are tracked.
+        // Adding, editing, turning on or off, or archiving a prompt changes the counts.
         setPromptActiveSuccess: () => actions.loadPromptSetOverview(),
         setPromptArchivedSuccess: () => actions.loadPromptSetOverview(),
+        addPromptsSuccess: () => actions.loadPromptSetOverview(),
+        savePromptEditSuccess: () => actions.loadPromptSetOverview(),
     })),
     afterMount(({ actions }) => {
         actions.loadPromptSetOverview()

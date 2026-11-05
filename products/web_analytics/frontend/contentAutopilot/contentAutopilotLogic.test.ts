@@ -206,6 +206,17 @@ describe('contentAutopilotLogic', () => {
         })
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([])
         expect(mountedLogic.values.workspaceTab).toBe('drafts')
+
+        // A row's draft button sends only that row and leaves the table selection alone.
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        await expectLogic(mountedLogic, () =>
+            mountedLogic.actions.draftOpportunities([second.id])
+        ).toFinishAllListeners()
+        expect(mockOpportunitiesDraft).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+            opportunity_ids: [second.id],
+        })
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
     })
 
     it('sends typed run and profile payloads to the generated API clients', async () => {
@@ -371,13 +382,13 @@ describe('contentAutopilotLogic', () => {
             'draftOpportunitiesSuccess',
         ])
         expect(mountedLogic.values.opportunities).toBeNull()
-        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+        expect(mountedLogic.values.workspaceTab).toBe('overview')
 
         secondSiteLoad.resolve(paginated([secondSiteOpportunity]))
         await expectLogic(mountedLogic).toFinishAllListeners()
         expect(mountedLogic.values.opportunities).toEqual([secondSiteOpportunity])
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([secondSiteOpportunity.id])
-        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+        expect(mountedLogic.values.workspaceTab).toBe('overview')
     })
 
     it('lists queued pages last only while their run is active, and keeps only run-level errors', async () => {
