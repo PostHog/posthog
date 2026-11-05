@@ -28,7 +28,8 @@ export const WithPeople: Story = {
 
 export const Empty: Story = {
     render: () => (
-        <div style={{ height: 32, width: '100%' }}>
+        // #storybook-root shrinks to its content, so a percentage width collapses to zero here.
+        <div className="w-80 h-8">
             <SelectedPeopleList people={{}} onRemove={noop} />
         </div>
     ),
