@@ -2,13 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -17,39 +14,13 @@ import {
     isDirectScoutNote,
     NOTES_FETCH_LIMIT,
     scoutNoteOriginLabel,
+    scoutNoteWriteDisabledReason,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
 import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
 import { OpenScratchpadButton } from './OpenScratchpadButton'
+import { ScoutNoteComposer } from './ScoutNoteComposer'
 import { ScoutNoteContent } from './ScoutNoteContent'
-
-/** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
-const NOTE_MAX_CHARS = 10000
-
-/**
- * Controlled so LemonTextArea's counter has a value to count; an uncontrolled textarea reports
- * 0 / max no matter what is typed.
- */
-function NoteComposer({ onChange }: { onChange: (content: string) => void }): JSX.Element {
-    const [content, setContent] = useState('')
-    return (
-        <LemonTextArea
-            autoFocus
-            value={content}
-            maxLength={NOTE_MAX_CHARS}
-            placeholder="e.g. we shipped a new checkout on Tuesday, watch conversion closely"
-            onChange={(value) => {
-                setContent(value)
-                onChange(value)
-            }}
-        />
-    )
-}
-
-/** Notes are written and retired through the skill, so the same editor access gates both. */
-function noteWriteDisabledReason(): string | undefined {
-    return getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor) ?? undefined
-}
 
 /**
  * The dialog closes itself only once the note saved. A failed request leaves it open with the text
@@ -72,7 +43,7 @@ function LeaveNoteDialog({
         content: (close) => {
             closeDialog = close
             return (
-                <NoteComposer
+                <ScoutNoteComposer
                     onChange={(value) => {
                         content = value
                     }}
@@ -109,7 +80,7 @@ export function LeaveScoutNoteButton({
 }): JSX.Element {
     const logic = scoutNotesLogic({ skillName })
     const { savingNote } = useValues(logic)
-    const disabledReason = noteWriteDisabledReason()
+    const disabledReason = scoutNoteWriteDisabledReason()
 
     return (
         <LemonButton
@@ -268,7 +239,7 @@ function ScoutNoteRow({
     onDelete: () => void
 }): JSX.Element {
     const direct = isDirectScoutNote(note)
-    const disabledReason = noteWriteDisabledReason()
+    const disabledReason = scoutNoteWriteDisabledReason()
 
     return (
         <div className="flex gap-3 border-b border-primary px-3 py-2.5 last:border-b-0">

@@ -101,24 +101,45 @@ describe('SendTestEmailModal', () => {
     })
 
     it.each([
-        ['no address yet', ''],
-        ['their own verified address', MOCK_DEFAULT_USER.email],
-    ])('does not warn about an unchecked recipient for %s when the member list fails to load', async (_, recipient) => {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/integrations/': { results: [sandbox] },
-                '/api/organizations/:organization_id/members/': () => [500, { detail: 'Unavailable' }],
-            },
-        })
-        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: true })
-        openModal()
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setRecipientEmail(recipient)
+        ['no address yet', '', false],
+        ['their own verified address', MOCK_DEFAULT_USER.email, false],
+        ['a teammate an earlier load listed', 'teammate@example.com', true],
+    ])(
+        'does not warn about an unchecked recipient for %s when the member list fails to load',
+        async (_, recipient, loadedBefore) => {
+            let membersLoads = 0
+            const teammate = {
+                ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
+                user: {
+                    ...MOCK_DEFAULT_ORGANIZATION_MEMBER.user,
+                    email: 'teammate@example.com',
+                    is_email_verified: true,
+                },
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                    '/api/organizations/:organization_id/members/': () =>
+                        loadedBefore && membersLoads++ === 0
+                            ? [200, { results: [teammate] }]
+                            : [500, { detail: 'Unavailable' }],
+                },
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: true })
+            openModal()
+            await expectLogic(logic).toFinishAllListeners()
+            if (loadedBefore) {
+                logic.actions.setModalOpen(false)
+                logic.actions.setModalOpen(true)
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            logic.actions.setRecipientEmail(recipient)
 
-        await expectLogic(logic).toMatchValues({ membersLoadFailed: true, isSandboxSenderSelected: true })
-        await waitFor(() => expect(screen.getByTestId('send-test-email-recipient')).toBeInTheDocument())
-        expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
-    })
+            await expectLogic(logic).toMatchValues({ membersLoadFailed: true, isSandboxSenderSelected: true })
+            await waitFor(() => expect(screen.getByTestId('send-test-email-recipient')).toBeInTheDocument())
+            expect(screen.queryByText(/Couldn't load your organization's members/)).toBeNull()
+        }
+    )
 
     it.each([
         [
