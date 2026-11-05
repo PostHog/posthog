@@ -158,4 +158,18 @@ describe('settingsSearch', () => {
 
         expect(searchSettingsIndex(fuse, term).map((entry) => entry.settingId)).toContain(expectedSettingId)
     })
+
+    test.each([
+        ['object access', 'environment-object-access-control'],
+        ['property access', 'environment-property-access-control'],
+    ])('finds "%s" only when access detail rules are enabled', (term, expectedSettingId) => {
+        for (const enabled of [false, true]) {
+            const flags = { [FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL]: enabled }
+            const visible = (definition: Pick<Setting, 'flag'>): boolean =>
+                matchesFlagDefinition(definition.flag, flags)
+            const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+            expect(searchSettingsIndex(fuse, term).some((entry) => entry.settingId === expectedSettingId)).toBe(enabled)
+        }
+    })
 })

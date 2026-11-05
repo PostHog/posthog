@@ -47,10 +47,10 @@ export function PropertyAccessRules({
 
     return (
         <AccessDetailSection
-            title="Property rules"
+            title={scopeType === 'default' ? undefined : 'Property rules'}
             description={
                 scopeType === 'default'
-                    ? 'Property access that applies to everyone without a rule of their own. Default for every property is read & write.'
+                    ? undefined
                     : `This ${subjectNoun}'s access to specific properties. Default for every property is read & write.`
             }
         >

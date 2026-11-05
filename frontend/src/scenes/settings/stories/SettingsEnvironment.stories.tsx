@@ -1,7 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
@@ -13,8 +13,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AvailableFeature } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -232,7 +234,104 @@ export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-m
 
 export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
+const accessControlDetailDecorators = (features: AvailableFeature[]): Story['decorators'] => [
+    (Story) => {
+        useAvailableFeatures(features)
+        return <Story />
+    },
+    mswDecorator({
+        get: {
+            '/api/billing/': billingJson,
+            '/api/projects/:id/access_control_defaults': {
+                available_project_levels: ['none', 'member', 'admin'],
+                available_resource_levels: ['none', 'viewer', 'editor', 'manager'],
+                can_edit: true,
+                is_managed_by_terraform: false,
+                project_access_level: 'member',
+                resource_access_levels: {},
+                object_rule_resources: [
+                    {
+                        resource: 'dashboard',
+                        available_access_levels: ['none', 'viewer', 'editor', 'manager'],
+                        minimum_access_level: 'none',
+                    },
+                ],
+            },
+            '/api/projects/:id/access_control_default_objects': {
+                results: [
+                    {
+                        resource: 'dashboard',
+                        resource_id: '1',
+                        name: 'Example dashboard',
+                        short_id: null,
+                        access_level: 'viewer',
+                    },
+                ],
+            },
+            '/api/projects/:id/access_control_default_properties': {
+                results: [
+                    {
+                        property_definition_id: 'email-rule',
+                        property: 'email',
+                        property_type: 'person',
+                        access_level: 'read',
+                    },
+                ],
+            },
+        },
+    }),
+]
+
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
+
+const checkAccessControlUpsell: Story['play'] = async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole('heading', { name: 'Access control', level: 2 })
+    if (canvas.queryByRole('table') || canvas.queryByRole('button', { name: 'Add rule' })) {
+        throw new Error('Access rules must be hidden without the access control entitlement.')
+    }
+}
+
+export const SettingsEnvironmentObjectAccessControl: Story = {
+    args: { sectionId: 'environment-object-access-control' },
+    decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => {
+            const table = within(canvas.getByRole('table'))
+            table.getByRole('link', { name: 'Example dashboard' })
+            table.getByText('Viewer', { exact: true })
+            canvas.getByRole('button', { name: 'Add rule' })
+        })
+    },
+}
+
+export const SettingsEnvironmentObjectAccessControlWithoutEntitlement: Story = {
+    args: { sectionId: 'environment-object-access-control' },
+    decorators: accessControlDetailDecorators([]),
+    play: checkAccessControlUpsell,
+}
+
+export const SettingsEnvironmentPropertyAccessControl: Story = {
+    args: { sectionId: 'environment-property-access-control' },
+    decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => {
+            const table = within(canvas.getByRole('table'))
+            table.getByText('email', { exact: true })
+            table.getByText('Person property', { exact: true })
+            table.getByText('Read only', { exact: true })
+            canvas.getByRole('button', { name: 'Add rule' })
+        })
+    },
+}
+
+export const SettingsEnvironmentPropertyAccessControlWithoutEntitlement: Story = {
+    args: { sectionId: 'environment-property-access-control' },
+    decorators: accessControlDetailDecorators([]),
+    play: checkAccessControlUpsell,
+}
 
 export const SettingsEnvironmentActivityLogs: Story = {
     args: { sectionId: 'environment-activity-logs' },

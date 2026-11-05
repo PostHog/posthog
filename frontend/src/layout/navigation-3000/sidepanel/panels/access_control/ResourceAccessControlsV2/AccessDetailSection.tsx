@@ -6,16 +6,18 @@ export function AccessDetailSection({
     description,
     children,
 }: {
-    title: string
+    title?: string
     description?: string
     children: ReactNode
 }): JSX.Element {
     return (
         <div className="space-y-2">
-            <div>
-                <h3 className="mb-0">{title}</h3>
-                {description && <p className="text-secondary text-sm mb-0">{description}</p>}
-            </div>
+            {(title || description) && (
+                <div>
+                    {title && <h3 className="mb-0">{title}</h3>}
+                    {description && <p className="text-secondary text-sm mb-0">{description}</p>}
+                </div>
+            )}
             {children}
         </div>
     )

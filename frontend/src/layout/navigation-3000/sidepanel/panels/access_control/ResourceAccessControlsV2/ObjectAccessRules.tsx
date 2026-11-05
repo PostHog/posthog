@@ -57,10 +57,10 @@ export function ObjectAccessRules({
 
     return (
         <AccessDetailSection
-            title="One-off access overrides"
+            title={scopeType === 'default' ? undefined : 'One-off access overrides'}
             description={
                 scopeType === 'default'
-                    ? 'Specific dashboards, insights, notebooks and warehouse tables everyone is given access to, or blocked from, regardless of the defaults above.'
+                    ? undefined
                     : `Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the products above.`
             }
         >

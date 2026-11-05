@@ -1982,15 +1982,50 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-access-control',
-        title: 'Access control',
+        title: 'Project access',
+        group: 'Access control',
         settings: [
             {
                 id: 'environment-access-control',
-                title: 'Access control',
+                title: 'Project access',
                 description: 'Manage who has access to this project and what they can do.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <TeamAccessControl />,
                 keywords: ['permission', 'role', 'access', 'rbac', 'team'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-object-access-control',
+        title: 'Object access',
+        group: 'Access control',
+        flag: 'ACCESS_CONTROL_DETAIL_PANEL',
+        settings: [
+            {
+                id: 'environment-object-access-control',
+                title: 'Object access',
+                description: 'Manage access to individual dashboards, insights, notebooks, and warehouse tables.',
+                docsUrl: 'https://posthog.com/docs/settings/access-control',
+                component: <TeamAccessControl scope="object" />,
+                keywords: ['permission', 'override', 'dashboard', 'insight', 'notebook', 'warehouse', 'table'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-property-access-control',
+        title: 'Property access',
+        group: 'Access control',
+        flag: 'ACCESS_CONTROL_DETAIL_PANEL',
+        settings: [
+            {
+                id: 'environment-property-access-control',
+                title: 'Property access',
+                description: 'Manage access to event and person properties across this project.',
+                docsUrl: 'https://posthog.com/docs/settings/property-access-control',
+                component: <TeamAccessControl scope="property" />,
+                keywords: ['permission', 'restriction', 'event', 'person', 'property', 'ai_events'],
             },
         ],
     },

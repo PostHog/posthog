@@ -34,6 +34,8 @@ export type SettingSectionId =
     // Environment
     | 'environment-details'
     | 'environment-access-control'
+    | 'environment-object-access-control'
+    | 'environment-property-access-control'
     | 'environment-activity-logs'
     | 'environment-ai-gateway-dev-mode'
     | 'environment-ai-observability'
@@ -171,6 +173,8 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'display-name'
     | 'environment-access-control'
+    | 'environment-object-access-control'
+    | 'environment-property-access-control'
     | 'environment-delete'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-cuped-enabled'
