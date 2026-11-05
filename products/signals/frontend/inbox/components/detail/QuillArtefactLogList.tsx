@@ -30,7 +30,7 @@ import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { rankingScoreForHead } from '../../filterOptions'
-import { SignalCard } from '../../SignalCard'
+import { QuillSignalCard } from '../../QuillSignalCard'
 import { EnrichedReviewer, SignalReportArtefact } from '../../types'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { QuillSignalReportActionabilityBadge } from '../badges/QuillSignalReportActionabilityBadge'
@@ -287,7 +287,7 @@ function QuillSignalFindingBody({ signal }: { signal: SignalNode }): JSX.Element
     return (
         <div className="w-full">
             <SignalCardDisclosureProvider expanded={expanded} onChange={setExpanded}>
-                <SignalCard signal={signal} />
+                <QuillSignalCard signal={signal} />
             </SignalCardDisclosureProvider>
         </div>
     )

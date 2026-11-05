@@ -5,44 +5,14 @@ import { urls } from 'scenes/urls'
 
 import type { LogsAlertStateChangeSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { isLogsAlertStateChangeExtra } from './signalCardMatchers'
+import { logsAlertFilterSummary } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Narrows a signal's `extra` to the logs alert state-change shape. */
-export function isLogsAlertStateChangeExtra(
-    value: unknown
-): value is Record<string, unknown> & LogsAlertStateChangeSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return (
-        typeof extra.alert_id === 'string' &&
-        (extra.action === 'firing' || extra.action === 'broken') &&
-        'threshold_count' in extra
-    )
-}
-
-/** Reads a string array off the loosely-typed filters bag, returning [] when absent or malformed. */
-function readStringArray(filters: Record<string, unknown>, key: string): string[] {
-    const value = filters[key]
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
+import type { SignalCardProps } from './types'
 
 /** Compact rendering of the alert's log filters: services, severities, and a count of remaining conditions. */
 function FiltersBlock({ filters }: { filters: Record<string, unknown> }): JSX.Element {
-    const serviceNames = readStringArray(filters, 'serviceNames')
-    const severityLevels = readStringArray(filters, 'severityLevels')
-    const filterGroup = filters.filterGroup
-
-    // Best-effort count of extra UniversalFilters conditions without fully expanding them.
-    let filterGroupCount = 0
-    if (filterGroup && typeof filterGroup === 'object') {
-        const values = (filterGroup as { values?: unknown }).values
-        if (Array.isArray(values)) {
-            filterGroupCount = values.length
-        }
-    }
+    const { serviceNames, severityLevels, filterGroupCount } = logsAlertFilterSummary(filters)
 
     const hasAny = serviceNames.length > 0 || severityLevels.length > 0 || filterGroupCount > 0
     if (!hasAny) {
@@ -141,10 +111,4 @@ export function LogsAlertSignalCard({ signal }: SignalCardProps): JSX.Element {
             </div>
         </SignalCardShell>
     )
-}
-
-export const logsAlertSignalCardEntry: SignalCardEntry = {
-    key: 'logs',
-    matches: (signal) => signal.source_product === 'logs' && isLogsAlertStateChangeExtra(signal.extra),
-    Component: LogsAlertSignalCard,
 }

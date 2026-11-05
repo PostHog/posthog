@@ -11,16 +11,8 @@ import type {
 import { safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { ExternalSignalCard } from './ExternalSignalCard'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Narrows a signal's `extra` to a pganalyze issue payload. */
-export function isPgAnalyzeExtra(value: unknown): value is Record<string, unknown> & PgAnalyzeIssueSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return 'references' in extra && Array.isArray(extra.references) && 'synced_at' in extra
-}
+import { pgAnalyzeExternalUrl, pgAnalyzeVisibleReferences } from './signalCardParsing'
+import type { SignalCardProps } from './types'
 
 function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReferenceApi }): JSX.Element | null {
     if (reference.name === null && reference.url === null && reference.queryText === null) {
@@ -57,13 +49,8 @@ function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReferenceApi }):
 export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & PgAnalyzeIssueSignalExtraApi
 
-    const visibleReferences = extra.references.filter(
-        (reference) => reference.name !== null || reference.url !== null || reference.queryText !== null
-    )
-
-    const externalUrl = extra.references
-        .map((reference) => (reference.url !== null ? safeHttpUrl(reference.url) : null))
-        .find((url): url is string => url !== null)
+    const visibleReferences = pgAnalyzeVisibleReferences(extra)
+    const externalUrl = pgAnalyzeExternalUrl(extra)
 
     return (
         <ExternalSignalCard
@@ -84,10 +71,4 @@ export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
             )}
         </ExternalSignalCard>
     )
-}
-
-export const pgAnalyzeSignalCardEntry: SignalCardEntry = {
-    key: 'pganalyze',
-    matches: (signal) => signal.source_product === 'pganalyze' && isPgAnalyzeExtra(signal.extra),
-    Component: PgAnalyzeSignalCard,
 }

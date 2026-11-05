@@ -1,22 +1,14 @@
-import { createContext, useContext } from 'react'
-
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName, signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-
-interface SignalCardDisclosureState {
-    expanded: boolean
-    onChange: (expanded: boolean) => void
-}
-
-const SignalCardDisclosureContext = createContext<SignalCardDisclosureState | null>(null)
+import { SignalCardDisclosureContext, SignalCardDisclosureState, useSignalCardDisclosure } from './signalCardDisclosure'
+import { signalCardSource } from './signalCardParsing'
 
 export function SignalCardDisclosureProvider({
     expanded,
@@ -42,14 +34,7 @@ export function SignalCardHeader({
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
     const Icon = meta?.Icon
-
-    // Scout-authored findings link the scout's name to its detail page; everything else stays plain text.
-    const scoutSkillName =
-        signal.source_product === 'signals_scout'
-            ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
-            : undefined
-    const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
-    const sourceLine = scoutName ? `Scout · ${scoutName}` : signalCardSourceLine(signal)
+    const { sourceLine, scoutSkillName } = signalCardSource(signal)
 
     return (
         <div
@@ -64,7 +49,7 @@ export function SignalCardHeader({
             )}
             <span className="flex min-w-0 items-center text-xs font-medium text-tertiary">
                 <span className="truncate" title={sourceLine}>
-                    {scoutName && typeof scoutSkillName === 'string' ? (
+                    {scoutSkillName ? (
                         <>
                             Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
                         </>
@@ -103,7 +88,7 @@ export function SignalCardShell({
     label?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
-    const disclosure = useContext(SignalCardDisclosureContext)
+    const disclosure = useSignalCardDisclosure()
 
     return (
         <LemonCard hoverEffect={false} className={disclosure ? 'p-2 shadow-none' : 'p-3 shadow-sm'}>

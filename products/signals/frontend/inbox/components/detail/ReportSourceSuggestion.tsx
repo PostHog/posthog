@@ -1,7 +1,6 @@
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -9,13 +8,9 @@ import type { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import type { ReportSourceSuggestionApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    captureInboxReportSourceSuggestionClicked,
-    captureInboxReportSourceSuggestionShown,
-} from '../../inboxAnalytics'
 import type { SignalReport } from '../../types'
-import { sourceSuggestionTarget } from '../../utils/sourceSuggestion'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
+import { useReportSourceSuggestion } from './useReportSourceSuggestion'
 
 /** A product the team doesn't use that would have given this report better evidence, shown after the evidence. */
 export function ReportSourceSuggestion({
@@ -25,13 +20,7 @@ export function ReportSourceSuggestion({
     report: SignalReport
     suggestion: ReportSourceSuggestionApi
 }): JSX.Element | null {
-    const target = sourceSuggestionTarget(suggestion.product)
-
-    useOnMountEffect(() => {
-        if (target) {
-            captureInboxReportSourceSuggestionShown({ report, product: suggestion.product })
-        }
-    })
+    const { target, onClick } = useReportSourceSuggestion(report, suggestion)
 
     if (!target) {
         return null
@@ -57,7 +46,7 @@ export function ReportSourceSuggestion({
                     size="small"
                     to={target.url()}
                     sideIcon={<IconArrowRight />}
-                    onClick={() => captureInboxReportSourceSuggestionClicked({ report, product: suggestion.product })}
+                    onClick={onClick}
                     data-attr="inbox-report-source-suggestion"
                 >
                     {target.actionLabel}

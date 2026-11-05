@@ -8,28 +8,12 @@ import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssueListRow } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList'
-import type { ErrorTrackingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    inboxErrorTrackingIssueLogic,
-    InboxErrorTrackingIssueLogicProps,
-    InboxErrorTrackingIssueSourceType,
-} from './inboxErrorTrackingIssueLogic'
+import { inboxErrorTrackingIssueLogic } from './inboxErrorTrackingIssueLogic'
+import { isErrorTrackingExtra } from './signalCardMatchers'
+import { errorTrackingIssueLogicProps } from './signalCardParsing'
 import { SignalCardShell } from './SignalCardShell'
-import type { SignalCardEntry, SignalCardProps } from './types'
-
-/** Narrows a signal's `extra` to the error tracking shape (a string `fingerprint`). */
-export function isErrorTrackingExtra(value: unknown): value is Record<string, unknown> & ErrorTrackingSignalExtraApi {
-    if (typeof value !== 'object' || value === null) {
-        return false
-    }
-    const extra = value as Record<string, unknown>
-    return typeof extra.fingerprint === 'string'
-}
-
-function asSourceType(sourceType: string): InboxErrorTrackingIssueSourceType {
-    return sourceType === 'issue_reopened' || sourceType === 'issue_spiking' ? sourceType : 'issue_created'
-}
+import type { SignalCardProps } from './types'
 
 /** Footer link out to the full error tracking issue scene. */
 function ViewIssueLink({ issueId, fingerprint }: { issueId: string; fingerprint: string }): JSX.Element {
@@ -82,13 +66,7 @@ function ErrorTrackingSignalCardBody({
 /** Inbox signal card for error tracking issues: embeds the live issue row read-only. */
 export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Element {
     const fingerprint = isErrorTrackingExtra(signal.extra) ? signal.extra.fingerprint : ''
-    const sourceType = asSourceType(signal.source_type)
-
-    const logicProps: InboxErrorTrackingIssueLogicProps = {
-        issueId: signal.source_id,
-        fingerprint,
-        sourceType,
-    }
+    const logicProps = errorTrackingIssueLogicProps(signal, fingerprint)
 
     return (
         <SignalCardShell signal={signal}>
@@ -111,10 +89,4 @@ export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Elemen
             </div>
         </SignalCardShell>
     )
-}
-
-export const errorTrackingSignalCardEntry: SignalCardEntry = {
-    key: 'error_tracking',
-    matches: (signal) => signal.source_product === 'error_tracking' && isErrorTrackingExtra(signal.extra),
-    Component: ErrorTrackingSignalCard,
 }
