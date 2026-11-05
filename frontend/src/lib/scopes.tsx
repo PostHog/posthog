@@ -355,7 +355,7 @@ export const API_SCOPES: APIScope[] = [
         key: 'transactional_email',
         objectName: 'Transactional email',
         objectPlural: 'transactional emails',
-        info: "Write sends transactional email from a template. Read gets a sent email's status and works only with a project secret API key. This scope can't change templates or workflows.",
+        info: "Write makes a template transactional and sends email from it. Read gets a sent email's status and works only with a project secret API key. This scope can't edit templates or workflows.",
     },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
