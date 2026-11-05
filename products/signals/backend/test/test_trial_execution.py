@@ -32,7 +32,7 @@ from products.signals.backend.trial.scouts import trial_scout_limit
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
 from products.tasks.backend.facade.contracts import CreatedTaskDTO
-from products.tasks.backend.max_tools import RunTaskTool
+from products.tasks.backend.facade.testing import run_task_tool
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -427,7 +427,6 @@ class TestTrialExecution(BaseTest):
             token_cost_microusd=10_000_001,
             trial_grant_id=str(grant.id),
         )
-        tool = RunTaskTool(team=self.team, user=self.user, config={})
         with (
             patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False),
             patch(
@@ -435,7 +434,7 @@ class TestTrialExecution(BaseTest):
             ) as dispatch,
         ):
             with self.assertRaisesMessage(TrialRefused, "cost_limit"):
-                async_to_sync(tool._arun_impl)(task_id=str(task.id))
+                async_to_sync(run_task_tool)(team=self.team, user=self.user, task_id=str(task.id))
         dispatch.assert_not_called()
         assert task.runs.count() == 0
 
