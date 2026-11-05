@@ -6,12 +6,12 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PageToolbarMode } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarMessage, PageToolbarMode } from '../../messaging/pageToolbarBridge'
 import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
-import { STORY_PAGE_URL, pageToolbarState } from './__mocks__/pageToolbarState'
+import { STORY_PAGE_URL, flagComparison, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode }
+type StoryArgs = { mode: PageToolbarMode; messages?: PageToolbarMessage[] }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -32,11 +32,12 @@ const meta: Meta<StoryArgs> = {
             },
         }),
     ],
-    render: ({ mode }) => {
+    render: ({ mode, messages }) => {
         const uiHost = window.location.origin
         configureFakeExtensionBrowser({
             tabUrl: STORY_PAGE_URL,
             pageState: pageToolbarState(mode),
+            messages,
             storage: {
                 posthogUiHost: uiHost,
                 posthogToolbarTokens: {
@@ -79,6 +80,11 @@ export const Actions: Story = {
 export const FeatureFlags: Story = {
     args: { mode: 'flags' },
     parameters: { testOptions: { waitForSelector: 'text=checkout-button-copy' } },
+}
+
+export const FeatureFlagComparison: Story = {
+    args: { mode: 'flags', messages: [{ type: 'flag-comparison', comparison: flagComparison }] },
+    parameters: { testOptions: { waitForSelector: '[data-attr="toolbar-extension-flag-comparison-back"]' } },
 }
 
 export const Events: Story = {
