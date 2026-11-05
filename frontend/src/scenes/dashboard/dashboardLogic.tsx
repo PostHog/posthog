@@ -60,7 +60,6 @@ import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQue
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import {
     DashboardFilterChangeType,
     dashboardViewedProperties,
@@ -75,15 +74,6 @@ import {
 } from 'scenes/dashboard/dashboardEvents'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
-import {
-    chunkTileIds,
-    fetchRunWidgets,
-    findNewlyAddedWidgetTiles,
-    isWidgetStale,
-    WIDGET_CLIENT_TTL_MS,
-} from 'scenes/dashboard/widgetFetchUtils'
-import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -136,7 +126,13 @@ import {
     TileLayout,
 } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
+import {
+    DashboardControl,
+    DashboardControlScope,
+    getDashboardControlScopes,
+} from 'products/dashboards/frontend/dashboardControls'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     dashboardFiltersEqual,
@@ -167,6 +163,17 @@ import {
     UNGROUPED_TILES_TAB_KEY,
     getTileGroupSectionKey,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { TileFiltersOverride } from 'products/dashboards/frontend/TileFiltersOverride'
+import { calculateDuplicateLayout, calculateLayouts } from 'products/dashboards/frontend/tileLayouts'
+import { tileLogic } from 'products/dashboards/frontend/tileLogic'
+import {
+    chunkTileIds,
+    fetchRunWidgets,
+    findNewlyAddedWidgetTiles,
+    isWidgetStale,
+    WIDGET_CLIENT_TTL_MS,
+} from 'products/dashboards/frontend/widgetFetchUtils'
+import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/frontend/widgetTileRefreshScheduler'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 
@@ -185,7 +192,6 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { DashboardControl, DashboardControlScope, getDashboardControlScopes } from './dashboardControls'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -212,8 +218,6 @@ import {
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
-import { TileFiltersOverride } from './TileFiltersOverride'
-import { tileLogic } from './tileLogic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
