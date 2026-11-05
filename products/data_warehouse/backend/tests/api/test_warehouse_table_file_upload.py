@@ -17,8 +17,6 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
-SERVICE_MODULE = "products.warehouse_sources.backend.file_upload_sources"
-STORAGE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage"
 UPLOAD_ID = "11111111-2222-4333-8444-555555555555"
 NEW_UPLOAD_ID = "22222222-2222-4333-8444-555555555555"
 
@@ -191,16 +189,10 @@ class TestCreateTableFromUpload(APIBaseTest):
         super().setUp()
         self.upload_url = f"/api/environments/{self.team.pk}/warehouse_tables/upload_file/"
         self.create_url = f"/api/environments/{self.team.pk}/warehouse_tables/create_from_upload/"
-        # Each create also makes a file upload source and starts its first sync.
-        patches = [
-            patch(f"{STORAGE_MODULE}.get_s3_client", return_value=_FakeS3()),
-            patch(f"{SERVICE_MODULE}.sync_connect"),
-            patch(f"{SERVICE_MODULE}.sync_external_data_job_workflow"),
-            patch(f"{SERVICE_MODULE}.trigger_ad_hoc_sync"),
-        ]
-        for p in patches:
-            p.start()
-            self.addCleanup(p.stop)
+        # The file upload source behind each table has its own tests in warehouse_sources.
+        source = patch(f"{VIEW_MODULE}.create_file_upload_source")
+        source.start()
+        self.addCleanup(source.stop)
 
     def _upload(self, filename: str = "orders.csv", file_format: str = "csv") -> str:
         with patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3()):
