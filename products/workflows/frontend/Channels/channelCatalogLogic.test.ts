@@ -167,7 +167,7 @@ describe('sandbox setup in the channel catalog', () => {
         { when: 'the flag is on at mount', flagAtMount: true, hasSender: false },
         { when: 'the flag arrives after mount', flagAtMount: false, hasSender: false },
         { when: 'the flag arrives after mount and the sender exists', flagAtMount: false, hasSender: true },
-    ])('sets up the sandbox sender once when $when and shows the row', async ({ flagAtMount, hasSender }) => {
+    ])('sets up the sandbox sender once when $when', async ({ flagAtMount, hasSender }) => {
         let requests = 0
         const sandbox = { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }
         useMocks({
