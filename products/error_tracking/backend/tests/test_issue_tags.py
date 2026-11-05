@@ -1,3 +1,4 @@
+import dataclasses
 from typing import ClassVar, cast
 
 from posthog.test.base import BaseTest
@@ -37,7 +38,7 @@ class _NewTaggerConfig:
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
     label="Blocks checkout",
-    version=1,
+    question_version=1,
     enabled_flag="error-tracking-issue-tags",
     taggers=(
         _NewTaggerConfig(),
@@ -72,26 +73,59 @@ class TestIssueTagStorage(BaseTest):
 class TestSetIssueTag(BaseTest):
     @parameterized.expand(
         [
-            ("manual_replaces_jev", Source.JEV, Source.MANUAL, True),
-            ("jev_keeps_manual", Source.MANUAL, Source.JEV, False),
-            ("jev_replaces_jev", Source.JEV, Source.JEV, True),
-            ("new_tagger_replaces_jev", Source.JEV, NEW_TAGGER, True),
-            ("jev_keeps_new_tagger", NEW_TAGGER, Source.JEV, False),
-            ("manual_replaces_new_tagger", NEW_TAGGER, Source.MANUAL, True),
-            ("new_tagger_keeps_manual", Source.MANUAL, NEW_TAGGER, False),
+            ("manual_replaces_jev", Source.JEV, Source.MANUAL, None, True, 2),
+            ("jev_keeps_manual", Source.MANUAL, Source.JEV, None, False, 1),
+            ("jev_replaces_jev", Source.JEV, Source.JEV, None, True, 2),
+            ("new_tagger_replaces_jev", Source.JEV, NEW_TAGGER, None, True, 2),
+            ("jev_keeps_new_tagger", NEW_TAGGER, Source.JEV, None, False, 1),
+            ("new_tagger_keeps_manual", Source.MANUAL, NEW_TAGGER, None, False, 1),
+            ("jev_repeats_its_answer", Source.JEV, Source.JEV, True, True, 1),
+            ("manual_confirms_jev", Source.JEV, Source.MANUAL, True, True, 2),
         ]
     )
     def test_an_answer_replaces_only_sources_that_rank_no_higher(
-        self, _name: str, first: ErrorTrackingIssueTag.Source, second: ErrorTrackingIssueTag.Source, replaced: bool
+        self,
+        _name: str,
+        first: ErrorTrackingIssueTag.Source,
+        second: ErrorTrackingIssueTag.Source,
+        second_value: bool | None,
+        replaced: bool,
+        logs: int,
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(first, value=True), first)
 
-        stored = set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(second, value=None), second)
+        stored = set_issue_tag(
+            self.team.id, issue.id, "blocks_checkout", self._answer(second, value=second_value), second
+        )
 
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key="blocks_checkout")
-        assert (stored, tag.source, tag.value) == ((True, second, None) if replaced else (False, first, True))
-        assert self._issue_activity(issue).count() == (2 if replaced else 1)
+        assert (stored, tag.source, tag.value) == ((True, second, second_value) if replaced else (False, first, True))
+        assert self._issue_activity(issue).count() == logs
+
+    def test_manual_replaces_an_answer_from_a_tagger_the_definition_no_longer_lists(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(NEW_TAGGER, value=True), NEW_TAGGER)
+        without_new_tagger = dataclasses.replace(BLOCKS_CHECKOUT, taggers=BLOCKS_CHECKOUT.taggers[1:])
+
+        with patch.object(registry, "ISSUE_TAG_DEFINITIONS", (without_new_tagger,)):
+            stored = set_issue_tag(
+                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=False), Source.MANUAL
+            )
+
+        assert stored is True
+
+    def test_a_failed_activity_log_write_rolls_back_the_tag(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        with (
+            self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True),
+            patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")),
+            self.assertRaises(IntegrityError),
+        ):
+            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+
+        assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
 
     def test_logs_each_change_on_the_issue_with_the_person_for_a_manual_answer(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError: cart is undefined")

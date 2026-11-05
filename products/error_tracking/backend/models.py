@@ -1241,6 +1241,7 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
         related_name="+",
         null=True,
         db_constraint=False,
+        db_index=False,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1249,4 +1250,9 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_errortrackingissuetag"
         constraints = [
             models.UniqueConstraint(fields=["issue", "key"], name="et_issue_tag_issue_key_unique"),
+        ]
+        indexes = [
+            # Serves the SET_NULL update when a user is deleted. Answers from automated taggers have no
+            # person, so the index leaves them out.
+            models.Index(fields=["set_by"], name="et_issue_tag_set_by", condition=models.Q(set_by__isnull=False)),
         ]

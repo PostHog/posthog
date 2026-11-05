@@ -27,13 +27,17 @@ class JevTaggerConfig:
 class IssueTagDefinition:
     key: str
     label: str
-    version: int
+    question_version: int
     enabled_flag: str
     # The taggers that may answer this tag, highest rank first. Manual is not listed because it always ranks first.
     taggers: tuple[TaggerConfig, ...]
 
-    def sources_by_rank(self) -> tuple[ErrorTrackingIssueTag.Source, ...]:
-        return (ErrorTrackingIssueTag.Source.MANUAL, *(tagger.source for tagger in self.taggers))
+    def sources_ranked_above(self, source: ErrorTrackingIssueTag.Source) -> tuple[ErrorTrackingIssueTag.Source, ...]:
+        """The sources whose answers `source` cannot replace. A source this definition does not list ranks lowest."""
+        sources_by_rank = (ErrorTrackingIssueTag.Source.MANUAL, *(tagger.source for tagger in self.taggers))
+        if source not in sources_by_rank:
+            raise ValueError(f"{source} does not answer the issue tag {self.key!r}")
+        return sources_by_rank[: sources_by_rank.index(source)]
 
 
 ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = ()
