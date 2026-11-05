@@ -86,6 +86,11 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.internal_targeting import (
+    WAIT_PERIOD_DAYS_CONDITION,
+    build_internal_targeting_groups,
+    is_valid_wait_period,
+)
 from products.surveys.backend.llm import gemini_configured
 from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
@@ -108,7 +113,7 @@ from products.surveys.backend.responses import (
 )
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
-from products.surveys.backend.util import SurveyEventProperties, get_archived_response_uuids
+from products.surveys.backend.util import get_archived_response_uuids
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -1297,8 +1302,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        self._require_numeric_wait_period(value)
         self._require_viewer_access_to_added_actions(value)
         return value
+
+    def _require_numeric_wait_period(self, conditions: dict) -> None:
+        # The flag the survey targets on reads this value, and the API documents it as a number
+        # of days, so a value of another type leaves a survey that cannot be saved again.
+        wait_period_days = conditions.get(WAIT_PERIOD_DAYS_CONDITION)
+        if wait_period_days is not None and not is_valid_wait_period(wait_period_days):
+            raise serializers.ValidationError(f"{WAIT_PERIOD_DAYS_CONDITION} must be a number of days")
 
     def _require_viewer_access_to_added_actions(self, conditions: dict) -> None:
         actions_condition = conditions.get("actions")
@@ -2197,66 +2210,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if instance.iteration_count is not None and instance.iteration_count > 0:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
-        base_properties = [
-            {
-                "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-                "type": "person",
-            },
-            {
-                "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-                "type": "person",
-            },
-        ]
-
-        wait_period_days = None
-        if instance.conditions and isinstance(instance.conditions, dict):
-            wait_period_days = instance.conditions.get("seenSurveyWaitPeriodInDays")
-
-        if wait_period_days is not None and wait_period_days > 0:
-            user_submitted_dismissed_filter = {
-                "groups": [
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": [
-                            *base_properties,
-                            {
-                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                                "type": "person",
-                            },
-                        ],
-                    },
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": [
-                            *base_properties,
-                            {
-                                "key": SurveyEventProperties.SURVEY_LAST_SEEN_DATE,
-                                "value": f"{int(wait_period_days)}d",
-                                "operator": "is_date_before",
-                                "type": "person",
-                            },
-                        ],
-                    },
-                ]
-            }
-        else:
-            user_submitted_dismissed_filter = {
-                "groups": [
-                    {
-                        "variant": "",
-                        "rollout_percentage": 100,
-                        "properties": base_properties,
-                    }
-                ]
-            }
+        user_submitted_dismissed_filter = {"groups": build_internal_targeting_groups(survey_key, instance.conditions)}
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag

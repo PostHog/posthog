@@ -2927,6 +2927,31 @@ class TestSurvey(APIBaseTest):
         assert last_seen_property["value"] == "14d"
         assert last_seen_property["operator"] == "is_date_before"
 
+    @parameterized.expand(
+        [
+            ("text", "7"),
+            # A JSON integer has no width limit, and this one is wider than a float.
+            ("oversized_number", -(10**309)),
+        ]
+    )
+    def test_survey_rejects_a_wait_period_that_is_not_a_number(self, _name: str, wait_period_days: object):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with a bad wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": wait_period_days,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "seenSurveyWaitPeriodInDays" in response_data["detail"]
+        assert not Survey.objects.filter(name="Survey with a bad wait period").exists()
+
     def test_can_list_surveys(self):
         self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
