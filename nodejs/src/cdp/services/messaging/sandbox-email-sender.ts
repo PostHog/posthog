@@ -338,6 +338,17 @@ const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
         templateOwners.set(content, template)
         defaultTreeAdapter.setTemplateContent(template, content)
     },
+    adoptAttributes(recipient, attrs) {
+        if (attrs.length === 0) {
+            return
+        }
+        if (recipient.attrs.length + attrs.length > MAX_ATTRIBUTES_PER_TAG + 1) {
+            throw new Error(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
+        }
+        defaultTreeAdapter.adoptAttributes(recipient, attrs)
+    },
 }
 
 class FooterStyleAttributeBoundedParser extends AttributeBoundedParser {
