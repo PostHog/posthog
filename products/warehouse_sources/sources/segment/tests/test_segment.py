@@ -1,5 +1,9 @@
+import datetime as dt
 from typing import Any, Literal, cast
 
+import time_machine
+
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
@@ -152,3 +156,186 @@ class TestSegmentSource:
         assert result.response is not None
         assert result.response.partition_mode == expected_mode
         assert result.response.partition_keys == expected_keys
+
+
+def _list(key: str, rows: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    return _page({"data": {key: rows, "pagination": {"next": next_cursor}}})
+
+
+_TRACKING_PLAN_PAGES = [
+    _list("trackingPlans", [{"id": "tp_b"}], "plans2"),
+    _list("trackingPlans", [{"id": "tp_a"}]),
+]
+
+
+class TestFanOut:
+    def test_tracking_plan_rules_walk_every_plan_and_child_page(self) -> None:
+        result = _driver().run(
+            "tracking_plan_rules",
+            [
+                *_TRACKING_PLAN_PAGES,
+                _list("rules", [{"type": "TRACK", "key": "Clicked", "version": 1}], "rules2"),
+                _list("rules", [{"type": "IDENTIFY", "version": 1}]),
+                _list("rules", []),
+            ],
+        )
+
+        assert result.paths == [
+            "/tracking-plans",
+            "/tracking-plans",
+            "/tracking-plans/tp_a/rules",
+            "/tracking-plans/tp_a/rules",
+            "/tracking-plans/tp_b/rules",
+        ]
+        assert result.params("pagination[cursor]") == [None, "plans2", None, "rules2", None]
+        assert result.rows == [
+            {"type": "TRACK", "key": "Clicked", "version": 1, "trackingPlanId": "tp_a"},
+            {"type": "IDENTIFY", "key": "", "version": 1, "trackingPlanId": "tp_a"},
+        ]
+        assert result.saved_states == [
+            SegmentResumeConfig(cursor="rules2", parent_id="tp_a"),
+            SegmentResumeConfig(parent_id="tp_a", parent_done=True),
+            SegmentResumeConfig(parent_id="tp_b", parent_done=True),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "known_parent_resumes_at_its_child_cursor",
+                SegmentResumeConfig(cursor="rules2", parent_id="tp_b"),
+                ["/tracking-plans/tp_b/rules"],
+                ["rules2"],
+            ),
+            (
+                "deleted_parent_continues_at_the_next_parent",
+                SegmentResumeConfig(cursor="gone_cursor", parent_id="tp_aa"),
+                ["/tracking-plans/tp_b/rules"],
+                [None],
+            ),
+            (
+                "done_parent_continues_at_the_next_parent",
+                SegmentResumeConfig(parent_id="tp_a", parent_done=True),
+                ["/tracking-plans/tp_b/rules"],
+                [None],
+            ),
+            ("done_last_parent_reads_no_child", SegmentResumeConfig(parent_id="tp_b", parent_done=True), [], []),
+        ]
+    )
+    def test_resume(
+        self,
+        _name: str,
+        state: SegmentResumeConfig,
+        expected_child_paths: list[str],
+        expected_child_cursors: list[str | None],
+    ) -> None:
+        child_pages = [_list("rules", [{"type": "TRACK", "key": "k", "version": 1}]) for _ in expected_child_paths]
+        result = _driver().run("tracking_plan_rules", [*_TRACKING_PLAN_PAGES, *child_pages], resume_state=state)
+
+        assert result.paths[2:] == expected_child_paths
+        assert result.params("pagination[cursor]")[2:] == expected_child_cursors
+
+    @parameterized.expand([("not_found_is_skipped", 404, None), ("forbidden_fails", 403, requests.HTTPError)])
+    def test_child_error(self, _name: str, status: int, expected_error: type[BaseException] | None) -> None:
+        result = _driver().run(
+            "tracking_plan_rules",
+            [
+                *_TRACKING_PLAN_PAGES,
+                ScriptedResponse(status=status, json={"errors": []}),
+                _list("rules", [{"type": "TRACK", "key": "k", "version": 1}]),
+            ],
+        )
+
+        if expected_error is None:
+            assert result.raised is None
+            assert result.rows == [{"type": "TRACK", "key": "k", "version": 1, "trackingPlanId": "tp_b"}]
+        else:
+            assert isinstance(result.raised, expected_error)
+            assert result.rows == []
+
+    @parameterized.expand(
+        [
+            ("fresh_run", None, "2026-03-03T00:00:00.000Z", "2026-03-15T00:00:00.000Z"),
+            (
+                "resumed_run_keeps_its_window",
+                SegmentResumeConfig(window_end="2026-03-14T00:00:00.000Z"),
+                "2026-03-02T00:00:00.000Z",
+                "2026-03-14T00:00:00.000Z",
+            ),
+            (
+                "resumed_window_past_the_lookback_limit_is_replaced",
+                SegmentResumeConfig(window_end="2026-03-13T00:00:00.000Z"),
+                "2026-03-03T00:00:00.000Z",
+                "2026-03-15T00:00:00.000Z",
+            ),
+        ]
+    )
+    def test_delivery_metrics_request_a_whole_day_window_per_destination(
+        self, _name: str, resume_state: SegmentResumeConfig | None, window_start: str, window_end: str
+    ) -> None:
+        summary = {
+            "sourceId": "src1",
+            "destinationMetadataId": "meta1",
+            "metrics": [
+                {"metricName": "successes", "total": 10},
+                {"metricName": "discarded", "total": 2, "breakdown": [{"metricName": "dropped", "value": 2}]},
+            ],
+        }
+        with time_machine.travel(dt.datetime(2026, 3, 15, 10, 30, tzinfo=dt.UTC), tick=False):
+            result = _driver().run(
+                "destination_delivery_metrics",
+                [
+                    _list("destinations", [{"id": "d1", "sourceId": "src1"}, {"id": "d_no_source"}]),
+                    _page({"data": {"deliveryMetricsSummary": summary}}),
+                ],
+                resume_state=resume_state,
+            )
+
+        window = {
+            "destinationId": "d1",
+            "sourceId": "src1",
+            "destinationMetadataId": "meta1",
+            "windowStart": window_start,
+            "windowEnd": window_end,
+        }
+        assert result.paths == ["/destinations", "/destinations/d1/delivery-metrics"]
+        request = result.requests[1]
+        assert (request.param("sourceId"), request.param("granularity")) == ("src1", "DAY")
+        assert (request.param("startTime"), request.param("endTime")) == (window["windowStart"], window["windowEnd"])
+        assert result.rows == [
+            {"metricName": "successes", "total": 10, **window},
+            {"metricName": "discarded", "total": 2, "breakdown": [{"metricName": "dropped", "value": 2}], **window},
+        ]
+
+    def test_reverse_etl_syncs_read_each_model_subscription(self) -> None:
+        result = _driver().run(
+            "reverse_etl_syncs",
+            [
+                _list("models", [{"id": "m1", "sourceId": "retl_src"}]),
+                _list(
+                    "destinations",
+                    [{"id": "d_retl", "sourceId": "retl_src"}, {"id": "d_events", "sourceId": "web_src"}],
+                ),
+                _list(
+                    "subscriptions",
+                    [{"id": "sub1", "modelId": "m1"}, {"id": "sub_event", "destinationId": "d_retl"}],
+                ),
+                _list("syncStatuses", [{"syncId": "s1", "modelId": "m1"}], "syncs2"),
+                _list("syncStatuses", [{"syncId": "s2", "modelId": "m1"}]),
+            ],
+        )
+
+        assert result.paths == [
+            "/reverse-etl-models",
+            "/destinations",
+            "/destinations/d_retl/subscriptions",
+            "/reverse-etl-models/m1/subscriptionId/sub1/syncs",
+            "/reverse-etl-models/m1/subscriptionId/sub1/syncs",
+        ]
+        assert [(request.param("count"), request.param("cursor")) for request in result.requests[3:]] == [
+            ("100", None),
+            ("100", "syncs2"),
+        ]
+        assert result.rows == [
+            {"syncId": "s1", "modelId": "m1", "subscriptionId": "sub1"},
+            {"syncId": "s2", "modelId": "m1", "subscriptionId": "sub1"},
+        ]

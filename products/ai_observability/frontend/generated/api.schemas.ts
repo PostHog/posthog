@@ -2112,6 +2112,13 @@ export interface DatasetReadApi {
     readonly tags: readonly string[]
     readonly archived: boolean
     /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
+    /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
      */
@@ -2237,6 +2244,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {
@@ -5979,6 +5993,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -6038,6 +6053,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6059,6 +6075,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6104,6 +6121,7 @@ export const DatasetsListTagMatch = {
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

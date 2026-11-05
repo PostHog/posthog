@@ -3,6 +3,7 @@ from io import StringIO
 
 import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -77,6 +78,21 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
         out = StringIO()
         call_command("realtime_cohort_team_access", "list", stdout=out)
         assert f"{self.team.pk}\toff\tload_test\tTrue" in out.getvalue()
+
+    @parameterized.expand([("first_grant", None), ("promotion", "processing"), ("revoke", "serving")])
+    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
+    def test_level_changes_refresh_the_team_metadata_cache(self, change: str, existing_level: str | None) -> None:
+        if existing_level is not None:
+            self._grant(self.team.pk, level=existing_level)
+
+        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                if change == "revoke":
+                    call_command("realtime_cohort_team_access", "revoke", "--teams", str(self.team.pk))
+                else:
+                    self._grant(self.team.pk, level="serving")
+
+        mock_task.delay.assert_called_once_with(self.team.pk)
 
     @parameterized.expand(
         [
