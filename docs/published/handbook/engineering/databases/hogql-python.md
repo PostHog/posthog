@@ -197,7 +197,7 @@ On the native JSON events table, HogQL compares non-empty string constants direc
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
 Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
-DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only the empty string, which no parser reads as a date and time, compares as text.
+DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only the empty string, which no parser reads as a date and time, compares as text, and the other members of an `IN` list that holds it keep the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
 For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.

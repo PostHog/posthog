@@ -58,6 +58,7 @@ from posthog.hogql.transforms.grouped_clauses import (
 )
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
+    RuntimeType,
     comparison_compatibility,
     constant_type_from_runtime_type,
     convert_literal_to_runtime_type,
@@ -2140,6 +2141,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             source=source,
         )
 
+    def _property_runtime_type(self, field_type: ast.FieldType, property_name: str) -> RuntimeType:
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        return runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
+
     def _typed_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
         """A Numeric, Boolean or DateTime JSON property compared to text it cannot be read as, read as text the way the
         legacy table compares it.
@@ -2154,8 +2159,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if single is None:
             return None
         field_type, property_name = single
-        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
-        semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
+        semantic_type = self._property_runtime_type(field_type, property_name)
         if semantic_type.family in ("float", "boolean"):
             unreadable = any(convert_literal_to_runtime_type(value, semantic_type) is None for value in values)
         elif semantic_type.family == "datetime":
@@ -2558,6 +2562,13 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 
+        # A DateTime list keeps the conversion for its dates: '2024-04-06' matches a stored '2024-04-06 00:00:00' only
+        # through the parse, so only the empty-string members compare as text.
+        converted_values: list[str] = []
+        if self._property_runtime_type(prop.field_type, prop.key).family == "datetime":
+            converted_values = [value for value in values if value != ""]
+            values = [value for value in values if value == ""]
+
         declared_types = (
             EVENTS_PROPERTIES_JSON_SUBCOLUMNS
             if _is_events_properties(prop.field_type, self.context)
@@ -2575,7 +2586,17 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             else _const(values[0])
         )
         _record_property_usage(self.context, prop.source.kind)
-        return _call(op_name, [column, value])
+        text_compare = _call(op_name, [column, value])
+        if not converted_values:
+            return text_compare
+        converted_compare = self.visit_compare_operation(
+            ast.CompareOperation(
+                op=node.op, left=node.left, right=ast.Tuple(exprs=[_const(value) for value in converted_values])
+            )
+        )
+        if node.op == ast.CompareOperationOp.In:
+            return _call("or", [converted_compare, text_compare])
+        return _call("and", [converted_compare, text_compare])
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):

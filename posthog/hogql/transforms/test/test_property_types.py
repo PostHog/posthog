@@ -1020,8 +1020,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0]),
-            ("empty_not_equals", "properties.signed_up_at != ''", [1, 0, 1]),
+            ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0, 0]),
+            ("empty_not_equals", "properties.signed_up_at != ''", [1, 0, 1, 1]),
+            ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, 1, None, 1]),
+            ("empty_not_in", "properties.signed_up_at NOT IN ('', '2024-05-06')", [1, 0, 1, 0]),
         ]
     )
     def test_datetime_property_compared_to_empty_text_matches_text(
@@ -1035,7 +1037,12 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             + printed,
             {
                 **context.values,
-                "documents": ['{"signed_up_at":"2024-04-06 07:08:09"}', '{"signed_up_at":""}', "{}"],
+                "documents": [
+                    '{"signed_up_at":"2024-04-06 07:08:09"}',
+                    '{"signed_up_at":""}',
+                    "{}",
+                    '{"signed_up_at":"2024-05-06 00:00:00"}',
+                ],
             },
         )
         assert [row[0] for row in rows] == expected
