@@ -458,7 +458,6 @@ def read_stream(
             records=aggregated,
         )
     cursor_manager.stage(progress.cursor())
-    resumable_source_manager.clear_state()
 
 
 def amazon_kinesis_source(
@@ -479,6 +478,11 @@ def amazon_kinesis_source(
         start = resume
         recreated = False
     else:
+        if resume is not None:
+            # The saved state belongs to the deleted stream. Left in place, the pipeline would treat
+            # this run as a resume and keep the rows of the old stream.
+            resumable_source_manager.clear_state()
+            recreated = True
         if recreated:
             logger.warning("Kinesis stream was deleted and created again, rebuilding the table from the new stream")
         kept = stored if stored is not None and not recreated else None
@@ -497,4 +501,5 @@ def amazon_kinesis_source(
         partition_keys=[ARRIVAL_TIMESTAMP_COLUMN],
         sort_mode=None,
         destination_reset_required=recreated,
+        on_complete=resumable_source_manager.clear_state,
     )

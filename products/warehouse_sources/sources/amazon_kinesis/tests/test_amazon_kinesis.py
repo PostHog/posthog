@@ -157,6 +157,8 @@ def test_reads_every_shard_up_to_the_run_start_and_stages_the_cursor() -> None:
         finished_shards=[SHARD_0],
         stream_created_at=CREATED,
     )
+    assert result.final_state is not None
+    assert result.completed_state is None
 
 
 class TestStartPosition:
@@ -239,13 +241,28 @@ class TestStartPosition:
                 False,
                 {SHARD_0: "150"},
             ),
+            (
+                "resume_state_of_deleted_stream",
+                None,
+                True,
+                KinesisResumeState(
+                    started_at=1767225000.0,
+                    stream_created_at=CREATED - 1,
+                    positions={SHARD_0: "150"},
+                    finished_shards=[],
+                ),
+                [_iterator("it-0")],
+                [("TRIM_HORIZON", None)],
+                True,
+                {},
+            ),
         ]
     )
     @time_machine.travel(RUN_START, tick=False)
     def test_start_position(
         self,
         _name: str,
-        stored: KinesisCursor,
+        stored: KinesisCursor | None,
         incremental: bool,
         resume_state: KinesisResumeState | None,
         iterator_answers: list[ScriptedResponse],
