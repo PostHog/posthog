@@ -60,6 +60,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
 def resolve_exposure_config_for_builder(
@@ -208,6 +209,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
         )

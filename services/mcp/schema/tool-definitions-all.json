@@ -11330,7 +11330,7 @@
         }
     },
     "mcp-connections-list": {
-        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `gateway_server_id` (the id of the MCP server the connection belongs to), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list. To link to a server's page with generate-app-url (`mcpGatewayServer`), pass `gateway_server_id`, never the connection `id`.",
         "category": "MCP Store",
         "feature": "mcp_store",
         "summary": "List MCP connections",
@@ -14865,6 +14865,38 @@
         },
         "feature_flag": "stamphog"
     },
+    "stamphog-routing-runs-get": {
+        "description": "Get one reviewer routing run by id, with the same owner decisions as the list plus `files` for every owner: each changed file the owner owns (path, previous path, status, additions, deletions), which is what made them a candidate. `owners_sha` names the default-branch commit whose owners.yaml files decided the owners. Patches are not kept.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog reviewer routing run",
+        "title": "Get stamphog reviewer routing run",
+        "required_scopes": ["stamphog:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stamphog/routing_runs/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-routing-runs-list": {
+        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). No runs for a pull request means no run was recorded: routing is off for the repository, it still waits for stamphog's verdict, or the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog reviewer routing runs",
+        "title": "List stamphog reviewer routing runs",
+        "required_scopes": ["stamphog:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stamphog/routing_runs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
     "streamlit-apps-create": {
         "description": "Create a new Streamlit app (metadata only — it has no code until you call streamlit-apps-set-source). Typical flow: create the app, set its source, then start it. cpu_cores (0.25–8) and memory_gb (0.5–16) control the sandbox size and default to 0.5 / 1.",
         "category": "Streamlit apps",
@@ -18129,7 +18161,7 @@
         }
     },
     "workflows-reputation-get": {
-        "description": "The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell the user when the audience or volume would go over a cap. The caps apply only while sending_allowance.enforced is true; while it is false they are measured but not applied. Pass fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record. To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide workflow access.",
+        "description": "The project's workflow email health over the last 30 days and its sending allowance: tier, daily email cap, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell the user when the audience or volume would go over a cap. The caps apply only while sending_allowance.enforced is true; while it is false they are measured but not applied. Pass fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record. To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide workflow access.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email reputation and sending allowance",
