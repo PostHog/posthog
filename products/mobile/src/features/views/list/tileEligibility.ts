@@ -9,8 +9,11 @@ export interface TilesByEligibility {
     unusable: { tile: DashboardTileView; reason: string }[]
 }
 
-/** One short reason, shown after the tile's kind: "Line · Has 3 series". */
-export function tileLimitReason(tile: DashboardTileView, mode: TileMode): string {
+/** One short reason, shown after the tile's kind: "Line · Has 3 series". The home screen widget shows it too. */
+export function tileLimitReason(
+    tile: Pick<DashboardTileView, 'kind' | 'hasBreakdown' | 'seriesCount'>,
+    mode: TileMode
+): string {
     if (tile.kind === 'text') {
         return 'Text card'
     }
