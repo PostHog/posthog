@@ -494,7 +494,6 @@ describe('RateLimiterService', () => {
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
-            // The bucket reads the Valkey server clock, so the test moves the last claim an hour back instead.
             await redis.useClient({ name: 'age-bucket' }, async (client) => {
                 const lastClaimAt = Number(await client.hget(bucket.key, 'ts'))
                 await client.hset(bucket.key, 'ts', lastClaimAt - 3_600_000)
