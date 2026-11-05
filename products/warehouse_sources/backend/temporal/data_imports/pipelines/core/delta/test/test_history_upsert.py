@@ -84,7 +84,6 @@ def _keys(count: int, name: str, at: datetime) -> pa.Table:
     return _batch([(key, name, at) for key in range(count)])
 
 
-# Forces one chunk per few rows, so every finalize below splits by key hash.
 _TINY_CHUNKS = {"max_call_bytes": 1, "chunk_target_bytes": 256}
 
 
