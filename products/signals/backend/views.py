@@ -182,8 +182,9 @@ from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
     cancel_check,
-    replace_metric_check,
+    replace_check_with_metric,
 )
+from products.signals.backend.report_claim_follow_up import record_report_claimed
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_works_under_claim,
@@ -314,6 +315,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -1813,11 +1815,12 @@ class SignalReportViewSet(
         description=(
             "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
             "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
-            "The request never waits on the model. A current stored list returns quickly. Otherwise the request "
-            "reads every candidate report, which can take some seconds, starts a background build and returns the "
-            "last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, "
-            "and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list "
-            "is about can read it."
+            "The request never waits on the model. By default it returns the last stored list quickly, and "
+            "`checked_at` says how current it is. Pass `max_age_minutes` to check an older list against every "
+            "candidate report, which can take some seconds. `refresh`, `focus` and your first request start a "
+            "background build and set `building: true`. With no stored list, the request returns your reports in "
+            "inbox order with `fallback_reason: building`. Pass `wait_seconds` to wait a short time for the new "
+            "list. Only the user the list is about can read it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["inbox:read"], pagination_class=None)
@@ -1840,6 +1843,7 @@ class SignalReportViewSet(
             refresh=query["refresh"],
             focus=query.get("focus"),
             wait_seconds=query["wait_seconds"],
+            max_age_minutes=query.get("max_age_minutes"),
         )
         report_user_action(
             user,
@@ -1855,6 +1859,7 @@ class SignalReportViewSet(
                 "refresh": query["refresh"],
                 "has_focus": bool(query.get("focus")),
                 "wait_seconds": query["wait_seconds"],
+                "max_age_minutes": query.get("max_age_minutes"),
                 "result_count": len(served.results),
                 "duration_ms": round((time.monotonic() - started) * 1000),
                 "check_ms": served.timings.check_ms,
@@ -2120,14 +2125,14 @@ class SignalReportViewSet(
         # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
         # status as a filter that runs on rows the index already made it read.
         statuses = self._visible_statuses()
+        if not self._report_monitoring_enabled:
+            statuses -= {SignalReport.Status.MONITORING}
         if SignalReport.Status.RESOLVED in statuses:
             statuses |= self._resolved_read_statuses()
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
-        filterable_statuses = self._FILTERABLE_STATUSES
-        if self._report_monitoring_enabled:
-            filterable_statuses |= {SignalReport.Status.MONITORING}
+        filterable_statuses = self._FILTERABLE_STATUSES | {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -2857,6 +2862,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
 
     @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
@@ -2985,18 +2991,29 @@ class SignalReportViewSet(
         request_serializer.is_valid(raise_exception=True)
         report = cast(SignalReport, self.get_object())
         data = request_serializer.validated_data
+        actor = self._request_attribution()
+        was_impersonated = is_impersonated_session(request)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             claim_report(
                 report=report,
-                actor=self._request_attribution(),
+                actor=actor,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=was_impersonated,
                 pr_url=data.get("pr_url"),
                 release=data["release"],
                 pull_requests=data.get("pull_requests"),
                 claim_id=str(data["claim_id"]) if data.get("claim_id") else None,
                 takeover=data["takeover"],
                 takeover_claim_id=str(data["takeover_claim_id"]) if data.get("takeover_claim_id") else None,
+                on_new_claim=partial(
+                    record_report_claimed,
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    actor=actor,
+                    scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                    was_impersonated=was_impersonated,
+                ),
             )
         except InvalidPullRequestUrl as err:
             raise serializers.ValidationError({"pr_url": str(err)})
@@ -3270,6 +3287,7 @@ class SignalReportViewSet(
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
+            "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -6229,6 +6247,7 @@ def remove_suggested_reviewer(
                 ],
                 correction=correction,
                 forward_note=forward_note,
+                self_removal=True,
             )
         )
     return True
@@ -6242,6 +6261,7 @@ def _record_reviewer_edit(
     user_uuids: list[str],
     correction: ReviewerCorrection | None,
     forward_note: bool = True,
+    self_removal: bool = False,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
 
@@ -6261,6 +6281,7 @@ def _record_reviewer_edit(
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
         removal_reason=correction.removal_reason if correction else None,
         has_removal_note=bool(correction.removal_note) if correction and correction.removed_reviewers else None,
+        self_removal=self_removal,
     )
 
 
@@ -6388,8 +6409,8 @@ class SignalReportCheckViewSet(
     @validated_request(
         request_serializer=SignalReportCheckReplacementSerializer,
         responses={200: SignalReportCheckSerializer},
-        summary="Replace a metric follow-up check",
-        description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
+        summary="Replace a follow-up check with a metric",
+        description="Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
@@ -6397,7 +6418,7 @@ class SignalReportCheckViewSet(
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
-            replacement = replace_metric_check(
+            replacement = replace_check_with_metric(
                 check=check,
                 title=data["title"],
                 rationale=data.get("rationale", ""),
