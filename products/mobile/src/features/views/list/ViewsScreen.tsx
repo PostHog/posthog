@@ -10,6 +10,7 @@ import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, V
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { ChartSelectionProvider, useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
+import { useDisplayRegions } from '@/ui/displayRegionContext'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -18,11 +19,12 @@ import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
 import { openNavTarget } from '../../tabs/navPinRoutes'
 import { type NavPin, useNavPinStore } from '../../tabs/navPinStore'
+import { useNavToasts } from '../../tabs/navToasts'
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
 import {
@@ -43,7 +45,7 @@ import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
-import { useToasts, ViewsToast } from '../ViewsToast'
+import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
 import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
@@ -126,6 +128,7 @@ export function ViewsScreen(): ReactElement {
 function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     useTabHeader('views', {
         hint: null,
         status: null,
@@ -136,10 +139,7 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
     return (
         <View style={styles.screen} testID="views-screen">
             <View
-                style={[
-                    styles.fill,
-                    { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: bottomOffset(insets, 120) },
-                ]}
+                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
             >
                 <ViewsReauthState access={access} />
             </View>
@@ -155,12 +155,15 @@ function ViewsBody(): ReactElement {
     const router = useRouter()
     const focused = useIsFocused()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const now = useNow()
     const context = useViewsContext()
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const list = useViewsList()
     const { width } = useSceneDimensions()
-    const grid = width >= 740
+    const regions = useDisplayRegions()
+    const fold = regions.find((region) => region.kind === 'division' && region.frame.height > region.frame.width)?.frame
+    const grid = fold ? fold.x >= 300 && width - fold.x - fold.width >= 300 : width >= 740
     const pinAnchor = useRef({
         grid,
         visible: null as string | null,
@@ -180,7 +183,7 @@ function ViewsBody(): ReactElement {
     const viewport = useCanvasBudgetViewport()
     const sheets = useChartSheets()
     const flows = usePinFlows(actions)
-    const navToasts = useToasts()
+    const navToasts = useNavToasts()
     const { hideToast: hidePinToast } = flows
     const { show: showToast } = navToasts
     const navPins = useNavPinStore((state) => state.pins)
@@ -684,7 +687,7 @@ function ViewsBody(): ReactElement {
                 case 'pin-pair':
                     return (
                         <View
-                            style={{ flexDirection: 'row', gap: 16 }}
+                            style={{ flexDirection: 'row', gap: fold ? fold.width + 16 : 16 }}
                             collapsable={false}
                             ref={(node) =>
                                 setPinRow(
@@ -694,8 +697,20 @@ function ViewsBody(): ReactElement {
                             }
                             onLayout={() => onPinLayout(item.items.map((pin) => pin.shortcutId))}
                         >
-                            {item.items.map((pin) => (
-                                <View key={pin.key} style={[{ flex: 1, minWidth: 0 }, !pin.last && styles.pinGap]}>
+                            {item.items.map((pin, column) => (
+                                <View
+                                    key={pin.key}
+                                    style={[
+                                        { flex: 1, minWidth: 0 },
+                                        fold &&
+                                            column === 0 && {
+                                                flexGrow: 0,
+                                                flexShrink: 0,
+                                                flexBasis: fold.x - layout.inboxGutter - 16,
+                                            },
+                                        !pin.last && styles.pinGap,
+                                    ]}
+                                >
                                     <PinDragTile id={pin.shortcutId} drag={drag}>
                                         <PinCard
                                             pin={pin.pin}
@@ -787,6 +802,7 @@ function ViewsBody(): ReactElement {
             openBrowseMenu,
             context.mode,
             styles,
+            fold,
         ]
     )
 
@@ -810,7 +826,7 @@ function ViewsBody(): ReactElement {
         [startEditing, styles, colors]
     )
 
-    const contentBottom = bottomOffset(insets, 120)
+    const contentBottom = tabBottom
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null

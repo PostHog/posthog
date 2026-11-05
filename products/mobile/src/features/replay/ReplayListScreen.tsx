@@ -23,7 +23,7 @@ import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, type } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { useScrollTitle } from '@/ui/useScrollTitle'
 
 import { useReplayContext, useSessionList } from './hooks'
@@ -38,7 +38,7 @@ import { SessionListRow } from './SessionListRow'
 import { SessionRowSkeleton } from './SessionSkeleton'
 
 /** The bottom bar's design inset on a tab; a pushed screen has none. */
-const TAB_BOTTOM = 120
+const _TAB_BOTTOM = 120
 const STACK_BOTTOM = 40
 const STACK_TOAST_BOTTOM = 48
 
@@ -62,6 +62,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const styles = useStyles()
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const scrollTitle = useScrollTitle('Sessions')
     const back = useViewBack()
     const now = useNow()
@@ -105,7 +106,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const safeWebUrl = webUrl ? safeHttpsUrl(webUrl) : undefined
 
     const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
-    const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
+    const contentBottom = chrome === 'tab' ? tabBottom : bottomOffset(insets, STACK_BOTTOM)
     const header =
         chrome === 'stack' ? (
             <View style={styles.titleBlock}>

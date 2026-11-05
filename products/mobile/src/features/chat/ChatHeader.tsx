@@ -1,6 +1,5 @@
 import { type ReactElement, type RefObject, useState } from 'react'
-import type { ViewInstance } from 'react-native'
-import { View } from 'react-native'
+import { View, type ViewInstance } from 'react-native'
 
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { useAsyncAction } from '@/lib/useAsyncAction'
@@ -14,9 +13,10 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { screenLayout } from '@/ui/screenLayout'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii } from '@/ui/tokens'
+import { useNativeRail } from '@/ui/useNativeRail'
 import { useScreenInsets } from '@/ui/useScreenInsets'
-
 import { ChatHeaderMenu } from './ChatHeaderMenu'
+import { NativeChatChrome } from './NativeChatChrome'
 import { useCopyChatLink } from './useCopyChatLink'
 
 const HEADER_TOP = screenLayout.top - layout.designStatusBar
@@ -47,6 +47,7 @@ export function ChatHeader({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const nativeRail = useNativeRail()
     const [menuOpen, setMenuOpen] = useState(false)
     const toasts = useToasts()
     const { copyLink, copying } = useCopyChatLink(toasts.show)
@@ -81,8 +82,18 @@ export function ChatHeader({
         >
             <BlurEdge solid={0.7} blurTarget={blurTarget} />
             <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
-            <BackChip onPress={onBack} testID="chat-back" />
-            {webUrl || onArchive ? (
+            {nativeRail ? (
+                <NativeChatChrome
+                    onBack={onBack}
+                    onNewChat={onNewChat}
+                    onMore={() => setMenuOpen(true)}
+                    hasActions={!!(webUrl || onArchive)}
+                    disabledReason={newChatDisabledReason}
+                />
+            ) : (
+                <BackChip onPress={onBack} testID="chat-back" />
+            )}
+            {!nativeRail && (webUrl || onArchive) ? (
                 <PillControl height={ROW_HEIGHT} style={[styles.actions, shadows.chip]}>
                     <Pressable44
                         onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}

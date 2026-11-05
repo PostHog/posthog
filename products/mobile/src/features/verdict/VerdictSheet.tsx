@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import type { TextInputInstance } from 'react-native'
-import { ActivityIndicator, type ScrollViewInstance, Text, TextInput, View } from 'react-native'
+import type { ScrollViewInstance, TextInputInstance } from 'react-native'
+import { ActivityIndicator, Text, TextInput, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated from 'react-native-reanimated'

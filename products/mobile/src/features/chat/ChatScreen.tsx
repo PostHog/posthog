@@ -1,8 +1,8 @@
 import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import type { ViewInstance } from 'react-native'
-import { Keyboard, ScrollView, type TextInputInstance, View } from 'react-native'
+import type { TextInputInstance, ViewInstance } from 'react-native'
+import { Keyboard, ScrollView, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useAuthStore } from '@/auth/authStore'
@@ -21,7 +21,8 @@ import type { InboxItem, ReportView } from '@/model/types'
 import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { createStyles } from '@/ui/theme'
-import { useSceneDimensions } from '@/ui/useSceneDimensions'
+import { useOverlayFrame } from '@/ui/useOverlayFrame'
+import { useOverlayPane } from '@/ui/useOverlayPane'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
@@ -100,7 +101,9 @@ export function ChatScreen({
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { height: sceneHeight, width: sceneWidth } = useSceneDimensions()
+    const pane = useOverlayPane()
+    const frame = useOverlayFrame()
+    const { height: sceneHeight, width: sceneWidth } = pane
     const compact = sceneHeight < 480 && sceneWidth >= 600
     const headerHeight = compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT
     const now = useNow()
@@ -109,7 +112,7 @@ export function ChatScreen({
     const session = useSession(target)
     const scope = useProjectScope()
     const { aiIncident } = usePostHogStatus(scope?.host)
-    const headerInset = insets.top + headerHeight
+    const headerInset = pane.y === 0 ? insets.top + headerHeight : 0
     const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
@@ -277,7 +280,12 @@ export function ChatScreen({
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
     const canMention = attachedObject === null && attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
     const bottomInset = insets.bottom
-    const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
+    const keyboardStyle = useAnimatedStyle(() => ({
+        paddingBottom: Math.max(
+            pane.y + pane.height - frame.height - keyboard.height.value,
+            pane.y + pane.height >= frame.height ? bottomInset : 0
+        ),
+    }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
     const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
@@ -621,7 +629,19 @@ export function ChatScreen({
         <View style={styles.page} testID="chat-screen">
             <OverlayHost>
                 <View style={styles.page}>
-                    <BlurTargetView ref={blurTarget} style={styles.body}>
+                    <BlurTargetView
+                        ref={blurTarget}
+                        style={[
+                            styles.body,
+                            {
+                                position: 'absolute',
+                                left: pane.x + Math.max(0, (pane.width - READING_WIDTH) / 2),
+                                top: pane.y,
+                                width: Math.min(pane.width, READING_WIDTH),
+                                height: pane.height,
+                            },
+                        ]}
+                    >
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
                             {aiIncident ? (
                                 <View style={{ paddingTop: headerInset }}>
