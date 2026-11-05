@@ -21,7 +21,7 @@ describe('brand factories', () => {
         [
             'an OAuth access token as a personal API key',
             () => parsePersonalApiKey('pha_abc123'),
-            'invalid_personal_api_key: This is an OAuth access token, not a personal API key. A personal API key must start with phx_.',
+            'invalid_personal_api_key: This is an OAuth access token, not a personal API key, which must start with phx_.',
         ],
         [
             'a legacy personal API key without a prefix',
@@ -36,13 +36,13 @@ describe('brand factories', () => {
         [
             'a personal API key as an OAuth access token',
             () => parseOAuthAccessToken('phx_abc123'),
-            'invalid_oauth_access_token: This is a personal API key, not an OAuth access token. An OAuth access token must start with pha_.',
+            'invalid_oauth_access_token: This is a personal API key, not an OAuth access token, which must start with pha_.',
         ],
         ['a JWT as a workload token', () => parseWorkloadToken('eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl'), 'parsed'],
         [
             'a personal API key as a workload token',
             () => parseWorkloadToken('phx_abc123'),
-            'invalid_workload_token: This is a personal API key, not a workload token. A workload token must be a JWT, three parts joined by dots.',
+            'invalid_workload_token: This is a personal API key, not a workload token, which must be a JWT, three parts joined by dots.',
         ],
         ['a custom project token without the prefix', () => parseProjectToken('my-team-token'), 'parsed'],
         ['a custom project token with the prefix and punctuation', () => parseProjectToken('phc_team.v1'), 'parsed'],
