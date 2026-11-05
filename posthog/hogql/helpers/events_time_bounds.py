@@ -8,7 +8,7 @@ filters a column taken from that table's `timestamp`. A point lookup by `uuid` a
 
 An enclosing filter does not count across a LIMIT, OFFSET, LIMIT BY, window function, ROLLUP, CUBE or
 GROUPING SETS in the inner select, or a LIMIT, OFFSET, INTERSECT or EXCEPT on an inner set query,
-because ClickHouse does not move the filter inside, so it cannot restrict the read. It also does not
+because ClickHouse does not always move the filter inside, so it may not restrict the read. It also does not
 count for a CTE that the query references more than once, because the filter restricts only one of
 those reads.
 
@@ -59,8 +59,21 @@ _ORDER_PRESERVING_FUNCTIONS = frozenset(
     }
 )
 _DATE_TRUNC_FUNCTIONS = frozenset({"dateTrunc", "date_trunc"})
-_ORDER_PRESERVING_CAST_TYPES = frozenset(
-    {"date", "datetime", "timestamp", "timestamptz", "timestamp with time zone", "timestamp with local time zone"}
+_PRUNING_CAST_TYPES = frozenset(
+    {
+        "date",
+        "datetime",
+        "timestamp",
+        "timestamptz",
+        "timestamp with time zone",
+        "timestamp with local time zone",
+        "int",
+        "integer",
+        "float",
+        "double",
+        "double precision",
+        "real",
+    }
 )
 _SUBTOTAL_GROUP_BY_MODES = frozenset({"rollup", "cube", "grouping_sets"})
 
@@ -228,7 +241,7 @@ class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
         return False
 
     def visit_type_cast(self, node: ast.TypeCast) -> bool:
-        return node.type_name.lower() in _ORDER_PRESERVING_CAST_TYPES and self.visit(node.expr)
+        return node.type_name.lower() in _PRUNING_CAST_TYPES and self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         if node.args and (node.name in _ORDER_PRESERVING_FUNCTIONS or node.name.startswith("toStartOf")):

@@ -33,7 +33,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.compilation import CompilationLimitExceededError
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import (
     EVENTS_LOWER_BOUND_REQUIRED_MESSAGE,
@@ -641,6 +641,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         [
             ("compilation_limit", CompilationLimitExceededError("limit"), True, False),
             ("invalid_query_fails_open_unreported", QueryError("invalid"), False, False),
+            ("unresolvable_query_fails_open_unreported", ResolutionError("unresolved"), False, False),
             ("other_error_fails_open_and_is_reported", RuntimeError("unexpected"), False, True),
         ]
     )

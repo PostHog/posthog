@@ -85,6 +85,7 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
             ),
             ("cast_to_date", "select count() from events where timestamp::Date >= '2026-01-01'", False),
             ("cast_to_datetime", "select count() from events where timestamp::DateTime >= '2026-01-01'", False),
+            ("cast_to_int", "select count() from events where timestamp::int >= 1700000000", False),
             ("in_constants", "select count() from events where timestamp in ('2026-01-01')", False),
             (
                 "call_form_or_every_branch_bounded",

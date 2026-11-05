@@ -24,7 +24,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.helpers.events_time_bounds import reads_events_without_lower_bound
 from posthog.hogql.metadata import get_table_names
@@ -502,8 +502,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         except CompilationLimitExceededError:
             # Execution would compile the query again with a new budget and then fail with the same error.
             raise
-        except ExposedHogQLError:
-            # The query is invalid, and execution reports that error to the caller.
+        except BaseHogQLError:
+            # Execution reaches the same error and handles it, so reporting it here would duplicate it.
             EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="error").inc()
             return
         except Exception as error:
