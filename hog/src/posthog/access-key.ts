@@ -4,7 +4,6 @@ import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
-import { parseOrUndefined } from '@/core/schema'
 import type { StoreChoice, StoredSecret } from '@/posthog/credential-store/types'
 
 import { sendRequest } from './api'
@@ -63,13 +62,8 @@ export interface AccessKey {
 
 const KEY_CHECK_TIMEOUT_MS = 30_000
 
-// If hog doesn't recognize a scope, it drops it instead of failing the login
-const KeyScopes = z.looseObject({
-    scopes: z
-        .array(z.unknown())
-        .transform((scopes) => scopes.filter((scope) => typeof scope === 'string'))
-        .catch([]),
-})
+// If hog can't read the scope list, the login works with no scopes instead of failing
+const KeyScopes = z.object({ scopes: z.array(z.string()).catch([]) })
 
 export class PersonalAPIKey implements AccessKey {
     readonly host: Host
@@ -137,7 +131,7 @@ export class PersonalAPIKey implements AccessKey {
             )
         }
         const { host, projectId, apiKey } = this
-        const scopes = parseOrUndefined(KeyScopes, response.json)?.scopes ?? []
+        const scopes = KeyScopes.safeParse(response.json).data?.scopes ?? []
         return new PersonalAPIKey({ host, projectId, apiKey, scopes })
     }
 

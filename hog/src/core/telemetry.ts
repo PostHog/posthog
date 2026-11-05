@@ -102,16 +102,8 @@ const CachedIdentitySchema = z.object({
 
 type CachedIdentity = z.output<typeof CachedIdentitySchema>
 
-// A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
-// An entry it can't read is dropped.
-const IdentityCacheSchema = z.record(z.string(), z.unknown()).transform((entries) =>
-    Object.fromEntries(
-        Object.entries(entries).flatMap(([key, entry]) => {
-            const parsed = CachedIdentitySchema.safeParse(entry)
-            return parsed.success ? [[key, parsed.data]] : []
-        })
-    )
-)
+// hog writes this file itself, so a cache it can't read is broken and hog starts a new one.
+const IdentityCacheSchema = z.record(z.string(), CachedIdentitySchema)
 
 // Only PostHog Cloud users exist in the project telemetry goes to.
 function isCloudHost(host: string): boolean {
@@ -119,14 +111,10 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-// A field that isn't a non-empty string reads as missing, so a surprising answer only leaves the
-// event anonymous.
-const Text = z.unknown().transform((value) => (typeof value === 'string' && value ? value : undefined))
-const IdentityUser = z.looseObject({
-    distinct_id: Text,
-    organization: z.looseObject({ id: Text }).optional().catch(undefined),
-})
-const IdentityProject = z.looseObject({ organization: Text, uuid: Text })
+// An answer hog can't read only leaves the event anonymous.
+const Text = z.string().min(1).optional()
+const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional() })
+const IdentityProject = z.object({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
 // to a random install ID otherwise. Events carry no argument or option values and no error messages,

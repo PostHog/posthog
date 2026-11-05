@@ -6,7 +6,7 @@ import { longFlag, parseOption, type OptionSpec, type OptionValues } from './com
 import type { PostHogConfig } from './config'
 import { EXIT_USAGE, HogError } from './errors'
 import type { Env, Runtime, RuntimeFetch } from './runtime'
-import { parser } from './schema'
+import { parseOrThrow, type ParseFailure } from './schema'
 
 // Options every command takes. Each one also reads the env vars in `env`, in order, and some read
 // the posthog.json key at the `config` path. A flag beats an env var, which beats posthog.json.
@@ -18,7 +18,9 @@ const RateLimitSchema = z
     })
     .transform(Number)
 
-const parseRateLimit = parser(RateLimitSchema, { code: 'invalid_setting' })
+function parseRateLimit(raw: unknown, failure: ParseFailure): number {
+    return parseOrThrow(RateLimitSchema, raw, failure)
+}
 
 export const GLOBAL_OPTIONS = {
     host: {

@@ -70,8 +70,6 @@ const MaterializationStatus = z.looseObject({
     reason: z.string().nullish(),
 })
 
-export type MaterializationStatus = z.infer<typeof MaterializationStatus>
-
 export const Endpoint = z.looseObject({
     id: z.string(),
     name: z.string(),
@@ -79,7 +77,6 @@ export const Endpoint = z.looseObject({
     query: z.record(z.string(), z.unknown()),
     is_active: z.boolean(),
     data_freshness_seconds: z.number().nullish(),
-    endpoint_path: z.string().optional(),
     url: z.string().nullish(),
     ui_url: z.string().nullish(),
     created_at: z.string(),

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { HostSchema } from '@/posthog/host'
 
 import { HogError } from './errors'
-import { decodeJson, parseJson } from './json'
+import { JsonObject, parseJson } from './json'
 import type { Runtime } from './runtime'
 
 export const CONFIG_FILE = 'posthog.json'
@@ -155,15 +155,18 @@ export async function findConfig(runtime: Runtime): Promise<string | undefined> 
 
 // Returns every problem with the file instead of the first, so `hog config check` can list them all.
 export function validateConfig(contents: string): { config?: PostHogConfig; problems: ConfigProblem[] } {
-    const decoded = decodeJson(contents, PostHogConfig)
-    if (decoded.ok) {
-        return { config: decoded.value, problems: [] }
+    let raw: unknown
+    try {
+        raw = parseJson(contents, z.unknown(), { code: 'invalid_config' })
+    } catch (error) {
+        return { problems: [{ path: '', message: error instanceof Error ? error.message : String(error) }] }
     }
-    if (decoded.reason === 'syntax') {
-        return { problems: [{ path: '', message: decoded.message }] }
+    const parsed = PostHogConfig.safeParse(raw)
+    if (parsed.success) {
+        return { config: parsed.data, problems: [] }
     }
     return {
-        problems: decoded.issues.map((issue) => ({
+        problems: parsed.error.issues.map((issue) => ({
             path: issue.path
                 .map((part) => (typeof part === 'number' ? `[${part}]` : `.${String(part)}`))
                 .join('')
@@ -199,7 +202,7 @@ export async function updateConfig(
 ): Promise<string> {
     const path = loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
     const raw = loaded
-        ? parseJson(await runtime.readFile(path), z.record(z.string(), z.unknown()), {
+        ? parseJson(await runtime.readFile(path), JsonObject, {
               code: 'invalid_config',
               context: `${path} is not valid.`,
           })

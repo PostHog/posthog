@@ -330,7 +330,7 @@ export const isSymbolSetId = (text: string): boolean => UUID.test(text)
 const SymbolSetPage = z
     .looseObject({ results: z.array(z.looseObject({ id: z.string().optional() })).optional() })
     .optional()
-const SymbolSetDownload = z.looseObject({ url: z.string() })
+const SymbolSetDownload = z.object({ url: z.string() })
 
 // Turns the answers people can act on into errors with a next step. Others keep their message.
 async function lookup<T>(request: () => Promise<T>, notFound?: string): Promise<T> {

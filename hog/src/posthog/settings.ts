@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { parseOrUndefined } from '@/core/schema'
 import { StoreChoiceSchema } from '@/posthog/credential-store/types'
 
 import { hostKey, HostSchema, type Host, type HostKey } from './host'
@@ -20,7 +19,7 @@ const LoginRecordBaseSchema = z.object({
     host: HostSchema,
     // Set on a file login that replaced a keychain login while the keychain was unusable, so the old
     // keychain item can still be there. Logout tries to remove it.
-    keychainLeftover: z.literal(true).optional().catch(undefined),
+    keychainLeftover: z.literal(true).optional(),
 })
 
 // What settings.json keeps about the login to one host: everything except its secrets.
@@ -59,8 +58,8 @@ function settingsPath(runtime: Runtime): string {
 // A record hog doesn't recognize, such as one a later version wrote, reads as no login. So does a
 // record filed under another origin than its own host.
 function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefined {
-    const record = parseOrUndefined(LoginRecordSchema, value)
-    const key = parseOrUndefined(HostSchema, origin)
+    const record = LoginRecordSchema.safeParse(value).data
+    const key = HostSchema.safeParse(origin).data
     return record && key && hostKey(record.host) === hostKey(key) ? record : undefined
 }
 
