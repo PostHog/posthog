@@ -7,8 +7,6 @@ import { initKeaTests } from '~/test/init'
 import { SetupInstallOptions } from './SetupInstallOptions'
 
 jest.mock('lib/api')
-// Wizard install progress streams over EventSource, which jsdom lacks, and it is not what this test checks.
-jest.mock('../emptyState/MCPAnalyticsSetupProgress', () => ({ MCPAnalyticsSetupProgress: () => null }))
 
 describe('SetupInstallOptions', () => {
     beforeEach(() => {

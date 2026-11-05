@@ -10,7 +10,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsSetupLogic } from '../emptyState/mcpAnalyticsSetupLogic'
-import { MCPAnalyticsSetupProgress } from '../emptyState/MCPAnalyticsSetupProgress'
 import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
 
 const COPY = {
@@ -67,11 +66,6 @@ export function SetupInstallOptions(): JSX.Element {
                             Copy prompt
                         </LemonButton>
                     </div>
-                </div>
-            ) : null}
-            {isCloudOrDev ? (
-                <div className="empty:hidden">
-                    <MCPAnalyticsSetupProgress mode="needs-setup" />
                 </div>
             ) : null}
             <span className="text-sm text-secondary">{COPY.restart}</span>
