@@ -342,7 +342,8 @@ const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
         if (attrs.length === 0) {
             return
         }
-        if (recipient.attrs.length + attrs.length > MAX_ATTRIBUTES_PER_TAG + 1) {
+        const present = new Set(recipient.attrs.map((attr) => attr.name))
+        if (recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length > MAX_ATTRIBUTES_PER_TAG) {
             throw new Error(
                 'The sandbox email template could not retain its identification footer. Update the template and try again.'
             )

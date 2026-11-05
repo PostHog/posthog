@@ -19,7 +19,8 @@ const sender = new SandboxEmailSender(
     },
     teamManager
 )
-const manyAttributes = (count: number): string => Array.from({ length: count }, (_, index) => `a${index}`).join(' ')
+const manyAttributes = (count: number, prefix = 'a'): string =>
+    Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
 const params = (html: string, text?: string, preheader?: string): CyclotronInvocationQueueParametersEmailType => ({
     type: 'email',
     from: { integrationId: 4 },
@@ -157,6 +158,8 @@ describe('sandbox email content', () => {
         '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
         '<html><body style="mask-image:linear-gradient(black 0 40px,transparent 40px)"><p>Visible message</p></body></html>',
         `<html ${manyAttributes(64)}><body ${manyAttributes(64)}><p>Visible message</p></body></html>`,
+        `<html><body ${manyAttributes(33)}><body ${manyAttributes(33)}><p>Visible message</p></body></html>`,
+        `<html ${manyAttributes(32)}><html ${manyAttributes(32, 'b')}><body ${manyAttributes(32)}><body ${manyAttributes(32, 'b')}><p>Visible message</p></body></html>`,
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
         const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
         const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
@@ -316,6 +319,8 @@ describe('sandbox email content', () => {
         [`<body>${'<div>'.repeat(14_000)}<p>Hello</p>`, null, null],
         [`<body>${'<template>'.repeat(5_000)}<p>Hello</p>`, null, null],
         [`<body><p ${manyAttributes(6_000)}>Hello</p></body>`, null, null],
+        [`<body ${manyAttributes(32)}><body ${manyAttributes(33, 'b')}><p>Hello</p></body>`, null, null],
+        [`<html ${manyAttributes(32)}><html ${manyAttributes(33, 'b')}><body><p>Hello</p></body></html>`, null, null],
         [`<body><p title="x>" ${manyAttributes(6_000)}>Hello</p></body>`, null, null],
         [`<body><p>Hello</p><!--[if mso]><p ${manyAttributes(6_000)}>Outlook</p><![endif]--></body>`, null, null],
         [`<body><!-- <x a=" --><p ${manyAttributes(6_000)}>Hello</p><!-- "> --></body>`, null, null],
