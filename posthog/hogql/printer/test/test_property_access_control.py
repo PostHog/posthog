@@ -2,14 +2,22 @@ import uuid
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import WEB_DIMENSIONAL_MIRRORED_COLUMNS
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
@@ -17,6 +25,26 @@ from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+# Columns that hold no event or session data. Plain `DatabaseField`s are the aggregate states.
+_WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset({"period_bucket", "team_id", "job_id"})
+
+
+class TestWebDimensionalMirrorCoverage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stats", WebStatsDimensionalPreAggregatedTable),
+            ("bounces", WebBouncesDimensionalPreAggregatedTable),
+        ]
+    )
+    def test_every_dimension_column_is_mapped_or_listed_safe(self, _name: str, table_class: type) -> None:
+        dimension_columns = {
+            name
+            for name, field in table_class().fields.items()
+            if type(field) is not DatabaseField and name not in _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS
+        }
+
+        assert dimension_columns - WEB_DIMENSIONAL_MIRRORED_COLUMNS.keys() == set()
 
 
 class TestRestrictPropertiesInHogQL(BaseTest):
@@ -425,6 +453,16 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             ("bounces_country", "web_bounces_dimensional_preaggregated", "country_code", "$geoip_country_code"),
             ("bounces_metadata", "web_bounces_dimensional_preaggregated", "mat_metadata_backend", "metadata.backend"),
             ("stats_metadata_parent", "web_stats_dimensional_preaggregated", "mat_metadata_loggedIn", "metadata"),
+            ("stats_entry_pathname", "web_stats_dimensional_preaggregated", "entry_pathname", "$pathname"),
+            ("bounces_end_pathname", "web_bounces_dimensional_preaggregated", "end_pathname", "$pathname"),
+            ("stats_end_pathname_url", "web_stats_dimensional_preaggregated", "end_pathname", "$current_url"),
+            (
+                "bounces_referring_domain",
+                "web_bounces_dimensional_preaggregated",
+                "referring_domain",
+                "$referring_domain",
+            ),
+            ("stats_utm_source", "web_stats_dimensional_preaggregated", "utm_source", "utm_source"),
         ]
     )
     def test_web_dimensional_columns_use_the_source_property_rule(
