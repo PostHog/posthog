@@ -73,6 +73,7 @@ function CategoryPillContent({
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract =
         totalListCount > 0 ||
+        (isLoading && hasRemoteDataSource) ||
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading

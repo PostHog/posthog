@@ -356,6 +356,43 @@ describe('TaxonomicFilter', () => {
             expect(container.querySelector('.one-taxonomic-tab')).not.toBeInTheDocument()
         })
 
+        it.each([true, false])('opens a loading category and handles results (has results: %s)', async (hasResults) => {
+            let finishLoading!: () => void
+            const pendingRequest = new Promise<void>((resolve) => {
+                finishLoading = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': async (info) => {
+                        await pendingRequest
+                        return hasResults ? mockGetEventDefinitions(info) : [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents],
+            })
+
+            const customEvents = screen.getByTestId('taxonomic-tab-custom_events')
+            await waitFor(() => expect(customEvents.querySelector('.Spinner')).toBeInTheDocument())
+            fireEvent.click(customEvents)
+            expectActiveTab('taxonomic-tab-custom_events', 'taxonomic-tab-events')
+            expect(customEvents).not.toHaveAttribute('aria-disabled', 'true')
+
+            finishLoading()
+            await waitFor(() => expect(customEvents.querySelector('.Spinner')).not.toBeInTheDocument())
+            fireEvent.click(screen.getByTestId('taxonomic-tab-events'))
+            fireEvent.click(customEvents)
+            if (hasResults) {
+                expectActiveTab('taxonomic-tab-custom_events')
+            } else {
+                expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-custom_events')
+                expect(customEvents).toHaveClass('LemonTag--muted')
+                expect(customEvents).toHaveAttribute('title', 'No results')
+            }
+        })
+
         it('shows a loading empty state while data warehouse tables are still loading', async () => {
             let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
             ;(performQuery as jest.Mock).mockImplementation(
