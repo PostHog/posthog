@@ -16,6 +16,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,7 +32,7 @@ import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { compareQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { isInsightVizNode } from '~/queries/schema/node-guards'
-import type { InsightVizNode, TrendsFilter } from '~/queries/schema/schema-general'
+import type { FunnelsFilter, InsightVizNode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
 import type { InsightLogicProps, TrendResult, UserType } from '~/types'
 
@@ -46,11 +47,15 @@ import {
     insightsExplanationsRetrieve,
 } from 'products/product_analytics/frontend/generated/api'
 import type { InsightExplanationCreateApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import { FUNNEL_STEPS_SERIES_KEY_PREFIX } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsBarChart/funnelStepsBarTransforms'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { storedExplanation } from 'products/product_analytics/mcp/apps/explainChart/storedExplanation'
-import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import {
+    insightPageShowsFunnelStory,
+    insightPageShowsStory,
+} from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 import { followedSeriesIndex } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
@@ -65,6 +70,8 @@ export interface explainChartLogicValues {
     query: Node | null // insightDataLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
+    isFunnels: boolean // insightVizDataLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     baseCurrency: CurrencyCode // teamLogic
     display: ChartDisplayType | null | undefined // trendsDataLogic
@@ -194,6 +201,8 @@ export interface explainChartLogicMeta {
             featureFlags: FeatureFlagsSet,
             isTrends: boolean,
             display: ChartDisplayType | null | undefined,
+            isFunnels: boolean,
+            funnelsFilter: FunnelsFilter | null | undefined,
             insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => boolean
         explainAvailable: (storyAvailable: boolean, effectivePhaiView: PhaiViewMode) => boolean
@@ -220,7 +229,11 @@ export interface explainChartLogicMeta {
             followedChartIndex: number | null,
             incompletenessOffsetFromEnd: number
         ) => ExplainChartData | null
-        storySeriesKey: (followedChartIndex: number | null, indexedResults: IndexedTrendResult[]) => string | null
+        storySeriesKey: (
+            story: ExplainChartData | null,
+            followedChartIndex: number | null,
+            indexedResults: IndexedTrendResult[]
+        ) => string | null
         storyEventProperties: (storyOrigin: StoryOrigin | null) => StoryEventProperties
         formatValue: (
             trendsFilter: TrendsFilter | null | undefined,
@@ -256,6 +269,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             ['baseCurrency'],
             trendsDataLogic(props),
             ['display', 'indexedResults', 'isTrends', 'trendsFilter', 'results', 'incompletenessOffsetFromEnd'],
+            insightVizDataLogic(props),
+            ['funnelsFilter', 'isFunnels'],
             userLogic,
             ['user'],
         ],
@@ -371,16 +386,18 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     selectors(({ props }) => ({
         insightId: [(s) => [s.insight], (insight: insightLogicValues['insight']): number | null => insight.id ?? null],
         storyAvailable: [
-            (s) => [s.featureFlags, s.isTrends, s.display, s.insight],
+            (s) => [s.featureFlags, s.isTrends, s.display, s.isFunnels, s.funnelsFilter, s.insight],
             (
                 featureFlags: FeatureFlagsSet,
                 isTrends: boolean,
                 display: ChartDisplayType | null | undefined,
+                isFunnels: boolean,
+                funnelsFilter: FunnelsFilter | null | undefined,
                 insight: insightLogicValues['insight']
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.EXPLAIN_CHART] &&
-                isTrends &&
-                insightPageShowsStory(display) &&
+                ((isTrends && insightPageShowsStory(display)) ||
+                    (isFunnels && insightPageShowsFunnelStory(funnelsFilter))) &&
                 !!insight.short_id &&
                 !props.filtersOverride &&
                 !props.variablesOverride,
@@ -419,7 +436,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         followedChartIndex: [
             (s) => [s.story, s.results],
             (story: ExplainChartData | null, results: TrendResult[]): number | null =>
-                story && followedSeriesIndex(story, results),
+                story?.shape === 'time_series' ? followedSeriesIndex(story, results) : null,
         ],
         chartStory: [
             (s) => [s.story, s.results, s.followedChartIndex, s.incompletenessOffsetFromEnd],
@@ -429,11 +446,20 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 followedChartIndex: number | null,
                 incompletenessOffsetFromEnd: number
             ): ExplainChartData | null =>
-                story && storyOnChart(story, results, followedChartIndex, incompletenessOffsetFromEnd < 0),
+                story?.shape === 'time_series'
+                    ? storyOnChart(story, results, followedChartIndex, incompletenessOffsetFromEnd < 0)
+                    : story,
         ],
         storySeriesKey: [
-            (s) => [s.followedChartIndex, s.indexedResults],
-            (followedChartIndex: number | null, indexedResults: IndexedTrendResult[]): string | null => {
+            (s) => [s.story, s.followedChartIndex, s.indexedResults],
+            (
+                story: ExplainChartData | null,
+                followedChartIndex: number | null,
+                indexedResults: IndexedTrendResult[]
+            ): string | null => {
+                if (story?.shape === 'funnel_steps') {
+                    return `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${story.seriesIndex}`
+                }
                 if (followedChartIndex === null) {
                     return null
                 }
@@ -478,7 +504,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 if (cache.disposables.isDisposed || values.linkedExplanationId !== explanationId) {
                     return
                 }
-                if (explanation.data.shape !== 'time_series') {
+                if (explanation.data.shape !== 'time_series' && explanation.data.shape !== 'funnel_steps') {
                     // pinned: analytics event name
                     posthog.capture('explain chart link failed', {
                         explanation_id: explanationId,

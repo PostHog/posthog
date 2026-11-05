@@ -1,4 +1,4 @@
-import type { ExplainChartData, StorySeriesResult } from './explainChartTypes'
+import type { StorySeriesResult, TimeSeriesExplainChartData } from './explainChartTypes'
 
 export const STORY_SERIES_LABEL_MAX_LENGTH = 400
 
@@ -7,7 +7,7 @@ export function storySeriesLabel(label: string | undefined): string | undefined 
 }
 
 // Breakdown series are sorted by volume, so the saved index can point at another series by the time a link is opened.
-export function followedSeriesIndex(story: ExplainChartData, results: StorySeriesResult[]): number | null {
+export function followedSeriesIndex(story: TimeSeriesExplainChartData, results: StorySeriesResult[]): number | null {
     const label = story.results[story.seriesIndex]?.label
     if (label === undefined) {
         return results[story.seriesIndex] ? story.seriesIndex : null
