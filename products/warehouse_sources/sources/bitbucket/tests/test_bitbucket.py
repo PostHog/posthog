@@ -491,7 +491,7 @@ def test_fan_out_parent_walk_stops_at_the_cap_and_warns():
     logger = MagicMock()
 
     with scripted_network([_page(page)]):
-        parents = list(_iter_fan_out_parents(requests.Session(), fan_out, "ws", "repo-a", logger, None))
+        parents = list(_iter_fan_out_parents(requests.Session(), fan_out, "ws", "repo-a", logger, None, MagicMock()))
 
     assert [parent["uuid"] for parent in parents] == ["{p1}", "{p2}"]
     logger.warning.assert_called_once()

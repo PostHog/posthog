@@ -181,40 +181,42 @@ def _activity_event_pages(
 
             body = client.get("/activityevents", params=params)
             rows = body.get("activityEventEntities") or []
-            if rows:
-                yield [_normalize_activity_event(row) for row in rows]
-
             continuation_token = body.get("continuationToken")
             pages += 1
 
             # A page can come back empty and still carry a token, so termination is
             # "token gone", never "no rows".
+            if continuation_token and continuation_token in seen_tokens:
+                logger.warning(f"Power BI admin: repeated continuation token for {day.isoformat()}, stopping the day")
+                continuation_token = None
+            elif continuation_token:
+                seen_tokens.add(continuation_token)
+                if pages >= MAX_CONTINUATION_PAGES:
+                    logger.warning(
+                        f"Power BI admin: hit the {MAX_CONTINUATION_PAGES}-page cap for {day.isoformat()}, "
+                        "the rest of the day is skipped"
+                    )
+                    continuation_token = None
+
+            # Stage mid-day so a heartbeat timeout resumes inside the day rather than refetching it.
+            if continuation_token:
+                resumable_source_manager.save_state(
+                    PowerBiAdminResumeConfig(next_day=day.isoformat(), continuation_token=continuation_token)
+                )
+            else:
+                resumable_source_manager.save_state(
+                    PowerBiAdminResumeConfig(next_day=(day + timedelta(days=1)).isoformat())
+                )
+
+            if rows:
+                yield [_normalize_activity_event(row) for row in rows]
+            else:
+                resumable_source_manager.safe_point()
+
             if not continuation_token:
                 break
 
-            if continuation_token in seen_tokens:
-                logger.warning(f"Power BI admin: repeated continuation token for {day.isoformat()}, stopping the day")
-                continuation_token = None
-                break
-            seen_tokens.add(continuation_token)
-
-            if pages >= MAX_CONTINUATION_PAGES:
-                logger.warning(
-                    f"Power BI admin: hit the {MAX_CONTINUATION_PAGES}-page cap for {day.isoformat()}, "
-                    "the rest of the day is skipped"
-                )
-                continuation_token = None
-                break
-
-            # Save mid-day so a heartbeat timeout resumes inside the day rather than
-            # refetching it. Saved after yielding, so a crash re-yields the last page and
-            # merge dedupes on `Id`.
-            resumable_source_manager.save_state(
-                PowerBiAdminResumeConfig(next_day=day.isoformat(), continuation_token=continuation_token)
-            )
-
         day += timedelta(days=1)
-        resumable_source_manager.save_state(PowerBiAdminResumeConfig(next_day=day.isoformat()))
 
 
 def _odata_pages(

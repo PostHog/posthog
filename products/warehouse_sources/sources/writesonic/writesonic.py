@@ -245,8 +245,8 @@ def _iter_daily(
     """Sync a daily export endpoint one UTC day at a time.
 
     The required `date` param is both the incremental granularity and the resume granularity.
-    State is saved *after* each page's rows are yielded, so a crash re-fetches the in-flight
-    page (merge dedupes on the primary key) rather than skipping it."""
+    The next page is staged before each page's rows are yielded, so the pipeline commits it
+    together with those rows."""
     resume = manager.load_state() if manager.can_resume() else None
     resumed_date = _to_date(resume.date) if resume and resume.date else None
     current = resumed_date or start_date
@@ -264,11 +264,13 @@ def _iter_daily(
                 # Content export rows don't carry the export date; stamp it in since it's part
                 # of the primary key, the partition key, and the incremental cursor.
                 items = [{**item, "date": day} for item in items]
-            yield items
             manager.save_state(WritesonicResumeConfig(date=day, page=page + 1))
+            yield items
 
         next_day = current + timedelta(days=1)
         manager.save_state(WritesonicResumeConfig(date=next_day.isoformat(), page=1))
+        # Every row of the day is yielded, so the staged day loses nothing.
+        manager.safe_point()
         current = next_day
         start_page = 1
 
@@ -292,8 +294,8 @@ def _iter_config(
     for page, items in _iter_pages(
         endpoint_config, api_key=api_key, params=params, start_page=start_page, logger=logger
     ):
-        yield items
         manager.save_state(WritesonicResumeConfig(page=page + 1))
+        yield items
 
 
 def get_rows(

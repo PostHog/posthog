@@ -487,6 +487,7 @@ def get_rows(
             window_services = list_window_services(session, credentials, window)
             if not window_services:
                 page_token = None
+                resumable_source_manager.safe_point()
                 continue
 
         while True:
@@ -508,6 +509,7 @@ def get_rows(
                     window_start=window.start.isoformat(), next_page_token=page_token, slice_key=slice_key
                 )
             )
+            resumable_source_manager.safe_point()
 
             if not page_token:
                 break

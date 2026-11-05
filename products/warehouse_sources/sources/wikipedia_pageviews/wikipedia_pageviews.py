@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote
@@ -161,6 +161,7 @@ def _article_rows(
     window_start: date,
     window_end: date,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for article in articles:
@@ -169,6 +170,8 @@ def _article_rows(
             f"/{quote(article, safe='')}/daily/{window_start:%Y%m%d}/{window_end:%Y%m%d}"
         )
         rows.extend(_with_date(item) for item in _get_items(session, url, logger))
+        if not rows:
+            safe_point()
     return rows
 
 
@@ -210,6 +213,7 @@ def _country_pageview_rows(
     window_start: date,
     window_end: date,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     # One request per month whose first day falls in the window, so consecutive windows never
@@ -234,6 +238,8 @@ def _country_pageview_rows(
                         "rank": country.get("rank"),
                     }
                 )
+        if not rows:
+            safe_point()
         month = _next_month(month)
     return rows
 
@@ -272,6 +278,7 @@ def _unique_device_rows(
     window_start: date,
     window_end: date,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for access_site in UNIQUE_DEVICES_ACCESS_SITES:
@@ -286,6 +293,8 @@ def _unique_device_rows(
             if item_date is not None:
                 item["date"] = datetime(item_date.year, item_date.month, item_date.day, tzinfo=UTC)
             rows.append(item)
+        if not rows:
+            safe_point()
     return rows
 
 
@@ -296,6 +305,7 @@ def _media_request_rows(
     window_start: date,
     window_end: date,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> list[dict[str, Any]]:
     media_agent = agent if agent in MEDIA_REQUEST_AGENTS else "all-agents"
     rows: list[dict[str, Any]] = []
@@ -305,6 +315,8 @@ def _media_request_rows(
             f"/daily/{window_start:%Y%m%d}/{window_end:%Y%m%d}"
         )
         rows.extend(_with_date(item) for item in _get_items(session, url, logger))
+        if not rows:
+            safe_point()
     return rows
 
 
@@ -381,41 +393,50 @@ def _get_rows(
 
     window_days = TOP_WINDOW_DAYS if endpoint in DAILY_REQUEST_ENDPOINTS else WINDOW_DAYS
 
+    # The staged cursor points at the window in progress until the window is yielded. While the
+    # window holds no rows, a hand-off therefore loses nothing, so the per-request helpers reach a
+    # safe point only before the window has any rows.
+    safe_point = resumable_source_manager.safe_point
+
     cursor = start
     while cursor <= end_boundary:
         window_end = min(cursor + timedelta(days=window_days - 1), end_boundary)
 
+        rows: list[dict[str, Any]] = []
         if endpoint == TOP_ARTICLES_ENDPOINT:
-            rows = []
             day = cursor
             while day <= window_end:
                 rows.extend(_top_rows(session, normalized_project, access, day, logger))
+                if not rows:
+                    safe_point()
                 day += timedelta(days=1)
         elif endpoint == COUNTRY_TOP_ARTICLES_ENDPOINT:
-            rows = []
             day = cursor
             while day <= window_end:
                 for country in country_codes:
                     rows.extend(_country_top_rows(session, country, access, day, logger))
+                    if not rows:
+                        safe_point()
                 day += timedelta(days=1)
         elif endpoint == COUNTRY_PAGEVIEWS_ENDPOINT:
-            rows = _country_pageview_rows(session, normalized_project, access, cursor, window_end, logger)
+            rows = _country_pageview_rows(session, normalized_project, access, cursor, window_end, logger, safe_point)
         elif endpoint == UNIQUE_DEVICES_ENDPOINT:
-            rows = _unique_device_rows(session, normalized_project, cursor, window_end, logger)
+            rows = _unique_device_rows(session, normalized_project, cursor, window_end, logger, safe_point)
         elif endpoint == MEDIA_REQUESTS_ENDPOINT:
-            rows = _media_request_rows(session, normalized_project, agent, cursor, window_end, logger)
+            rows = _media_request_rows(session, normalized_project, agent, cursor, window_end, logger, safe_point)
         elif endpoint == ARTICLE_PAGEVIEWS_ENDPOINT:
-            rows = _article_rows(session, normalized_project, access, agent, articles, cursor, window_end, logger)
+            rows = _article_rows(
+                session, normalized_project, access, agent, articles, cursor, window_end, logger, safe_point
+            )
         else:
             rows = _aggregate_rows(session, normalized_project, access, agent, cursor, window_end, logger)
 
+        cursor = window_end + timedelta(days=1)
+        resumable_source_manager.save_state(WikipediaPageviewsResumeConfig(next_start=cursor.isoformat()))
         if rows:
             yield rows
-
-        cursor = window_end + timedelta(days=1)
-        # Save AFTER yielding so a crash re-fetches (and merge dedupes) the last window
-        # instead of skipping it.
-        resumable_source_manager.save_state(WikipediaPageviewsResumeConfig(next_start=cursor.isoformat()))
+        else:
+            safe_point()
 
 
 def wikipedia_pageviews_source(

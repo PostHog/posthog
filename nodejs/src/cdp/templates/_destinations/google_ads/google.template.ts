@@ -27,6 +27,25 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             required: false,
         },
         {
+            key: 'gbraid',
+            type: 'string',
+            label: 'Google click ID for iOS app campaigns (gbraid)',
+            description:
+                'The gbraid from an iOS app campaign click. Sent together with the gclid when both are set. If Google refuses the pair, only the gclid is sent.',
+            default: '{person.properties.gbraid ?? person.properties.$initial_gbraid}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'wbraid',
+            type: 'string',
+            label: 'Google click ID for iOS web campaigns (wbraid)',
+            description: 'The wbraid from an iOS web campaign click. Only sent when there is no gclid or gbraid.',
+            default: '{person.properties.wbraid ?? person.properties.$initial_wbraid}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'conversionDateTime',
             type: 'string',
             label: 'Conversion Date Time',
@@ -70,7 +89,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Email address',
             description:
-                'Email address for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize (lowercase, trimmed) for best match rates.',
+                'Email address for enhanced conversions. Used to match the conversion when there is no click ID or Google rejects it. Normalized and sent SHA-256 hashed; leave blank to omit.',
             default: '{person.properties.email}',
             secret: false,
             required: false,
@@ -80,7 +99,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Phone number',
             description:
-                'Phone number for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
+                'Phone number for enhanced conversions, including the country code (e.g. +14255551234). Used to match the conversion when there is no click ID or Google rejects it. Normalized to E.164 and sent SHA-256 hashed; numbers without a country code are left out.',
             default: '',
             secret: false,
             required: false,
@@ -99,59 +118,171 @@ export const template: HogFunctionTemplate = {
     category: ['Advertisement'],
     code_language: 'hog',
     code: `
-let userIdentifiers := []
-if (not empty(inputs.email)) {
-    userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_email': sha256Hex(lower(trim(inputs.email)))})
-}
-if (not empty(inputs.phone)) {
-    userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_phone_number': sha256Hex(lower(trim(inputs.phone)))})
+// Google rejects these for the click ID only, so the same conversion can still match on hashed email or phone.
+let CLICK_ID_REJECTED_CODES := ['UNPARSEABLE_GCLID', 'UNPARSEABLE_GBRAID', 'UNPARSEABLE_WBRAID', 'EXPIRED_EVENT', 'EVENT_NOT_FOUND', 'CONVERSION_PRECEDES_EVENT', 'INVALID_CUSTOMER_FOR_CLICK', 'UNAUTHORIZED_CUSTOMER', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID']
+// Google rejects these for the hashed email or phone only, so the same conversion can still match on the click ID.
+let USER_DATA_REJECTED_CODES := ['INVALID_USER_IDENTIFIER', 'UNSUPPORTED_USER_IDENTIFIER', 'CUSTOMER_NOT_ACCEPTED_CUSTOMER_DATA_TERMS', 'CUSTOMER_DATA_POLICY_PROHIBITS_ENHANCED_CONVERSIONS', 'CUSTOMER_NOT_ENABLED_ENHANCED_CONVERSIONS_FOR_LEADS']
+let ALREADY_RECORDED_CODES := ['ORDER_ID_ALREADY_IN_USE', 'CLICK_CONVERSION_ALREADY_EXISTS']
+
+fun normalizeEmail(raw) {
+    let email := lower(replaceAll(trim(raw), ' ', ''))
+    let parts := splitByString('@', email)
+    if (length(parts) != 2 or empty(parts[1]) or empty(parts[2])) {
+        return null
+    }
+    if (parts[2] == 'gmail.com' or parts[2] == 'googlemail.com') {
+        return f'{replaceAll(parts[1], '.', '')}@{parts[2]}'
+    }
+    return email
 }
 
-if (empty(inputs.gclid) and empty(userIdentifiers)) {
-    print('No \`gclid\` or user identifiers. Skipping...')
+fun normalizePhone(raw) {
+    let phone := trim(raw)
+    for (let separator in [' ', '-', '.', '(', ')']) {
+        phone := replaceAll(phone, separator, '')
+    }
+    // Without a + or 00 prefix the country code is unknown, and guessing one hashes another person's number.
+    if (startsWith(phone, '00')) {
+        phone := f'+{substring(phone, 3)}'
+    }
+    if (not match(phone, '^[+][1-9][0-9]{6,14}$')) {
+        return null
+    }
+    return phone
+}
+
+fun uploadErrorCodes(res) {
+    let codes := []
+    for (let detail in res.body.partialFailureError.details ?? []) {
+        for (let error in detail.errors ?? []) {
+            codes := arrayPushBack(codes, error.errorCode.conversionUploadError ?? error.errorCode.fieldError ?? 'OTHER')
+        }
+    }
+    return codes
+}
+
+fun allIn(values, allowed) {
+    if (empty(values)) {
+        return false
+    }
+    for (let value in values) {
+        if (not has(allowed, value)) {
+            return false
+        }
+    }
+    return true
+}
+
+fun upload(clickIds, userIdentifiers) {
+    let conversion := {
+        'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
+        'conversion_date_time': inputs.conversionDateTime
+    }
+    for (let key, value in clickIds) {
+        conversion[key] := value
+    }
+    if (not empty(userIdentifiers)) {
+        conversion.user_identifiers := userIdentifiers
+    }
+    if (not empty(inputs.conversionValue)) {
+        conversion.conversion_value := inputs.conversionValue
+    }
+    if (not empty(inputs.currencyCode)) {
+        conversion.currency_code := inputs.currencyCode
+    }
+    if (not empty(inputs.orderId)) {
+        conversion.order_id := inputs.orderId
+    }
+
+    let res := fetch(f'https://googleads.googleapis.com/v24/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
+        'method': 'POST',
+        'headers': {
+            'Authorization': f'Bearer {inputs.oauth.access_token}',
+            'Content-Type': 'application/json',
+            'login-customer-id': splitByString('/', inputs.customerId)[2]
+        },
+        'body': {
+            'conversions': [conversion],
+            'partialFailure': true
+        }
+    })
+
+    if (res.status >= 400) {
+        throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
+    }
+    return res
+}
+
+let userIdentifiers := []
+if (not empty(inputs.email)) {
+    let email := normalizeEmail(inputs.email)
+    if (not empty(email)) {
+        userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_email': sha256Hex(email)})
+    }
+}
+if (not empty(inputs.phone)) {
+    let phone := normalizePhone(inputs.phone)
+    if (not empty(phone)) {
+        userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_phone_number': sha256Hex(phone)})
+    }
+}
+
+let gclid := trim(toString(inputs.gclid ?? ''))
+let gbraid := trim(toString(inputs.gbraid ?? ''))
+let wbraid := trim(toString(inputs.wbraid ?? ''))
+
+// Google accepts a gclid with a gbraid, but never a gbraid with a wbraid.
+let clickIds := {}
+if (not empty(gclid)) {
+    clickIds.gclid := gclid
+    if (not empty(gbraid)) {
+        clickIds.gbraid := gbraid
+    }
+} else if (not empty(gbraid)) {
+    clickIds.gbraid := gbraid
+} else if (not empty(wbraid)) {
+    clickIds.wbraid := wbraid
+}
+
+if (empty(clickIds) and empty(userIdentifiers)) {
+    print('No click ID or user identifiers. Skipping...')
     return
 }
 
-let conversion := {
-    'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
-    'conversion_date_time': inputs.conversionDateTime
-}
-if (not empty(inputs.gclid)) {
-    conversion.gclid := inputs.gclid
-}
-if (not empty(userIdentifiers)) {
-    conversion.user_identifiers := userIdentifiers
-}
-if (not empty(inputs.conversionValue)) {
-    conversion.conversion_value := inputs.conversionValue
-}
-if (not empty(inputs.currencyCode)) {
-    conversion.currency_code := inputs.currencyCode
-}
-if (not empty(inputs.orderId)) {
-    conversion.order_id := inputs.orderId
+let res := upload(clickIds, userIdentifiers)
+let codes := uploadErrorCodes(res)
+
+// Google recommends sending a gclid with its gbraid, but some accounts refuse the pair, and a bad gbraid
+// must not cost the conversion its valid gclid.
+if (not empty(clickIds.gclid) and not empty(clickIds.gbraid) and allIn(codes, ['VALUE_MUST_BE_UNSET', 'UNPARSEABLE_GBRAID', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID'])) {
+    print(f'Google refused the gbraid ({arrayStringConcat(codes, ', ')}). Retrying with the gclid only.')
+    clickIds := {'gclid': clickIds.gclid}
+    res := upload(clickIds, userIdentifiers)
+    codes := uploadErrorCodes(res)
 }
 
-let body := {
-    'conversions': [conversion],
-    'partialFailure': true
+if (not empty(clickIds) and not empty(userIdentifiers) and allIn(codes, CLICK_ID_REJECTED_CODES)) {
+    print(f'Google rejected the click ID ({arrayStringConcat(codes, ', ')}). Retrying with hashed email/phone only.')
+    res := upload({}, userIdentifiers)
+    codes := uploadErrorCodes(res)
+} else if (not empty(clickIds) and not empty(userIdentifiers) and allIn(codes, USER_DATA_REJECTED_CODES)) {
+    print(f'Google rejected the hashed email/phone ({arrayStringConcat(codes, ', ')}). Retrying with the click ID only.')
+    res := upload(clickIds, [])
+    codes := uploadErrorCodes(res)
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v24/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
-    'method': 'POST',
-    'headers': {
-        'Authorization': f'Bearer {inputs.oauth.access_token}',
-        'Content-Type': 'application/json',
-        'login-customer-id': splitByString('/', inputs.customerId)[2]
-    },
-    'body': body
-})
-
-if (res.status >= 400) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
-} else if (not empty(res.body.partialFailureError)) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError.message}')
+if (empty(res.body.partialFailureError)) {
+    return
 }
+if (allIn(codes, ['CLICK_NOT_FOUND'])) {
+    print('Google could not match the hashed email/phone to an ad click. The conversion was not recorded.')
+    return
+}
+if (allIn(codes, ALREADY_RECORDED_CODES)) {
+    print('Google already recorded this conversion. Skipping...')
+    return
+}
+throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError.message}')
 `,
     inputs_schema: [
         {

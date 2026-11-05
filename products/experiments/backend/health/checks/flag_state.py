@@ -15,6 +15,9 @@ tells a pause from the experiment from a flag disabled elsewhere, and reports th
 An ended experiment is the last exception. Only the server reads the flag's latest call and the other experiments on
 the flag. So only the server stays silent when the flag now serves a later experiment, and reports as info a flag that
 a draft also uses, a flag with no recent call, and a flag whose calls it can't read yet, each with its own subcode.
+
+A draft whose flag a running experiment uses is an exception too. The flag's state belongs to the running experiment,
+so only the server stays silent there, and the shared-flag check reports the draft.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -34,7 +37,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
-from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -74,6 +77,7 @@ _MIN_PEOPLE_ASSIGNED_OUTSIDE = 10
 _OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
+OTHER_EXPERIMENT_DECIDES = "Another experiment on the same feature flag decides the flag's state"
 
 
 def flag_state(ctx: HealthContext) -> CheckOutcome:
@@ -104,7 +108,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
 
     if ctx.is_running:
         if ctx.is_paused:
-            return _flag_disabled(ctx.pause_history)
+            return _flag_disabled(ctx.pause_history, running_others=_running_others(ctx))
         if zero_rollout:
             traffic = ctx.condition_set_traffic
             if traffic is not None and traffic.people_assigned_outside >= _MIN_PEOPLE_ASSIGNED_OUTSIDE:
@@ -136,6 +140,8 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             return _live_after_end(ctx, ctx.ended_at)
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
+        if _running_others(ctx):
+            return not_applicable(OTHER_EXPERIMENT_DECIDES)
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
@@ -154,7 +160,11 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     return None
 
 
-def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
+def _running_others(ctx: HealthContext) -> int:
+    return sum(1 for other in ctx.other_experiments_on_flag if other.is_running and not other.archived)
+
+
+def _flag_disabled(pause: PauseHistory | None, *, running_others: int) -> ExperimentHealthFinding:
     if pause is not None and pause.paused_at is not None:
         # The latest pause or resume decides. A flag enabled and disabled again on the flag page after a pause writes
         # no entry, so it still reads as that pause.
@@ -170,6 +180,25 @@ def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
                 "them then. Resume the experiment when you want to expose users again."
             ),
             evidence={"paused_at": pause.paused_at.astimezone(UTC).isoformat()},
+        )
+    if running_others:
+        # Only this experiment's own activity log is read, so a pause from another experiment on the flag has no
+        # entry here and reads like a flag disabled on the flag page.
+        others, either, both = (
+            ("Another running experiment uses", "either experiment", "both")
+            if running_others == 1
+            else ("Other running experiments use", "any of these experiments", "all of them")
+        )
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=RUNNING_BUT_FLAG_DISABLED,
+            title="The experiment is running, but its shared feature flag is disabled",
+            detail=(
+                f"The linked feature flag is disabled, so it serves no variants. {others} the same flag, and a pause "
+                f"of {either} or a change on the feature flag page disables it for {both}. Users exposed earlier stay "
+                f"in the results. Resuming {either} enables the flag for {both}. Otherwise, end this experiment with a "
+                "conclusion."
+            ),
         )
     if pause is not None and pause.launched_at >= PAUSE_ENTRIES_SINCE:
         return _finding(
@@ -220,12 +249,12 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
     )
 
 
-def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
-    others = ctx.other_experiments_on_flag or ()
+def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | CheckSkip:
+    others = ctx.other_experiments_on_flag
     # The flag's state belongs to the later experiment, and that experiment's own check reports it.
     if any(_serves_later_experiment(other, ended_at) for other in others):
-        return None
-    if any(other.launched_at is None and not other.archived for other in others):
+        return not_applicable(OTHER_EXPERIMENT_DECIDES)
+    if any(other.is_draft and not other.archived for other in others):
         return _shared_with_draft(ended_at, ctx.team_timezone)
     if ctx.flag_called_after_end is True:
         return _finding(

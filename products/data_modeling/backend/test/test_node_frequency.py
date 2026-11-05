@@ -1,3 +1,4 @@
+import itertools
 from datetime import timedelta
 
 import pytest
@@ -8,6 +9,7 @@ from parameterized import parameterized
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     UnsatisfiableFrequencyError,
+    all_source_floor_bounds,
     all_source_floors,
     compute_effective_cadences,
     validate_declared_target,
@@ -18,6 +20,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_target,
     persist_seed_targets,
     resolve_source_intervals,
+    saved_query_target_bounds,
     seed_targets,
     set_declared_anchor,
     set_declared_target,
@@ -146,8 +149,10 @@ class TestBuildFrequencyGraph(BaseTest):
         floor = all_source_floors(graph.edges, graph.source_intervals).get(str(matview.id), STREAMING)
         self.assertEqual(floor, STREAMING)
 
-    @parameterized.expand([("user_reader", False, H12), ("managed_reader", True, M15)])
-    def test_only_a_managed_reader_pulls_a_managed_view_to_its_cadence(self, _name, reader_is_managed, expected):
+    @parameterized.expand([("user_reader", False, H12, H12), ("managed_reader", True, M15, STREAMING)])
+    def test_only_a_managed_reader_pulls_a_managed_view_to_its_cadence(
+        self, _name, reader_is_managed, expected, reader_floor
+    ):
         dag = DAG.get_or_create_default(self.team)
         viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
@@ -168,6 +173,56 @@ class TestBuildFrequencyGraph(BaseTest):
         )
 
         self.assertEqual(effective[str(managed_view.id)], expected)
+        floors = all_source_floor_bounds(graph.edges, graph.source_intervals)
+        self.assertEqual(floors[str(reader.id)].value, reader_floor)
+
+    @parameterized.expand(
+        [
+            # (source interval, None for streaming), [(managed node type, declared target)], floor, blocker index
+            ("declared_finer_than_source", H6, [(NodeType.MAT_VIEW, M15)], H6, 1),
+            ("unscheduled_materialized_view", H6, [(NodeType.MAT_VIEW, None)], H6, 0),
+            ("materialized_view", None, [(NodeType.MAT_VIEW, H12)], H12, 1),
+            (
+                "query_time_view_over_a_materialized_view",
+                None,
+                [(NodeType.MAT_VIEW, H12), (NodeType.VIEW, None)],
+                H12,
+                1,
+            ),
+            ("query_time_view_with_a_declared_cadence", None, [(NodeType.VIEW, H12)], None, None),
+        ]
+    )
+    def test_a_user_reader_cannot_be_fresher_than_a_managed_views_data(
+        self, _name, source_interval, managed_chain, expected_floor, blocker_index
+    ):
+        dag = DAG.get_or_create_default(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        chain = [
+            _warehouse_source_node(self.team, dag, sync_frequency_interval=source_interval)
+            if source_interval
+            else _table_node(self.team, dag, "events", {"origin": "posthog"})
+        ]
+        for index, (node_type, target) in enumerate(managed_chain):
+            managed_view = _saved_query_node(self.team, dag, f"managed_view_{index}", node_type)
+            assert managed_view.saved_query is not None
+            managed_view.saved_query.managed_viewset = viewset
+            managed_view.saved_query.save(update_fields=["managed_viewset"])
+            set_declared_target(managed_view, target)
+            chain.append(managed_view)
+        reader = _saved_query_node(self.team, dag, "reader", NodeType.MAT_VIEW)
+        chain.append(reader)
+        for upstream, downstream in itertools.pairwise(chain):
+            Edge.objects.create(team=self.team, dag=dag, source=upstream, target=downstream)
+
+        assert reader.saved_query_id is not None
+        resolved = saved_query_target_bounds(self.team.id, reader.saved_query_id)
+
+        assert resolved is not None
+        floor = resolved.bounds.floor
+        expected = None if expected_floor is None else (expected_floor, str(chain[blocker_index].id))
+        self.assertEqual((floor.value, floor.blocker) if floor else None, expected)
 
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
         dag = DAG.get_or_create_default(self.team)

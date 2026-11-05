@@ -1,0 +1,43 @@
+import { useValues } from 'kea'
+
+import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
+
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+
+import { HealthChecksOverview } from './HealthChecksOverview'
+
+export function ExperimentHealthTab(): JSX.Element {
+    const { healthFindings, healthChecks, healthExposureChecks, isExperimentDraft, experimentHealthLoading } =
+        useValues(experimentLogic)
+
+    if (healthFindings === null || healthChecks === null) {
+        return experimentHealthLoading ? (
+            <div className="flex items-center gap-2 py-8 text-secondary" data-attr="experiment-health-tab-loading">
+                <Spinner />
+                <span>Running the health checks</span>
+            </div>
+        ) : (
+            <LemonBanner type="error">Couldn't load the health checks. Refresh the page to try again.</LemonBanner>
+        )
+    }
+
+    return (
+        // A reading width, so a finding's buttons stay next to its title.
+        <div className="flex flex-col gap-2 max-w-3xl" data-attr="experiment-health-tab">
+            <LemonCard hoverEffect={false} className="p-0">
+                <HealthChecksOverview
+                    checks={healthChecks}
+                    findings={healthFindings}
+                    isDraft={isExperimentDraft}
+                    exposureChecksMissing={healthExposureChecks === 'missing'}
+                />
+            </LemonCard>
+            {healthExposureChecks === 'pending' && (
+                <span className="flex items-center gap-1 text-secondary">
+                    <Spinner className="text-sm" />
+                    <span>Checking the exposures</span>
+                </span>
+            )}
+        </div>
+    )
+}

@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.formbricks.settings import FORMBRICKS_ENDPOINTS, FormbricksEndpointConfig
 from products.warehouse_sources.sources.sdk import (
@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     _is_host_safe,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -224,10 +225,16 @@ def _advance_skip(url: str) -> str:
     return parsed._replace(query=urlencode(params)).geturl()
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Each page is fetched only after the rows before it are yielded, and nothing is buffered.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((FormbricksRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -317,17 +324,15 @@ def get_rows(
 
     while True:
         items = _fetch_page(session, url, logger)
+        # A short (or empty) page means we've reached the end of the collection.
+        next_url = _advance_skip(url) if len(items) >= PAGE_SIZE else None
+        if next_url is not None:
+            resumable_source_manager.save_state(FormbricksResumeConfig(next_url=next_url))
         if items:
             yield items
 
-        # A short (or empty) page means we've reached the end of the collection.
-        if len(items) < PAGE_SIZE:
+        if next_url is None:
             break
-
-        next_url = _advance_skip(url)
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled rows on the primary key.
-        resumable_source_manager.save_state(FormbricksResumeConfig(next_url=next_url))
         url = next_url
 
 

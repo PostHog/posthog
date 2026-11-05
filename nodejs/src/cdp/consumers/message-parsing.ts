@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { TEAM_ID_HEADER } from '~/common/kafka/headers'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 
@@ -14,6 +15,26 @@ export function assertTeamId<T extends { team_id: unknown }>(message: T): T {
         throw new Error('invalid_team_id')
     }
     return message
+}
+
+/**
+ * Reads the team id the producer put in a Kafka header, so a consumer can decide whether it needs a
+ * message before it parses the body.
+ *
+ * The body still holds the authoritative team id, and a caller that acts on this header has to check
+ * the two agree once it parses the body. Anything unexpected here returns null and the caller reads
+ * the body instead, because a value that is not a usable team id must never become one.
+ */
+export function readTeamIdHeader(message: Message): number | null {
+    for (const header of message.headers ?? []) {
+        const value = header[TEAM_ID_HEADER]
+        if (value === undefined) {
+            continue
+        }
+        const teamId = Number(value.toString())
+        return isValidTeamId(teamId) ? teamId : null
+    }
+    return null
 }
 
 function errorMessage(e: unknown): string {

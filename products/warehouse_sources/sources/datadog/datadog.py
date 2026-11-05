@@ -297,11 +297,15 @@ def _walk(
     fetch_page: Callable[..., Any],
     host: str,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
     save_state: Callable[[str], None] | None = None,
     allow_missing: bool = False,
     max_pages: int | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Page through one endpoint URL, yielding a normalized batch per response."""
+    """Page through one endpoint URL, yielding a normalized batch per response.
+
+    `safe_point` runs after each page, once the caller has taken every row and the cursor is staged.
+    """
     url = start_url
     pages = 0
     while True:
@@ -333,6 +337,7 @@ def _walk(
             # Save state AFTER yielding the batch — a crash re-yields the last batch (merge dedupes
             # on primary key) instead of skipping it.
             save_state(next_url)
+        safe_point()
         url = next_url
 
 
@@ -341,6 +346,7 @@ def _fan_out_rows(
     fetch_page: Callable[..., Any],
     host: str,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a parent endpoint and query the child endpoint once per parent id."""
     fan_out = config.parent
@@ -353,7 +359,7 @@ def _fan_out_rows(
     )
 
     parents_seen = 0
-    for parent_batch in _walk(parent_config, parent_url, fetch_page, host, logger):
+    for parent_batch in _walk(parent_config, parent_url, fetch_page, host, logger, safe_point):
         for parent in parent_batch:
             if parents_seen >= fan_out.max_parents:
                 # Returning here would write a truncated table that looks like a complete sync.
@@ -376,7 +382,7 @@ def _fan_out_rows(
             )
             # A parent deleted between the list call and its child call answers 404; skip it
             # rather than failing the whole sync.
-            for child_batch in _walk(config, child_url, fetch_page, host, logger, allow_missing=True):
+            for child_batch in _walk(config, child_url, fetch_page, host, logger, safe_point, allow_missing=True):
                 for row in child_batch:
                     row[fan_out.child_id_field] = parent_id
                 yield child_batch
@@ -415,7 +421,7 @@ def get_rows(
     if config.parent is not None:
         # A fan-out position is a parent cursor plus a child page, which the single-URL resume
         # state cannot express, so these endpoints restart from the first parent instead.
-        yield from _fan_out_rows(config, fetch_page, host, logger)
+        yield from _fan_out_rows(config, fetch_page, host, logger, resumable_source_manager.safe_point)
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -440,6 +446,7 @@ def get_rows(
         fetch_page,
         host,
         logger,
+        resumable_source_manager.safe_point,
         save_state=lambda next_url: resumable_source_manager.save_state(DatadogResumeConfig(next_url=next_url)),
         max_pages=max_pages,
     )

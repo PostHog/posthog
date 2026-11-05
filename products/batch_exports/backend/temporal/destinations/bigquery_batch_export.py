@@ -88,6 +88,7 @@ from products.batch_exports.backend.temporal.utils import (
 )
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on missing permissions.
     "Forbidden",
     # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.

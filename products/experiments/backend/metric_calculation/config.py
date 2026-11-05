@@ -7,22 +7,36 @@ Building a config does not schedule or run a calculation.
 
 A config does not pin the events and warehouse rows, the definitions a metric references (actions,
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
-filters read. The same config can therefore give a different result later.
+filters read. The same config can therefore give a different result later. Equality and the key also leave out
+which event the `experiment-exposure-event` flag picks as the default exposure event, so a result stays
+reusable for its window when that flag changes for the team.
 
-Key version 1 hashes only part of a config: the metric, the start date, the stats method, the exposure
-criteria as stored, maturity and the excluded variants. The other fields do not change it.
+The settings factories reset a value that the calculation ignores to its default: the CUPED lookback without
+CUPED, and the sequential tuning parameter without sequential testing. So such a value does not split equal
+configs.
+
+Two key versions exist. Key version 2 hashes the metric and an explicit field list of each setting that equality
+compares, with numbers normalized. So equal configs have equal keys, and so do settings that differ only by float
+noise. Key version 1 (`legacy_key`) hashes only part of a config: the metric, the start date, the stats method,
+the exposure criteria as stored, maturity and the excluded variants. `calculation_key` returns the key of the
+settings' `key_version`, which `resolve_calculation_key_version` decides. Readers understand both versions, and
+results also store the version 1 key as their display key. Stored results keep the key they were written with.
 """
 
 import json
 import hashlib
-from collections.abc import Collection
+import dataclasses
+from collections.abc import Collection, Mapping
 from copy import deepcopy
 from dataclasses import field
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pydantic
+
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
 
 from posthog.dataclasses import frozen
 
@@ -31,6 +45,13 @@ from products.experiments.backend.hogql_queries.cuped_config import CupedQueryCo
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExposureQueryParams,
     get_exposure_config_params_for_builder,
+)
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    get_multiple_variant_handling_from_experiment,
+    has_activation_config,
+    normalize_to_exposure_criteria,
+    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.utils import (
     BayesianSettings,
@@ -43,6 +64,7 @@ from products.experiments.backend.hogql_queries.utils import (
 from products.experiments.backend.metric_resolution import (
     MetricRole,
     apply_saved_metric_overrides,
+    get_effective_experiment_metrics,
     get_effective_inline_metrics,
     get_metrics_for_calculation,
     saved_metric_link_role,
@@ -51,6 +73,7 @@ from products.experiments.backend.metric_resolution import (
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.stats.frequentist.method import DEFAULT_SEQUENTIAL_TUNING_PARAMETER
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -58,6 +81,25 @@ if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SPEC_VERSION = 1
+
+# The version of the calculation key, hashed into the key itself. A change that makes the engine compute a
+# different result for an existing config bumps it, so that results computed before the change stop counting
+# for reuse.
+CALCULATION_KEY_VERSION = 2
+KEY_VERSIONS = (1, CALCULATION_KEY_VERSION)
+
+# Significant digits that a float keeps in the calculation key. Stored settings carry float noise, for
+# example `1 - 0.95` is stored as 0.050000000000000044, and the noise must not split equal settings into
+# two keys.
+_KEY_FLOAT_DIGITS = 12
+
+# Stands for the default exposure event in the key. The `experiment-exposure-event` flag picks that event, and each
+# process evaluates the flag locally (`resolve_default_exposure_event`). A key that hashed the picked event would
+# change at each rollout step of the flag, and two processes that evaluate the flag differently would file and look
+# up the results of one experiment under two keys. A stored result therefore stays reusable for its window when the
+# flag changes. To make results computed with the old default event stop counting for reuse when the new event
+# ships to every team, treat the switch as an engine change and bump CALCULATION_KEY_VERSION.
+_DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
 # display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
@@ -93,6 +135,30 @@ def _analytical_definition(definition: dict[str, Any]) -> dict[str, Any]:
     return metric
 
 
+def _canonical(value: Any) -> Any:
+    """`value` as JSON data that is equal for equal settings: floats rounded to _KEY_FLOAT_DIGITS significant
+    digits, a float with an integral value as an int, enums as their values, and datetimes as UTC ISO strings, so
+    the same instant gives the same key in every timezone.
+
+    It refuses models and dataclasses. A dump of a whole model hashes every field the model has, so a schema change
+    that adds a defaulted field would change every key. The key reads such inputs through explicit field lists.
+    """
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float):
+        rounded = float(f"{value:.{_KEY_FLOAT_DIGITS}g}")
+        return int(rounded) if rounded.is_integer() else rounded
+    if isinstance(value, Enum):
+        return _canonical(value.value)
+    if isinstance(value, datetime):
+        return value.astimezone(ZoneInfo("UTC")).isoformat()
+    if isinstance(value, Mapping):
+        return {str(key): _canonical(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_canonical(item) for item in value]
+    raise TypeError(f"Cannot hash a {type(value).__name__} into a calculation key")
+
+
 def _variant_keys(feature_flag: "FeatureFlag", excluded_variants: tuple[str, ...]) -> tuple[str, ...]:
     keys = (variant.get("key") for variant in feature_flag.variants if isinstance(variant, dict))
     return tuple(key for key in keys if isinstance(key, str) and key not in excluded_variants)
@@ -118,6 +184,78 @@ def _resolve_exposure(
         return None
 
 
+def _exposure_entity(
+    config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | None,
+    stored_config: Any,
+    *,
+    default_event_resolves: bool,
+) -> dict[str, Any]:
+    """The event or action of an exposure or activation config, and its property filters as stored. The stored
+    filters stay the same when a schema change adds a defaulted field to a filter model, so the key does too.
+    A warehouse-native exposure has no event and no filters, so its source and its SQL identify it."""
+    if isinstance(config, ExperimentWarehouseNativeExposureConfig):
+        return {"connection_id": config.connection_id, "query": config.query}
+    stored_properties = stored_config.get("properties") if isinstance(stored_config, dict) else None
+    properties = deepcopy(list(stored_properties or []))
+    if isinstance(config, ActionsNode):
+        return {"action_id": config.id, "properties": properties}
+    if config is None or (default_event_resolves and config.event == DEFAULT_EXPOSURE_EVENT):
+        return {"event": _DEFAULT_EXPOSURE_EVENT_IN_KEY, "properties": properties}
+    return {"event": config.event, "properties": properties}
+
+
+def normalize_exposure(exposure_criteria: dict[str, Any] | None) -> dict[str, Any]:
+    """The stored exposure criteria with the product defaults applied, as the calculation key reads them.
+
+    It follows `get_exposure_config_params_for_builder`, except that the default exposure event stays unresolved
+    (`_DEFAULT_EXPOSURE_EVENT_IN_KEY`). Activation applies only with the default exposure, and an activation config
+    names its event literally, as in the query builder.
+    """
+    try:
+        criteria = normalize_to_exposure_criteria(exposure_criteria)
+    except pydantic.ValidationError:
+        # The query runner rejects such criteria. Their stored form keeps them apart from every valid configuration.
+        return {"unparsed": deepcopy(exposure_criteria)}
+    stored = exposure_criteria if isinstance(exposure_criteria, dict) else {}
+    exposure_config = criteria.exposure_config if criteria is not None else None
+    normalized: dict[str, Any] = {
+        "exposure": _exposure_entity(exposure_config, stored.get("exposure_config"), default_event_resolves=True),
+        "multiple_variant_handling": get_multiple_variant_handling_from_experiment(criteria).value,
+        "filter_test_accounts": resolve_filter_test_accounts(criteria),
+    }
+    if criteria is not None and has_activation_config(criteria):
+        normalized["activation"] = _exposure_entity(
+            criteria.activation_config, stored.get("activation_config"), default_event_resolves=False
+        )
+    return normalized
+
+
+def _statistics_key_input(stats: BayesianSettings | FrequentistSettings) -> dict[str, Any]:
+    if isinstance(stats, FrequentistSettings):
+        return {
+            "method": "frequentist",
+            "alpha": _canonical(stats.alpha),
+            "difference_type": stats.difference_type.value,
+            "sequential_testing_enabled": stats.sequential_testing_enabled,
+            "sequential_tuning_parameter": _canonical(stats.sequential_tuning_parameter),
+        }
+    return {
+        "method": "bayesian",
+        "ci_level": _canonical(stats.ci_level),
+        "difference_type": stats.difference_type.value,
+    }
+
+
+def _cuped_key_input(cuped: CupedQueryConfig) -> dict[str, Any]:
+    return {"enabled": cuped.enabled, "lookback_days": cuped.lookback_days}
+
+
+def resolve_calculation_key_version(team: "Team") -> int:
+    """The calculation key version that a new operation of this team uses. It is the only activation decision:
+    queued work carries the version in its key, so a worker never calls this."""
+    return 1
+
+
 @frozen
 class ExperimentCalculationSettings:
     """What every metric calculation of an experiment reads outside the metric definition, with the
@@ -132,19 +270,29 @@ class ExperimentCalculationSettings:
     variants: tuple[str, ...]
     baseline: str
     excluded_variants: tuple[str, ...]
-    # None when the stored exposure criteria do not parse. The query runner rejects such an experiment.
-    exposure: ExposureQueryParams | None
+    # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
+    # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
+    # criteria do not parse. The query runner rejects such an experiment.
+    exposure: ExposureQueryParams | None = field(compare=False)
+    # The stored exposure criteria as `normalize_exposure` returns them.
+    normalized_exposure: dict[str, Any]
     # The team's test account filters when the exposure filters test accounts, else empty.
     test_account_filters: tuple[dict[str, Any], ...]
     stats: BayesianSettings | FrequentistSettings
     # The CUPED setting of the experiment. The query builders apply it only to metrics that support CUPED.
     cuped: CupedQueryConfig
     only_count_matured_users: bool
-    # Retention metrics bucket their windows into days or hours in this time zone.
+    # Date property filters, the CUPED lookback and retention windows read this time zone.
     timezone: str
     # The exposure criteria as stored. Key version 1 hashes this form, so settings that resolve to the
     # same `exposure` can still have different keys when their stored JSON differs.
     stored_exposure_criteria: dict[str, Any] | None = field(compare=False)
+    # The version of `MetricCalculationConfig.calculation_key`. Workers take it from the key of their queued work, so
+    # one operation never mixes versions.
+    key_version: int = 1
+
+    def with_key_version(self, key_version: int) -> "ExperimentCalculationSettings":
+        return dataclasses.replace(self, key_version=key_version)
 
     @property
     def stats_method(self) -> StatsMethod:
@@ -162,12 +310,14 @@ class ExperimentCalculationSettings:
         only_count_matured_users: bool | None,
         excluded_variants: list[str] | None,
         team_config: TeamExperimentsConfig | None = None,
+        key_version: int | None = None,
     ) -> "ExperimentCalculationSettings":
         """Settings from explicit values, for a caller that holds a configuration that is not saved yet.
 
         Stored configuration never makes this raise, because the experiment read and write paths build
-        settings to stamp the metric keys. A configuration that the query runner rejects still gives settings.
-        Without `team_config`, this reads the team's experiment settings with one query.
+        settings to stamp the metric keys. A configuration the query runner rejects still resolves.
+        Without `team_config`, this reads the team's experiment settings with one query. Without `key_version`,
+        `resolve_calculation_key_version` decides it.
         """
         config = team_config or team_experiments_configs([team.id])[team.id]
         stats_config = stats_config if isinstance(stats_config, dict) else None
@@ -182,6 +332,10 @@ class ExperimentCalculationSettings:
                 team_default_sequential_testing_enabled=config.default_sequential_testing_enabled,
                 team_default_sequential_tuning_parameter=config.default_sequential_tuning_parameter,
             )
+            # Only the sequential test reads the tuning parameter. Without sequential testing, the stored value
+            # computes the same thing as the default, as a CUPED lookback does without CUPED.
+            if not stats.sequential_testing_enabled:
+                stats = dataclasses.replace(stats, sequential_tuning_parameter=DEFAULT_SEQUENTIAL_TUNING_PARAMETER)
         else:
             stats = resolve_bayesian_settings(stats_config)
         return cls(
@@ -193,6 +347,7 @@ class ExperimentCalculationSettings:
             baseline=get_baseline_variant_key(stats_config, list(variants)),
             excluded_variants=excluded,
             exposure=exposure,
+            normalized_exposure=normalize_exposure(exposure_criteria),
             test_account_filters=(
                 tuple(deepcopy(test_account_filters))
                 if exposure is not None and exposure.filter_test_accounts and isinstance(test_account_filters, list)
@@ -207,11 +362,16 @@ class ExperimentCalculationSettings:
             only_count_matured_users=bool(only_count_matured_users),
             timezone=team.timezone,
             stored_exposure_criteria=deepcopy(exposure_criteria),
+            key_version=key_version if key_version is not None else resolve_calculation_key_version(team),
         )
 
     @classmethod
     def from_experiment(
-        cls, experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
+        cls,
+        experiment: Experiment,
+        *,
+        team_config: TeamExperimentsConfig | None = None,
+        key_version: int | None = None,
     ) -> "ExperimentCalculationSettings":
         """Settings from the current fields of the experiment, which does not need to be saved. A caller that
         builds the configs of several experiments of one team passes the team's config to read it once."""
@@ -224,6 +384,7 @@ class ExperimentCalculationSettings:
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants,
             team_config=team_config,
+            key_version=key_version,
         )
 
     def build_metric_config(
@@ -262,12 +423,56 @@ class MetricCalculationConfig:
     settings: ExperimentCalculationSettings
 
     def calculation_key(self) -> str:
-        """Key version 1, a SHA-256 hex digest.
+        """The key that files and finds the results of this config, a SHA-256 hex digest, in the version of
+        `settings.key_version`. Result rows in ExperimentMetricResult and the stored `fingerprint` of each inline
+        metric hold it."""
+        return self.key_for_version(self.settings.key_version)
 
-        Result rows in ExperimentMetricResult and the stored `fingerprint` of each metric hold this key.
-        A change to the hashed payload makes every stored result unreachable, so a new analytical input
-        needs a new key version, not an edit here.
+    def key_for_version(self, key_version: int) -> str:
+        if key_version == 1:
+            return self.legacy_key()
+        if key_version == CALCULATION_KEY_VERSION:
+            return self._key_v2()
+        raise ValueError(f"Unknown calculation key version {key_version}")
+
+    def key_version_of(self, key: str) -> int | None:
+        """The key version in which this config gives `key`, or None when no version does, for example because the
+        configuration changed after the key was computed."""
+        return next((version for version in reversed(KEY_VERSIONS) if self.key_for_version(version) == key), None)
+
+    def with_key_version(self, key_version: int) -> "MetricCalculationConfig":
+        return dataclasses.replace(self, settings=self.settings.with_key_version(key_version))
+
+    def _key_v2(self) -> str:
+        """Key version 2. It hashes the metric and each settings field that equality compares, except the team and
+        the key version, together with CALCULATION_KEY_VERSION. Nested settings enter through explicit field lists.
+        The time zone enters for every metric type, because date property filters, the CUPED lookback and retention
+        windows all read it. A change to the hashed payload makes every stored result unreachable for reuse, so it
+        goes with a bump of CALCULATION_KEY_VERSION.
         """
+        settings = self.settings
+        payload: dict[str, Any] = {
+            "key_version": CALCULATION_KEY_VERSION,
+            "metric": _canonical(self.metric),
+            "start_date": _canonical(settings.start_date),
+            "feature_flag_key": settings.feature_flag_key,
+            "aggregation_group_type_index": settings.aggregation_group_type_index,
+            "variants": list(settings.variants),
+            "baseline": settings.baseline,
+            "excluded_variants": list(settings.excluded_variants),
+            "exposure": _canonical(settings.normalized_exposure),
+            "test_account_filters": _canonical(settings.test_account_filters),
+            "stats": _statistics_key_input(settings.stats),
+            "cuped": _cuped_key_input(settings.cuped),
+            "only_count_matured_users": settings.only_count_matured_users,
+            "timezone": settings.timezone,
+        }
+        return _sha256(payload)
+
+    def legacy_key(self) -> str:
+        """Key version 1, byte-identical to the key that rows written before key version 2 carry. Those rows keep it.
+        It hashes only inputs that the experiment owns, so it also serves as the display key that keeps chart history
+        across a team setting change. A change to its payload makes every historical result unreachable."""
         settings = self.settings
         start_date = settings.start_date
         payload: dict[str, Any] = {
@@ -282,8 +487,12 @@ class MetricCalculationConfig:
             payload["only_count_matured_users"] = True
         if settings.excluded_variants:
             payload["excluded_variants"] = list(settings.excluded_variants)
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return _sha256(payload)
+
+
+def _sha256(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def build_calculation_configs(
@@ -316,14 +525,47 @@ def build_primary_calculation_configs(
     return sorted(primary, key=lambda calculation_config: rank(calculation_config.metric_id))
 
 
-def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:
+def get_metric_calculation_config(
+    experiment: Experiment,
+    metric_uuid: str,
+    *,
+    team_config: TeamExperimentsConfig | None = None,
+    key_version: int | None = None,
+) -> MetricCalculationConfig | None:
     """The config that `build_calculation_configs` builds for one metric, or None when the experiment
-    calculates no metric with this uuid."""
+    calculates no metric with this uuid. `team_config` and `key_version` are as for
+    `ExperimentCalculationSettings.from_experiment`."""
     metric = next((metric for metric in get_metrics_for_calculation(experiment) if metric.uuid == metric_uuid), None)
     if metric is None:
         return None
-    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    settings = ExperimentCalculationSettings.from_experiment(
+        experiment, team_config=team_config, key_version=key_version
+    )
     return settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+
+
+def find_calculation_config_by_key(
+    experiment: Experiment, metric_uuid: str, calculation_key: str
+) -> MetricCalculationConfig | None:
+    """The calculation config of the experiment's metric with this uuid whose calculation key is `calculation_key`
+    in some key version, under the current configuration of the experiment, at that key version.
+
+    Unlike `get_metric_calculation_config`, this keys an inline and a saved metric that share a uuid each by its
+    own definition, the same way `metric_calculation_keys` does. None when no metric with this uuid has this key,
+    for example because the configuration changed after the caller computed the key.
+    """
+    candidates = [metric for metric in get_effective_experiment_metrics(experiment) if metric.uuid == metric_uuid]
+    if not candidates:
+        return None
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    for metric in candidates:
+        calculation_config = settings.build_metric_config(
+            metric_id=metric.uuid, role=metric.role, definition=metric.definition
+        )
+        key_version = calculation_config.key_version_of(calculation_key)
+        if key_version is not None:
+            return calculation_config.with_key_version(key_version)
+    return None
 
 
 def calculation_metric_name(experiment: Experiment, calculation_config: MetricCalculationConfig) -> str:
@@ -341,8 +583,8 @@ def calculation_metric_name(experiment: Experiment, calculation_config: MetricCa
 def stamp_calculation_keys(
     metrics: list[dict[str, Any]], role: MetricRole, settings: ExperimentCalculationSettings
 ) -> list[dict[str, Any]]:
-    """Copies of stored inline metric definitions, each with its calculation key in `fingerprint`. The
-    chart reads the daily results of an inline metric by that stored key."""
+    """Copies of stored inline metric definitions, each with its calculation key in `fingerprint`. Readers
+    derive the key from the config, so the stored value only describes the metric to API clients."""
     stamped = []
     for metric in metrics:
         metric_copy = deepcopy(metric)

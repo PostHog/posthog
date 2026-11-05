@@ -770,6 +770,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "mastodon": "credentials",
     "matomo": "credentials",
     "maxio": "credentials",
+    "measure": "credentials",
     "medusa": "credentials",
     "meetup": "credentials",
     "megaphone": "credentials",
