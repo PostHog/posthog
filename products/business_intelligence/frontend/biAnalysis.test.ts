@@ -221,6 +221,26 @@ describe('BI analysis queries', () => {
         expect(parseBIEditorState(BIEditorView.BI, worksheet)?.config.totals).toEqual(worksheet.totals)
     })
 
+    it.each([false, true])('reaggregates column-only hierarchies with grand totals=%s', (grandTotals) => {
+        const worksheet: BIConfig = {
+            ...config,
+            chartType: ChartDisplayType.ActionsTable,
+            rows: [],
+            columns: [field('region'), field('channel')],
+            values: [{ field: field('amount', 'float'), aggregation: 'average' }],
+            totals: { rows: grandTotals },
+        }
+        const query = buildBIQuery(worksheet)!.query
+        expect(query).toContain('avg(amount) AS average_amount')
+        expect(query).toContain(
+            grandTotals
+                ? 'GROUPING SETS ((bi_column_region, bi_column_channel_2), (), (bi_column_region))'
+                : 'GROUPING SETS ((bi_column_region, bi_column_channel_2), (bi_column_region))'
+        )
+        expect(query).toContain('AS bi_columns')
+        expect(query).not.toContain('AS bi_rows')
+    })
+
     it('reserves detail rows and sorts numeric dimensions before their total labels are formatted', () => {
         const result = buildBIQuery({
             ...config,

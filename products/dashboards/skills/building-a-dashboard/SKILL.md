@@ -87,6 +87,15 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.
+- Description on create and update: it is a short note for people who open the dashboard. Say what the dashboard shows
+  and who it is for, in one or two sentences (about 30 words). Shorter is better. The limit is not a target.
+  - Skip the description when the name already tells a viewer what the dashboard shows. An empty description is fine.
+  - Test: would a viewer who never saw this session need the sentence? If not, delete it.
+  - Good: "Weekly signups and activation by plan."
+  - Bad: "Tracks signups, activation, and churn across all plans. Revised 3 March to add the enterprise tile."
+  - When you update it, rewrite it. Do not append.
+  - Put metric definitions in the Data Catalog. Put working notes in a text tile's `agent_context`.
+  - Use the same rules for insight descriptions. Write plain, short copy: see `writing-user-facing-copy`.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as

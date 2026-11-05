@@ -1,5 +1,3 @@
-import { EntityTypes } from '~/types'
-
 import type { AnomalyPoint } from 'products/alerts/frontend/types'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -10,14 +8,6 @@ function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendRe
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
-        // The trends runner sends `action.days` as datetimes, which never match an alert's dates.
-        action: {
-            id: '$pageview',
-            type: EntityTypes.EVENTS,
-            order: 0,
-            name: '$pageview',
-            days: ['2024-06-10T00:00:00Z', '2024-06-11T00:00:00Z', '2024-06-12T00:00:00Z'],
-        },
         order: 0,
         label: '$pageview',
         count: 10,

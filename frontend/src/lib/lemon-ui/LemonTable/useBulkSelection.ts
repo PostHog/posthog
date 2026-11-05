@@ -20,6 +20,7 @@ export interface BulkSelectionContext<T, K extends BulkSelectionKey = BulkSelect
 export interface BulkSelectionConfig<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Render bulk action UI shown above the table whenever `selectedCount > 0`. */
     renderActions: (ctx: BulkSelectionContext<T, K>) => ReactNode
+    actionsPlacement?: 'start' | 'end'
     /** Per-row gate. Return `false` or `{ disabledReason }` to disable that row's checkbox. */
     isRowSelectable?: (record: T, rowIndex: number) => BulkSelectionRowGate
     /** Override how a record is mapped to a selection key. Defaults to LemonTable's `rowKey`.
@@ -33,6 +34,7 @@ export interface BulkSelectionConfig<T extends Record<string, any>, K extends Bu
     headerAriaLabel?: string
     /** Singular/plural noun used in "N items selected". Defaults to ['item', 'items']. */
     noun?: [string, string]
+    getSelectionLabel?: (ctx: BulkSelectionContext<T, K>) => string
     /** Initial selection (uncontrolled). Read once on mount; later changes are ignored.
      *  Useful for stories and test scaffolds that want to render the bar pre-populated. */
     initialSelectedKeys?: ReadonlyArray<K>

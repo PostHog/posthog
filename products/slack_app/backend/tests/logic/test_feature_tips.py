@@ -37,10 +37,8 @@ class TestOfferFeatureTip:
             team=self.team, kind="slack", integration_id=WORKSPACE, sensitive_config={"access_token": "xoxb-test"}
         )
         with (
-            patch.object(offer, "is_slack_app_feature_tips_enabled", return_value=True) as self.flag,
             patch.object(offer, "post_slack_ephemeral") as self.post,
             patch.object(offer, "SlackIntegration"),
-            patch.object(catalog, "is_slack_app_unprompted_answers_enabled", return_value=False),
             # The decision model is not reachable here, so every pick falls back to the ranked order.
             patch.object(picker, "build_system_one_client", side_effect=RuntimeError("no gateway")),
         ):
@@ -102,38 +100,44 @@ class TestOfferFeatureTip:
 
     @parameterized.expand(
         [
-            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None, None),
+            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None, None, None),
             (
                 "chose a follow-up mode before tips existed",
                 {},
                 UntaggedFollowupMode.NEVER,
+                None,
                 SlackFeature.FILE_ATTACHMENTS,
             ),
             (
                 "used a feature that leaves no setting",
                 {"used": {"file_attachments": "2026-01-01T00:00:00Z"}},
                 UntaggedFollowupMode.NEVER,
+                None,
                 SlackFeature.MODEL_IN_MENTION,
+            ),
+            ("is in the middle of onboarding", {}, None, {"started_at": "2026-01-01T00:00:00Z"}, None),
+            (
+                "finished onboarding",
+                {},
+                None,
+                {"started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-02T00:00:00Z"},
+                SlackFeature.THREAD_FOLLOWUP,
             ),
         ]
     )
-    def test_skips_what_the_reader_turned_off_or_already_uses(self, _name, stored_state, followup_mode, expected):
+    def test_skips_what_the_reader_turned_off_or_already_uses(
+        self, _name, stored_state, followup_mode, onboarding, expected
+    ):
         self._threads(3)
         SlackSettings.objects.create(
             slack_workspace_id=WORKSPACE,
             slack_user_id=SLACK_USER,
             untagged_followup_mode=followup_mode,
             feature_tips={"backfilled_at": "2026-01-01T00:00:00Z", "interaction_count": 5, **stored_state},
+            onboarding=onboarding,
         )
 
         assert self._offer() == expected
-
-    def test_flag_off_writes_nothing(self):
-        self._threads(3)
-        self.flag.return_value = False
-
-        assert self._offer() is None
-        assert not SlackSettings.objects.filter(slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER).exists()
 
 
 class TestCatalog(SimpleTestCase):

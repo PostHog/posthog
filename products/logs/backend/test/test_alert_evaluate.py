@@ -1,7 +1,7 @@
 import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,6 +23,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
     due_checks,
     list_configurations,
     record_outcomes,
@@ -31,12 +32,15 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
     AlertEventKind,
     CheckFailure,
+    DestinationType,
     Grouping,
     GroupingMode,
     GroupOutcome,
     IncidentAction,
+    NewAlertDestination,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceBatchEvaluation,
@@ -76,6 +80,7 @@ from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+_NATIVE: dict[str, Any] = {"legacy_configuration_id": None, "destinations_owner": "platform"}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
@@ -114,7 +119,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         defaults.update(overrides)
         with team_scope(self.team.id):
             configuration = platform_testing.create_configuration(**defaults)
-        self._legacy_ids[configuration.id] = defaults["legacy_configuration_id"]
+        if defaults["legacy_configuration_id"] is not None:
+            self._legacy_ids[configuration.id] = defaults["legacy_configuration_id"]
         return configuration
 
     def _run(
@@ -143,6 +149,22 @@ class TestLogsAlertEvaluation(APIBaseTest):
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
+        if configuration.id not in self._legacy_ids:
+            with team_scope(self.team.id):
+                create_alert_destinations(
+                    team_id=self.team.id,
+                    configuration_id=configuration.id,
+                    destinations=[
+                        NewAlertDestination(
+                            data=cast(
+                                AlertDestinationData,
+                                {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-1"},
+                            ),
+                            event_kinds=(AlertEventKind.FIRING,),
+                        )
+                    ],
+                )
+            return
         HogFunction.objects.create(
             team=self.team,
             type="internal_destination",
@@ -177,15 +199,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_paging_destination", False, "source"),
-            ("with_a_paging_destination", True, "source"),
-            ("owned_by_the_platform", False, "platform"),
+            ("without_a_paging_destination", False, "source", {}),
+            ("with_a_paging_destination", True, "source", {}),
+            ("owned_by_the_platform", False, "platform", {}),
+            ("created_without_a_logs_row", False, "platform", _NATIVE),
+            ("created_without_a_logs_row_and_paged_natively", True, "platform", _NATIVE),
         ]
     )
     def test_a_breaching_configuration_fires_and_records_its_own_state(
-        self, _name: str, paged: bool, owner: str
+        self, _name: str, paged: bool, owner: str, fields: dict[str, Any]
     ) -> None:
-        configuration = self._configuration(owner=owner)
+        configuration = self._configuration(owner=owner, **fields)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -198,9 +222,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
+        public_id = self._legacy_ids.get(configuration.id, configuration.id)
+        assert evaluation.deliveries[0].destination_alert_id == str(public_id)
         source_alert_url = evaluation.deliveries[0].source_alert_url
         assert source_alert_url is not None
-        assert source_alert_url.endswith(f"/logs/alerts/{self._legacy_ids[configuration.id]}")
+        assert source_alert_url.endswith(f"/logs/alerts/{public_id}")
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -210,6 +236,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_scheduler_lag_counts_the_wait_after_the_tick_that_took_the_check(self) -> None:
+        configuration = self._configuration(next_check_at=self.cutoff)
+
+        with (
+            time_machine.travel(self.cutoff + timedelta(seconds=7), tick=False),
+            patch(f"{_MODULE}.record_scheduler_lag") as record_lag,
+        ):
+            self._run(configuration)
+
+        record_lag.assert_called_once_with(SourceKind.LOGS.value, 7000)
 
     def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
         same_a = self._configuration(name="A")
@@ -920,6 +957,15 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
         alert = LogsAlertConfiguration.objects.create(
             team=self.team, name="API errors", filters={"serviceNames": ["api"]}, threshold_count=10, window_minutes=5
         )
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="Web errors",
+                source_kind=SourceKind.LOGS,
+                source_config={"filters": {"serviceNames": ["web"]}, "condition": CONDITION},
+                check_interval_minutes=10,
+                owner="platform",
+            )
 
         notified = notified_alerts_for_platform(
             self.team.id,
@@ -943,16 +989,24 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
                     grouping_key='{"service_name":"web"}',
                     labels={"service_name": "web"},
                 ),
+                PlatformAlertSignal(
+                    alert_id=str(native.id),
+                    action="firing",
+                    result_count=30,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                ),
             ],
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
             (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]}),
             (str(alert.id), "API errors", 10, 700, {"serviceNames": ["api"]}),
+            (str(native.id), "Web errors", CONDITION["threshold_count"], 30, {"serviceNames": ["web"]}),
         ]
         # A retried emission of the same announcement must not start a second signal, and a second
         # group of the same evaluation is not a retry.
-        assert [n.idempotency_key for n in notified] == [
+        assert [n.idempotency_key for n in notified[:2]] == [
             f"{alert.id}:firing:k-1",
             f'{alert.id}:firing:k-1:{{"service_name":"web"}}',
         ]

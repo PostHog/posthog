@@ -6,7 +6,14 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, getChart, personsModal, renderInsight } from '~/test/insight-testing'
+import {
+    annotationBadges,
+    buildTrendsQuery,
+    chart,
+    getChart,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
@@ -121,8 +128,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
         )
     })
 
-    it.each([false, true])('opens the persons modal directly on a dashboard (compare=%s)', async (compare) => {
-        renderInsight({ query: trendsBar({ compareFilter: { compare } }), context: { dashboardResultMenu: true } })
+    it('opens the persons modal on click for a single series', async () => {
+        renderInsight({ query: trendsBar() })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(2)
@@ -342,7 +349,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         const totalRows = 20
         const manyBreakdowns = {
             results: Array.from({ length: totalRows }, (_, i) => ({
-                action: { id: '$napped', type: 'events', name: 'Napped', order: 0 },
+                order: 0,
                 label: `value ${i}`,
                 count: totalRows - i,
                 aggregated_value: totalRows - i,
@@ -554,7 +561,7 @@ describe('TrendsBarChart overlays', () => {
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getChart().annotationBadges().length).toBeGreaterThan(0)
+                expect(annotationBadges().length).toBeGreaterThan(0)
             },
             { timeout: 5000 }
         )

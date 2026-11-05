@@ -61,6 +61,17 @@ describe('slack template', () => {
         expect(fetchResponse.execResult).toEqual({ channel: 'C0123ABC', ts: '1700000000.000200' })
     })
 
+    it('preserves separate metadata and chart attachments', async () => {
+        const attachments = [
+            { color: '#D97706', blocks: [{ type: 'section', text: { type: 'plain_text', text: 'Limit crossed' } }] },
+            { blocks: [{ type: 'image', image_url: 'https://example.com/chart.png', alt_text: 'Insight chart' }] },
+        ]
+        const response = await tester.invoke({ ...commonInputs, text: '', attachments })
+
+        expect(response.error).toBeUndefined()
+        expect(bodyOf(response.invocation.queueParameters)).toMatchObject({ attachments, text: '', blocks: [] })
+    })
+
     it.each([
         ['a top-level post, reply under that post', {}, '1700000000.000100'],
         ['a thread reply, reply in the same thread', { thread_ts: '1699999999.000000' }, '1699999999.000000'],

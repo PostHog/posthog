@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, ProportionStatistic, SampleMeanStatistic, StatisticError
 from .priors import GaussianPrior
 from .utils import (
     calculate_effect_size_and_variance,
@@ -87,8 +87,8 @@ class BayesianTest(ABC):
     @abstractmethod
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
@@ -126,8 +126,8 @@ class BayesianGaussianTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
@@ -213,8 +213,8 @@ class BayesianProportionTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
@@ -295,8 +295,8 @@ class BayesianMeanTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,

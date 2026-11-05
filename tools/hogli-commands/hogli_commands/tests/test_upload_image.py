@@ -33,8 +33,12 @@ def png(tmp_path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def no_detected_pr() -> Iterator[None]:
     # Detection shells out to gh, so without this the suite reads whatever branch it runs
-    # on and these tests pass or fail depending on whether that branch has a PR.
-    with patch.object(pr_upload, "_open_pull_request", return_value=None):
+    # on and these tests pass or fail depending on whether that branch has a PR. The gh
+    # route is covered in test_pr_upload, so these pin the pr-assets route.
+    with (
+        patch.object(pr_upload, "_open_pull_request", return_value=None),
+        patch.object(pr_upload, "_gh_with_attach", return_value=None),
+    ):
         yield
 
 

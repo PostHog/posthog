@@ -61,7 +61,11 @@ export function OfflineScorerHistoryTable({
                                     onClick={() => onToggleRun(key)}
                                 />
                                 <Tooltip title={point.experiment.name}>
-                                    <Link to={offlineExperimentUrl(point)} className="truncate min-w-0">
+                                    <Link
+                                        to={offlineExperimentUrl(point)}
+                                        className="truncate min-w-0"
+                                        data-attr="offline-history-open-experiment"
+                                    >
                                         {point.experiment.name}
                                     </Link>
                                 </Tooltip>

@@ -63,15 +63,13 @@ export function EvaluationResultsTable(): JSX.Element {
         {
             title: 'Created by',
             key: 'created_by',
-            className: 'hidden @min-[40rem]:table-cell',
-            width: 0,
-            align: 'center',
+            className: 'hidden @min-[40rem]:table-cell whitespace-nowrap',
             render: (_, row) => {
                 const user = configById.get(row.id)?.created_by
                 return user ? (
-                    <ProfilePicture user={user} size="md" title={user.first_name || user.email} />
+                    <ProfilePicture user={user} size="md" showName />
                 ) : row.createdBy ? (
-                    <ProfilePicture name={row.createdBy} size="md" title={row.createdBy} />
+                    <ProfilePicture name={row.createdBy} size="md" showName />
                 ) : (
                     <span className="text-secondary">-</span>
                 )

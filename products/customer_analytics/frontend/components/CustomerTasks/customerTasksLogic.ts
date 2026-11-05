@@ -31,6 +31,7 @@ import {
     accountsList,
     accountsRetrieve,
     customerTasksArchiveCreate,
+    customerTasksBulkUpdateCreate,
     customerTasksCreate,
     customerTasksList,
     customerTasksRetrieve,
@@ -41,6 +42,7 @@ import type {
     AccountApi,
     CustomerTaskApi,
     CustomerTaskCreateApi,
+    CustomerTaskBulkPatchApi,
     CustomerTaskPageApi,
     CustomerTaskUserApi,
     PaginatedAccountListApi,
@@ -86,6 +88,7 @@ export interface customerTasksLogicValues {
     accountOptionsResponse: PaginatedAccountListApi | null
     accountOptionsResponseLoading: boolean
     accountFilterOpen: boolean
+    bulkAccountOpen: boolean
     currentTeamId: number | null
     filters: CustomerTaskFilters
     hasActiveFilters: boolean
@@ -110,6 +113,11 @@ export interface customerTasksLogicValues {
     user: UserType | null
 }
 export interface customerTasksLogicActions {
+    bulkUpdateTasks: (
+        taskIds: string[],
+        patch: CustomerTaskBulkPatchApi,
+        onComplete: (failedIds: string[]) => void
+    ) => { taskIds: string[]; patch: CustomerTaskBulkPatchApi; onComplete: (failedIds: string[]) => void }
     openTaskFromUrl: (taskId: string) => { taskId: string }
     closeModal: () => void
     createTask: (task: CustomerTaskCreateApi) => { task: CustomerTaskCreateApi }
@@ -125,6 +133,7 @@ export interface customerTasksLogicActions {
     archiveTask: (taskId: string) => { taskId: string }
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setAccountFilterOpen: (open: boolean) => { open: boolean }
+    setBulkAccountOpen: (open: boolean) => { open: boolean }
     setAssignee: (assignee: CustomerTaskAssigneeFilter) => { assignee: CustomerTaskAssigneeFilter }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
     setFiltersFromUrl: (state: CustomerTaskUrlState) => { state: CustomerTaskUrlState }
@@ -209,6 +218,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setSearch: (search: string) => ({ search }),
         setAccountFilter: (account: CustomerTaskAccountFilter | null) => ({ account }),
         setAccountFilterOpen: (open: boolean) => ({ open }),
+        setBulkAccountOpen: (open: boolean) => ({ open }),
         setPage: (page: number) => ({ page }),
         resetFilters: () => ({}),
         openCreateModal: () => ({}),
@@ -222,6 +232,11 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         submitModal: () => ({}),
         createTask: (task: CustomerTaskCreateApi) => ({ task }),
         updateTask: (taskId: string, patch: PatchedCustomerTaskUpdateApi) => ({ taskId, patch }),
+        bulkUpdateTasks: (
+            taskIds: string[],
+            patch: CustomerTaskBulkPatchApi,
+            onComplete: (failedIds: string[]) => void
+        ) => ({ taskIds, patch, onComplete }),
         archiveTask: (taskId: string) => ({ taskId }),
         restoreTask: (taskId: string) => ({ taskId }),
         mutationStarted: (key: string) => ({ key }),
@@ -322,6 +337,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 },
             ],
             accountFilterOpen: [false, { setAccountFilterOpen: (_, { open }) => open }],
+            bulkAccountOpen: [false, { setBulkAccountOpen: (_, { open }) => open, bulkUpdateTasks: () => false }],
             mutationKeys: [
                 {} as Record<string, boolean>,
                 {
@@ -431,6 +447,33 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         ],
     })),
     listeners(({ actions, props, values }) => ({
+        bulkUpdateTasks: async ({ taskIds, patch, onComplete }) => {
+            if (values.currentTeamId === null || values.mutationKeys.bulk || values.taskPageLoading) {
+                return
+            }
+            const projectId = String(values.currentTeamId)
+            const selectionScope = JSON.stringify(taskUrlState(values))
+            const tasks = values.tasks.filter((task) => taskIds.includes(task.id))
+            if (tasks.length === 0 || tasks.some((task) => values.mutationKeys[task.id])) {
+                return
+            }
+            actions.mutationStarted('bulk')
+            tasks.forEach((task) => actions.mutationStarted(task.id))
+            try {
+                await customerTasksBulkUpdateCreate(projectId, {
+                    task_ids: tasks.map((task) => task.id),
+                    updates: patch,
+                })
+                onComplete([])
+                actions.loadTaskPage()
+            } catch (error) {
+                onComplete(JSON.stringify(taskUrlState(values)) === selectionScope ? tasks.map((task) => task.id) : [])
+                lemonToast.error(taskWriteFailureMessage(error, 'Could not update the tasks. Try again.'))
+            } finally {
+                tasks.forEach((task) => actions.mutationFinished(task.id))
+                actions.mutationFinished('bulk')
+            }
+        },
         openTaskFromUrl: async ({ taskId }, breakpoint) => {
             if (values.currentTeamId === null) {
                 return

@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "esbuild-cjs/index.cjs": "sha512:7b24bfa3dabd68bf2fc8783da2357d9ab69537a40c2b5b38b3645fb7cc17cfe4f62051bc95bbb0d4666529177bb3c8ea2983f59134d1f71aa549c6c3bb0b9b28",
+    "esbuild-cjs/index.cjs.map": "sha512:66f9e06dd3db41543ff26f633a6b8887fa2759fc302c336337dc0b2c4ee180bfbdab754eb4232b1209b193d0740e92fd18e8aee419ac167e6677b468de9d28fc"
+  }
+}

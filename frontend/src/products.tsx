@@ -12,6 +12,12 @@ import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -28,8 +34,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope, ExperimentsTabs } from '~/types'
+import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -53,6 +58,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
 import {
     ActionType,
+    ActivityScope,
     AnnotationType,
     AnyPropertyFilter,
     DashboardType,
@@ -179,6 +185,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+    '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -316,6 +323,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
     '/skills/community': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
+    '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
     '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
@@ -386,6 +394,19 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
     '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
+    '/transactional': ['Transactional', 'transactional'],
+    '/transactional/library': ['Transactional', 'transactional'],
+    '/transactional/channels': ['Transactional', 'transactional'],
+    '/transactional/opt-outs': ['Transactional', 'transactional'],
+    '/transactional/suppression': ['Transactional', 'transactional'],
+    '/transactional/reputation': ['Transactional', 'transactional'],
+    '/transactional/settings': ['Transactional', 'transactional'],
+    '/transactional/new': ['Transactional', 'transactional'],
+    '/transactional/log': ['Transactional', 'transactional'],
+    '/transactional/metrics': ['Transactional', 'transactional'],
+    '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
+    '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+    '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -729,7 +750,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
-    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlerts: {
+        name: 'Platform alerts',
+        description:
+            'Get told when your logs or data cross a threshold you set, in Slack, email, PagerDuty, or another tool.',
+        projectBased: true,
+        iconType: 'inbox',
+    },
     PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
@@ -908,6 +935,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage where your warehouse sources write the rows they sync.',
         iconType: 'data_warehouse',
     },
+    WarehouseDestinationConnect: { projectBased: true, name: 'Connect warehouse destination' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1199,6 +1227,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
+    SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
@@ -1331,6 +1360,13 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
+    Transactional: {
+        name: 'Transactional',
+        iconType: 'transactional',
+        projectBased: true,
+        description: 'Send emails from your code with one API call',
+    },
+    TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -1579,6 +1615,8 @@ export const productUrls = {
         `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+    warehouseDestinationConnect: (kind?: string): string =>
+        `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1719,6 +1757,8 @@ export const productUrls = {
         intent,
         format,
         properties,
+        key,
+        variants,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
@@ -1726,6 +1766,8 @@ export const productUrls = {
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
         properties?: AnyPropertyFilter[]
+        key?: string
+        variants?: string[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1745,6 +1787,12 @@ export const productUrls = {
         }
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
+        }
+        if (key) {
+            params.set('key', key)
+        }
+        if (variants?.length) {
+            params.set('variants', variants.join(','))
         }
         return `/feature-flags/new?${params.toString()}`
     },
@@ -1809,11 +1857,13 @@ export const productUrls = {
     insightNew: ({
         type,
         dashboardId,
+        tileGroupKey,
         query,
         sceneSource,
     }: {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
+        tileGroupKey?: string | null
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
@@ -1828,11 +1878,15 @@ export const productUrls = {
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
             return urls.sqlEditor({ query })
         }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            ...(sceneSource ? { sceneSource } : {}),
-        }).url
+        return combineUrl(
+            '/insights/new',
+            dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+            {
+                ...(type ? { insight: type } : {}),
+                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
+            }
+        ).url
     },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         urls.insightNew({
@@ -1932,6 +1986,7 @@ export const productUrls = {
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/skills/community',
+    slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
     stamphogDigests: (): string => '/stamphog/digests',
@@ -2015,6 +2070,13 @@ export const productUrls = {
     broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
+    transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+    transactionalNew: (): string => '/transactional/new',
+    transactionalLog: (): string => '/transactional/log',
+    transactionalMetrics: (): string => '/transactional/metrics',
+    transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
+    transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+    broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2042,6 +2104,7 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
         listHref: () => urls.cohorts(),
+        listSearchParam: 'search',
         filterKey: 'cohort',
     },
     dashboard: {
@@ -2074,6 +2137,7 @@ export const fileSystemTypes = {
         iconType: 'experiment',
         href: (ref: string) => urls.experiment(ref),
         listHref: () => urls.experiments(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-experiments-light)'],
         filterKey: 'experiment',
     },
@@ -2082,6 +2146,7 @@ export const fileSystemTypes = {
         iconType: 'feature_flag',
         href: (ref: string) => urls.featureFlag(ref),
         listHref: () => urls.featureFlags(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
@@ -2090,6 +2155,7 @@ export const fileSystemTypes = {
         iconType: 'product_analytics',
         href: (ref: string) => urls.insightView(ref as InsightShortId),
         listHref: () => urls.savedInsights(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
@@ -2127,6 +2193,7 @@ export const fileSystemTypes = {
         iconType: 'survey',
         href: (ref: string) => urls.survey(ref),
         listHref: () => urls.surveys(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'survey',
     },
@@ -2377,6 +2444,7 @@ export type ProductTreePath =
     | 'MCP servers'
     | 'Metrics'
     | 'Notebooks'
+    | 'Platform alerts'
     | 'Playground'
     | 'Product analytics'
     | 'Product tours'
@@ -2392,10 +2460,12 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Transactional'
     | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -2441,6 +2511,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Broadcasts',
         intents: [ProductKey.WORKFLOWS],
         href: urls.broadcasts(),
+        searchKeywords: ['newsletter', 'email blast'],
         type: 'broadcasts',
         category: ProductItemCategory.MESSAGING,
         iconType: 'broadcasts',
@@ -2452,6 +2523,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -2466,6 +2539,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
@@ -2589,7 +2663,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'dashboard',
         iconColor: ['var(--color-product-dashboards-light)'],
         href: urls.dashboards(),
-        searchKeywords: ['boards', 'charts'],
+        searchKeywords: ['boards'],
         searchTabs: [
             { name: 'My dashboards', href: urls.dashboards('yours') },
             {
@@ -2640,6 +2714,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -2650,7 +2725,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_pipeline',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         href: urls.etlOverview(),
-        searchKeywords: ['syncs', 'sync health'],
+        searchKeywords: ['etl', 'syncs', 'sync health'],
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
         sceneKey: 'PipelineOverview',
         sceneKeys: ['PipelineOverview'],
@@ -2730,7 +2805,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-error-tracking-dark)',
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
-        searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+        searchKeywords: ['errors', 'exceptions', 'crashes', 'bugs', 'stack traces'],
         searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
@@ -2743,7 +2818,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
         href: urls.aiObservabilityEvaluations(),
-        searchKeywords: ['llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
+        searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
         searchTabs: [
             {
                 name: 'Offline evals',
@@ -2848,6 +2923,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             { name: 'Reports', href: urls.inbox('reports') },
             { name: 'Scouts', href: urls.inbox('scouts') },
+            { name: 'Sources', href: urls.inbox('sources') },
+            { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         tags: ['beta'],
@@ -2870,7 +2947,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityDashboard(),
-        searchKeywords: ['llm observability', 'llm costs', 'token usage'],
+        searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
         searchTabs: [
             { name: 'Traces', href: urls.aiObservabilityTraces() },
             { name: 'Generations', href: urls.aiObservabilityGenerations() },
@@ -2913,6 +2990,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
+        searchKeywords: ['logging'],
         searchTabs: [
             { name: 'Alerts', href: urls.logs('alerts') },
             { name: 'SQL', href: urls.logs('sql') },
@@ -2939,7 +3017,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'mcp_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
         href: urls.mcpAnalytics(),
-        searchKeywords: ['tool calls', 'model context protocol', 'plugins'],
+        searchKeywords: ['tool calls', 'model context protocol'],
         searchTabs: [
             { name: 'Activity', href: urls.mcpAnalyticsActivity() },
             { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
@@ -3010,6 +3088,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Platform alerts',
+        intents: [],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'inbox',
+        href: urls.platformAlerts(),
+        searchKeywords: ['alerts', 'alerting', 'notifications', 'monitors'],
+        flag: FEATURE_FLAGS.PLATFORM_ALERTS,
+        sceneKey: 'PlatformAlerts',
+        sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
     },
     {
         path: 'Playground',
@@ -3163,7 +3252,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'sql_editor',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         href: urls.sqlEditor(),
-        searchKeywords: ['hogql', 'hogsql', 'query editor'],
+        searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
         sceneKey: 'SQLEditor',
         sceneKeys: ['SQLEditor'],
     },
@@ -3172,7 +3261,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
         category: ProductItemCategory.PRODUCT_ENGINEERING,
         href: urls.replay(ReplayTabs.Home),
-        searchKeywords: ['recordings', 'session recording'],
+        searchKeywords: ['replay', 'sessions', 'recordings', 'session recording'],
         searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists), searchKeywords: ['playlists'] }],
         type: 'session_recording_playlist',
         iconType: 'session_replay',
@@ -3299,12 +3388,34 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
+        path: 'Transactional',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.transactional(),
+        searchKeywords: ['transactional email'],
+        type: 'transactional',
+        category: ProductItemCategory.MESSAGING,
+        iconType: 'transactional',
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+        sceneKey: 'Transactional',
+        flag: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'Transactional',
+            'TransactionalEmailLogEntry',
+            'WorkflowsEmailDomain',
+        ],
+    },
+    {
         path: 'Uptime monitoring',
         intents: [ProductKey.UPTIME_MONITORING],
         category: ProductItemCategory.UNRELEASED,
         iconType: 'uptime_monitoring',
         href: urls.uptimeMonitoring(),
-        searchKeywords: ['uptime', 'status', 'health check', 'synthetics', 'ping'],
+        searchKeywords: ['status', 'health check', 'synthetics', 'ping'],
         flag: FEATURE_FLAGS.UPTIME_MONITORING,
         tags: ['alpha'],
         sceneKey: 'UptimeMonitoring',
@@ -3371,9 +3482,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['WebScripts'],
     },
     {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        type: 'wizard',
+        iconType: 'wizard',
+        iconColor: ['var(--color-product-wizard-light)', 'var(--color-product-wizard-dark)'],
+        href: '/wizard/runs',
+        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
+    },
+    {
         path: 'Workflows',
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
+        searchKeywords: ['automations', 'campaigns', 'messaging'],
         searchTabs: [
             { name: 'Library', href: urls.workflows('library') },
             { name: 'Channels', href: urls.workflows('channels') },
@@ -3393,6 +3517,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3509,6 +3635,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -3524,13 +3651,13 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
                 name: 'Usage',
                 href: urls.models('usage'),
                 flag: FEATURE_FLAGS.DATA_MODELING_USAGE,
-                searchKeywords: ['bytes read', 'cpu', 'materialization'],
+                searchKeywords: ['bytes read', 'cpu'],
             },
             { name: 'Lineage', href: urls.models('lineage'), searchKeywords: ['dag', 'dependencies'] },
             {
                 name: 'Data quality',
                 href: urls.models('data-quality'),
-                searchKeywords: ['tests', 'checks', 'freshness'],
+                searchKeywords: ['data tests', 'checks', 'freshness'],
             },
         ],
         sceneKey: 'Models',
@@ -3603,7 +3730,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_transformation',
         iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
         href: urls.transformations(),
-        searchKeywords: ['enrichment', 'geoip', 'redact pii'],
+        searchKeywords: ['enrichment', 'geoip', 'redact pii', 'plugins'],
         sceneKey: 'Transformations',
         sceneKeys: ['Transformations'],
     },
@@ -3618,7 +3745,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.warehouseDestinations(),
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
         sceneKey: 'WarehouseDestinations',
-        sceneKeys: ['WarehouseDestinations'],
+        sceneKeys: ['WarehouseDestinations', 'WarehouseDestinationConnect'],
     },
     {
         path: 'Warehouse properties',

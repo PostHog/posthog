@@ -41,7 +41,7 @@ PII_FLAG_PROBABILITY = 0.4
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
 _JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
-_TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
+_TEXT_FIELDS = ("title", "summary", "reasoning")
 
 _NAME_QUESTION = DecisionQuestion(
     type=DecisionQuestionType.NOUL,
@@ -113,7 +113,6 @@ class _Rewrite(BaseModel):
     title: str | None = None
     summary: str | None = None
     reasoning: str | None = None
-    notability_reason: str | None = None
 
 
 def answer_text(output: BaseModel) -> dict[str, str]:
@@ -174,7 +173,7 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
     properties = {"ai_product": AI_PRODUCT, "feature": "pii_rewrite", "team_id": team_id}
-    client = await replay_gemini_client(team_id, properties=properties)
+    client = replay_gemini_client(properties=properties)
     try:
         response = await client.models.generate_content(
             model=_REWRITE_MODEL,
@@ -185,7 +184,6 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": "pii_rewrite"},
-            posthog_groups={"project": str(team_id)},
         )
     finally:
         await client.aclose()

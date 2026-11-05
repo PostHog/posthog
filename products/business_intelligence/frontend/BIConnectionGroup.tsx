@@ -60,12 +60,14 @@ export function BIConnectionGroup({ connections }: { connections: BIConnection[]
                                     <BIDataPaneSection
                                         fields={connection.fields.dimensions}
                                         path={connection.path}
+                                        tableName={connection.tableName}
                                         measure={false}
                                         emptyText="No matching dimensions"
                                     />
                                     <BIDataPaneSection
                                         fields={connection.fields.measures}
                                         path={connection.path}
+                                        tableName={connection.tableName}
                                         measure
                                         emptyText="No matching measures"
                                     />

@@ -16,7 +16,7 @@ UNIT_INTERVAL_VALIDATORS = [MinValueValidator(0.0), MaxValueValidator(1.0)]
 
 def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     return models.CheckConstraint(
-        check=models.Q(**{f"{field}__isnull": True}) | models.Q(**{f"{field}__gte": 0.0, f"{field}__lte": 1.0}),
+        condition=models.Q(**{f"{field}__isnull": True}) | models.Q(**{f"{field}__gte": 0.0, f"{field}__lte": 1.0}),
         name=name,
     )
 
@@ -38,7 +38,7 @@ def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool 
     at_least = models.Q(**{f"{field}__gte": minimum})
     if nullable:
         at_least = models.Q(**{f"{field}__isnull": True}) | at_least
-    return models.CheckConstraint(check=at_least, name=name)
+    return models.CheckConstraint(condition=at_least, name=name)
 
 
 class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
@@ -324,7 +324,7 @@ class AutoresearchModel(PipelineScopedModel):
             unit_interval_constraint("holdout_score", "autoresearch_model_holdout_score_in_unit_range"),
             unit_interval_constraint("realized_score", "autoresearch_model_realized_score_in_unit_range"),
             models.CheckConstraint(
-                check=models.Q(trained_on_start__isnull=True)
+                condition=models.Q(trained_on_start__isnull=True)
                 | models.Q(trained_on_end__isnull=True)
                 | models.Q(trained_on_start__lte=models.F("trained_on_end")),
                 name="autoresearch_model_trained_on_range_ordered",

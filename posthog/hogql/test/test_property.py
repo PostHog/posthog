@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, Union, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
@@ -51,7 +51,7 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -1220,11 +1220,10 @@ class TestProperty(BaseTest):
         assert "pdi" not in sql
 
     def test_entity_to_expr_actions_type_with_id(self):
-        action_mock = MagicMock()
-        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
-            entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity, self.team)
-            self.assertIsInstance(result, ast.Expr)
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": action.id})
+        result = entity_to_expr(entity, self.team)
+        self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
@@ -2475,9 +2474,9 @@ class TestProperty(BaseTest):
             self._property_to_expr(self._behavioral_filter(event_type="actions", key="999999"))
 
     def test_behavioral_performed_event_with_action(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
         self.assertEqual(
-            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.pk))),
+            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.id))),
             self._parse_expr(
                 "person_id IN (SELECT person_id FROM events WHERE {action}"
                 " AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)",
@@ -2487,14 +2486,16 @@ class TestProperty(BaseTest):
 
     def test_behavioral_property_in_action_step_raises(self):
         # Compiling one would re-enter action_to_expr until Python's recursion limit
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
-        action.steps_json = [
-            {
-                "event": "$pageview",
-                "properties": [self._behavioral_filter(event_type="actions", key=str(action.pk))],
-            }
-        ]
-        action.save()
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = update_action(
+            action,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [self._behavioral_filter(event_type="actions", key=str(action.id))],
+                }
+            ],
+        )
         with self.assertRaises(QueryError):
             action_to_expr(action)
 
@@ -2520,7 +2521,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
                 "string_empty_prop",
                 "",
                 PropertyType.String,
-                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+                self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
             ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),

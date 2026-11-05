@@ -470,6 +470,29 @@ class TestMediaLibraryAPI(APIBaseTest):
             download_response = self.client.get(f"/uploaded_media/{media_id}")
             assert download_response.status_code == status.HTTP_200_OK
 
+    def test_disabled_serving_stops_the_public_url_and_hides_the_image_from_the_library(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                upload_response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image, "purpose": "email"},
+                    format="multipart",
+                )
+            media_id = upload_response.json()["id"]
+            UploadedMedia.objects.filter(id=media_id).update(serving_disabled_at=now())
+
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            assert list_response.json()["results"] == []
+
+            self.client.logout()
+            blocked_response = self.client.get(f"/uploaded_media/{media_id}")
+            assert blocked_response.status_code == status.HTTP_404_NOT_FOUND
+            assert blocked_response.headers["Cache-Control"] == "no-store"
+
+            UploadedMedia.objects.filter(id=media_id).update(serving_disabled_at=None)
+            restored_response = self.client.get(f"/uploaded_media/{media_id}")
+            assert restored_response.status_code == status.HTTP_200_OK
+
     def test_removing_refuses_an_upload_that_is_not_in_a_library(self) -> None:
         dashboard_image = self._create_media(purpose=None)
 

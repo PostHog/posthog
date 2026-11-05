@@ -343,6 +343,7 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
    ```
 
    A view that opens links also names `link_prop`, the prop that receives the host's link opener.
+   A view that calls server tools names `app_prop`, the prop that receives the host app.
 
 2. **Create the entry point** manually at `src/ui-apps/apps/my-custom-app.tsx`.
    This file will NOT be overwritten by the generator.
@@ -358,6 +359,8 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
    ```typescript
    export default () => withUiApp('my-custom-app', { name: 'my-tool', schema, handler })
    ```
+
+   When the app is the whole answer, set `renderedNote` on the tool. `render-ui` appends it to its result, so the model knows what the app already shows and keeps its reply short.
 
 ## Deployment
 

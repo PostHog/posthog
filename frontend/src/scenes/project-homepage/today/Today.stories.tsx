@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
@@ -476,10 +476,7 @@ const OPEN_REPORT_COUNT = 46
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 // A story's `spaceFeedView` parameter is written after the clear, so it starts with that saved space feed view, the
 // way a returning person sees it.
-function clearTodayStorage(
-    Story: () => JSX.Element,
-    { parameters }: { parameters: { spaceFeedView?: Record<string, unknown> } }
-): JSX.Element {
+const clearTodayStorage: Decorator = (Story, { parameters }) => {
     for (const key of Object.keys(window.localStorage)) {
         if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
@@ -663,6 +660,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -674,6 +672,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -685,6 +684,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -696,6 +696,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -707,6 +708,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -718,6 +720,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
 }
@@ -729,6 +732,10 @@ const SAVED_INSIGHTS = [
     { id: 4, short_id: 'ret01', name: 'Week 1 retention' },
     { id: 5, short_id: 'trl01', name: 'Trial to paid' },
 ]
+
+let storyPins: { key: string; name: string }[] = []
+let storyComputingCalls = 0
+let storyLastReady: HighlightsApi | null = null
 
 const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     ...HIGHLIGHTS.pulse[0],
@@ -745,9 +752,6 @@ const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 0.329,
     movers: [],
 }
-
-let storyPins: { key: string; name: string }[] = []
-let storyComputingCalls = 0
 
 const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
     ...CHECKOUT_METRIC,
@@ -772,8 +776,6 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
-let storyLastReady: HighlightsApi | null = null
-
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
@@ -781,17 +783,14 @@ function storyHighlights(): HighlightsApi {
             ? { ...storyLastReady, status: 'computing' }
             : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
     }
-    const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
-    const chosen = storyPins.flatMap((pin) => {
-        const metric = offered.find((candidate) => candidate.key === pin.key)
-        return metric ? [metric] : []
-    })
-    const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
+    const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC]
+    const chosen = storyPins.flatMap((pin) => offered.filter((metric) => metric.key === pin.key))
+    const suggested = offered.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
     const pins = storyPins.map((pin) => ({
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
+    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins }
     return storyLastReady
 }
 
@@ -915,6 +914,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -926,6 +926,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/state/': (req) => [
                     200,
@@ -974,6 +975,40 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
+
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+        },
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
 
 export const HomeWithKeptNumbers: Story = {
     decorators: [
@@ -1328,4 +1363,105 @@ export const ListItemAppearanceDialog: Story = {
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
     },
+}
+
+export const HomePulseLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    generated_at: null,
+                    pulse: [],
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulsePartial: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseTitlesLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: [],
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseMixed: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i === 0 ? 'ready' : 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseEmptyAndError: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'ready',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 2),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i < 2 ? 'ready' : i === 2 ? 'empty' : 'error',
+                    })),
+                },
+            },
+        }),
+    ],
 }

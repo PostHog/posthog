@@ -605,8 +605,10 @@ class TestWorkflowDispatchPersistence(TestCase):
             state=state,
         )
 
-        self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
 
+        log_started.assert_called_once_with(due, [self.task_run.id])
         due.refresh_from_db()
         future.refresh_from_db()
         local.refresh_from_db()

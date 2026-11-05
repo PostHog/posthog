@@ -862,6 +862,15 @@ def _fail_unfinished_proposal(proposal: ContentAutopilotProposal | None, message
         _fail_proposal(proposal, message)
 
 
+def _refresh_proposal(opportunity: ContentAutopilotOpportunity) -> None:
+    # Drafting may link a proposal after this row loaded. Reload the link together with the proposal,
+    # so the read that follows is not a lazy load per row of the batch.
+    opportunity.refresh_from_db(
+        fields=["proposal"],
+        from_queryset=ContentAutopilotOpportunity.objects.for_team(opportunity.team_id).select_related("proposal"),
+    )
+
+
 def _draft_opportunity(
     client: Anthropic,
     *,
@@ -883,7 +892,7 @@ def _draft_opportunity(
                 }
             )
     except SoftTimeLimitExceeded:
-        opportunity.refresh_from_db(fields=["proposal"])
+        _refresh_proposal(opportunity)
         _fail_unfinished_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
         raise
     except ContentAutopilotLLMError as error:
@@ -893,7 +902,7 @@ def _draft_opportunity(
         capture_exception(error)
         logger.exception("content_autopilot_generation_failed", team_id=run.team_id, run_id=str(run.id))
         errors.append({"error_code": "draft_failed", "message": f"{title}: something went wrong while drafting."})
-        opportunity.refresh_from_db(fields=["proposal"])
+        _refresh_proposal(opportunity)
         _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
     finally:
         if opportunity.proposal_id:
@@ -911,6 +920,7 @@ def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) 
     try:
         opportunities = list(
             ContentAutopilotOpportunity.objects.for_team(team_id)
+            .select_related("proposal")
             .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
             .order_by("-score")
         )
