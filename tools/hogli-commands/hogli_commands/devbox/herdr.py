@@ -69,16 +69,23 @@ def _output_of(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "").strip()
 
 
+def _ssh_targets(workspace_name: str) -> tuple[str, str]:
+    # `coder config-ssh` writes a `coder.<name>` alias and a `<name>.coder` host suffix,
+    # and a machine someone added in Herdr by hand can use either one.
+    return (_ssh_host_alias(workspace_name), f"{workspace_name}.coder")
+
+
 def ensure_machine(workspace_name: str) -> str:
     """Return the `hc` machine name for the devbox, adding the machine when it's missing."""
-    target = _ssh_host_alias(workspace_name)
+    targets = _ssh_targets(workspace_name)
+    target = targets[0]
     listing = _run_json(
         ["hc", "machine", "ls", "--json"],
         failure="Couldn't list Herdr machines.",
         cause="herdr_machine_list_failed",
     )
     for machine in listing.get("machines", []):
-        if machine.get("target") == target and machine.get("name"):
+        if machine.get("target") in targets and machine.get("name"):
             _wait_until_connected(machine["name"])
             return machine["name"]
 
@@ -119,10 +126,10 @@ def forget_machine(workspace_name: str) -> None:
     """
     if shutil.which("hc") is None:
         return
-    target = _ssh_host_alias(workspace_name)
+    targets = _ssh_targets(workspace_name)
     for machine in _list_machines() or []:
         name = machine.get("name")
-        if machine.get("target") != target or not name:
+        if machine.get("target") not in targets or not name:
             continue
         if _run(["hc", "machine", "rm", name]).returncode == 0:
             click.echo(f"Removed '{name}' from Herdr.")

@@ -2917,12 +2917,15 @@ class TestDevboxOpenHerdr:
             "folder": "/home/coder/posthog",
         }
 
+    @pytest.mark.parametrize(
+        "target", ["coder.devbox-test-user", "devbox-test-user.coder"], ids=["alias-prefix", "hostname-suffix"]
+    )
     def test_reuses_the_machine_and_space_already_in_herdr_once_it_reconnects(
-        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None], target: str
     ) -> None:
         running_workspace("running")
         calls = herdr_calls(
-            machines=[{"name": "box", "target": "coder.devbox-test-user"}],
+            machines=[{"name": "box", "target": target}],
             spaces=[{"id": "box/sp1", "machine": "box"}, {"id": "sp2", "machine": None}],
             connecting_polls=2,
         )
@@ -2983,6 +2986,7 @@ class TestDevboxOpenHerdr:
         calls = herdr_calls(
             machines=[
                 {"name": "renamed-by-user", "target": "coder.devbox-test-user"},
+                {"name": "added-by-hand", "target": "devbox-test-user.coder"},
                 {"name": "devbox-test-user-other", "target": "coder.devbox-test-user-other"},
             ],
             spaces=[],
@@ -2991,7 +2995,8 @@ class TestDevboxOpenHerdr:
         _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
 
         assert [call for call in calls if call[:3] == ["hc", "machine", "rm"]] == [
-            ["hc", "machine", "rm", "renamed-by-user"]
+            ["hc", "machine", "rm", "renamed-by-user"],
+            ["hc", "machine", "rm", "added-by-hand"],
         ]
 
     def test_a_timed_out_hc_call_fails_with_a_message(
