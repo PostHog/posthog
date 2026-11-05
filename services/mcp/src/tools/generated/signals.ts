@@ -225,7 +225,7 @@ const InboxReportArtefactsCreateSchema = () => {
         .extend(SignalsReportArtefactsCreateBody.shape)
         .extend({
             content: SignalsReportArtefactsCreateBody.shape['content'].describe(
-                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
+                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form, for annotating a report with context; to also steer the scouts use `scout-notes-create` with `report_id`, which records the note on the report too. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
             ),
         })
 }
@@ -683,6 +683,9 @@ const inboxReportsCreate = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -749,6 +752,7 @@ const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema
             query: {
                 focus: params.focus,
                 limit: params.limit,
+                max_age_minutes: params.max_age_minutes,
                 refresh: params.refresh,
                 wait_seconds: params.wait_seconds,
             },
@@ -821,6 +825,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
                 ranking_min_probability: params.ranking_min_probability,
                 scope: params.scope,
@@ -1811,6 +1816,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1896,6 +1904,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -2088,6 +2099,9 @@ const scoutNotesCreate = (): ToolBase<ReturnType<typeof ScoutNotesCreateSchema>,
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
@@ -2141,6 +2155,7 @@ const scoutNotesList = (): ToolBase<
                 include_expired: params.include_expired,
                 include_general: params.include_general,
                 limit: params.limit,
+                only_without_expiry: params.only_without_expiry,
                 skill_name: params.skill_name,
                 text: params.text,
             },
@@ -3298,6 +3313,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3386,6 +3404,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
