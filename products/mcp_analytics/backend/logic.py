@@ -1,6 +1,7 @@
 import json
 import hashlib
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -37,7 +38,9 @@ from products.mcp_analytics.backend.constants import (
     MCP_MISSING_CAPABILITY_EVENT,
     MCP_TOOL_CALL_EVENT,
 )
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -531,7 +534,9 @@ ACTIVITY_TOP_TOOLS_LIMIT = 5
 ACTIVITY_CLIENTS_LIMIT = 6
 ACTIVITY_RECENT_CALLS_LIMIT = 20
 
-_ACTIVITY_STATS_SQL = f"""
+
+def _activity_stats_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     count() AS total_calls,
     uniq(tool) AS distinct_tools,
@@ -541,7 +546,7 @@ SELECT
     -- mean Codex), which the Clients card folds into one row, so counting tokens would
     -- put "2 clients" next to a one-row card. The raw `$mcp_client_name` is absent from
     -- every non-initialize call and cannot be counted here at all.
-    uniqIf({mcp_harness.harness_label_or_token_sql("h")}, h != '') AS distinct_clients,
+    uniqIf({mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)}, h != '') AS distinct_clients,
     countIf(has_intent) AS calls_with_intent,
     countIf(is_error) AS error_calls
 FROM (
@@ -557,6 +562,7 @@ FROM (
         AND {{shared_filters}}
 )
 """
+
 
 _ACTIVITY_MISSING_CAPABILITY_SQL = """
 SELECT count()
@@ -578,6 +584,7 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
+
 # Resolved through the canonical classifier rather than the raw `$mcp_client_name`,
 # which is absent on any call that isn't the session's `initialize` — reading it alone
 # left the large majority of calls unattributed and lumped whole clients under one
@@ -586,9 +593,10 @@ LIMIT {limit}
 # (differing case, or a name carrying mcp-remote's proxy signature) into a single row.
 # Unrecognized clients are named verbatim: this is a ranked top-N list, so a
 # self-reported name is more use than collapsing it into "Other".
-_ACTIVITY_CLIENTS_SQL = f"""
+def _activity_clients_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
-    {mcp_harness.harness_label_or_token_sql("h")} AS client,
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client,
     count() AS calls
 FROM (
     SELECT
@@ -603,7 +611,9 @@ ORDER BY calls DESC
 LIMIT {{limit}}
 """
 
-_ACTIVITY_RECENT_CALLS_SQL = f"""
+
+def _activity_recent_calls_sql(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"""
 SELECT
     timestamp,
     tool,
@@ -612,7 +622,7 @@ SELECT
     error_raw,
     duration_ms,
     -- Resolved, not raw: the live feed showed a blank caller on most rows otherwise.
-    {mcp_harness.harness_label_or_token_sql("h")} AS client_name
+    {mcp_harness.harness_label_or_token_sql("h", custom_rules=custom_rules)} AS client_name
 FROM (
     SELECT
         timestamp,
@@ -789,6 +799,7 @@ def _query_activity_overview(
     # Building the database costs more Python time than most of these queries spend in
     # ClickHouse, and the threads share the GIL, so build it once for all five.
     database = _shared_activity_database(team, user)
+    rules = custom_harness_rules(team)
 
     def run_query(spec: tuple[str, str, object]) -> list[Any]:
         assert isinstance(spec[2], dict)
@@ -800,7 +811,7 @@ def _query_activity_overview(
         run_query,
         [
             (
-                _ACTIVITY_STATS_SQL,
+                _activity_stats_sql(rules),
                 "mcp_analytics_activity_stats",
                 {
                     "tool_call_event": tool_call_event,
@@ -826,7 +837,7 @@ def _query_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_CLIENTS_SQL,
+                _activity_clients_sql(rules),
                 "mcp_analytics_activity_clients",
                 {
                     "tool_call_event": tool_call_event,
@@ -835,7 +846,7 @@ def _query_activity_overview(
                 },
             ),
             (
-                _ACTIVITY_RECENT_CALLS_SQL,
+                _activity_recent_calls_sql(rules),
                 "mcp_analytics_activity_recent_calls",
                 {
                     "tool_call_event": tool_call_event,
