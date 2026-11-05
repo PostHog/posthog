@@ -1420,6 +1420,27 @@ const inboxSteeringInstructionsUpdate = (): ToolBase<
     },
 })
 
+const InboxUsageGetSchema = () => {
+    const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
+    return SignalsMonthlyUsageQueryParams
+}
+
+const inboxUsageGet = (): ToolBase<ReturnType<typeof InboxUsageGetSchema>, Schemas.MonthlyUsage> => ({
+    name: 'inbox-usage-get',
+    schema: InboxUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxUsageGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MonthlyUsage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/usage/`,
+            query: {
+                month: params.month,
+            },
+        })
+        return result
+    },
+})
+
 const ScoutCheckRecordResultSchema = () => {
     const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
     const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
@@ -3019,27 +3040,6 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
-const InboxUsageGetSchema = () => {
-    const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
-    return SignalsMonthlyUsageQueryParams
-}
-
-const inboxUsageGet = (): ToolBase<ReturnType<typeof InboxUsageGetSchema>, Schemas.MonthlyUsage> => ({
-    name: 'inbox-usage-get',
-    schema: InboxUsageGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxUsageGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.MonthlyUsage>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/usage/`,
-            query: {
-                month: params.month,
-            },
-        })
-        return result
-    },
-})
-
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -3825,6 +3825,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
+    'inbox-usage-get': inboxUsageGet,
     'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
@@ -3869,7 +3870,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
-    'inbox-usage-get': inboxUsageGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
