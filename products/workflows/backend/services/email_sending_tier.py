@@ -27,8 +27,6 @@ logger = structlog.get_logger(__name__)
 APP_SOURCE = "hog_flow"
 
 SENT_METRIC = "email_sent"
-# Recorded alongside `email_sent` for sends from the shared sandbox sender. Those reach only the
-# team's own members, so they count toward neither the tier volume nor the rate denominators.
 SANDBOX_SENT_METRIC = "email_sandbox_sent"
 SENT_METRICS = [SENT_METRIC, SANDBOX_SENT_METRIC]
 HARD_BOUNCE_METRIC = "email_bounced_hard"
@@ -349,6 +347,7 @@ def _fetch_daily_metrics(
             before=before,
             team_ids=team_ids,
             workload=workload,
+            net_of={SENT_METRIC: SANDBOX_SENT_METRIC},
         )
 
 
@@ -358,11 +357,11 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     return TeamSendingHistory(
         team_id=team_id,
-        sent=sum(own_sends(counts) for counts in days.values()),
+        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
         hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
         complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: sends for day, counts in days.items() if (sends := own_sends(counts)) > 0},
+        daily_sends={day: sends for day, counts in days.items() if (sends := counts.get(SENT_METRIC, 0)) > 0},
     )
 
 
