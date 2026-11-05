@@ -314,10 +314,10 @@ class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
         assert listing_throttle._get_rates() == listing_rates()
 
 
-def _counter_value(location: str, auth_type: str, team_id: str) -> float:
+def _counter_value(location: str, auth_type: str) -> float:
     from posthog.session_recordings.session_recording_api import SESSION_RECORDING_THROTTLED
 
-    sample = SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type, team_id=team_id)
+    sample = SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type)
     return sample._value.get()  # prometheus_client's internal counter accessor
 
 
@@ -417,7 +417,7 @@ class TestSharingTokenReplayThrottle(SimpleTestCase):
     def test_allow_request_emits_throttled_counter_on_rejection(self, _mock) -> None:
         throttle = SharingTokenReplayThrottle()
         view = type("FakeView", (), {"team_id": 1})()
-        before = _counter_value("replay_sharing_token", "sharing_token", "1")
+        before = _counter_value("replay_sharing_token", "sharing_token")
 
         # Burn the bucket then attempt one more — only the rejected one bumps the counter.
         with (
@@ -431,7 +431,7 @@ class TestSharingTokenReplayThrottle(SimpleTestCase):
                 throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
             throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
 
-        after = _counter_value("replay_sharing_token", "sharing_token", "1")
+        after = _counter_value("replay_sharing_token", "sharing_token")
         assert after - before == 1
 
 

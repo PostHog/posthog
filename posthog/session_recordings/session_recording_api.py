@@ -178,7 +178,7 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
 SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
-    labelnames=["location", "auth_type", "team_id"],
+    labelnames=["location", "auth_type"],
 )
 
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
@@ -195,15 +195,9 @@ def _is_retryable_matching_events_error(error: Exception) -> bool:
     return isinstance(error, ServerException) and error.code == _CLICKHOUSE_ABORTED_ERROR_CODE
 
 
-def _count_session_recording_throttled(location: str, auth_type: str, team_id: int | None) -> None:
-    # The counter only moves for throttled requests, so a team_id label adds a series per throttled team, not per team.
-    labels = {
-        "location": location,
-        "auth_type": auth_type,
-        "team_id": str(team_id) if team_id is not None else "unknown",
-    }
-    SESSION_RECORDING_THROTTLED.labels(**labels).inc()
-    _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, labels)
+def _count_session_recording_throttled(location: str, auth_type: str) -> None:
+    SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
+    _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, {"location": location, "auth_type": auth_type})
 
 
 logger = structlog.get_logger(__name__)
@@ -908,11 +902,7 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
             continue
         wait = throttle.wait()
         scope = throttle.scope or "listing"
-        _count_session_recording_throttled(
-            location=scope,
-            auth_type=auth_type,
-            team_id=PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view),
-        )
+        _count_session_recording_throttled(location=scope, auth_type=auth_type)
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
@@ -956,7 +946,7 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
             return True
         if super().allow_request(request, view):
             return True
-        _count_session_recording_throttled(location=self.scope, auth_type="sharing_token", team_id=team_id)
+        _count_session_recording_throttled(location=self.scope, auth_type="sharing_token")
         return False
 
 
@@ -999,7 +989,17 @@ class _SnapshotUserRateThrottle(SimpleRateThrottle):
             return True
         enforced = settings.SNAPSHOT_USER_RATE_LIMIT_ENFORCED
         location = self.scope if enforced else f"{self.scope}_log_only"
-        _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request), team_id=team_id)
+        _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request))
+        # A client over the limit stays over it for every later request, so log once a minute per user, not per request.
+        if cache.add(f"{self.scope}_logged:{request.user.pk}", 1, timeout=60):
+            # Warning, not info: production drops INFO from this logger, and this line is how we see who goes over.
+            logger.warning(
+                "snapshot_user_rate_limit_exceeded",
+                scope=self.scope,
+                enforced=enforced,
+                user_id=request.user.pk,
+                team_id=team_id,
+            )
         return not enforced
 
 
@@ -1161,9 +1161,7 @@ class SessionRecordingViewSet(
 
                     return response
         except ClickHouseAtCapacity as e:
-            _count_session_recording_throttled(
-                location="clickhouse_at_capacity", auth_type=auth_type, team_id=self.team_id
-            )
+            _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
             raise SessionRecordingAtCapacity(wait=e.wait) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
@@ -1177,9 +1175,7 @@ class SessionRecordingViewSet(
             raise
         except (ServerException, Exception) as e:
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                _count_session_recording_throttled(
-                    location="query_timeout_exceeded", auth_type=auth_type, team_id=self.team_id
-                )
+                _count_session_recording_throttled(location="query_timeout_exceeded", auth_type=auth_type)
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
