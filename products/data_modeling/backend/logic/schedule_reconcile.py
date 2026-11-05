@@ -81,6 +81,7 @@ from products.data_modeling.backend.schedule import (
     build_schedule_spec,
     dag_schedule_search_attributes,
 )
+from products.data_modeling.backend.tasks.reconcile_organization_schedules import schedule_dag_schedule_reconcile
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -92,6 +93,10 @@ class PlanFloorUnavailableError(Exception):
     """The plan floor could not be read, so a reconcile could speed up schedules the floor holds back."""
 
 
+class StaleScheduleError(Exception):
+    """A reconcile could not delete a schedule the DAG no longer needs, so the caller should try again."""
+
+
 class OrganizationReconcileError(Exception):
     """At least one of the organization's DAGs failed to reconcile, so the caller should try again."""
 
@@ -100,7 +105,8 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded.
+    commit — the user's write already succeeded. An unreadable plan floor queues a retry, because
+    the write has reached the database but not the schedules, and nothing else reconciles them.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
@@ -117,6 +123,17 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
+        if isinstance(error, PlanFloorUnavailableError):
+            schedule_dag_schedule_reconcile(str(dag.id))
+
+
+def reconcile_dag_or_raise(dag_id: str) -> None:
+    """Reconcile the DAG, raising if the plan floor is unreadable or a stale schedule survives, so the caller can retry."""
+    dag = DAG.objects.filter(id=dag_id).select_related("team").first()
+    if dag is None:
+        return
+    if _reconcile_dag(dag):
+        raise StaleScheduleError(f"DAG {dag_id} kept a schedule it could not delete")
 
 
 def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:

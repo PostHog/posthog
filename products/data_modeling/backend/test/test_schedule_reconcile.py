@@ -37,6 +37,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_dag_schedules,
     delete_team_data_modeling_schedules,
     maybe_reconcile_dag,
+    reconcile_dag_or_raise,
     reconcile_dag_schedules,
     reconcile_organization_dags,
 )
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
+RECONCILE_TASKS = "products.data_modeling.backend.tasks.reconcile_organization_schedules"
 REFRESH_FLOOR = "products.data_modeling.backend.logic.refresh_floor"
 FLAG_RESULT = f"{REFRESH_FLOOR}.posthoganalytics.get_feature_flag_result"
 
@@ -680,6 +682,31 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_organization_reconcile_treats_a_stale_schedule_that_is_already_gone_as_deleted(self):
         self._reconcile_organization_with_stale_tier(RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+
+    def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self):
+        dag = self._dag_with_target()
+        temporal = self._temporal_listing([])
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+            queue_retry.assert_called_once_with(str(dag.id))
+
+            with self.assertRaises(PlanFloorUnavailableError):
+                reconcile_dag_or_raise(str(dag.id))
+            create.assert_not_called()
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+        ):
+            reconcile_dag_or_raise(str(dag.id))
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
 
     @parameterized.expand([("describe",), ("delete",), ("update",)])
     def test_unreadable_plan_floor_moves_past_a_tier_already_gone(self, gone_on):
