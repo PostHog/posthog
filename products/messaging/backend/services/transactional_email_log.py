@@ -36,6 +36,7 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_STATUS_RETENTION_DAYS,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
@@ -128,6 +129,15 @@ def _sees_no_sends(access: WorkflowViewAccess | None) -> bool:
     return access is not None and not access.can_view_deleted and not access.viewable_ids
 
 
+def _code_send_keys(team_id: int, workflow_ids: Sequence[str]) -> dict[str, str]:
+    """The `template_key` of each workflow behind a send from code, which has no template to name it."""
+    ids = [UUID(workflow_id) for workflow_id in set(workflow_ids) if _is_uuid(workflow_id)]
+    if not ids:
+        return {}
+    keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(hog_flow_id__in=ids)
+    return {str(hog_flow_id): key for hog_flow_id, key in keys.values_list("hog_flow_id", "key")}
+
+
 def _is_uuid(value: str) -> bool:
     try:
         UUID(value)
@@ -138,6 +148,7 @@ def _is_uuid(value: str) -> bool:
 
 def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLogEntry]:
     templates = _templates_by_workflow(team_id, [row[6] for row in rows])
+    code_send_keys = _code_send_keys(team_id, [row[6] for row in rows])
     entries = []
     for row in rows:
         (message_id, queued_at, status, status_at, reason, recipient, workflow_id, domain, opened, clicked) = row
@@ -156,7 +167,7 @@ def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLo
                 recipient=recipient,
                 workflow_id=workflow_id,
                 template_id=str(template.id) if template else None,
-                template_name=template.name if template else "",
+                template_name=template.name if template else code_send_keys.get(workflow_id, ""),
                 sending_domain=domain,
                 opened=bool(opened),
                 clicked=bool(clicked),
@@ -349,12 +360,15 @@ def transactional_email_stats(
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
     )
+    code_send_keys = (
+        _code_send_keys(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
+    )
     stats = []
     for key, sent, delivered, bounced, complained, opened, clicked, failed in rows:
         template = templates.get(key)
         if group_by == EmailStatsGroupBy.TEMPLATE:
+            label = template.name if template and not template.deleted else code_send_keys.get(key, "")
             key = str(template.id) if template else key
-            label = template.name if template and not template.deleted else ""
         else:
             label = key
         stats.append(
