@@ -65,6 +65,7 @@ from posthog.auth import (
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
@@ -1403,6 +1404,15 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                 "The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
+        paginated["properties"]["source_metadata_available"] = {
+            "type": "boolean",
+            "description": (
+                "Whether the rows carry their source metadata. False when the request passed "
+                "include_source_metadata=false, or when the ClickHouse read failed or took too long. "
+                "Then each row has an empty source_products and a null scout_name that do not mean "
+                "the report has none. Load them with source_metadata."
+            ),
+        }
         return paginated
 
 
@@ -1719,6 +1729,7 @@ class SignalReportViewSet(
     scope_object = "inbox"
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
+    _source_metadata_available: bool = True
 
     request_dependent_scope_actions = frozenset({"claim", "bulk_claim"})
 
@@ -3118,6 +3129,7 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        self._source_metadata_available = include_source_metadata
         excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
@@ -3179,6 +3191,7 @@ class SignalReportViewSet(
         if page is not None:
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
+            response.data["source_metadata_available"] = self._source_metadata_available
             response.data["ranking_pill"] = (
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
@@ -3248,11 +3261,22 @@ class SignalReportViewSet(
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
         signal_meta_map: dict[str, ReportSignalMeta] = {}
         if include_source_metadata and report_ids:
+            timed_out = False
             with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
                 try:
-                    signal_meta_map = fetch_source_products_for_reports(self.team, report_ids)
+                    signal_meta_map = fetch_source_products_for_reports(
+                        self.team,
+                        report_ids,
+                        max_execution_time=settings.SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS,
+                    )
+                except ClickHouseQueryTimeOut:
+                    timed_out = True
+                    self._source_metadata_available = False
+                    logger.warning("signals.reports.list.source_products_timed_out", report_count=len(report_ids))
                 except Exception:
+                    self._source_metadata_available = False
                     logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
+            trace.get_current_span().set_attribute("signals.reports.list.source_metadata_timed_out", timed_out)
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
