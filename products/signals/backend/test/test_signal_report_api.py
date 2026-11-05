@@ -3388,6 +3388,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             else self.team
         )
         report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="Verify the fix")
+        create_claim(report, ArtefactAttribution.from_user(self.user.id))
         check = None
         if case != "none":
             check = SignalReportCheck.objects.for_team(team.id).create(
@@ -4913,6 +4914,9 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
     ) -> None:
         ready = self._create_report()
         researching = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
+        # Both are claimed, so `researching` is skipped by its transition guard rather than the claim gate.
+        for report in (ready, researching):
+            create_claim(report, ArtefactAttribution.from_user(self.user.id))
         with patch(
             "products.signals.backend.report_content_gates.feature_enabled_or_false",
             return_value=flag_result if isinstance(flag_result, bool) else False,
