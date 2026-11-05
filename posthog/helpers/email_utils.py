@@ -310,7 +310,7 @@ GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
 
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""
-    local = value.split("@", 1)[0]
+    local = value.rsplit("@", 1)[0]
     if "+" in local:
         raise serializers.ValidationError(
             "Email addresses with a '+' aren't supported. Please use your primary email address.",
