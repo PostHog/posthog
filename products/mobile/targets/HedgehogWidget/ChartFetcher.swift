@@ -9,6 +9,11 @@ enum ChartFetchOutcome: Equatable, Sendable {
 /// reads what the server already computed, the cheap lane in docs/VIEWS.md "Refresh".
 struct ChartFetcher {
     static let timeout: TimeInterval = 20
+    static let maxResponseBytes = 1_048_576
+
+    enum ResponseError: Error {
+        case tooLarge
+    }
 
     // Ephemeral, so responses read with the user's token never land in a disk cache.
     private static let session: URLSession = {
@@ -71,6 +76,21 @@ struct ChartFetcher {
         }
     }
 
+    static func readBody<Bytes: AsyncSequence>(
+        _ bytes: Bytes, expectedLength: Int64, limit: Int = maxResponseBytes
+    ) async throws -> Data where Bytes.Element == UInt8 {
+        guard expectedLength <= Int64(limit) else { throw ResponseError.tooLarge }
+        var data = Data()
+        if expectedLength > 0 {
+            data.reserveCapacity(Int(expectedLength))
+        }
+        for try await byte in bytes {
+            guard data.count < limit else { throw ResponseError.tooLarge }
+            data.append(byte)
+        }
+        return data
+    }
+
     /// Only a response with a result and no error may change the snapshot (`hasGoodResult` in insightSnapshot.ts). A
     /// rate-limited answer is a 200 with `result: null`.
     private static func parse(_ body: Data, pin: ChartPin, now: Date) -> ChartFetchOutcome {
@@ -106,41 +126,80 @@ struct ChartFetcher {
             return .failed(.badData)
         }
         do {
-            let (data, response) = try await Self.session.data(for: request)
+            let (bytes, response) = try await Self.session.bytes(for: request)
+            defer { bytes.task.cancel() }
             guard let http = response as? HTTPURLResponse else { return .failed(.network) }
+            guard http.statusCode == 200 else {
+                return Self.outcome(status: http.statusCode, body: Data(), pin: pin, now: now)
+            }
+            let data = try await Self.readBody(bytes, expectedLength: response.expectedContentLength)
             return Self.outcome(status: http.statusCode, body: data, pin: pin, now: now)
+        } catch ResponseError.tooLarge {
+            return .failed(.badData)
         } catch {
             return .failed(.network)
         }
     }
 }
 
-/// Reads each pin once at a time in this process, so widgets that show the same pin share one request.
+/// Widgets share a request only while their pin points at the same insight and dashboard context.
 actor ChartRefresh {
     static let shared = ChartRefresh()
 
-    private var running: [String: Task<Void, Never>] = [:]
+    private struct RequestKey: Hashable {
+        let pinId: String
+        let url: URL
+    }
+
+    private let store: UserDefaults?
+    private let fetch: @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome
+    private var running: [RequestKey: Task<Void, Never>] = [:]
+
+    init(
+        store: UserDefaults? = ChartStore.defaults,
+        fetch: @escaping @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome = {
+            await ChartFetcher().fetch(pin: $0, credentials: $1, now: $2)
+        }
+    ) {
+        self.store = store
+        self.fetch = fetch
+    }
+
+    private static func key(for pin: ChartPin, host: String, projectId: Int) -> RequestKey? {
+        ChartFetcher.url(for: pin, host: host, projectId: projectId).map { RequestKey(pinId: pin.id, url: $0) }
+    }
 
     func refresh(_ pin: ChartPin, credentials: ChartCredentials, now: Date) async {
-        if let task = running[pin.id] {
+        guard let key = Self.key(for: pin, host: credentials.host, projectId: credentials.projectId) else { return }
+        if let task = running[key] {
             await task.value
             return
         }
         let task = Task {
-            let outcome = await ChartFetcher().fetch(pin: pin, credentials: credentials, now: now)
-            Self.record(outcome, pinId: pin.id, at: now)
+            let outcome = await fetch(pin, credentials, now)
+            Self.record(outcome, pin: pin, credentials: credentials, at: now, store: store)
         }
-        running[pin.id] = task
+        running[key] = task
         await task.value
-        running[pin.id] = nil
+        running[key] = nil
     }
 
-    static func record(_ outcome: ChartFetchOutcome, pinId: String, at now: Date, store: UserDefaults? = ChartStore.defaults) {
+    static func record(
+        _ outcome: ChartFetchOutcome, pin: ChartPin, credentials: ChartCredentials, at now: Date,
+        store: UserDefaults? = ChartStore.defaults
+    ) {
+        guard let catalog = ChartStore.catalog(store: store), catalog.belongs(to: credentials),
+              let current = catalog.pin(id: pin.id), current.eligible,
+              let originalKey = key(for: pin, host: credentials.host, projectId: credentials.projectId),
+              key(for: current, host: catalog.host, projectId: catalog.projectId) == originalKey
+        else {
+            return
+        }
         switch outcome {
         case .snapshot(let snapshot):
             ChartStore.save(snapshot, store: store)
         case .failed(let kind):
-            ChartStore.save(ChartSnapshotError(at: (now.timeIntervalSince1970 * 1000).rounded(), kind: kind), pinId: pinId, store: store)
+            ChartStore.save(ChartSnapshotError(at: (now.timeIntervalSince1970 * 1000).rounded(), kind: kind), pinId: pin.id, store: store)
         }
     }
 }

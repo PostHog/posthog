@@ -15,7 +15,7 @@ struct CheckChartWidget {
         }
     }
 
-    static func main() throws {
+    static func main() async throws {
         // Bucket labels are wall-clock times, so the in-progress rule depends on the zone. Pin one.
         NSTimeZone.default = TimeZone(identifier: "America/New_York")!
         let now = ChartDates.parse("2026-11-04T17:00:00Z")!
@@ -29,7 +29,9 @@ struct CheckChartWidget {
         checkRangeLabels()
         try checkCatalog()
         checkFetcher(now: now)
+        await checkResponseLimits()
         try checkStore(now: now)
+        try await checkRefresh(now: now)
         try checkState(now: now)
 
         if failures > 0 {
@@ -199,6 +201,11 @@ struct CheckChartWidget {
             ("duration seconds", 45.2, .init(style: "duration"), "45.2s"),
             ("duration hours", 7384, .init(style: "duration"), "2h\(nbsp)3m\(nbsp)4s"),
             ("duration_ms", 850, .init(style: "duration_ms"), "850ms"),
+            ("duration outside integer range", 1e20, .init(style: "duration"), "1e+20s"),
+            ("negative duration outside integer range", -1e20, .init(style: "duration"), "-1e+20s"),
+            ("duration_ms outside integer range", 1e23, .init(style: "duration_ms"), "1e+20s"),
+            ("duration_ns outside integer range", 1e29, .init(style: "duration_ns"), "1e+20s"),
+            ("duration at integer boundary", Double(Int.max), .init(style: "duration"), "9.22337e+18s"),
             ("prefix and postfix", 1284, .init(prefix: "~", suffix: " users"), "~1,284 users"),
             ("currency", 12.5, .init(style: "currency", prefix: "$"), "$12.50"),
             ("short", 1284, .init(style: "short"), "1.28\(nbsp)K"),
@@ -306,19 +313,22 @@ struct CheckChartWidget {
         check("app group from the extension id", AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile.dev.HedgehogWidget") == "com.posthog.code.mobile.dev"
               && AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile") == "com.posthog.code.mobile")
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
+        let catalog = try require(ChartStore.catalog(store: store), "stored catalog")
+        let pin = try require(catalog.pin(id: "pin-a"), "stored pin")
+        let dashboard = try require(catalog.pin(id: "pin-b"), "stored dashboard pin")
         check("store: catalog reads back", ChartStore.catalog(store: store)?.pins.count == 4)
         let snapshot = ChartSample.snapshot(pinId: "pin-a", value: "1,284", delta: 12, deltaText: "12%", values: [1, 2, 3], now: now)
-        ChartRefresh.record(.failed(.network), pinId: "pin-a", at: now, store: store)
+        ChartRefresh.record(.failed(.network), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a failure writes the error", ChartStore.error(pinId: "pin-a", store: store)?.kind == .network)
         check("store: error JSON uses the contract's kind names",
               store.string(forKey: "chart.snapshotError.pin-a")?.contains("\"network\"") == true)
-        ChartRefresh.record(.snapshot(snapshot), pinId: "pin-a", at: now, store: store)
+        ChartRefresh.record(.snapshot(snapshot), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a good read writes the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: a good read clears the error", ChartStore.error(pinId: "pin-a", store: store) == nil)
-        ChartRefresh.record(.failed(.rateLimited), pinId: "pin-a", at: now, store: store)
+        ChartRefresh.record(.failed(.rateLimited), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a failure keeps the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: snapshotError kind", store.string(forKey: "chart.snapshotError.pin-a")?.contains("rate_limited") == true)
-        ChartRefresh.record(.failed(.noResult), pinId: "pin-b", at: now, store: store)
+        ChartRefresh.record(.failed(.noResult), pin: dashboard, credentials: credentials, at: now, store: store)
         check("store: a cache miss writes no_result", store.string(forKey: "chart.snapshotError.pin-b")?.contains("\"no_result\"") == true)
         ChartStore.save(ChartPinProject(projectId: 2, projectName: "PostHog App"), pinId: "pin-a", store: store)
         let marker = store.string(forKey: "chart.pinProject.pin-a").flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSONObject }
@@ -326,6 +336,94 @@ struct CheckChartWidget {
         check("store: pin project marker reads back", ChartStore.pinProject(pinId: "pin-a", store: store) == ChartPinProject(projectId: 2, projectName: "PostHog App"))
         let credentialsJSON = #"{"version":1,"host":"https://eu.posthog.com","projectId":7,"projectName":"Shop","accessToken":"pha_example","expiresAt":null,"userUuid":"u"}"#
         check("credentials decode with a null expiry", ChartStore.decodeCredentials(Data(credentialsJSON.utf8))?.isExpired(at: now) == false)
+
+        for (target, changedCatalog) in [
+            (pin, catalogJSON.replacingOccurrences(of: "\"insightId\": 123", with: "\"insightId\": 321")),
+            (dashboard, catalogJSON.replacingOccurrences(of: "\"dashboardId\": 12", with: "\"dashboardId\": 13")),
+        ] {
+            let currentSnapshot = ChartSample.snapshot(pinId: target.id, value: "654", delta: 0, deltaText: "No change", values: [654], now: now)
+            let oldSnapshot = ChartSample.snapshot(pinId: target.id, value: "123", delta: 0, deltaText: "No change", values: [123], now: now)
+            ChartStore.save(currentSnapshot, store: store)
+            store.set(changedCatalog, forKey: ChartStore.catalogKey)
+            for outcome in [ChartFetchOutcome.failed(.notFound), .snapshot(oldSnapshot)] {
+                ChartRefresh.record(outcome, pin: target, credentials: credentials, at: now, store: store)
+                check("store: a changed target discards late outcomes", ChartStore.snapshot(pinId: target.id, store: store) == currentSnapshot
+                      && ChartStore.error(pinId: target.id, store: store) == nil)
+            }
+        }
+    }
+
+    struct ResponseBytes: AsyncSequence, AsyncIteratorProtocol {
+        typealias Element = UInt8
+        var count: Int
+
+        func makeAsyncIterator() -> Self { self }
+
+        mutating func next() async -> UInt8? {
+            guard count > 0 else { return nil }
+            count -= 1
+            return 65
+        }
+    }
+
+    static func checkResponseLimits() async {
+        for (length, expectedLength, accepted) in [(16, 16, true), (16, -1, true), (17, -1, false), (17, 16, false), (0, 17, false)] {
+            do {
+                let data = try await ChartFetcher.readBody(ResponseBytes(count: length), expectedLength: Int64(expectedLength), limit: 16)
+                check("response limit: \(length) bytes, declared \(expectedLength)", accepted && data == Data(repeating: 65, count: length))
+            } catch ChartFetcher.ResponseError.tooLarge {
+                check("response limit: \(length) bytes, declared \(expectedLength)", !accepted)
+            } catch {
+                check("response limit: unexpected error", false, "\(error)")
+            }
+        }
+    }
+
+    actor PendingFetches {
+        private var pending: [Int: CheckedContinuation<ChartFetchOutcome, Never>] = [:]
+        private var arrivals: [Int: CheckedContinuation<Void, Never>] = [:]
+
+        func fetch(_ pin: ChartPin) async -> ChartFetchOutcome {
+            await withCheckedContinuation { continuation in
+                pending[pin.insightId!] = continuation
+                arrivals.removeValue(forKey: pin.insightId!)?.resume()
+            }
+        }
+
+        func waitForRequest(_ insightId: Int) async {
+            if pending[insightId] != nil { return }
+            await withCheckedContinuation { arrivals[insightId] = $0 }
+        }
+
+        func complete(_ insightId: Int, with outcome: ChartFetchOutcome) {
+            pending.removeValue(forKey: insightId)?.resume(returning: outcome)
+        }
+    }
+
+    static func checkRefresh(now: Date) async throws {
+        let suite = "check-chart-refresh-\(ProcessInfo.processInfo.processIdentifier)"
+        let store = try require(UserDefaults(suiteName: suite), "refresh test suite")
+        defer { store.removePersistentDomain(forName: suite) }
+        store.set(catalogJSON, forKey: ChartStore.catalogKey)
+        let pin = try require(ChartStore.catalog(store: store)?.pin(id: "pin-b"), "original dashboard tile")
+        let requests = PendingFetches()
+        let refresh = ChartRefresh(store: store, fetch: { pin, _, _ in await requests.fetch(pin) })
+        let original = Task { await refresh.refresh(pin, credentials: credentials, now: now) }
+        await requests.waitForRequest(456)
+
+        store.set(catalogJSON.replacingOccurrences(of: "\"insightId\": 456", with: "\"insightId\": 654"), forKey: ChartStore.catalogKey)
+        let replacement = try require(ChartStore.catalog(store: store)?.pin(id: pin.id), "replacement dashboard tile")
+        let updated = Task { await refresh.refresh(replacement, credentials: credentials, now: now) }
+        await requests.waitForRequest(654)
+        let snapshot = ChartSample.snapshot(pinId: pin.id, value: "654", delta: 0, deltaText: "No change", values: [654], now: now)
+        await requests.complete(654, with: .snapshot(snapshot))
+        await updated.value
+        check("refresh: a changed tile starts its own request", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot)
+
+        let oldSnapshot = ChartSample.snapshot(pinId: pin.id, value: "456", delta: 0, deltaText: "No change", values: [456], now: now)
+        await requests.complete(456, with: .snapshot(oldSnapshot))
+        await original.value
+        check("refresh: the old tile cannot overwrite the new result", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot)
     }
 
     static func checkState(now: Date) throws {

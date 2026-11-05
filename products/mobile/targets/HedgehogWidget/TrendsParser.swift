@@ -561,7 +561,9 @@ enum TrendsParser {
             let decimals = min(max(0, 2 - Int(floor(log10(abs(value))))), 4)
             return "\(number(value, maxDigits: decimals))\(absolute < 1000 ? "ms" : "s")"
         }
-        let seconds = Int(floor(absolute / 1000))
+        guard let seconds = Int(exactly: floor(absolute / 1000)) else {
+            return "\(String(format: "%.6g", milliseconds / 1000))s"
+        }
         let days = seconds / 86400
         let hours = (seconds % 86400) / 3600
         let minutes = (seconds % 3600) / 60

@@ -348,7 +348,7 @@ swiftc targets/HedgehogWidget/{AppGroup,ChartModels,ChartStore,ChartFetcher,Tren
 ```
 
 It prints one line per check and exits non-zero on a failure.
-It covers a big number with a compare aggregate, a 14-day line with compare totals, bars with an open last bucket, two and six series, breakdown placeholders, every value format, range labels, the catalog picker filter, fetch URLs, headers and status mapping, the store round trip, pin project markers, and every widget state.
+It covers a big number with a compare aggregate, a 14-day line with compare totals, bars with an open last bucket, two and six series, breakdown placeholders, every value format including durations outside the integer range, range labels, the catalog picker filter, fetch URLs, headers and status mapping, response size limits, tile changes during a refresh, the store round trip, pin project markers, and every widget state.
 The SwiftUI, WidgetKit and AppIntents files do not compile there; `xcodebuild` checks them.
 
 ### Identifiers
@@ -368,7 +368,10 @@ The scheme follows the bundle id's variant suffix, as in `src/lib/appVariants.js
 
 - Each timeline call reads the configured pins (the primary pin, plus up to two extra pins on large), each distinct pin once, concurrently.
 - A pin is read again only when its snapshot is 5 minutes old, it has an error, or the catalog was written after the snapshot (a new tile).
-  Widgets that show the same pin share the read; a second widget in the same process waits for the running one.
+  Widgets that show the same pin and resolved insight URL share the read; a second widget in the same process waits for the running one.
+  If the catalog points the pin at another insight or dashboard context before a read completes, that read's result is discarded.
+- iOS reads at most 1 MiB of a response before decoding JSON and cancels larger responses, including responses without a content length.
+  An oversized response counts as `bad_data` and keeps any cached chart.
 - After a 429 or 503, the pin waits a minute before the next read.
 - Each timeline call writes `chart.pinProject.<pinId>` for every configured pin the catalog lists, when it changed.
   A configured pin that later leaves the catalog shows "In another project" when its marker names a project other than the token's, else "<name> is no longer pinned".
