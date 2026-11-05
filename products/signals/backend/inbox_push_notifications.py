@@ -191,7 +191,10 @@ def notify_report_task_update(
     task = task_run.task
     reports = list(
         SignalReport.objects.filter(team_id=task.team_id)
-        .filter(Q(id=task.signal_report_id) | SignalReport.reports_for_task_ids_filter([task.id], team_id=task.team_id))
+        .filter(
+            Q(id=task.signal_report_source_id)
+            | SignalReport.reports_for_task_ids_filter([task.id], team_id=task.team_id)
+        )
         .select_related("team")
         .order_by("created_at", "id")
     )

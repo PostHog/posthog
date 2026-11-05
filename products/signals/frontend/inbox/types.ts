@@ -1,5 +1,6 @@
 import type { UserBasicType } from '~/types'
 
+import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     type SignalReportApi,
     type PatchedSignalSourceConfigApi,
@@ -197,6 +198,8 @@ export interface SignalReportArtefact {
     created_by?: UserBasicType | null
     /** Set when an agent task produced the artefact (attribution reads "by agent"). */
     task_id?: string | null
+    /** Who produced the artefact: a person, an internal task, an external agent, or the pipeline. */
+    actor_kind?: SignalActorKindEnumApi
 }
 
 export interface SignalReportArtefactResponse {

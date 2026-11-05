@@ -36818,6 +36818,26 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailAttachment {
+      /**
+         * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+         * @maxLength 255
+         */
+      filename: string;
+      /** The file's bytes as standard base64, without line breaks. */
+      content: string;
+      /**
+         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * @maxLength 78
+         */
+      content_type?: string;
+      /**
+         * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+         * @maxLength 78
+         */
+      content_id?: string;
+    }
+
     /**
      * * `queued` - Queued
      * * `failed` - Failed
@@ -73442,6 +73462,7 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `scout_note_left` - Scout Note Left
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
@@ -73484,6 +73505,7 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      ScoutNoteLeft: 'scout_note_left',
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
@@ -103116,7 +103138,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. `report_note` for one left from a report through this API with `report_id` set: steering written straight for you, about the report its content names. */
       origin: string;
     }
 
@@ -103134,6 +103156,11 @@ export namespace Schemas {
          * @maxLength 200
          */
       skill_name?: string;
+      /**
+         * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+         * @nullable
+         */
+      report_id?: string | null;
       /**
          * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
          * @nullable
@@ -104622,6 +104649,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      cc?: string | string[] | null;
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      bcc?: string | string[] | null;
+      /**
+         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * @maxItems 10
+         * @nullable
+         */
+      attachments?: EmailAttachment[] | null;
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
       /**
@@ -117850,6 +117887,20 @@ export namespace Schemas {
       dateTo?: string;
     }
 
+    export interface _MetricQueryCount {
+      /** Metric name as it appears in the team's data. */
+      metric_name: string;
+      /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+      query_count: number;
+      /** When a query last read the metric, ISO 8601. */
+      last_queried_at: string;
+    }
+
+    export interface _MetricQueryCountsResponse {
+      /** Metrics that queries read in the window, the most queried first. */
+      results: _MetricQueryCount[];
+    }
+
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
@@ -130726,6 +130777,21 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
     };
 
     export type MetricsValuesRetrieveParams = {
