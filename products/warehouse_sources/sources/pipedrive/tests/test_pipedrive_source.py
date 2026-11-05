@@ -7,6 +7,7 @@ from products.warehouse_sources.sources.pipedrive._config import PipedriveSource
 from products.warehouse_sources.sources.pipedrive.settings import ENDPOINTS
 from products.warehouse_sources.sources.pipedrive.source import PipedriveSource
 from products.warehouse_sources.sources.sdk import SourceFieldInputConfig, WebhookSourceManager
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
 
 class TestPipedriveSource:
@@ -189,15 +190,10 @@ class TestPipedriveSource:
 
         assert isinstance(mock_pipedrive_source.call_args.kwargs["webhook_source_manager"], WebhookSourceManager)
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            # The subdomain in "for url: https://<company>.pipedrive.com/..." is per-customer, so
-            # the match must not depend on it.
-            "402 Client Error: Payment Required for url: https://acme.pipedrive.com/api/v1/projects/boards | api error: code=402",
-            "401 Client Error: Unauthorized for url: https://acme.pipedrive.com/api/v1/users/me",
-            "403 Client Error: Forbidden for url: https://acme.pipedrive.com/api/v2/deals",
-        ],
-    )
-    def test_non_retryable_errors_match_client_error_status_regardless_of_subdomain(self, observed_error: str) -> None:
-        assert any(pattern in observed_error for pattern in self.source.get_non_retryable_errors())
+    def test_plan_restricted_response_is_classified_non_retryable(self) -> None:
+        # project_boards is a plain lookup endpoint (no fan-out/custom read), so one scripted
+        # answer drives the real request-and-raise path the pipeline actually runs.
+        result = SourceDriver(self.source, self.config).run("project_boards", [ScriptedResponse(status=402)])
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), self.source.get_non_retryable_errors())
