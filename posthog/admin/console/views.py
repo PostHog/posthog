@@ -12,6 +12,7 @@ from django.urls import reverse
 
 import structlog
 
+from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool
@@ -166,6 +167,10 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
     )
 
 
+def _is_offered(panel: Panel, team: Team, operation_key: str) -> bool:
+    return any(operation.key == operation_key for operation in panel.operations(team))
+
+
 def _find_operation(panel: Panel, team: Team, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
@@ -219,13 +224,17 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
     if response is None:
         return redirect(team_url)
     if response.status_code >= 400:
-        if form is not None:
+        team.refresh_from_db()
+        # A handler can fail after its state change committed, for example when a notification fails.
+        # The operation is then no longer offered, and staff belong on the team page, not on a dead form.
+        if form is not None and _is_offered(panel, team, operation.key):
             return render(request, "admin_console/operation.html", context, status=400)
-        messages.error(
-            request,
-            f"{operation.label} failed with status {response.status_code}. The page below shows the current state. "
-            f"Try again, or ask the {panel.owner.name} team if it keeps failing.",
-        )
+        if QueuedMessages.error_count(request) == 0:
+            messages.error(
+                request,
+                f"{operation.label} failed with status {response.status_code}. The page below shows the current "
+                f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
+            )
         return redirect(team_url)
     return response
 

@@ -207,9 +207,17 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("suspend_with_reason", "suspend", {"reason": "Bounce rate above 10%"}, 302, True),
-            ("suspend_without_reason", "suspend", {"reason": "   "}, 400, False),
-            ("operation_not_offered_in_this_state", "unsuspend", {}, 404, False),
+            ("suspend_with_reason", "suspend", {"reason": "Bounce rate above 10%"}, False, 302, True),
+            ("suspend_without_reason", "suspend", {"reason": "   "}, False, 400, False),
+            (
+                "notification_fails_after_the_suspension",
+                "suspend",
+                {"reason": "Bounce rate above 10%"},
+                True,
+                302,
+                True,
+            ),
+            ("operation_not_offered_in_this_state", "unsuspend", {}, False, 404, False),
         ]
     )
     @patch("posthog.admin.admins.team_admin.create_notification")
@@ -219,11 +227,15 @@ class TestAdminConsoleViews(BaseTest):
         _name: str,
         operation_key: str,
         data: dict[str, str],
+        notification_fails: bool,
         expected_status: int,
         expect_suspended: bool,
-        _send_email: object,
+        send_email: MagicMock,
         _create_notification: object,
     ) -> None:
+        if notification_fails:
+            send_email.delay.side_effect = RuntimeError("broker down")
+
         response = self.client.post(f"/admin/console/teams/{self.team.pk}/email-sending/{operation_key}/", data)
 
         assert response.status_code == expected_status
