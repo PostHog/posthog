@@ -12,6 +12,7 @@ import type {
     ActivityLogPaginatedResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    ChartExplanationApi,
     ColumnConfigurationApi,
     ColumnConfigurationsListParams,
     ElementApi,
@@ -30,6 +31,7 @@ import type {
     InsightBulkSetTestAccountFilterResponseApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
+    InsightExplanationCreateApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -482,6 +484,59 @@ export const insightsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightApi),
+    })
+}
+
+export const getInsightsExplanationsCreateUrl = (projectId: string, insightId: number) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/`
+}
+
+export const insightsExplanationsCreate = async (
+    projectId: string,
+    insightId: number,
+    insightExplanationCreateApi: InsightExplanationCreateApi,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsCreateUrl(projectId, insightId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplanationCreateApi),
+    })
+}
+
+export const getInsightsExplanationsRetrieveUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/${id}/`
+}
+
+export const insightsExplanationsRetrieve = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsRetrieveUrl(projectId, insightId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsExplanationsUpdateUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/explanations/${id}/`
+}
+
+export const insightsExplanationsUpdate = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    insightExplanationCreateApi: InsightExplanationCreateApi,
+    options?: RequestInit
+): Promise<ChartExplanationApi> => {
+    return apiMutator<ChartExplanationApi>(getInsightsExplanationsUpdateUrl(projectId, insightId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplanationCreateApi),
     })
 }
 

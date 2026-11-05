@@ -30,7 +30,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
 from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
@@ -828,22 +828,22 @@ class TestRecentCohorts(BaseTest):
 
 class TestRecentActions(BaseTest):
     def test_orders_by_updated_at_desc(self) -> None:
-        a = Action.objects.create(team=self.team, name="a", created_by=self.user)
-        Action.objects.filter(id=a.id).update(updated_at=timezone.now() - timedelta(days=1))
-        Action.objects.create(team=self.team, name="b", created_by=self.user)
+        a = create_action(team=self.team, name="a", created_by=self.user)
+        update_action(a, updated_at=timezone.now() - timedelta(days=1))
+        create_action(team=self.team, name="b", created_by=self.user)
         result = _recent_actions(self.team)
         assert [r["name"] for r in result["recent"]] == ["b", "a"]
 
     def test_excludes_deleted(self) -> None:
-        Action.objects.create(team=self.team, name="kept", created_by=self.user)
-        Action.objects.create(team=self.team, name="gone", deleted=True, created_by=self.user)
+        create_action(team=self.team, name="kept", created_by=self.user)
+        create_action(team=self.team, name="gone", deleted=True, created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 1
         assert result["recent"][0]["name"] == "kept"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Action.objects.create(team=other, name="x", created_by=self.user)
+        create_action(team=other, name="x", created_by=self.user)
         result = _recent_actions(self.team)
         assert result["total_count"] == 0
 
