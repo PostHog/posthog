@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from botocore.exceptions import ClientError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.integration import Integration
 
@@ -264,14 +265,15 @@ class TestSandboxTenantStateSync(BaseTest):
 
         assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
 
-    def test_an_unknown_sandbox_tenant_is_never_paused(self) -> None:
+    @parameterized.expand([("never_synced", "", False), ("paused_before_it_was_deleted", "DISABLED", True)])
+    def test_an_unknown_sandbox_tenant_is_never_paused(self, _name: str, stored: str, announced: bool) -> None:
+        SandboxSenderTenantState.objects.create(tenant_name=SANDBOX_TENANT, sending_status=stored)
         self.ses.get_tenant.side_effect = ClientError({"Error": {"Code": "NotFoundException"}}, "GetTenant")
 
         self._sync()
 
-        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
-        assert (state.sending_status, state.synced_at) == ("", None)
-        self.publish.assert_not_called()
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == ""
+        assert self.publish.called is announced
 
     def test_the_daily_sweep_syncs_the_sandbox_tenant_once_beside_team_tenants(self) -> None:
         Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
@@ -293,11 +295,16 @@ class TestSandboxTenantStateSync(BaseTest):
             return {"Tenant": {"TenantName": TenantName, "SendingStatus": "ENABLED"}}
 
         self.ses.get_tenant.side_effect = get_tenant
+        failures = REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": "transient"}) or 0
 
         with self.captureOnCommitCallbacks(execute=True):
             reconcile_ses_tenant_states()
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
+        assert (
+            REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": "transient"})
+            == failures + 1
+        )
 
     @override_settings(SES_SANDBOX_TENANT_NAME="")
     def test_nothing_is_synced_while_no_sandbox_tenant_is_configured(self) -> None:
