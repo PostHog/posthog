@@ -104,7 +104,7 @@ async function readPixelCount(image: File): Promise<number> {
     }
 }
 
-async function shrinkToUploadLimit(image: File): Promise<File> {
+async function assertCanBeResized(image: File): Promise<void> {
     // Drawing a GIF to a canvas keeps only its first frame.
     if (image.type === 'image/gif') {
         throw new Error('GIFs cannot be resized')
@@ -112,6 +112,10 @@ async function shrinkToUploadLimit(image: File): Promise<File> {
     if ((await readPixelCount(image)) > MAX_DECODED_PIXELS) {
         throw new Error('Image has too many pixels to resize safely')
     }
+}
+
+async function shrinkToUploadLimit(image: File): Promise<File> {
+    await assertCanBeResized(image)
     const bitmap = await createImageBitmap(image)
     try {
         const canvas = document.createElement('canvas')
