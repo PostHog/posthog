@@ -67,6 +67,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     DimensionalStatsTableQueryBuilder,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
+    falls_back_to_live_after,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -830,7 +831,9 @@ WHERE and(
                 self.dimensional_query_builder = DimensionalStatsTableQueryBuilder(self, job_ids)
                 try:
                     return self._calculate_from_query()
-                except Exception:
+                except Exception as error:
+                    if not falls_back_to_live_after(error):
+                        raise
                     logger.exception("web_stats_dimensional_read_failed", team_id=self.team.pk)
                     self.dimensional_query_builder = None
 

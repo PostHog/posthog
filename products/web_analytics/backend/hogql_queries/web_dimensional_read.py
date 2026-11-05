@@ -20,6 +20,7 @@ from posthog.schema import WebStatsBreakdown
 
 from posthog.hogql import ast
 
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -99,6 +100,17 @@ def ready_dimensional_job_ids(
     except Exception:
         logger.exception("web_dimensional_job_ids_lookup_failed", team_id=runner.team.pk)
         return None
+
+
+# A live query after one of these would add load to a cluster that is already overloaded, or repeat
+# a read that the user or the server cancelled.
+_NO_LIVE_FALLBACK_ERROR_CATEGORIES = frozenset(
+    {QueryErrorCategory.CANCELLED, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.QUERY_PERFORMANCE_ERROR}
+)
+
+
+def falls_back_to_live_after(error: Exception) -> bool:
+    return classify_query_error(error) not in _NO_LIVE_FALLBACK_ERROR_CATEGORIES
 
 
 def dimensional_precompute_stale(job_ids: DimensionalJobIds | None) -> bool | None:

@@ -41,6 +41,8 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
@@ -343,6 +345,24 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
     )
     def test_failed_dimensional_read_falls_back_to_live(self, _name, builder_name):
+        self._assert_dimensional_failure(builder_name, RuntimeError("dimensional read failed"), falls_back=True)
+
+    @parameterized.expand(
+        [
+            ("stats_table_at_capacity", "DimensionalStatsTableQueryBuilder", ClickHouseAtCapacity()),
+            ("overview_at_capacity", "DimensionalWebOverviewQueryBuilder", ClickHouseAtCapacity()),
+            ("stats_table_timeout", "DimensionalStatsTableQueryBuilder", ClickHouseQueryTimeOut()),
+            (
+                "overview_cancelled",
+                "DimensionalWebOverviewQueryBuilder",
+                CHQueryErrorQueryWasCancelled("cancelled", code=394, code_name="query_was_cancelled"),
+            ),
+        ]
+    )
+    def test_overload_and_cancel_errors_do_not_rerun_live(self, _name, builder_name, error):
+        self._assert_dimensional_failure(builder_name, error, falls_back=False)
+
+    def _assert_dimensional_failure(self, builder_name: str, error: Exception, falls_back: bool) -> None:
         def run(web_query_modifiers):
             if builder_name == "DimensionalStatsTableQueryBuilder":
                 stats_runner = WebStatsTableQueryRunner(
@@ -369,12 +389,15 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         live = run(None)
         with patch(
             f"products.web_analytics.backend.hogql_queries.web_dimensional_read.{builder_name}.get_query",
-            side_effect=RuntimeError("dimensional read failed"),
+            side_effect=error,
         ) as failing_query:
-            opted_in = run(OPT_IN)
+            if falls_back:
+                assert run(OPT_IN) == live
+            else:
+                with self.assertRaises(type(error)):
+                    run(OPT_IN)
 
         assert failing_query.called
-        assert opted_in == live
 
     def test_overview_dimensional_matches_v2(self):
         def run(modifiers, web_query_modifiers):

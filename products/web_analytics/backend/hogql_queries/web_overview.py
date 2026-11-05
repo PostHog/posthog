@@ -33,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     DimensionalWebOverviewQueryBuilder,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
+    falls_back_to_live_after,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -273,7 +274,9 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         if job_ids is None:
             return None, None
         response = self._execute_pre_aggregated(
-            DimensionalWebOverviewQueryBuilder(self, job_ids), query_type="web_overview_dimensional_query"
+            DimensionalWebOverviewQueryBuilder(self, job_ids),
+            query_type="web_overview_dimensional_query",
+            reraise_overload_errors=True,
         )
         return response, job_ids if response else None
 
@@ -292,7 +295,9 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             self.preaggregated_query_builder, query_type="web_overview_preaggregated_query"
         )
 
-    def _execute_pre_aggregated(self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str):
+    def _execute_pre_aggregated(
+        self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str, reraise_overload_errors: bool = False
+    ):
         try:
             # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
             # to prevent HogQL from automatically converting DateTime fields to team timezone.
@@ -320,6 +325,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
             return response
         except Exception as e:
+            if reraise_overload_errors and not falls_back_to_live_after(e):
+                raise
             logger.exception("Error getting pre-aggregated web_overview", query_type=query_type, error=e)
             return None
 
