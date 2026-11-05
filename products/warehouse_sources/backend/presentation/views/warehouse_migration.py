@@ -63,6 +63,10 @@ class TablePairSerializer(serializers.Serializer):
 class ProposedDestinationSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Destination type, for example `Snowflake` or `BigQuery`.")
     config = serializers.DictField(help_text="Non-secret destination settings copied from Fivetran.")
+    vendor_schemas = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The schemas Fivetran writes this connection into. Use another schema in the PostHog destination.",
+    )
 
 
 class ItemProposalSerializer(serializers.Serializer):
@@ -226,8 +230,9 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             return [*super().get_throttles(), WarehouseMigrationCrawlThrottle()]
         return super().get_throttles()
 
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        # Here, not in initial(), so it runs before the throttles: a user without the flag spends no crawl budget.
         if not migrations.is_migration_import_enabled(self.team, getattr(request.user, "distinct_id", None)):
             raise exceptions.NotFound()
 
@@ -324,9 +329,12 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     def skip_items(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
         """Skip many connections at once, or all but the ones to keep."""
         data = request.validated_data
-        result = migrations.skip_migration_items(
-            self.team_id, UUID(pk), item_ids=data.get("item_ids"), keep_item_ids=data.get("keep_item_ids")
-        )
+        try:
+            result = migrations.skip_migration_items(
+                self.team_id, UUID(pk), item_ids=data.get("item_ids"), keep_item_ids=data.get("keep_item_ids")
+            )
+        except contracts.WarehouseMigrationUnknownItemsError as error:
+            raise exceptions.ValidationError(str(error))
         if result is None:
             raise exceptions.NotFound()
         return Response(WarehouseMigrationSkipItemsResponseSerializer(result).data)

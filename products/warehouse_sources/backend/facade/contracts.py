@@ -457,6 +457,14 @@ class MigrationTableOverride:
     posthog_table: str | None
 
 
+class WarehouseMigrationUnknownItemsError(ValueError):
+    """Some item ids are not items of the migration."""
+
+    def __init__(self, item_ids: list[UUID]) -> None:
+        super().__init__(f"Not items of this migration: {', '.join(str(item_id) for item_id in item_ids)}.")
+        self.item_ids = item_ids
+
+
 @dataclass(frozen=True)
 class WarehouseMigrationBulkSkip:
     skipped_item_ids: list[UUID]
