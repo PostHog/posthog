@@ -53,19 +53,18 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
 WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 
-# Today's window refreshes hourly, the last two days daily, and older days every 30 to 37
-# days. The scheduled job re-runs over the rolling window and the framework only recomputes
-# windows whose jobs have expired. Today's TTL is shorter than the hourly schedule so that every
-# run finds today's job expired and rebuilds it. A TTL equal to the schedule period lets a run
-# find the job fresh by seconds, skip it, and leave it expired until the next run.
+# Today's window refreshes hourly, the last two days daily, and older days are held for 90 to 97
+# days so a settled day is computed once. The scheduled job re-runs over the rolling window and the
+# framework only recomputes windows whose jobs have expired. Today's TTL is shorter than the hourly
+# schedule so that every run finds today's job expired and rebuilds it. A TTL equal to the schedule
+# period lets a run find the job fresh by seconds, skip it, and leave it expired until the next run.
 #
-# Older days still expire, so data that changes after a day settles (late or re-imported events,
-# deletions) reaches the tables within about a month. The jitter gives each day a stable offset,
-# so a backfill's days expire on different runs and each run rebuilds only a few of them.
+# The jitter gives each older day a stable offset, so a backfill's days expire on different runs
+# and each run rebuilds only a few of them.
 DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
     "0d": 45 * 60,
     "2d": 24 * 60 * 60,
-    "default": 30 * 24 * 60 * 60,
+    "default": 90 * 24 * 60 * 60,
 }
 DIMENSIONAL_DEFAULT_TTL_JITTER_SECONDS = 7 * 24 * 60 * 60
 

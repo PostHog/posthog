@@ -174,7 +174,7 @@ class TestSummarizeCoverage(SimpleTestCase):
             (
                 "job_past_the_schedule_ttl_is_missing_despite_a_longer_stored_expiry",
                 [
-                    _ready_job(-3, -1, 40 * 24 * 60, 90 * 24 * 60),
+                    _ready_job(-3, -1, 100 * 24 * 60, 200 * 24 * 60),
                     _ready_job(-1, 0, 600, 24 * 60),
                     _ready_job(0, 1, 10, 60),
                 ],
