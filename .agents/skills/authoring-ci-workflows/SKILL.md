@@ -420,6 +420,10 @@ GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 bec
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
 A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
+**Size a test job from its own queue, not from its average.** A shard count that hides setup work, or a runner that cannot host the workers a test phase needs, is a wall-clock floor no cache removes. Compare the same job on the two sizes before you pick one: the merge queue and a pull request run the same suite, so a queue run is the A/B.
+
+Sizing the Playwright job: the E2E `playwright` job runs on `depot-ubuntu-24.04-16` with 12 Playwright workers and 8 Granian workers, for pull requests and the merge queue alike. A pull request that runs the full suite runs the same 154 tests the queue does. Ten full runs a side, the test step takes a median 426s at 6 workers on 8 vCPU against 252s at 12 workers on 16 vCPU, and the job wall 12.6 min against 9.1 min. Workers scale together: extra Playwright workers without extra Granian workers added test failures and no speedup, so the size is what buys the wall. The cost is about 45% more vCPU minutes for that job.
+
 Details: `/depot-github-runners`.
 
 ## Draft vs ready-for-review

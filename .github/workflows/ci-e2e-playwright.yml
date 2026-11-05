@@ -552,9 +552,12 @@ jobs:
         if: |
             !cancelled()
             && needs.changes.outputs.shouldRun == 'true'
-        # The merge queue's full suite gates every merge, so it gets the larger runner. Other runs
-        # mostly run selected specs, where setup dominates. Talk to #team-devex before changing.
-        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04-16' || 'depot-ubuntu-24.04-8' }}
+        # A pull request that runs the full suite runs the same 154 tests the merge queue does, and the
+        # runner size is what sets their wall: the test step takes 430s at 6 workers on 8 vCPU and 252s
+        # at 12 workers on 16 vCPU. See "Sizing the Playwright job" in
+        # .agents/skills/authoring-ci-workflows/SKILL.md for the measurement. Talk to #team-devex before
+        # changing the size or the worker counts below; they are tuned against each other.
+        runs-on: depot-ubuntu-24.04-16
         timeout-minutes: 45
         permissions:
             contents: read
@@ -572,10 +575,10 @@ jobs:
             INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
             AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
             AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
-            # Tuned together per runner and doubled for the queue: more Playwright workers without more
-            # Granian workers added test failures and no speedup. Talk to #team-devex before changing either.
-            GRANIAN_WORKERS: ${{ startsWith(github.head_ref, 'trunk-merge/') && 8 || 4 }}
-            PLAYWRIGHT_WORKERS: ${{ startsWith(github.head_ref, 'trunk-merge/') && 12 || 6 }}
+            # Tuned together for the 16 vCPU runner: more Playwright workers without more Granian
+            # workers added test failures and no speedup. Talk to #team-devex before changing either.
+            GRANIAN_WORKERS: 8
+            PLAYWRIGHT_WORKERS: 12
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
