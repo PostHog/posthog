@@ -5,10 +5,14 @@
     {# Team admin includes inline formsets (GroupTypeMapping, TeamMarketingAnalyticsConfig) #}
     {# which require this template override for CSP compliance #}
 {% endblock %}
-{% block admin_console_url %}
-    {% if original.pk %}
-        {% url 'admin_console_team' team_id=original.pk %}
-    {% else %}
-        {{ block.super }}
+{% block console_banner %}
+    {% if user.is_staff and original.pk %}
+        <div class="console-banner">
+            <p>
+                A few team actions, like rebuilding the config cache or setting the API token, are now in PostHog Admin.
+                <a href="{% url 'admin_console_team' team_id=original.pk %}">Open this team in PostHog Admin</a>
+            </p>
+            <button type="button" class="console-banner-hide" data-hide-console-banner>Hide for a month</button>
+        </div>
     {% endif %}
 {% endblock %}

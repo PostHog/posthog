@@ -201,9 +201,13 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "team actions moved to PostHog Admin" in content
+        assert "A few team actions" in content
         for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
+
+        other_page = self.client.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
+        assert other_page.status_code == 200
+        assert "console-banner" not in other_page.content.decode()
 
     @parameterized.expand(
         [
