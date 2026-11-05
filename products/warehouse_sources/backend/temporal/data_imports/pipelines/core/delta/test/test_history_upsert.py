@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
-    needs_history_upsert,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
@@ -89,7 +88,6 @@ _TINY_CHUNKS = {"max_call_bytes": 1, "chunk_target_bytes": 256}
 
 
 class TestHistoryUpsert:
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_a_sync_closes_changed_keys_and_skips_rows_that_are_not_newer(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path)
@@ -114,7 +112,6 @@ class TestHistoryUpsert:
         assert (result.staged_rows, result.rows_deduped, result.rows_reread, result.rows_backwards) == (6, 1, 1, 1)
         assert (result.versions_closed, result.chain_rows_closed) == (1, 1)
 
-    @needs_history_upsert
     @pytest.mark.parametrize("same_run", [True, False])
     @pytest.mark.asyncio
     async def test_the_last_staged_row_wins_a_tie_on_key_and_cursor(self, tmp_path: Path, same_run: bool) -> None:
@@ -126,7 +123,6 @@ class TestHistoryUpsert:
 
         assert [row[1] for row in tables.rows()] == ["fresh"]
 
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_a_null_key_part_matches_its_open_version(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path, keys=["id", "name"])
@@ -138,7 +134,6 @@ class TestHistoryUpsert:
             (None, "x", _at(2), None, "current"),
         ]
 
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_a_required_column_that_arrives_later_keeps_the_earlier_rows(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path)
@@ -155,7 +150,6 @@ class TestHistoryUpsert:
         with pytest.raises(ValueError, match="_ph_staged_row"):
             await _Tables(tmp_path).stage(batch, "run", 0)
 
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_nothing_staged_writes_nothing(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path)
@@ -164,7 +158,6 @@ class TestHistoryUpsert:
 
         assert await tables.finalize() is None
 
-    @needs_history_upsert
     @pytest.mark.parametrize(
         "name_width,chunk_kwargs",
         [
@@ -198,7 +191,6 @@ class TestHistoryUpsert:
         tagged = [commit["version"] for commit in history.history() if commit_matches(commit, tag)]
         assert tagged == [history.version()]
 
-    @needs_history_upsert
     @pytest.mark.parametrize("chunk_kwargs", [{}, _TINY_CHUNKS])
     @pytest.mark.asyncio
     async def test_a_rerun_after_a_crash_past_the_commit_changes_nothing(
@@ -218,7 +210,6 @@ class TestHistoryUpsert:
         assert rerun is not None and rerun.rows_reread == 20
         assert await tables.finalize(**chunk_kwargs) is None
 
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_a_rerun_after_a_crash_between_chunk_commits_finishes_the_rest_once(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path)

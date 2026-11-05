@@ -1,15 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
-from deltalite import DeltaLiteTable
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
-
-# The installed deltalite gains `history_upsert` in 0.1.16 (#128450). The pin bump removes these skips.
-HISTORY_UPSERT_AVAILABLE = hasattr(DeltaLiteTable, "history_upsert")
-HISTORY_UPSERT_SKIP_REASON = "needs deltalite>=0.1.16 (#128450)"
-needs_history_upsert = pytest.mark.skipif(not HISTORY_UPSERT_AVAILABLE, reason=HISTORY_UPSERT_SKIP_REASON)
 
 
 def make_logger() -> MagicMock:
