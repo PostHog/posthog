@@ -91,6 +91,12 @@ const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefi
     return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
 }
 
+// The send route puts the recipient on the trigger event, so a status row written from the job can name it.
+const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
+    const to = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.event?.properties?.to
+    return typeof to === 'string' ? to : undefined
+}
+
 export type TransactionalSendsDeps = {
     siteUrl: string
     idempotencyKeys: IdempotencyKeys
@@ -350,7 +356,15 @@ export class ScheduledTransactionalSends {
         if (result.outcome !== 'rescheduled') {
             return { outcome: result.outcome }
         }
-        writeStatus(this.deps.emailStatus, { teamId, messageId, status: 'scheduled' })
+        const job = v2JobToInvocation(result.job)
+        writeStatus(this.deps.emailStatus, {
+            teamId,
+            messageId,
+            status: 'scheduled',
+            recipient: recipientOf(job),
+            functionId: job.functionId,
+            scheduledAt,
+        })
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
@@ -372,7 +386,13 @@ export class ScheduledTransactionalSends {
         }
         monitoringService.queueInvocationResults([result])
         invocationResultsRowsService.queueInvocationResults([result])
-        writeStatus(this.deps.emailStatus, { teamId: job.teamId, messageId: job.id, status: 'canceled' })
+        writeStatus(this.deps.emailStatus, {
+            teamId: job.teamId,
+            messageId: job.id,
+            status: 'canceled',
+            recipient: recipientOf(job),
+            functionId: job.functionId,
+        })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))

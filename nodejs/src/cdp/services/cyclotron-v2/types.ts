@@ -181,7 +181,9 @@ export type CyclotronV2CancelUnclaimedResult =
     | { outcome: 'canceled'; job: JobRow }
     | { outcome: 'already_canceled' | 'claimed' | 'not_found' }
 
-export type CyclotronV2RescheduleUnclaimedResult = { outcome: 'rescheduled' | 'canceled' | 'claimed' | 'not_found' }
+export type CyclotronV2RescheduleUnclaimedResult =
+    | { outcome: 'rescheduled'; job: JobRow }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' }
 
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend

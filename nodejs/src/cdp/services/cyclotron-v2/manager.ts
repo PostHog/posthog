@@ -9,7 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { withScheduledAt } from './job-codec'
+import { JobRow, withScheduledAt } from './job-codec'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -127,6 +127,21 @@ type UnclaimedJobRow = {
 // The server's pools install a parser that returns timestamps as ISO strings; a bare pool returns Dates.
 const toDateTime = (value: string | Date): DateTime =>
     typeof value === 'string' ? DateTime.fromISO(value, { zone: 'utc' }) : DateTime.fromJSDate(value, { zone: 'utc' })
+
+const UNCLAIMED_JOB_COLUMNS = 'id, team_id, function_id, queue_name, priority, scheduled, created, parent_run_id, state'
+
+const unclaimedJob = (row: UnclaimedJobRow): JobRow => ({
+    id: row.id,
+    teamId: row.team_id,
+    functionId: row.function_id,
+    queueName: row.queue_name,
+    priority: row.priority,
+    scheduled: toDateTime(row.scheduled),
+    created: toDateTime(row.created),
+    parentRunId: row.parent_run_id,
+    state: row.state,
+    cancelRequestedAt: null,
+})
 
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
@@ -753,7 +768,7 @@ export class CyclotronV2Manager {
              SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL, last_transition = NOW(),
                  janitor_touch_count = 0
              WHERE ${UNCLAIMED_EMAIL_JOB}
-             RETURNING id, team_id, function_id, queue_name, priority, scheduled, created, parent_run_id, state`,
+             RETURNING ${UNCLAIMED_JOB_COLUMNS}`,
             [id, teamId]
         )
         const row = result.rows[0]
@@ -763,21 +778,7 @@ export class CyclotronV2Manager {
                 outcome: !existing ? 'not_found' : existing.status === 'canceled' ? 'already_canceled' : 'claimed',
             }
         }
-        return {
-            outcome: 'canceled',
-            job: {
-                id: row.id,
-                teamId: row.team_id,
-                functionId: row.function_id,
-                queueName: row.queue_name,
-                priority: row.priority,
-                scheduled: toDateTime(row.scheduled),
-                created: toDateTime(row.created),
-                parentRunId: row.parent_run_id,
-                state: row.state,
-                cancelRequestedAt: null,
-            },
-        }
+        return { outcome: 'canceled', job: unclaimedJob(row) }
     }
 
     // Also moves the state's `scheduledAt`, which the email queue wait metric starts from. The state decodes
@@ -790,22 +791,24 @@ export class CyclotronV2Manager {
         const client = await this.pool.connect()
         try {
             await client.query('BEGIN')
-            const locked = await client.query<{ state: Buffer | null }>(
-                `SELECT state FROM cyclotron_jobs
+            const locked = await client.query<UnclaimedJobRow>(
+                `SELECT ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
                  WHERE ${UNCLAIMED_EMAIL_JOB} AND cancel_requested_at IS NULL
                  FOR UPDATE`,
                 [id, teamId]
             )
-            if (locked.rows.length === 0) {
+            const row = locked.rows[0]
+            if (!row) {
                 await client.query('ROLLBACK')
             } else {
+                const state = withScheduledAt(row.state, scheduled.toISOString())
                 await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
                     id,
                     scheduled,
-                    withScheduledAt(locked.rows[0].state, scheduled.toISOString()),
+                    state,
                 ])
                 await client.query('COMMIT')
-                return { outcome: 'rescheduled' }
+                return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }) }
             }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)

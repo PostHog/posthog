@@ -3020,6 +3020,19 @@ describe('CDP API', () => {
                 return mockQueueInvocations.mock.calls[0][0][0]
             }
 
+            const unclaimedJob = (id: string, scheduled: DateTime, invocation?: CyclotronJobInvocation) => ({
+                id,
+                teamId: team.id,
+                functionId: hogFlow.id,
+                queueName: 'email',
+                priority: 0,
+                scheduled,
+                created: DateTime.now(),
+                parentRunId: null,
+                state: invocation ? encodeStateColumns(invocation).state : null,
+                cancelRequestedAt: null,
+            })
+
             beforeEach(() => {
                 cancelUnclaimed = jest.fn()
                 rescheduleUnclaimed = jest.fn()
@@ -3050,18 +3063,11 @@ describe('CDP API', () => {
                     cancelUnclaimed
                         .mockResolvedValueOnce({
                             outcome: 'canceled',
-                            job: {
-                                id: invocation.id,
-                                teamId: team.id,
-                                functionId: hogFlow.id,
-                                queueName: 'email',
-                                priority: 0,
-                                scheduled: invocation.queueScheduledAt!.plus({ days: 1 }),
-                                created: DateTime.now(),
-                                parentRunId: null,
-                                state: encodeStateColumns(invocation).state,
-                                cancelRequestedAt: null,
-                            },
+                            job: unclaimedJob(
+                                invocation.id,
+                                invocation.queueScheduledAt!.plus({ days: 1 }),
+                                invocation
+                            ),
                         })
                         .mockResolvedValueOnce({ outcome: 'already_canceled' })
                     const queueAppMetric = jest.spyOn(
@@ -3105,7 +3111,12 @@ describe('CDP API', () => {
                         )
                         expect(emailStatusRows()).toEqual([
                             expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
-                            expect.objectContaining({ message_id: invocation.id, status: 'canceled' }),
+                            expect.objectContaining({
+                                message_id: invocation.id,
+                                status: 'canceled',
+                                recipient: body.to,
+                                function_id: hogFlow.id,
+                            }),
                         ])
                     } finally {
                         hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
@@ -3128,27 +3139,39 @@ describe('CDP API', () => {
                 expect(emailStatusRows()).toEqual([])
             })
 
-            it('moves a scheduled send and records it scheduled again', async () => {
-                rescheduleUnclaimed.mockResolvedValue({ outcome: 'rescheduled' })
-                const messageId = new UUIDT().toString()
+            it('moves a scheduled send and records it scheduled again with its recipient and new time', async () => {
+                const invocation = await scheduleSend()
                 const scheduledAt = inDays(3)
+                rescheduleUnclaimed.mockResolvedValue({
+                    outcome: 'rescheduled',
+                    job: unclaimedJob(invocation.id, DateTime.fromISO(scheduledAt, { zone: 'utc' }), invocation),
+                })
 
-                const res = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                const res = await manage('reschedule', invocation.id, { scheduled_at: scheduledAt })
 
                 expect(res.status).toEqual(200)
-                expect(res.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
-                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, messageId, new Date(scheduledAt))
-                expect(emailStatusRows()).toEqual([
-                    expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
-                ])
+                expect(res.body).toEqual({ id: invocation.id, status: 'scheduled', scheduled_at: scheduledAt })
+                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, invocation.id, new Date(scheduledAt))
+                expect(emailStatusRows().at(-1)).toEqual(
+                    expect.objectContaining({
+                        message_id: invocation.id,
+                        status: 'scheduled',
+                        recipient: body.to,
+                        function_id: hogFlow.id,
+                        scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                    })
+                )
             })
 
             it.each([
                 ['a time that has passed', 0, -60_000],
                 ['a time that has passed, for a message older than 30 days', 31 * DAY_MS, -60_000],
             ])('moves a send to now for %s', async (_desc, messageAgeMs, offsetMs) => {
-                rescheduleUnclaimed.mockResolvedValue({ outcome: 'rescheduled' })
                 const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
+                rescheduleUnclaimed.mockResolvedValue({
+                    outcome: 'rescheduled',
+                    job: unclaimedJob(messageId, DateTime.now()),
+                })
                 const before = Date.now()
 
                 const res = await manage('reschedule', messageId, {

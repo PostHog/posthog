@@ -1237,8 +1237,8 @@ describe('Cyclotron V2', () => {
 
                 const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
 
-                expect(result).toEqual({ outcome: 'rescheduled' })
                 const row = await queryJob(id)
+                expect(result).toMatchObject({ outcome: 'rescheduled', job: { id, teamId: 1, state: row.state } })
                 expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
                 expect(parseJSON(row.state!.toString())).toEqual({
                     ...storedState,
