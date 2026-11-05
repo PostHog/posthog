@@ -69,4 +69,8 @@ describe('canMoveToBroadcasts', () => {
             expected
         )
     })
+
+    it('hides the move until the integrations load', () => {
+        expect(canMoveToBroadcasts(oneEmailFlow, null)).toBe(false)
+    })
 })
