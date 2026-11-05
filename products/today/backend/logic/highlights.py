@@ -29,7 +29,6 @@ from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightS
 from ..facade.enums import (
     HighlightInterval,
     HighlightLabel,
-    HighlightMetricReason,
     HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
@@ -50,6 +49,7 @@ from . import pulse_pins
 from .highlight_registry import load_sources, source_product
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 from .pinned import PINNED_METRICS
+from .today_highlights.routine import PULSE_CANDIDATES
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +59,6 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
-PULSE_CANDIDATES = 6
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
 PINNED_SOURCE = "pinned"
@@ -254,7 +253,6 @@ def _pulse_content(
         key=lambda slot: (
             slot.key not in pin_order,
             pin_order.get(slot.key, 0),
-            slot.reason == HighlightMetricReason.POPULAR,
             owners.get(slot.key, 0),
         )
     )
@@ -407,10 +405,7 @@ def build_highlights(
             offered.setdefault(metric.key, metric)
     resolved = {**offered, **(pinned or {})}
     chosen = [resolved[key] for key in pins if key in resolved]
-    suggested = sorted(
-        (metric for key, metric in offered.items() if key not in pins),
-        key=lambda metric: metric.reason == HighlightMetricReason.POPULAR,
-    )
+    suggested = [metric for key, metric in offered.items() if key not in pins]
     pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(

@@ -147,7 +147,7 @@ class TestHighlightRanking(SimpleTestCase):
 
 
 class TestBuildHighlights(SimpleTestCase):
-    def test_the_pulse_follows_the_source_order_with_popular_tiles_last_and_the_items_follow_priority(self) -> None:
+    def test_the_pulse_follows_the_source_order_and_the_items_follow_priority(self) -> None:
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
@@ -156,9 +156,7 @@ class TestBuildHighlights(SimpleTestCase):
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
-            "routine": HighlightFindings(
-                pulse=(metric("r1"), replace(metric("p1"), reason=HighlightMetricReason.POPULAR), metric("r2"))
-            ),
+            "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
             "experiments": HighlightFindings(
                 items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
             ),
@@ -175,7 +173,7 @@ class TestBuildHighlights(SimpleTestCase):
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2", "k3", "p1"],
+                ["r1", "r2", "k1", "k2", "k3"],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),
@@ -674,17 +672,16 @@ class TestProgressiveHighlights(BaseTest):
         )
         configured = [replace(metric(f"key:{i}"), reason=HighlightMetricReason.KEY_METRIC) for i in range(4)]
         routine = [replace(metric(f"insight:{i}"), reason=HighlightMetricReason.ROUTINE) for i in range(routine_count)]
-        popular = replace(metric("popular"), reason=HighlightMetricReason.POPULAR)
         highlights.publish_pulse(inputs, HighlightFindings(pulse=tuple(configured)), [])
         routine_inputs = replace(inputs, source_name="routine")
-        slots = [contracts.PulseSlot(key=m.key, name=m.name, reason=m.reason) for m in [*routine, popular]]
+        slots = [contracts.PulseSlot(key=m.key, name=m.name, reason=m.reason) for m in routine]
         highlights.publish_pulse(routine_inputs, HighlightFindings(), slots)
         row.refresh_from_db()
         self.assertEqual(
             [slot.key for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []][:routine_count],
             [m.key for m in routine],
         )
-        highlights.publish_pulse(routine_inputs, HighlightFindings(pulse=(*routine, popular)), slots)
+        highlights.publish_pulse(routine_inputs, HighlightFindings(pulse=tuple(routine)), slots)
         highlights.finalize(
             FinalizeHighlightsInputs(
                 team_id=self.team.id,
