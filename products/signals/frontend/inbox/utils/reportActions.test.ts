@@ -2,12 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { myAgentClaim, myClaim, teammateClaim } from '../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../types'
-import {
-    canCreateImplementationPr,
-    canMonitorReport,
-    canResolveReport,
-    implementationClaimDisabledReason,
-} from './reportActions'
+import { canCreateImplementationPr, canMonitorReport, canResolveReport, implementationClaimStep } from './reportActions'
 
 describe('reportActions', () => {
     it.each([
@@ -77,21 +72,28 @@ describe('reportActions', () => {
         ).toBe(expected)
     })
 
-    // The server refuses a new implementation task under any claim but the starter's own user claim, so a
-    // missed case here offers a Create PR that always fails.
+    // Each step has to match what the server does with the claim. A block it would not apply strands the user,
+    // and a start it would refuse fails the run.
     it.each([
-        { name: 'no claim', assignee: null, expected: null },
-        { name: 'my claim', assignee: myClaim, expected: null },
-        { name: "a teammate's claim", assignee: teammateClaim, expected: 'Robin is working on this report.' },
-        { name: "my agent's claim", assignee: myAgentClaim, expected: 'Your agent is working on this report.' },
+        { name: 'no claim', report: { assignee: null }, expected: { kind: 'start' } },
+        { name: 'my claim', report: { assignee: myClaim }, expected: { kind: 'start' } },
         {
             name: "a task's claim",
-            assignee: { ...myClaim, kind: 'task', user: null, task_id: 'task-1' },
-            expected: 'A task is already working on this report.',
+            report: { assignee: { ...myClaim, kind: 'task', user: null, task_id: 'task-1' } },
+            expected: { kind: 'start' },
         },
-    ] as const)('gates implementation on $name', ({ assignee, expected }) => {
-        expect(implementationClaimDisabledReason({ assignee } as unknown as SignalReport, MOCK_DEFAULT_USER.uuid)).toBe(
-            expected
-        )
+        { name: "my agent's claim", report: { assignee: myAgentClaim }, expected: { kind: 'confirm_own_agent' } },
+        {
+            name: "a teammate's claim",
+            report: { assignee: teammateClaim },
+            expected: { kind: 'take_over', holder: teammateClaim.user },
+        },
+        {
+            name: 'a run in flight',
+            report: { assignee: myClaim, implementation_in_flight: true },
+            expected: { kind: 'blocked', reason: 'A pull request run is already in progress for this report.' },
+        },
+    ] as const)('decides the claim step for $name', ({ report, expected }) => {
+        expect(implementationClaimStep(report as unknown as SignalReport, MOCK_DEFAULT_USER.uuid)).toEqual(expected)
     })
 })

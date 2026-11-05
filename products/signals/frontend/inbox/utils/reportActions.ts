@@ -1,4 +1,4 @@
-import { fullNameOrEmail } from 'lib/utils/strings'
+import type { _UserApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
 // Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
@@ -43,29 +43,45 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     return false
 }
 
+export type ImplementationClaimStep =
+    | { kind: 'start' }
+    | { kind: 'confirm_own_agent' }
+    | { kind: 'take_over'; holder: _UserApi }
+    | { kind: 'blocked'; reason: string }
+
 /**
- * Why the claim blocks Create PR for this user, or null. Mirrors the server's `claim_report_for_task`:
- * a new task starts only on an unclaimed report or under a claim the person starting it holds directly,
- * so the claim of their own agent blocks it too.
+ * What Create PR must do about the claim before it starts a run. Mirrors the server: only a run in flight
+ * blocks it, the user's own claim and a task's claim do not, and a teammate's claim has to be taken over.
+ * The user's own agent can already be working, so that case asks before it starts a second run.
  */
+export function implementationClaimStep(
+    report: Pick<SignalReport, 'assignee' | 'implementation_in_flight'>,
+    userUuid: string | null | undefined
+): ImplementationClaimStep {
+    if (report.implementation_in_flight) {
+        return { kind: 'blocked', reason: 'A pull request run is already in progress for this report.' }
+    }
+    const assignee = report.assignee
+    if (!assignee || assignee.kind === 'task') {
+        return { kind: 'start' }
+    }
+    const holder = reportClaimant(report)
+    if (!holder) {
+        return { kind: 'blocked', reason: 'Someone else is working on this report.' }
+    }
+    if (holder.uuid !== userUuid) {
+        return { kind: 'take_over', holder }
+    }
+    return assignee.kind === 'agent' ? { kind: 'confirm_own_agent' } : { kind: 'start' }
+}
+
+/** Why the claim keeps Create PR disabled for this user, or null when the user can go ahead, maybe after a dialog. */
 export function implementationClaimDisabledReason(
-    report: Pick<SignalReport, 'assignee'>,
+    report: Pick<SignalReport, 'assignee' | 'implementation_in_flight'>,
     userUuid: string | null | undefined
 ): string | null {
-    const assignee = report.assignee
-    if (!assignee || (assignee.kind === 'user' && !!userUuid && assignee.user?.uuid === userUuid)) {
-        return null
-    }
-    if (assignee.kind === 'task') {
-        return 'A task is already working on this report.'
-    }
-    const claimant = reportClaimant(report)
-    if (!claimant) {
-        return 'Someone else is working on this report.'
-    }
-    return claimant.uuid === userUuid
-        ? 'Your agent is working on this report.'
-        : `${fullNameOrEmail(claimant)} is working on this report.`
+    const step = implementationClaimStep(report, userUuid)
+    return step.kind === 'blocked' ? step.reason : null
 }
 
 export function canResolveReport(report: SignalReport): boolean {

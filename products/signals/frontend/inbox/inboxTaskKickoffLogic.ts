@@ -10,7 +10,9 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
@@ -20,7 +22,7 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { SidePanelTab, UserType } from '~/types'
 
 import { runStreamLogic, taskRunDefaultsLogic, wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
@@ -43,7 +45,12 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { SignalReportCheckApi } from '../generated/api.schemas'
-import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import {
+    InboxReportActionSurface,
+    InboxReportActionType,
+    captureInboxReportAction,
+    captureInboxReportActionCompleted,
+} from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -434,6 +441,8 @@ export interface inboxTaskKickoffLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultsResolved: boolean // taskRunDefaultsLogic
@@ -504,6 +513,15 @@ export interface inboxTaskKickoffLogicActions {
     ) => {
         feedback: string | undefined
         report: SignalReport
+    }
+    implementReport: (
+        report: SignalReport,
+        feedback: string | undefined,
+        surface: InboxReportActionSurface
+    ) => {
+        feedback: string | undefined
+        report: SignalReport
+        surface: InboxReportActionSurface
     }
     createPrSuccess: () => {
         value: true
@@ -620,6 +638,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
             attachedContextLogic,
             ['contextItems'],
             runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
@@ -666,6 +688,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             background,
         }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        implementReport: (report: SignalReport, feedback: string | undefined, surface: InboxReportActionSurface) => ({
+            report,
+            feedback,
+            surface,
+        }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
@@ -1030,6 +1057,65 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     actions.quickAskFailed(report.id, question)
                 }
             }
+        },
+        implementReport: async ({ report, feedback, surface }) => {
+            // Lazy: these carry the signals API client and the inbox dialogs, which the shell bundle must not.
+            const modules = await Promise.all([
+                import('./utils/reportActions'),
+                import('./utils/reportClaim'),
+                import('./components/shell/ImplementClaimDialog'),
+                import('./logics/inboxBulkActionsLogic'),
+            ]).catch((error) => {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                return null
+            })
+            if (!modules) {
+                return
+            }
+            const [{ implementationClaimStep }, { requestReportClaim }, { openImplementClaimDialog }, bulkActions] =
+                modules
+            const currentUserUuid = values.user?.uuid ?? null
+            const step = implementationClaimStep(report, currentUserUuid)
+            const start = (target: SignalReport): void => {
+                captureInboxReportAction({
+                    report,
+                    actionType: 'create_pr',
+                    surface,
+                    extra: { has_feedback: !!feedback, claim_step: step.kind },
+                })
+                actions.createPrFromReport(target, feedback)
+            }
+            if (step.kind === 'blocked') {
+                lemonToast.error(step.reason)
+                return
+            }
+            if (step.kind === 'start') {
+                start(report)
+                return
+            }
+            const takeOverAndStart = async (): Promise<void> => {
+                if (values.currentTeamId == null) {
+                    return
+                }
+                // A confirmed takeover names the claim the user saw, so it fails rather than taking a newer one.
+                const outcome = await requestReportClaim(String(values.currentTeamId), report, true, {
+                    currentUserUuid,
+                    takeover: true,
+                })
+                if (!outcome.ok) {
+                    lemonToast.error(outcome.message)
+                    return
+                }
+                bulkActions.inboxBulkActionsLogic
+                    .findMounted()
+                    ?.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+                start({ ...report, assignee: outcome.updated.assignee })
+            }
+            openImplementClaimDialog({
+                report,
+                step,
+                onConfirm: () => (step.kind === 'take_over' ? void takeOverAndStart() : start(report)),
+            })
         },
         createPrFromReport: async ({ report, feedback }) => {
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.

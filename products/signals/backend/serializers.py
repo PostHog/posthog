@@ -2029,6 +2029,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
+    implementation_in_flight = serializers.SerializerMethodField(
+        help_text=(
+            "Whether an implementation run for this report is still working. A new implementation run "
+            "cannot start until it settles."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -2113,6 +2119,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "tracker_issue_error",
             "work_state",
             "assignee",
+            "implementation_in_flight",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -2488,6 +2495,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return "in_review"
         assignment = self._get_assignment(obj)
         return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_implementation_in_flight(self, obj: SignalReport) -> bool:
+        from products.signals.backend.task_run_artefacts import implementation_in_flight_report_ids
+
+        in_flight = self.context.get("implementation_in_flight_ids")
+        if in_flight is None:
+            in_flight = implementation_in_flight_report_ids(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return str(obj.id) in in_flight
 
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:
