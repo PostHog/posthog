@@ -1279,6 +1279,7 @@ export class CdpApi {
             emailSuppression: this.emailSuppressionService,
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
+            emailAttachments: this.emailAttachmentsService,
         })
     }
 

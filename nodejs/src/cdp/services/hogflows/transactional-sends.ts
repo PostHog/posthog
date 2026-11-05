@@ -10,6 +10,7 @@ import { HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailAttachmentsService } from '../messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
 import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
@@ -21,9 +22,12 @@ import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
 import {
     AcceptedSend,
+    QueuedSend,
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    decodeAttachments,
+    queuedSend,
     transactionalEmailRecipients,
 } from './transactional-email'
 
@@ -36,7 +40,8 @@ const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 // A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
 const transactionalEmailFingerprint = (
     hogFlowId: string,
-    { to, distinct_id, variables, send }: TransactionalEmailRequest,
+    { to, distinct_id, variables }: TransactionalEmailRequest,
+    send: QueuedSend | undefined,
     scheduledAt: Date | null
 ): string => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
@@ -61,7 +66,7 @@ type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 const withSenderTheCallerChose = ({
     from,
     ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
@@ -83,6 +88,7 @@ export type TransactionalSendsDeps = {
     emailSuppression: EmailSuppressionService
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
+    emailAttachments: Pick<EmailAttachmentsService, 'store'>
 }
 
 export type TransactionalSendResult =
@@ -103,8 +109,10 @@ export class TransactionalSends {
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
-        const invocation = this.buildInvocation(team, hogFlow, request)
-        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, requestedAt)
+        const files = decodeAttachments(request.send)
+        const send = request.send ? queuedSend(request.send, files) : undefined
+        const invocation = this.buildInvocation(team, hogFlow, request, send)
+        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         if (idempotencyKey) {
             // Checked before the quota, so a retry of a send that went out gets its answer even
             // when the team has hit its quota since.
@@ -152,6 +160,10 @@ export class TransactionalSends {
                     await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                 }
                 return { outcome: refusal }
+            }
+            if (files.length) {
+                stages.start('files')
+                await this.deps.emailAttachments.store(invocation.id, team.id, files)
             }
             stages.start('queue_insert')
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
@@ -201,8 +213,13 @@ export class TransactionalSends {
         void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
     }
 
-    private buildInvocation(team: Team, hogFlow: HogFlow, request: TransactionalEmailRequest) {
-        const { to, distinct_id: distinctId, variables, send } = request
+    private buildInvocation(
+        team: Team,
+        hogFlow: HogFlow,
+        request: TransactionalEmailRequest,
+        send: QueuedSend | undefined
+    ) {
+        const { to, distinct_id: distinctId, variables } = request
         const event: HogFunctionInvocationGlobals['event'] = {
             uuid: new UUIDT().toString(),
             event: TRANSACTIONAL_EMAIL_EVENT,
