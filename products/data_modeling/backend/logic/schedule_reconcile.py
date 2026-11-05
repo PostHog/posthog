@@ -89,6 +89,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+MAX_RECONCILE_PASSES = 3
 PLAN_FLOOR_UNREADABLE_REFUSAL = (
     "Couldn't check your plan, so this refresh frequency can't be saved right now. Try again in a few minutes."
 )
@@ -110,8 +111,8 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded. An unreadable plan floor queues a retry, because
-    the write has reached the database but not the schedules, and nothing else reconciles them.
+    commit — the user's write already succeeded. A failure queues a retry, because the write has
+    reached the database but not the schedules, and nothing else reconciles them.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
@@ -124,12 +125,14 @@ def _reconcile_dag(dag: DAG) -> list[str]:
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
-        _reconcile_dag(dag)
+        kept_stale_schedules = bool(_reconcile_dag(dag))
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
-        if isinstance(error, PlanFloorUnavailableError):
-            schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
+        schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
+        return
+    if kept_stale_schedules:
+        schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
 
 
 def reconcile_dag_or_raise(dag_id: str, team_id: int) -> None:
@@ -423,34 +426,53 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     schedules are torn down. Returns the ids of stale schedules that could not be deleted.
 
     While the plan floor is unreadable this only takes nodes with no cadence off their schedules, and
-    then raises, because any other change could speed up a schedule the floor holds back. It raises
-    the same error if taking those nodes off fails, so `_reconcile_dag_best_effort` still queues its retry.
+    then raises, because any other change could speed up a schedule the floor holds back.
+
+    A save can commit and reconcile while this writes a graph it read earlier, and this would then
+    overwrite the newer schedules. So it reads the graph again after writing, and writes again if the
+    graph moved. A save that commits after that last read reconciles after this has stopped writing.
     """
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    effective, _clamped = scheduled_cadences(graph)
     if not graph.plan_floor_evaluated:
-        floor_unavailable = PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
-        try:
-            _withdraw_unscheduled_nodes(
-                dag_id=str(dag.id),
-                team_id=team.pk,
-                organization_id=str(team.organization_id),
-                team_timezone=team.timezone,
-                scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
-            )
-        except Exception as error:
-            raise floor_unavailable from error
-        raise floor_unavailable
-    desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
-    return _apply_reconciliation(
-        dag_id=str(dag.id),
-        team_id=team.pk,
-        organization_id=str(team.organization_id),
-        team_timezone=team.timezone,
-        desired_tiers=desired_tiers,
-    )
+        effective, _clamped = scheduled_cadences(graph)
+        _withdraw_unscheduled_nodes(
+            dag_id=str(dag.id),
+            team_id=team.pk,
+            organization_id=str(team.organization_id),
+            team_timezone=team.timezone,
+            scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
+        )
+        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
+
+    written_schedule_ids: set[str] = set()
+    failed_deletes: list[str] = []
+    for _pass in range(MAX_RECONCILE_PASSES):
+        desired_tiers = _desired_tiers(graph)
+        failed_deletes = _apply_reconciliation(
+            dag_id=str(dag.id),
+            team_id=team.pk,
+            organization_id=str(team.organization_id),
+            team_timezone=team.timezone,
+            desired_tiers=desired_tiers,
+            written_schedule_ids=written_schedule_ids,
+        )
+        written_schedule_ids |= {
+            tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in desired_tiers
+        }
+        graph = build_frequency_graph(dag)
+        # A save made while the floor is unreadable fails its own reconcile and retries after this one.
+        if not graph.plan_floor_evaluated or _desired_tiers(graph) == desired_tiers:
+            return failed_deletes
+    logger.warning("Freshness schedule reconcile outpaced by saves", dag_id=str(dag.id), team_id=team.pk)
+    schedule_dag_schedule_reconcile(str(dag.id), team.pk)
+    return failed_deletes
+
+
+def _desired_tiers(graph: FrequencyGraph) -> dict[Tier, set[str]]:
+    effective, _clamped = scheduled_cadences(graph)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
 def reconcile_organization_dags(organization_id: str) -> None:
@@ -615,6 +637,7 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
+    written_schedule_ids: set[str],
 ) -> list[str]:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
@@ -624,7 +647,8 @@ async def _apply_reconciliation(
         )
 
     temporal = await async_connect()
-    existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    # The listing is eventually consistent, so it can miss the tiers an earlier pass just created.
+    existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id) | written_schedule_ids
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
     # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on

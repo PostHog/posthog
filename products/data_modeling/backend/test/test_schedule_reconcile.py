@@ -10,6 +10,7 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from posthoganalytics.types import FeatureFlagResult
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
@@ -770,6 +771,59 @@ class TestMaybeReconcileDag(BaseTest):
         dispatch.assert_not_called()
         self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
 
+    def test_failed_write_is_retried_after_it_reaches_the_database(self):
+        dag = self._dag_with_target()
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            maybe_reconcile_dag(dag)
+
+        queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
+
+    def test_reconcile_writes_again_when_a_save_lands_while_it_writes(self):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        fast_tier = tier_schedule_id(str(dag.id), M15)
+        slow_tier = tier_schedule_id(str(dag.id), H6)
+
+        async def a_save_lands(_temporal, **kwargs):
+            if kwargs["id"] == fast_tier:
+                await sync_to_async(set_declared_target)(endpoint, H6)
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=a_save_lands)) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        self.assertEqual([call.kwargs["id"] for call in create.call_args_list], [fast_tier, slow_tier])
+        self.assertEqual([call.kwargs["schedule_id"] for call in delete.call_args_list], [fast_tier])
+
+    def test_reconcile_outpaced_by_saves_queues_a_retry(self):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+
+        async def a_save_lands(_temporal, **_kwargs):
+            await sync_to_async(set_declared_target)(endpoint, M15 if get_declared_target(endpoint) == H6 else H6)
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=a_save_lands)) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock(side_effect=a_save_lands)),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            reconcile_dag_schedules(dag)
+
+        self.assertGreater(create.call_count, 1)
+        queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
+
     def test_reconcile_command_tries_every_organization_then_fails(self):
         failing_dag = self._dag_with_target()
         other_organization = Organization.objects.create(name="other")
@@ -817,11 +871,11 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("withdrawal_succeeds", None),
-            ("withdrawal_fails", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+            ("withdrawal_succeeds", None, PlanFloorUnavailableError),
+            ("withdrawal_fails", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), RPCError),
         ]
     )
-    def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self, _name, withdrawal_error):
+    def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self, _name, withdrawal_error, raised):
         dag = self._dag_with_target()
         temporal = self._temporal_listing([])
 
@@ -837,7 +891,7 @@ class TestMaybeReconcileDag(BaseTest):
                 maybe_reconcile_dag(dag)
             queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
-            with self.assertRaises(PlanFloorUnavailableError):
+            with self.assertRaises(raised):
                 reconcile_dag_or_raise(str(dag.id), dag.team_id)
             create.assert_not_called()
 
