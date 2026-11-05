@@ -135,6 +135,7 @@ export class LazyLoader<T> {
     private refreshJitterMs: number
     private maxSize: number
     private cacheSize: number = 0
+    private nextSweepAt: number = 0
 
     private buffer:
         | {
@@ -237,6 +238,7 @@ export class LazyLoader<T> {
         // object is handed back to callers who may iterate or spread it.
         const results: Record<string, T | null> = Object.create(null)
         const keysToLoad = new Set<string>()
+        this.sweepExpired(Date.now())
 
         for (const key of keys) {
             const cached = this.cache[key]
@@ -446,6 +448,29 @@ export class LazyLoader<T> {
                 })
                 await sleep(retry.retryIntervalMs + jitter)
             }
+        }
+    }
+
+    /**
+     * An expired entry is never served again, because the next lookup reloads it first. Without this
+     * sweep it stays in memory until the cache reaches maxSize, so a worker that sees many distinct
+     * keys holds all of them.
+     */
+    private sweepExpired(now: number): void {
+        if (now < this.nextSweepAt) {
+            return
+        }
+        this.nextSweepAt = now + this.refreshAgeMs
+        const sizeBefore = this.cacheSize
+        for (const key in this.cache) {
+            const entry = this.cache[key]
+            if (entry && entry.cacheUntil < now) {
+                delete this.cache[key]
+                this.cacheSize--
+            }
+        }
+        if (this.cacheSize !== sizeBefore) {
+            this.updateCacheSizeMetric()
         }
     }
 
