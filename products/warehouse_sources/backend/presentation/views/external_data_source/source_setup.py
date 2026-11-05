@@ -329,6 +329,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return self.preloaded_source_inputs[instance.id]
         return SourceInputsStore.load(instance)
 
+    def validate_job_inputs(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError("Must be an object.")
+        return value
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
