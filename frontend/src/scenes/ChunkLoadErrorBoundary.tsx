@@ -7,6 +7,7 @@ const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 const RELOAD_GUARD_WINDOW_MS = 20_000
 
 interface State {
+    hasError: boolean
     error: unknown
     surface: boolean
 }
@@ -26,10 +27,10 @@ interface ChunkLoadErrorBoundaryProps {
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
-    override state: State = { error: null, surface: false }
+    override state: State = { hasError: false, error: null, surface: false }
 
     static getDerivedStateFromError(error: unknown): Partial<State> {
-        return { error }
+        return { hasError: true, error }
     }
 
     override componentDidCatch(error: unknown): void {
@@ -63,16 +64,16 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
     }
 
     override render(): ReactNode {
-        const { error, surface } = this.state
-        if (error && surface && isChunkLoadError(error) && this.props.fallback) {
+        const { hasError, error, surface } = this.state
+        if (!hasError) {
+            return this.props.children
+        }
+        if (surface && isChunkLoadError(error) && this.props.fallback) {
             return this.props.fallback(error)
         }
-        if (error && (!isChunkLoadError(error) || surface)) {
+        if (!isChunkLoadError(error) || surface) {
             throw error
         }
-        if (error && isChunkLoadError(error)) {
-            return null
-        }
-        return this.props.children
+        return null
     }
 }

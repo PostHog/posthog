@@ -13,10 +13,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     DeliveryPath,
+    HeldDeliveryAddress,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
@@ -65,6 +68,47 @@ def copy_of(legacy_configuration_id: UUID) -> PlatformConfigurationSnapshot:
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     return _configuration_snapshot(
         PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_configuration_id)
+    )
+
+
+def hold_delivery(
+    request: AlertDeliveryRequest,
+    *,
+    held_at: datetime,
+    release_after: datetime,
+    released: tuple[HoldRelease, HoldReleasedBy] | None = None,
+) -> None:
+    """Holds a request's delivery as a check would, or as one a release already decided."""
+    PlatformAlertDeliveryHold.objects.for_team(request.team_id).create(
+        team_id=request.team_id,
+        configuration_id=request.configuration_id,
+        evaluation_key=request.evaluation_key,
+        reason="test",
+        request=request.to_stored(),
+        held_at=held_at,
+        release_after=release_after,
+        released_at=held_at if released else None,
+        release_action=released[0] if released else None,
+        released_by=released[1] if released else None,
+    )
+
+
+@frozen
+class HoldSnapshot:
+    release_action: str | None
+    released_by: str | None
+    release_after: datetime
+
+
+def hold_release(address: HeldDeliveryAddress) -> HoldSnapshot:
+    """A hold's release action, who released it, and its deadline."""
+    hold = (
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id)
+        .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
+        .get()
+    )
+    return HoldSnapshot(
+        release_action=hold.release_action, released_by=hold.released_by, release_after=hold.release_after
     )
 
 
@@ -199,6 +243,29 @@ def record_check(
                 source_detail=source_detail or {},
             )
         ],
+    )
+
+
+def released_hold(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+) -> None:
+    """Write a hold on the check `record_check` wrote at `at`, already released."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=f"slot:{at.isoformat()}",
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=action,
+        released_by=released_by,
     )
 
 

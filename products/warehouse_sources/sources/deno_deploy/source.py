@@ -49,7 +49,7 @@ class DenoDeploySource(ResumableSource[DenoDeploySourceConfig, DenoDeployResumeC
             caption="""Enter a Deno Deploy organization access token to sync your apps, revisions, domains, analytics, and runtime logs into the PostHog Data warehouse.
 
 Create an organization access token in your [Deno Deploy dashboard](https://app.deno.com) under **Settings > Access Tokens**. The token is scoped to a single organization, so one connection syncs one Deno Deploy organization.""",
-            iconPath="/static/services/deno_deploy.png",
+            iconPath="/static/services/deno_deploy.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/deno-deploy",
             keywords=["deno", "deploy", "serverless", "edge"],
             fields=cast(

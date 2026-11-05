@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.appsflyer.appsflyer import (
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
     AppsFlyerCredentialsError,
+    AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
@@ -283,6 +284,45 @@ class TestRawAndMasterWindows:
         for window_start, window_end in windows:
             assert 0 <= (window_end - window_start).days < MASTER_MAX_REQUEST_DAYS
 
+    @pytest.mark.parametrize(
+        "endpoint, incremental, saved_days_ago, expected_first_from_days_ago, expected_requests",
+        [
+            # A raw pull resumes at the saved window, and each window stages the start of the next.
+            ("installs", True, 20, 20, 3),
+            # The saved day is clamped to the lookback limit, which moves forward between attempts.
+            ("installs", True, RAW_MAX_LOOKBACK_DAYS + 5, RAW_MAX_LOOKBACK_DAYS, 13),
+            ("master_report", True, 40, 40, 2),
+            # A single-window report whose window is already written reads nothing.
+            ("daily_report", True, -1, None, 0),
+            # A full refresh appends a replayed window part twice, so it reads from the start.
+            ("installs", False, 20, RAW_MAX_LOOKBACK_DAYS, 13),
+        ],
+    )
+    def test_resumes_at_the_saved_window(
+        self,
+        endpoint: str,
+        incremental: bool,
+        saved_days_ago: int,
+        expected_first_from_days_ago: int | None,
+        expected_requests: int,
+    ) -> None:
+        today = datetime.now(UTC).date()
+        saved = AppsFlyerResumeConfig(next_window_start=(today - timedelta(days=saved_days_ago)).isoformat())
+
+        result = _driver().run(
+            endpoint, always(_csv_response()), resume_state=saved, should_use_incremental_field=incremental
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.supports_resume is incremental
+        assert len(result.requests) == expected_requests
+        if expected_first_from_days_ago is not None:
+            assert result.params("from")[0] == (today - timedelta(days=expected_first_from_days_ago)).isoformat()
+            assert result.final_state == AppsFlyerResumeConfig(
+                next_window_start=(today + timedelta(days=1)).isoformat()
+            )
+
     @pytest.mark.parametrize("endpoint", ["installs", "in_app_events", "ad_revenue"])
     def test_raw_incremental_repulls_a_whole_window_before_the_watermark(self, endpoint: str) -> None:
         # A worker shutdown can interrupt a window part-way through, and AppsFlyer documents no row
@@ -371,5 +411,7 @@ class TestRawAndMasterWindows:
 
 class TestAppsFlyerSourceResponse:
     def test_geo_report_key_includes_country(self):
-        response = appsflyer_source("token", "id123", "geo_report", mock.MagicMock())
+        response = appsflyer_source(
+            "token", "id123", "geo_report", mock.MagicMock(), resumable_source_manager=mock.MagicMock()
+        )
         assert "country" in (response.primary_keys or [])

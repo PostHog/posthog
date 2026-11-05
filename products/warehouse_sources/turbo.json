@@ -1,19 +1,22 @@
 {
     "extends": ["//"],
     "tasks": {
-        "backend:test": {
-            "inputs": ["$TURBO_EXTENDS$", "sources/**/*.py"]
-        },
         "backend:contract-check": {
             "inputs": [
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/data_freshness.py",
+                "backend/integration_usages.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/tasks/**",
+                "backend/activity_logging.py",
+                "backend/file_upload_sources.py",
                 "backend/temporal/data_imports/naming_convention.py",
+                "backend/temporal/data_imports/pipelines/core/account_property_row_sink.py",
                 "backend/temporal/data_imports/pipelines/core/consts.py",
+                "backend/temporal/data_imports/pipelines/core/person_property_row_sink.py",
                 "backend/temporal/data_imports/sources/generated_configs/__init__.py",
                 "backend/temporal/data_imports/sources/generated_configs/bigquery.py",
                 "backend/temporal/data_imports/sources/generated_configs/clickhouse.py",
@@ -32,6 +35,7 @@
                 "backend/temporal/data_imports/sources/bigquery/**",
                 "backend/temporal/data_imports/sources/clickhouse/**",
                 "backend/temporal/data_imports/sources/common/**",
+                "backend/temporal/data_imports/sources/file_upload/storage.py",
                 "backend/temporal/data_imports/sources/google_search_console/**",
                 "backend/temporal/data_imports/sources/motherduck/**",
                 "backend/temporal/data_imports/sources/mssql/**",

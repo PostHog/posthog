@@ -38,7 +38,7 @@ class TwitterAdsResumeConfig:
     complete: bool = False
 
 
-# X rejects a DAY-granularity window wider than this.
+# X rejects a stats window wider than this.
 MAX_STATS_WINDOW = timedelta(days=7)
 
 # Cap on how much of X's error body rides along in the exception message.
@@ -54,6 +54,10 @@ def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
     400 rather than a shifted result.
     """
     return datetime.combine(day, time.min, account_timezone).astimezone(UTC)
+
+
+def _utc_param(moment: datetime) -> str:
+    return moment.isoformat().replace("+00:00", "Z")
 
 
 def _error_detail(response: requests.Response) -> str:
@@ -206,6 +210,8 @@ class TwitterAdsClient:
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
             window_end = min(start + timedelta(days=7), end)
+            # X checks for whole hours in the account's timezone, not UTC, so local midnight on a
+            # half-hour offset (18:30Z for UTC+5:30) is valid and a whole UTC hour (19:00Z) is not.
             start_time = _account_midnight(start, account_timezone)
             end_time = _account_midnight(window_end, account_timezone)
             # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
@@ -220,13 +226,11 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            # A bare date tells X to resolve midnight-to-midnight in the account's
-                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
-                            # IST) never lands on a whole UTC hour, so sending our own UTC
-                            # conversion here gets a 400 ("whole hours" requirement) that this
-                            # sidesteps entirely.
-                            "start_time": start.isoformat(),
-                            "end_time": window_end.isoformat(),
+                            # X's docs say a bare date means midnight in the account's timezone, but
+                            # X rejects bare dates for DAY windows on non-UTC accounts with
+                            # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
+                            "start_time": _utc_param(start_time),
+                            "end_time": _utc_param(end_time),
                             "granularity": "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",

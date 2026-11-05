@@ -141,6 +141,9 @@ class _FakeResumableManager:
     def save_state(self, data: FinancialModellingResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _collect(
     endpoint: str, symbols: list[str], manager: _FakeResumableManager, by_symbol: dict[str, Any]

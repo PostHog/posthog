@@ -1,10 +1,16 @@
 from typing import Any
 
+from unittest.mock import MagicMock
+
 import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.optimizely._config import OptimizelySourceConfig
-from products.warehouse_sources.sources.optimizely.optimizely import optimizely_source, validate_credentials
+from products.warehouse_sources.sources.optimizely.optimizely import (
+    OptimizelyResumeConfig,
+    optimizely_source,
+    validate_credentials,
+)
 from products.warehouse_sources.sources.optimizely.settings import ENDPOINTS, OPTIMIZELY_ENDPOINTS
 from products.warehouse_sources.sources.optimizely.source import OptimizelySource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
@@ -89,6 +95,61 @@ class TestProjectScopedFanOut:
         assert result.requests[1].param("project_id") == "11"
 
 
+class TestResume:
+    @parameterized.expand(
+        [
+            (
+                "list_endpoint_starts_at_saved_next_link",
+                "projects",
+                {"next_url": "https://api.optimizely.com/v2/projects?page=2&per_page=100"},
+                {"/v2/projects": [_response([{"id": 2}])]},
+                ["https://api.optimizely.com/v2/projects?page=2&per_page=100"],
+                [2],
+            ),
+            (
+                "fan_out_skips_finished_projects",
+                "campaigns",
+                {"completed": ["/campaigns?project_id=11"], "current": None, "child_state": None},
+                {
+                    "/v2/projects": [_response([{"id": 11}, {"id": 22}])],
+                    "/v2/campaigns": [_response([{"id": "camp-22"}])],
+                },
+                [
+                    "https://api.optimizely.com/v2/projects?per_page=100",
+                    "https://api.optimizely.com/v2/campaigns?project_id=22&per_page=100",
+                ],
+                ["camp-22"],
+            ),
+        ]
+    )
+    def test_resumes_from_saved_state(
+        self,
+        _name: str,
+        endpoint: str,
+        saved: dict[str, Any],
+        responses: dict[str, list[ScriptedResponse]],
+        expected_urls: list[str],
+        expected_ids: list[Any],
+    ) -> None:
+        result = _driver().run(endpoint, route(responses), resume_state=OptimizelyResumeConfig(paginator_state=saved))
+
+        assert result.raised is None
+        assert result.urls == expected_urls
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    def test_list_endpoint_marks_completion_before_its_last_page(self) -> None:
+        result = _driver().run("projects", route({"/v2/projects": [_response([{"id": 1}])]}))
+
+        assert result.raised is None
+        assert result.saved_states[-1] == OptimizelyResumeConfig(completed=True)
+
+        resumed = _driver().run("projects", route({}), resume_state=OptimizelyResumeConfig(completed=True))
+
+        assert resumed.raised is None
+        assert resumed.urls == []
+        assert resumed.rows == []
+
+
 class TestPerParentResults:
     @parameterized.expand(
         [
@@ -139,7 +200,9 @@ class TestOptimizelySourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = OPTIMIZELY_ENDPOINTS[endpoint]
-        response = optimizely_source("token", endpoint, team_id=1, job_id="j")
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        response = optimizely_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

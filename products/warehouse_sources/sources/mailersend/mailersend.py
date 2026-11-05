@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     EndpointResource,
     JSONResponsePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -345,18 +346,33 @@ def mailersend_source(
 
     items: Callable[[], Any]
     if config.fan_out_over_domains:
-        items = partial(
-            _activity_pages,
-            api_token=api_token,
-            endpoint=endpoint,
-            config=config,
-            team_id=team_id,
-            job_id=job_id,
-            resume_hook=save_checkpoint,
-            initial_state=initial_state,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
+        widest_window = _date_window(
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            (config.window_tiers_days or (MAILERSEND_DEFAULT_ACTIVITY_DAYS,))[0],
         )
+        hints_resource = _activity_resource(
+            api_token, endpoint, config, team_id, job_id, widest_window, save_checkpoint, initial_state
+        )
+        # The tier loop hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points.
+        activity = Resource(
+            partial(
+                _activity_pages,
+                api_token=api_token,
+                endpoint=endpoint,
+                config=config,
+                team_id=team_id,
+                job_id=job_id,
+                resume_hook=save_checkpoint,
+                initial_state=initial_state,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            name=endpoint,
+            hints=hints_resource._hints,
+        )
+        items = lambda: activity
     else:
         endpoint_resource: EndpointResource
         if config.analytics_by_date:

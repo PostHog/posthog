@@ -156,6 +156,26 @@ class TestSavedViewBounds(SimpleTestCase):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
+class TestInheritedCtes(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_only_bound_cte_references_cross_resolver_scopes(self, bound: bool) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        parent = resolve_types(
+            parse_select("WITH shared AS (SELECT 1 AS value) SELECT value FROM shared"), context, "clickhouse"
+        )
+        assert isinstance(parent.type, ast.SelectQueryType)
+        query = clone_expr(parent, clear_types=True) if bound else parse_select("SELECT value FROM shared")
+        assert isinstance(query, ast.SelectQuery)
+        query.ctes = None
+        if bound:
+            resolved = resolve_types(query, context, "clickhouse", scopes=[parent.type])
+            assert isinstance(resolved.type, ast.SelectQueryType)
+            assert isinstance(resolved.type.columns["value"].resolve_constant_type(context), ast.IntegerType)
+        else:
+            with self.assertRaises(QueryError):
+                resolve_types(query, context, "clickhouse", scopes=[parent.type])
+
+
 class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any

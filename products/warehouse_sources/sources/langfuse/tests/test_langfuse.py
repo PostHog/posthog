@@ -4,6 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.langfuse import langfuse as langfuse_module
 from products.warehouse_sources.sources.langfuse._config import LangfuseSourceConfig
 from products.warehouse_sources.sources.langfuse.langfuse import (
@@ -335,6 +337,23 @@ class TestGetRows:
         )
         assert [r["id"] for r in result.rows] == ["t1"]
         assert len(result.requests) == 2
+        assert result.raised is None
+
+    def test_chunked_encoding_error_during_body_read_is_retried_then_recovers(self):
+        # An interrupted chunked transfer raises requests.ChunkedEncodingError, not ConnectionError
+        # or ReadTimeout, so it must be in the fetch_page retry's exception tuple too or a single
+        # dropped connection fails the whole sync instead of retrying the page.
+        result = _driver().run(
+            "traces",
+            [
+                requests.exceptions.ChunkedEncodingError(
+                    "Connection broken: IncompleteRead(20474 bytes read, 12278 more expected)"
+                ),
+                _page([{"id": "t1"}], page=1, total_pages=1),
+            ],
+            api_version="v1",
+        )
+        assert [r["id"] for r in result.rows] == ["t1"]
         assert result.raised is None
 
     def test_keyset_checkpoint_carries_the_advanced_filter(self):

@@ -207,8 +207,11 @@ class TestWorkflowMetricsRows:
             CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2"),
             CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True),
         ]
-        assert result.committed_states == [CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2")]
-        assert result.final_state == CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2")
+        assert result.committed_states == [
+            CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="token-2"),
+            CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True),
+        ]
+        assert result.final_state == CircleciInsightsResumeConfig(slug="gh/a/one", slug_done=True)
 
     def test_resume_skips_completed_project(self):
         result = _driver("gh/a/one, gh/a/two").run(

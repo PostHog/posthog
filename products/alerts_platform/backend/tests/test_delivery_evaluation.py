@@ -1,6 +1,6 @@
 from contextlib import ExitStack
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
@@ -36,7 +36,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
-from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
@@ -537,6 +537,61 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert outcome.sent == sent
 
+    @parameterized.expand(
+        [
+            ("still_firing", "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            # ClickHouse returns the episode start without a zone.
+            (
+                "still_firing_read_without_a_zone",
+                "firing",
+                FIRING,
+                FIRING.replace(tzinfo=None),
+                [IncidentAction.TRIGGER],
+            ),
+            ("resolved_since", "not_firing", None, FIRING, []),
+            ("firing_again_since", "firing", FIRING + timedelta(hours=1), FIRING, []),
+        ]
+    )
+    def test_a_released_hold_opens_an_incident_only_inside_the_firing_it_held(
+        self,
+        _name: str,
+        state: str,
+        firing_started_at: datetime | None,
+        episode_started_at: datetime,
+        incident: list[IncidentAction],
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
+        )
+        PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team, configuration=configuration, state=state, firing_started_at=firing_started_at
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING,
+            release_action=HoldRelease.SEND,
+        )
+
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING, episode_started_at=episode_started_at)),
+            {FIRING_EVENT: [_group(SLACK)], OPENED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.TRIGGER},
+            owned_by_platform=True,
+        )
+
+        assert [channel for channel, _ in RecordingTransport.sends if channel == "C-1"] == ["C-1"]
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == incident
+
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, live=False
@@ -756,6 +811,28 @@ class TestDeliveryPath(APIBaseTest):
         assert len(self.emitted) == emitted
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
+
+    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(self) -> None:
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+            destinations_owner=PlatformAlertOwner.PLATFORM
+        )
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
+                    event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                ),
+            ),
+        )
+
+        # The lookup lists no HogFunction, as for one built from a custom template, and the event still goes out.
+        # A failing chooser would also emit, so the native send shows the path choice is never read here.
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
+
+        assert len(self.emitted) == 1
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(

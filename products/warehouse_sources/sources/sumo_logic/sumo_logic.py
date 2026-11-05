@@ -212,6 +212,7 @@ def _get_token_paginated_rows(
         # Save AFTER yielding the batch — a crash re-yields the last page (merge dedupes on the
         # primary key) instead of skipping it.
         resumable_source_manager.save_state(SumoLogicResumeConfig(token=next_token))
+        resumable_source_manager.safe_point()
         token = next_token
 
 

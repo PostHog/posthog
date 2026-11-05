@@ -268,10 +268,13 @@ def get_rows(
             # resume into.
             if config.paginated and next_cursor:
                 resumable_source_manager.save_state(SquareResumeConfig(cursor=next_cursor))
+        elif config.paginated and next_cursor:
+            resumable_source_manager.save_state(SquareResumeConfig(cursor=next_cursor))
 
         if not config.paginated or not next_cursor:
             break
 
+        resumable_source_manager.safe_point()
         cursor = next_cursor
 
 

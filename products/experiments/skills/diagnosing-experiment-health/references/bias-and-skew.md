@@ -384,6 +384,10 @@ The table shows the page's own rules. When the page shows the health findings, i
 - When another experiment on the flag is running, or launched after this one ended, the flag's state belongs to that experiment, and the finding is absent. Do not advise disabling the flag from this experiment, even when the banner says so. Disabling it stops a running experiment.
 - A draft experiment on the flag, no recorded call of the flag in the last 3 days, or calls that PostHog can't read yet make the finding info, not a warning. A page that shows the health findings shows no banner then.
 
+For a draft, the server's finding is absent when another experiment on the flag is running, because the flag's state belongs to that experiment.
+The `flag_shared` finding reports the draft instead.
+Do not advise disabling the flag or starting the draft then (E15 in `mid-run-changes.md`).
+
 "Adjust the variant distribution" on a running experiment is a change of the split, with what that does to the people already exposed (E3 in `mid-run-changes.md`).
 Say so before the user restores a split.
 

@@ -591,6 +591,36 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
+            ("unused", False, 0),
+            ("still_used_by_another_source", True, 1),
+        ]
+    )
+    def test_discard_created_deletes_the_source_and_its_unused_row(
+        self, _name: str, shared: bool, rows_left: int
+    ) -> None:
+        source = self._source()
+        source_pk = source.pk
+        pk = self._create(source, PG_FIELDS)
+        if shared:
+            self._referencing(pk)
+
+        SourceInputsStore.discard_created(source)
+
+        assert not ExternalDataSource.objects.filter(pk=source_pk).exists()
+        assert len(IntegrationManager.source("postgresql").credentials.list(self.team.id)) == rows_left
+
+    def test_discard_created_keeps_a_row_out_of_the_store_scope(self) -> None:
+        source = self._source()
+        oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
+        source.credentials_integration_id = str(oauth_row.id)
+        source.save()
+
+        SourceInputsStore.discard_created(source)
+
+        assert IntegrationManager.hubspot.oauth.get(self.team.id, oauth_row.id).id == oauth_row.id
+
+    @parameterized.expand(
+        [
             ("top_level_int", {"linear_integration_id": 7}, True),
             ("top_level_string", {"linear_integration_id": "7"}, True),
             ("nested", {"auth": {"hubspot_integration_id": 7}}, True),

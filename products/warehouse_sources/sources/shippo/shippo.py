@@ -6,12 +6,13 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.shippo.settings import SHIPPO_ENDPOINTS
@@ -94,10 +95,17 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{SHIPPO_BASE_URL}{path}/?{urlencode(clean_params)}"
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages: the rows before it are yielded, and no caller holds rows
+    # while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((ShippoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=5, max=90),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
@@ -177,6 +185,7 @@ def _paginate(
             # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages
             # are persisted); merge dedupes the re-pulled page on the primary key.
             resumable_source_manager.save_state(ShippoResumeConfig(next_url=url, window_start=window_start))
+        resumable_source_manager.safe_point()
 
 
 def get_rows(

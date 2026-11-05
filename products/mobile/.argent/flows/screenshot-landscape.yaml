@@ -1,0 +1,34 @@
+# iOS fragment: run after screenshot-capture, which leaves Views open. See docs/TESTING.md.
+steps:
+    - tool: rotate
+      args: { orientation: LandscapeLeft }
+    - await: { idle: true }
+    - echo: Views
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+    - echo: Inbox
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }
+    - tap: { id: inbox-row-demo-report-load-time }
+    - await: { visible: { id: handoff-picker-button } }
+    - await: { idle: true }
+    - echo: Report
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }
+    - tap: { id: handoff-picker-button }
+    - await: { visible: { id: handoff-agent-posthog } }
+    - await: { idle: true }
+    - echo: Handoff
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }
+    - swipe: { from: { text: Choose an agent }, direction: down }
+    - await: { hidden: { id: handoff-agent-posthog } }
+    - tap: { id: action-chat }
+    - await: { visible: { id: chat-input } }
+    - await: { idle: true }
+    - echo: Chat
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }

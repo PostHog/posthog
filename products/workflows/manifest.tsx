@@ -133,6 +133,7 @@ export const manifest: ProductManifest = {
             path: 'Workflows',
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
+            searchKeywords: ['automations', 'campaigns', 'messaging'],
             searchTabs: [
                 { name: 'Library', href: urls.workflows('library') },
                 { name: 'Channels', href: urls.workflows('channels') },
@@ -151,6 +152,7 @@ export const manifest: ProductManifest = {
             path: 'Broadcasts',
             intents: [ProductKey.WORKFLOWS],
             href: urls.broadcasts(),
+            searchKeywords: ['newsletter', 'email blast'],
             type: 'broadcasts',
             category: ProductItemCategory.MESSAGING,
             iconType: 'broadcasts',
@@ -161,6 +163,7 @@ export const manifest: ProductManifest = {
             path: 'Transactional',
             intents: [ProductKey.WORKFLOWS],
             href: urls.transactional(),
+            searchKeywords: ['transactional email'],
             type: 'transactional',
             category: ProductItemCategory.MESSAGING,
             iconType: 'transactional',
