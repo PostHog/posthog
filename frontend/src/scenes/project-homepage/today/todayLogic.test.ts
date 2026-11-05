@@ -234,11 +234,11 @@ describe('todayLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.reports[0].source_products).toEqual(['error_tracking'])
-        // A reload of the same list does not impress its reports again, and keeps their source products.
+        // A reload of the same list does not impress its reports again, and asks again for their source products.
         logic.actions.loadTopReports()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.reports[0].source_products).toEqual(['error_tracking'])
-        expect(sourceMetaRequests).toEqual([['a']])
+        expect(sourceMetaRequests).toEqual([['a'], ['a']])
 
         reportResponse = [200, report]
         logic.actions.reportOpened(report, 'list')

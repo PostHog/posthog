@@ -819,9 +819,6 @@ export const todayLogic = kea<todayLogicType>([
                 listSize,
             })
         }
-        // A failed request leaves its reports out of `reportSourceMeta`, so the next load asks for them again.
-        const idsWithoutSourceMeta = (reports: SignalReport[]): string[] =>
-            reports.map((report) => report.id).filter((id) => !(id in values.reportSourceMeta))
         const applySourceMeta = (meta: Record<string, ReportSourceMeta>): void => {
             if (Object.keys(meta).length > 0) {
                 actions.applyReportSourceMeta(meta)
@@ -969,7 +966,12 @@ export const todayLogic = kea<todayLogicType>([
                     more_report_count: values.moreReportCount,
                     jump_back_ranking: 'recent-and-frequent-v1',
                 })
-                const meta = await fetchSourceMeta(values.currentProjectId, idsWithoutSourceMeta(topReports.results))
+                // A load or reload asks again for every row, because a report gains sources as new signals land.
+                // The rows keep their previous values until the answer arrives.
+                const meta = await fetchSourceMeta(
+                    values.currentProjectId,
+                    topReports.results.map((report) => report.id)
+                )
                 // A newer load or an unmount supersedes this one.
                 breakpoint()
                 applySourceMeta(meta)
@@ -988,7 +990,11 @@ export const todayLogic = kea<todayLogicType>([
                 })
                 const meta = await fetchSourceMeta(
                     values.currentProjectId,
-                    idsWithoutSourceMeta(moreReports?.results ?? [])
+                    // Earlier pages already have their metadata. A failed request leaves its reports out of
+                    // `reportSourceMeta`, so the next page asks for them again.
+                    (moreReports?.results ?? [])
+                        .map((report) => report.id)
+                        .filter((id) => !(id in values.reportSourceMeta))
                 )
                 // A newer page asks again for the rows this call did not finish, and an unmount drops the result.
                 breakpoint()
