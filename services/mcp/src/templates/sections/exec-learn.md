@@ -1,5 +1,5 @@
-**LEARN FIRST: HARD REQUIREMENT**
+{learn_heading}
 
-First, load only the topics this task needs in one `learn` command.
+{learn_lead}
 
 {help_topics}

@@ -29,9 +29,9 @@ User: At what exposure share does the experiment bias warning fire?
 Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-health`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
 </example>
 
-**LEARN FIRST: HARD REQUIREMENT**
+**Built-in guides**
 
-First, load only the topics this task needs in one `learn` command.
+Search skills first, as above, and load the matching ones: these guides add general workflow and never replace a skill. Load only the topics this task needs in one `learn` command.
 
 - analytics: Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.
 - artifacts: Notebooks, dashboards, saved insights, chart explanations.
@@ -75,7 +75,11 @@ Always run `info read-data-schema` first — the recipes below are common cases,
 
 <example>
 User: How many weekly active users do we have?
-Assistant: Analytics applies, so I'll load it before any other command.
+Assistant: Skills come first, so I'll search for this task on its own.
+[Runs `posthog:exec({"command":"learn -s \"weekly active users\""})`]
+Assistant: It matched `posthog:querying-posthog-data`, so I'll load that skill.
+[Runs `posthog:exec({"command":"learn posthog:querying-posthog-data"})`]
+Assistant: Analytics applies too, so I'll load its guide.
 [Runs `posthog:exec({"command":"learn analytics"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]

@@ -151,16 +151,29 @@ function replayVisionAvailable(ctx: InstructionsContext): boolean {
     )
 }
 
-function learnExampleVars(renderUiEnabled: boolean | undefined): Record<string, string> {
+const SKILL_SEARCH_STEP = [
+    "Assistant: Skills come first, so I'll search for this task on its own.",
+    '[Runs `posthog:exec({"command":"learn -s \\"weekly active users\\""})`]',
+    "Assistant: It matched `posthog:querying-posthog-data`, so I'll load that skill.",
+    '[Runs `posthog:exec({"command":"learn posthog:querying-posthog-data"})`]',
+    '',
+].join('\n')
+
+function learnExampleVars(renderUiEnabled: boolean | undefined, skillsEnabled: boolean): Record<string, string> {
+    const skillStep = skillsEnabled ? SKILL_SEARCH_STEP : ''
     if (!renderUiEnabled) {
         return {
             visualization_example: '',
-            analytics_learn_intro: "Analytics applies, so I'll load it before any other command.",
+            skill_step: skillStep,
+            analytics_learn_intro: skillsEnabled
+                ? "Analytics applies too, so I'll load its guide."
+                : "Analytics applies, so I'll load it before any other command.",
             analytics_learn_topics: 'analytics',
             render_step: '',
         }
     }
     return {
+        skill_step: skillStep,
         visualization_example: [
             '<example>',
             'User: create pageviews visualization',
@@ -168,8 +181,9 @@ function learnExampleVars(renderUiEnabled: boolean | undefined): Record<string, 
             '[Runs `posthog:exec({"command":"learn analytics visualizations"})`]',
             '</example>',
         ].join('\n'),
-        analytics_learn_intro:
-            "This needs analytics and visualization guidance, so I'll load both before any other command.",
+        analytics_learn_intro: skillsEnabled
+            ? "This also needs analytics and visualization guidance, so I'll load both."
+            : "This needs analytics and visualization guidance, so I'll load both before any other command.",
         analytics_learn_topics: 'analytics visualizations',
         render_step: [
             '',
@@ -426,7 +440,20 @@ export class InstructionsFormatter {
         const skillsEnabled = opts.skillsEnabled ?? false
         const learnGuides = this.buildExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
+        // Claude web/desktop keep the learn-first framing; with skills on, cli clients must search skills before guides.
+        const learnHeading = claudeChat ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
+        const learnLead = claudeChat
+            ? 'First, load only the topics this task needs in one `learn` command.'
+            : skillsEnabled
+              ? 'Search skills first, as above, and load the matching ones: these guides add general workflow and never replace a skill. Load only the topics this task needs in one `learn` command.'
+              : 'Load only the topics this task needs in one `learn` command.'
+        const learnSection = learnEnabled
+            ? formatPrompt(EXEC_LEARN, {
+                  learn_heading: learnHeading,
+                  learn_lead: learnLead,
+                  help_topics: learnGuideList,
+              })
+            : undefined
         const renderCtx: InstructionsContext = claudeChat
             ? { guidelines: ctx.guidelines, tools: ctx.tools }
             : { guidelines: ctx.guidelines, docsSearchEnabled: docsSearchAvailable(ctx) }
@@ -439,7 +466,7 @@ export class InstructionsFormatter {
                 METRIC_DISCOVERY_COMPACT,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled)),
+                formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,

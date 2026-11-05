@@ -606,7 +606,9 @@ describe('ToolExecutor', () => {
 
                 expect(JSON.stringify(other.tools)).toBe(JSON.stringify(result.tools))
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
-                expect(commandDesc).toContain('**LEARN FIRST: HARD REQUIREMENT**')
+                expect(commandDesc).toContain(
+                    isClaudeChatHost ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
+                )
                 expect(commandDesc).toContain('- analytics:')
                 expect(commandDesc).not.toContain('### Retrieving data')
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)

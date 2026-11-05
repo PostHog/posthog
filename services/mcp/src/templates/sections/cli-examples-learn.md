@@ -4,7 +4,7 @@
 
 <example>
 User: How many weekly active users do we have?
-Assistant: {analytics_learn_intro}
+{skill_step}Assistant: {analytics_learn_intro}
 [Runs `posthog:exec({"command":"learn {analytics_learn_topics}"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]

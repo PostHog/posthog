@@ -386,6 +386,21 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('cli exec guidance with skills', () => {
+        it('shows the skill search before the analytics guide', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference(
+                { ...fullCtx, renderUiEnabled: false },
+                { skillsEnabled: true }
+            )
+
+            const skillSearch = result.indexOf('learn -s \\"weekly active users\\"')
+            expect([skillSearch > -1, skillSearch < result.indexOf('"command":"learn analytics"')]).toEqual([
+                true,
+                true,
+            ])
+        })
+    })
+
     describe('Claude web/desktop exec guidance', () => {
         it('keeps routine guidance inline and advertises optional topics', () => {
             const formatter = new InstructionsFormatter()
