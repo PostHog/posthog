@@ -31,7 +31,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.expressions import OrderBy
+from django.db.models.expressions import BaseExpression, OrderBy
 from django.db.models.functions import Cast, Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
@@ -2604,6 +2604,7 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
+            value: BaseExpression | F
             if not self._inbox_sort_cache:
                 value = latest_ranking_value(head, "scores")
             elif head in PUBLIC_SCORE_FIELDS:
