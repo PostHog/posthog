@@ -14,22 +14,17 @@ from posthog.api.utils import action
 
 from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.contracts import (
-    ClaimedWarehouseMigrationItem,
     MigrationTableOverride,
     PlannedMigrationSchemas,
     WarehouseMigrationEmptySourceError,
     WarehouseMigrationTableOverrideError,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.presentation.views.destination_links import EMPTY_SET_MESSAGE
 
-from . import base
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceCreateCreatedVia, ExternalDataSourceSetupMixin
-
-# Source creation gives every table this cadence, so a plan that matches it needs no second pass.
-_CREATED_SYNC_FREQUENCY = "6hour"
 
 
 class MigrationTableOverrideSerializer(serializers.Serializer):
@@ -154,12 +149,9 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
             return response
 
         source = ExternalDataSource.objects.get(id=response.data["id"], team_id=self.team_id)
-        caveats = [*item.caveats, *self._new_caveats(planned)]
-        try:
-            self._apply_schedule(source, item)
-        except Exception as e:
-            base.capture_exception(e, {"team_id": self.team_id, "source_id": str(source.id)})
-            caveats.append("The source was created, but its sync schedule could not be set. Set it on the source.")
+        webhook = response.data.get("webhook") if isinstance(response.data, dict) else None
+        webhook_registered = isinstance(webhook, dict) and bool(webhook.get("success"))
+        caveats = [*item.caveats, *self._new_caveats(planned, webhook_registered=webhook_registered)]
 
         migrations.finish_migration_item(self.team_id, item.id, source_id=source.id, caveats=caveats)
         return Response(
@@ -168,26 +160,18 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
         )
 
     @staticmethod
-    def _new_caveats(planned: PlannedMigrationSchemas | None) -> list[str]:
+    def _new_caveats(planned: PlannedMigrationSchemas | None, *, webhook_registered: bool) -> list[str]:
         if planned is None:
             return []
         return [
             *(f"PostHog could not find or read the table `{name}`." for name in planned.unavailable),
             *(
-                f"`{name}` syncs only through a webhook. It stays off unless PostHog could register the webhook."
+                f"`{name}` syncs only through a webhook, and PostHog could not register one, so it stays off."
                 for name in planned.webhook_only
+                if not webhook_registered
             ),
             *(
                 f"Fivetran skips columns of `{name}` that PostHog would still read, so it stays off."
                 for name in planned.kept_off
             ),
         ]
-
-    def _apply_schedule(self, source: ExternalDataSource, item: ClaimedWarehouseMigrationItem) -> None:
-        # The time of day is already set at creation, and a paused plan has no syncing table.
-        if item.start_paused or item.sync_frequency == _CREATED_SYNC_FREQUENCY:
-            return
-        schemas = ExternalDataSchema.objects.filter(team_id=self.team_id, source=source, should_sync=True)
-        updates = [{"id": schema.id, "sync_frequency": item.sync_frequency} for schema in schemas]
-        if updates:
-            self._apply_schema_updates(source, updates, self.get_serializer_context())

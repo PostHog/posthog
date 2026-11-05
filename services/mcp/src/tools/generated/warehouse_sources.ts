@@ -1124,6 +1124,7 @@ const warehouseMigrationItemsList = (): ToolBase<
                     'proposal.schemas.*.row_filters',
                     'proposal.schemas.*.alternative_names',
                     'proposal.prefill',
+                    'created_by',
                 ])
             ),
         } as typeof result

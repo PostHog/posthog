@@ -1,13 +1,13 @@
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.models import Team, User
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.warehouse_sources.backend.migration import catalog as migration_catalog
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
@@ -29,6 +29,8 @@ _KEEP_ON_REFRESH = (
     WarehouseMigrationItem.Status.APPLIED,
     WarehouseMigrationItem.Status.SKIPPED,
 )
+# Kept items that have, or are creating, a PostHog source, so their prefixes are taken.
+_HAS_SOURCE = (WarehouseMigrationItem.Status.APPLYING, WarehouseMigrationItem.Status.APPLIED)
 _REPLANNED_FIELDS = ("vendor_service", "name", "verdict", "caveats", "proposal", "status", "error")
 _AUTH_FAILED_MESSAGE = (
     "Fivetran rejected the API key. Check that the key is active and can read connections and destinations."
@@ -48,57 +50,76 @@ def crawl_migration(
     if not own.update(status=WarehouseMigration.Status.CRAWLING, latest_error="", updated_at=timezone.now()):
         # Deleted, or a newer crawl replaced this one.
         return 0
-    migration = own.first()
+    migration = own.select_related("created_by").first()
     if migration is None:
         return 0
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
+    planned = plan_snapshot(migration, snapshot, catalog=catalog)
     with transaction.atomic():
         locked = own.select_for_update().first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
             # Deleted, replaced by a newer crawl, or already marked failed.
             return 0
-        return len(save_plan(locked, snapshot, catalog=catalog))
+        save_plan(locked, snapshot, planned)
+    return len(planned)
 
 
-def save_plan(
+def plan_snapshot(
     migration: WarehouseMigration,
     snapshot: VendorSnapshot,
     *,
     catalog: CatalogLookup = migration_catalog,
     connection_ids: Collection[str] | None = None,
 ) -> tuple[PlannedItem, ...]:
-    """Plan the snapshot and store it with its items. The caller holds the migration row lock.
-
-    Without `connection_ids` the plan replaces every item. With them, only those connections are planned
-    again, and no item is deleted. Either way, items an apply claimed or finished, or the user skipped, stay.
-    """
-    team = Team.objects.only("organization_id").get(id=migration.team_id)
-    to_plan = snapshot
+    """Plan the snapshot's connections, or only `connection_ids`. Prefixes are made unique when they are saved."""
     if connection_ids is not None:
-        # Only the batch is planned. `_save_items` reserves the prefixes of every other item.
         batch = set(connection_ids)
-        to_plan = dataclasses.replace(
+        snapshot = dataclasses.replace(
             snapshot, connections=tuple(connection for connection in snapshot.connections if connection.id in batch)
         )
-    planned = plan_items(to_plan, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
-    _save_items(migration, planned, delete_missing=connection_ids is None)
+    team = Team.objects.only("organization_id").get(id=migration.team_id)
+    return plan_items(
+        snapshot,
+        catalog,
+        source_capabilities,
+        flag_enabled=_flag_checker(team, migration.created_by),
+        unique_prefixes=False,
+    )
+
+
+def save_plan(
+    migration: WarehouseMigration,
+    snapshot: VendorSnapshot,
+    planned: tuple[PlannedItem, ...],
+    *,
+    replace_all: bool = True,
+) -> None:
+    """Store the snapshot and its planned items. The caller holds the migration row lock.
+
+    With `replace_all`, items for connections no longer planned are deleted. Without it, as for an upload, only the
+    planned connections change. Either way, items an apply claimed or finished, or the user skipped, stay.
+    """
+    _save_items(migration, planned, delete_missing=replace_all)
     migration.snapshot = snapshot.to_json()
     migration.account_name = snapshot.account_name or ""
     migration.crawled_at = timezone.now()
     migration.status = WarehouseMigration.Status.READY
     migration.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
-    return planned
 
 
-def _team_has_flag(team: Team, flag: str) -> bool:
-    organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        flag,
-        organization_id,
-        groups={"organization": organization_id, "project": str(team.id)},
-        group_properties={"organization": {"id": organization_id}},
-    )
+def _flag_checker(team: Team, user: User | None) -> Callable[[str], bool]:
+    """Checks source flags for the user who started the migration, as the source page does for them."""
+    results: dict[str, bool] = {}
+
+    def enabled(flag: str) -> bool:
+        if flag not in results:
+            results[flag] = bool(user and user.distinct_id) and posthog_feature_flag_enabled(
+                flag, str(user.distinct_id) if user else "", organization_id=team.organization_id, team_id=team.id
+            )
+        return results[flag]
+
+    return enabled
 
 
 def mark_migration_failed(*, team_id: int, migration_id: UUID, workflow_id: str, auth_failed: bool) -> None:
@@ -121,25 +142,22 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...],
     touched = items if delete_missing else items.filter(vendor_connection_id__in=planned_ids)
     # Locked so an apply cannot claim an item between this read and the save below.
     existing = {item.vendor_connection_id: item for item in touched.select_for_update()}
-    # Kept items keep their sources, so a refreshed connection must not reuse one of their prefixes. An upload also
-    # keeps every item outside its batch, with the prefix its earlier plan gave it.
-    keeps = (
-        Q(status__in=_KEEP_ON_REFRESH)
-        if delete_missing
-        else Q(status__in=_KEEP_ON_REFRESH) | ~Q(vendor_connection_id__in=planned_ids)
-    )
+    kept = {connection_id for connection_id, item in existing.items() if item.status in _KEEP_ON_REFRESH}
+    # A refreshed connection must not take the prefix of a source an item has or is creating. An upload also keeps
+    # each item outside its batch, except skipped ones, with the prefix its earlier plan gave it.
+    taken = Q(status__in=_HAS_SOURCE)
+    if not delete_missing:
+        taken |= ~Q(vendor_connection_id__in=planned_ids) & ~Q(status=WarehouseMigrationItem.Status.SKIPPED)
     reserved = {
         (ExternalDataSourceType(source_type), prefix)
-        for source_type, prefix in items.filter(keeps, proposal__isnull=False).values_list(
+        for source_type, prefix in items.filter(taken, proposal__isnull=False).values_list(
             "proposal__source_type", "proposal__prefix"
         )
     }
-    planned = with_unique_prefixes(planned, reserved)
+    replanned = with_unique_prefixes([plan for plan in planned if plan.vendor_connection_id not in kept], reserved)
 
-    for plan in planned:
+    for plan in replanned:
         item = existing.get(plan.vendor_connection_id)
-        if item is not None and item.status in _KEEP_ON_REFRESH:
-            continue
         is_new = item is None
         if item is None:
             item = WarehouseMigrationItem(

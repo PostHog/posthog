@@ -83,7 +83,12 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
                 # One account can hold hundreds of connections at two API calls each.
                 start_to_close_timeout=timedelta(minutes=30),
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=[FivetranAuthError.__name__]),
+                # A retry reads the whole account again, so it waits out a short Fivetran rate limit first.
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=30),
+                    non_retryable_error_types=[FivetranAuthError.__name__],
+                ),
             )
         except ActivityError as error:
             # Covers timeouts and lost workers too, so a migration never stays `crawling`.
