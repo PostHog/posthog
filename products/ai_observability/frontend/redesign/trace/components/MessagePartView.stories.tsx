@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { userEvent } from 'storybook/test'
-
 import {
     FIXTURE_ATTACHMENT_DATA_FILE,
     FIXTURE_ATTACHMENT_EXTERNAL_AUDIO,
@@ -64,15 +62,10 @@ const longResultPart: MessagePart = {
     },
 }
 export const ToolCallLongResultFolded: Story = { args: { part: longResultPart }, decorators: [withWidth(420)] }
+// A matching search query opens the fold without a click, so the snapshot does not depend on play timing.
 export const ToolCallLongResultOpenWraps: Story = {
-    args: { part: longResultPart },
+    args: { part: longResultPart, highlightQuery: '2026-09' },
     decorators: [withWidth(420)],
-    play: async ({ canvasElement }) => {
-        const toggle = canvasElement.querySelector<HTMLElement>('[data-attr="trace-view-tool-value-toggle"]')
-        if (toggle) {
-            await userEvent.click(toggle)
-        }
-    },
 }
 export const ToolCallError: Story = {
     args: {

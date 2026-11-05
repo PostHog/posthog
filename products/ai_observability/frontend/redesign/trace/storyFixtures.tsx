@@ -245,9 +245,7 @@ export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-ans
             '',
             '## What changed',
             '',
-            ...SEAT_HISTORY.slice(0, 12).map(
-                ({ month }) => `1. ${month}: the invoice shows one prorated line for the seat change.`
-            ),
+            ...SEAT_HISTORY.map(({ month }) => `1. ${month}: the invoice shows one prorated line for the seat change.`),
             '',
             'The seat count changed at most once a month, so every invoice line matches one row above.',
         ].join('\n'),

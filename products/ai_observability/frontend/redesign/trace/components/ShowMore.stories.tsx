@@ -23,6 +23,6 @@ export const CutNarrow: Story = { decorators: [withWidth(420)] }
 export const Expanded: Story = {
     parameters: { testOptions: { snapshotBrowsers: [] } },
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByText('Show more'))
+        await userEvent.click(await within(canvasElement).findByText('Show more'))
     },
 }
