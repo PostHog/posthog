@@ -57,12 +57,15 @@ import {
     AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
+    QueuedSend,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    decodeAttachments,
     isRecipientFormatIssue,
+    queuedSend,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -71,6 +74,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -178,7 +182,8 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
 const transactionalEmailFingerprint = (
     hogFlowId: string,
-    { to, distinct_id, variables, send }: TransactionalEmailRequest
+    { to, distinct_id, variables }: TransactionalEmailRequest,
+    send: QueuedSend | undefined
 ): string => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     return IdempotencyKeys.fingerprint(
@@ -191,7 +196,7 @@ type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 const withSenderTheCallerChose = ({
     from,
     ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
@@ -236,6 +241,7 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
+    private emailAttachmentsService: EmailAttachmentsService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
@@ -253,6 +259,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.emailAttachmentsService = services.emailAttachmentsService
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
@@ -366,6 +373,7 @@ export class CdpApi {
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
             this.invocationResultsService.stop(),
+            this.emailAttachmentsService.stop(),
         ])
     }
 
@@ -1288,8 +1296,10 @@ export class CdpApi {
                 })
 
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-                if (send) {
-                    invocation.state.send = send
+                const files = decodeAttachments(send)
+                const sendToQueue = send ? queuedSend(send, files) : undefined
+                if (sendToQueue) {
+                    invocation.state.send = sendToQueue
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
@@ -1301,7 +1311,7 @@ export class CdpApi {
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data)
+                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, sendToQueue)
                 if (idempotencyKey) {
                     // Checked before the quota, so a retry of a send that went out gets its answer even
                     // when the team has hit its quota since.
@@ -1340,6 +1350,10 @@ export class CdpApi {
                             await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                         }
                         return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
+                    }
+                    if (files.length) {
+                        stages.start('files')
+                        await this.emailAttachmentsService.store(invocation.id, team.id, files)
                     }
                     stages.start('queue_insert')
                     this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
