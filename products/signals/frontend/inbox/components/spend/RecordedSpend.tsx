@@ -2,7 +2,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { formatRecordedSpend, recordedSpendTooltip } from './recordedSpend'
+import { formatRecordedSpend, recordedSpendTooltip } from './recordedSpendFormat'
 
 export function RecordedSpend({
     amount,

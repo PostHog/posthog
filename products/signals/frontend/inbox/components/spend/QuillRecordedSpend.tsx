@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { formatRecordedSpend, recordedSpendTooltip } from './recordedSpend'
+import { formatRecordedSpend, recordedSpendTooltip } from './recordedSpendFormat'
 
 /** The quill sibling of `RecordedSpend`, for the report page behind `today-rail-nav`. */
 export function QuillRecordedSpend({
