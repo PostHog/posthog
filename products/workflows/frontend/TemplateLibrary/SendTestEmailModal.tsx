@@ -13,7 +13,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/sandboxEmailSender'
+import { SANDBOX_EMAIL_SENDER_NOTE, isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
@@ -22,12 +22,9 @@ import { IntegrationType } from '~/types'
 import { MessageTemplateLogicProps } from './messageTemplateLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 
-function senderOption(
-    integration: IntegrationType,
-    sandboxEmailSender: IntegrationType | null
-): LemonSelectOption<number> {
+function senderOption(integration: IntegrationType): LemonSelectOption<number> {
     const option = { label: integration.display_name, value: integration.id }
-    if (integration.id !== sandboxEmailSender?.id) {
+    if (!isSandboxEmailSender(integration)) {
         return option
     }
     return {
@@ -103,7 +100,6 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
     const logic = messageTemplateTestSendLogic(logicProps)
     const {
         senderIntegrationId,
-        sandboxEmailSender,
         isSandboxSenderSelected,
         emailIntegrations,
         integrationsLoading,
@@ -150,9 +146,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                             <LemonSelect
                                 value={senderIntegrationId}
                                 onChange={(id) => setSenderIntegrationId(id)}
-                                options={emailIntegrations.map((integration) =>
-                                    senderOption(integration, sandboxEmailSender)
-                                )}
+                                options={emailIntegrations.map(senderOption)}
                                 data-attr="send-test-email-sender"
                                 fullWidth
                             />

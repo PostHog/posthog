@@ -38,7 +38,7 @@ export function sandboxSenderEnabled(): boolean {
 
 async function loadEveryIntegrationPage(): Promise<IntegrationType[]> {
     const integrations = await api.loadPaginatedResults<IntegrationType>(
-        new ApiRequest().integrations().withQueryString({ limit: 100 }).assembleFullUrl(),
+        new ApiRequest().integrations().withQueryString({ kind: 'email', limit: 100 }).assembleFullUrl(),
         Infinity
     )
     return integrations.map((integration) => ({ ...integration, config: integration.config ?? {} }))
