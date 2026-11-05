@@ -135,7 +135,7 @@ def resolve_requester(users: list[User], team_ids: Sequence[int], *, call_site: 
     if not users:
         return UnresolvedRequester(reason="refused")
     if len(users) > 1:
-        logger.info("github_requester_has_several_accounts", account_count=len(users))
+        logger.info("requester_has_several_accounts", account_count=len(users))
     return Requester(members=_project_members(users, team_ids))
 
 

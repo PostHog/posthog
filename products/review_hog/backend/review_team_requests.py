@@ -10,9 +10,13 @@ PostHog Review. `pull_request_events.py` queues the request, and the task runs i
 4. The review is Standard, or Deep once the pull request has a published Deep review, and runs as
    the requester.
 
-The team's review request is removed whatever the outcome, so requesting the team again asks for
-the next review. GitHub shows its re-request button only next to reviewers who submitted a review,
-and a team never does.
+Every final outcome replies to the requester, except a started review, and removes the team's
+review request, so requesting the team again asks for the next review. GitHub shows its re-request
+button only next to reviewers who submitted a review, and a team never does. A failure that will be
+retried leaves the request in place; the last failed attempt replies and removes it.
+
+The webhook prefilter drops a request on a repository that ReviewHog does not review, so GitHub
+keeps showing the request there. The team needs access only to the repositories ReviewHog reviews.
 """
 
 import logging
@@ -22,6 +26,7 @@ import requests
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.github.requesters import (
     GITHUB_WRITE_PERMISSIONS,
@@ -30,7 +35,7 @@ from posthog.github.requesters import (
     resolve_requester,
     users_linked_to_github_account,
 )
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.facade.contracts import RUN_MODE_FLASH, RUN_MODE_REVIEW
@@ -52,8 +57,14 @@ ReviewTeamRequestOutcome = Literal[
     "no_project",
     "access_denied",
     "refused",
+    "already_reviewed",
     "started",
+    "failed",
 ]
+
+# Replies and the request removal are best effort, so a failure in either never fails the task and
+# never makes it retry.
+_GITHUB_CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
 
 REVIEW_TEAM_REQUEST_TOTAL = Counter(
     "posthog_review_hog_review_team_request_total",
@@ -74,6 +85,9 @@ ACCESS_DENIED_MESSAGE = (
     "You need editor access to PostHog Review in the project that reviews this repository. "
     "Ask a project admin for access, then request the review again."
 )
+NO_WRITE_ACCESS_MESSAGE = "You need write access to this repository to request a PostHog Review."
+ALREADY_REVIEWED_MESSAGE = "PostHog Review already reviewed the current commit."
+FAILED_MESSAGE = "PostHog Review couldn't start this review. Request the review again in a few minutes."
 
 
 def _observe(outcome: ReviewTeamRequestOutcome) -> None:
@@ -90,7 +104,7 @@ class ReviewTeamRequest:
     requester_github_id: int
     requester_login: str
 
-    def start(self) -> None:
+    def start(self, *, final_attempt: bool) -> None:
         owner = RepositoryOwnership.find(
             RepositoryRef(
                 installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
@@ -106,9 +120,18 @@ class ReviewTeamRequest:
             _observe("integration_missing")
             return
         try:
-            _observe(self._review(github, owner.team_id))
-        finally:
-            self._remove_team_request(github)
+            outcome = self._review(github, owner.team_id)
+        except Exception:
+            # Each attempt fails before any reply, so a retry cannot mention the requester twice.
+            # The request stays until the last attempt, so the pull request never shows it gone
+            # while a retry may still start the review.
+            if final_attempt:
+                self._reply(github, FAILED_MESSAGE)
+                self._remove_team_request(github)
+                _observe("failed")
+            raise
+        self._remove_team_request(github)
+        _observe(outcome)
 
     def _review(self, github: GitHubIntegration, team_id: int) -> ReviewTeamRequestOutcome:
         # A failed lookup raises, so the task retries instead of reading an outage as a refusal.
@@ -116,6 +139,7 @@ class ReviewTeamRequest:
             self.repository, self.requester_login, expected_user_id=self.requester_github_id
         )
         if permission not in GITHUB_WRITE_PERMISSIONS:
+            self._reply(github, NO_WRITE_ACCESS_MESSAGE)
             return "no_write_access"
         users = users_linked_to_github_account(self.requester_github_id)
         requester = resolve_requester(users, [team_id], call_site="review_team_request")
@@ -146,14 +170,22 @@ class ReviewTeamRequest:
             run_mode=RUN_MODE_REVIEW if review_mode == REVIEW_MODE_FULL else RUN_MODE_FLASH,
             trigger_source=TRIGGER_REVIEW_REQUEST,
         )
-        if outcome.started or outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED:
+        if outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED:
+            self._reply(github, ALREADY_REVIEWED_MESSAGE)
+            return "already_reviewed"
+        if outcome.started:
             return "started"
         self._reply(github, outcome.error or "PostHog Review can't review this pull request.")
         return "refused"
 
     def _reply(self, github: GitHubIntegration, message: str) -> None:
         # The login is GitHub's, so the mention pings only the person who asked.
-        result = github.comment_on_pull_request(self.repository, self.pr_number, f"@{self.requester_login} {message}")
+        body = f"@{self.requester_login} {message}"
+        try:
+            result = github.comment_on_pull_request(self.repository, self.pr_number, body)
+        except _GITHUB_CALL_ERRORS:
+            logger.warning("review_hog_review_team_reply_failed", exc_info=True)
+            return
         if not result.get("success"):
             logger.warning("review_hog_review_team_reply_failed", extra={"repository": self.repository})
 
@@ -166,7 +198,7 @@ class ReviewTeamRequest:
                 # GitHub rejects the call without `reviewers`, even when only a team is removed.
                 json_body={"reviewers": [], "team_reviewers": [REVIEW_TEAM_SLUG]},
             )
-        except requests.RequestException:
+        except _GITHUB_CALL_ERRORS:
             logger.warning("review_hog_review_team_request_removal_failed", exc_info=True)
             return
         if response.status_code != 200:

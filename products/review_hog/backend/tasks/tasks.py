@@ -1,4 +1,4 @@
-from celery import shared_task
+from celery import Task, shared_task
 
 from products.review_hog.backend.automatic_reviews import AuthoredPRReview
 from products.review_hog.backend.review_team_requests import ReviewTeamRequest
@@ -71,6 +71,7 @@ def process_stamphog_handoff(
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     acks_late=True,
     reject_on_worker_lost=True,
@@ -82,6 +83,7 @@ def process_stamphog_handoff(
     name="products.review_hog.backend.tasks.process_review_team_request",
 )
 def process_review_team_request(
+    self: Task,
     *,
     installation_id: str,
     repository: str,
@@ -97,4 +99,4 @@ def process_review_team_request(
         pr_number=pr_number,
         requester_github_id=requester_github_id,
         requester_login=requester_login,
-    ).start()
+    ).start(final_attempt=self.request.retries >= (self.max_retries or 0))
