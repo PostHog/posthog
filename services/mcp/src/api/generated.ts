@@ -42304,10 +42304,7 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
-      /**
-       * Properties in this group, up to 1000. On update, the list replaces the group's existing properties.
-       * @maxItems 1000
-       */
+      /** Properties in this group, up to 1000. On update, the list replaces the group's existing properties. */
       properties?: SchemaPropertyGroupProperty[];
       readonly events: readonly EventDefinitionBasic[];
       readonly created_at: string;
@@ -87022,10 +87019,7 @@ export namespace Schemas {
       /** @maxLength 400 */
       name?: string;
       description?: string;
-      /**
-       * Properties in this group, up to 1000. On update, the list replaces the group's existing properties.
-       * @maxItems 1000
-       */
+      /** Properties in this group, up to 1000. On update, the list replaces the group's existing properties. */
       properties?: SchemaPropertyGroupProperty[];
       readonly events?: readonly EventDefinitionBasic[];
       readonly created_at?: string;
