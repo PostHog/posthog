@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     handle_reset_or_full_refresh,
     update_incremental_field_values,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.pod_deletion import POD_DELETION_DEADLINE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import (
     PreemptionConfig,
     ShutdownStopwatch,
@@ -3486,6 +3487,37 @@ class TestSourcePreemption:
         assert preempted == ["deadline"]
         assert pipeline._progress is not None
         assert pipeline._progress.handoff_reason == "preempted_deadline"
+
+    @pytest.mark.asyncio
+    async def test_a_source_blocked_in_a_call_is_preempted_before_a_pod_kill_that_comes_first(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        release = threading.Event()
+        clock = _FakeClock()
+
+        def items():
+            yield pa.table({"id": ["a"]})
+            switch.shut_down()
+            release.wait()
+            yield pa.table({"id": ["b"]})
+
+        pipeline = _runnable_pipeline(manager, items)
+        switch = _with_ride_out(pipeline, clock, quiet_period_seconds=300.0)
+
+        # The node pool kills the pod 10 minutes into the drain, well inside the quiet period.
+        with (
+            patch(f"{_PREEMPTION}.RIDE_OUT_WAIT_SLICE_SECONDS", 0.01),
+            patch.object(POD_DELETION_DEADLINE, "seconds_until_kill", return_value=600.0),
+        ):
+            run = asyncio.ensure_future(_run_expecting(pipeline, redis, SourcePreemptedError))
+            try:
+                await asyncio.wait_for(run, timeout=10)
+            finally:
+                release.set()
+
+        assert _staged_ids(pipeline) == ["a"]
+        assert pipeline._progress is not None
+        assert pipeline._progress.handoff_reason == "preempted_pod_deadline"
 
     @pytest.mark.parametrize("rows_reach_a_batch", [True, False], ids=["rows_staged", "rows_still_buffered"])
     @pytest.mark.asyncio

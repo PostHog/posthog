@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     update_row_tracking_after_batch,
     validate_incremental_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.pod_deletion import POD_DELETION_DEADLINE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import (
     PreemptionConfig,
     PreemptionDecision,
@@ -745,6 +746,7 @@ class PipelineV3(Generic[ResumableData]):
             execution_age_seconds=functools.partial(
                 activity_execution_age_seconds, shutdown_grace_seconds=self._shutdown_grace_seconds
             ),
+            seconds_until_pod_kill=POD_DELETION_DEADLINE.seconds_until_kill,
         )
         return self._handoff_gate
 

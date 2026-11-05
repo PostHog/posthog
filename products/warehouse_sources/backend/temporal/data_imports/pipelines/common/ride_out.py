@@ -7,6 +7,7 @@ the deadline stays below the SDK's graceful shutdown timeout, which cancels acti
 pod's `terminationGracePeriodSeconds`.
 """
 
+import math
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -111,6 +112,7 @@ class HandoffGate:
         logger: FilteringBoundLogger,
         restarts_from_scratch: Callable[[], bool] = lambda: False,
         execution_age_seconds: Callable[[], float | None] = activity_execution_age_seconds,
+        seconds_until_pod_kill: Callable[[], float | None] = lambda: None,
     ) -> None:
         self._shutdown_monitor = shutdown_monitor
         self._stopwatch = stopwatch
@@ -120,6 +122,7 @@ class HandoffGate:
         self._logger = logger
         self._restarts_from_scratch = restarts_from_scratch
         self._execution_age_seconds = execution_age_seconds
+        self._seconds_until_pod_kill = seconds_until_pod_kill
         self._lock = threading.Lock()
         self._logged_handoff = False
         self.rode_out = False
@@ -139,7 +142,7 @@ class HandoffGate:
         early_reason = self._reason_to_leave_before_the_deadline()
         if early_reason is not None:
             return self._decide(early_reason, True)
-        return self._decide("deadline", self.seconds_until_deadline() <= 0.0)
+        return self._decide(self._deadline_reason(), self.seconds_until_deadline() <= 0.0)
 
     def may_hand_off(self) -> bool:
         """Whether the run may leave the worker here, with the shutdown left to the monitor.
@@ -165,13 +168,20 @@ class HandoffGate:
         gate would hand off at once."""
         if self._config is None or self._reason_to_leave_before_the_deadline() is not None:
             return 0.0
-        elapsed = self._stopwatch.elapsed_seconds() or 0.0
-        deadline = self._config.deadline_seconds_after_shutdown(restarts_from_scratch=self._restarts_from_scratch())
-        return max(deadline - elapsed, 0.0)
+        return min(self._seconds_until_ride_out_deadline(), self.seconds_until_pod_deadline())
+
+    def seconds_until_pod_deadline(self) -> float:
+        """How long the run can still keep this pod before Kubernetes kills it. Infinite when unknown."""
+        if not self._shutdown_monitor.is_worker_shutdown():
+            return math.inf
+        seconds = self._seconds_until_pod_kill()
+        if seconds is None:
+            return math.inf
+        return max(seconds - RIDE_OUT_GRACE_MARGIN_SECONDS, 0.0)
 
     def leave_reason(self) -> str:
-        """Why the gate lets the import leave now: `progress`, `young`, or the `deadline`."""
-        return self._reason_to_leave_before_the_deadline() or "deadline"
+        """Why the gate lets the import leave now: `progress`, `young`, the `deadline`, or the `pod_deadline`."""
+        return self._reason_to_leave_before_the_deadline() or self._deadline_reason()
 
     def record_preemption(self, reason: str) -> None:
         self._progress.record_handoff_reason(f"preempted_{reason}")
@@ -179,6 +189,17 @@ class HandoffGate:
     def raise_if_should_hand_off(self) -> None:
         if self.may_hand_off():
             self._shutdown_monitor.raise_if_is_worker_shutdown()
+
+    def _seconds_until_ride_out_deadline(self) -> float:
+        assert self._config is not None
+        elapsed = self._stopwatch.elapsed_seconds() or 0.0
+        deadline = self._config.deadline_seconds_after_shutdown(restarts_from_scratch=self._restarts_from_scratch())
+        return max(deadline - elapsed, 0.0)
+
+    def _deadline_reason(self) -> str:
+        if self._config is not None and self.seconds_until_pod_deadline() < self._seconds_until_ride_out_deadline():
+            return "pod_deadline"
+        return "deadline"
 
     def _reason_to_leave_before_the_deadline(self) -> str | None:
         if self._progress.has_progress:

@@ -7,6 +7,7 @@ it gives the source a quiet period to hand off in the usual way, and then it rai
 `SourcePreemptedError` from the event loop and leaves the source behind.
 """
 
+import math
 import time
 import asyncio
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
@@ -161,12 +162,19 @@ class SourcePreemptor:
             if ride_out_remaining > quiet_remaining:
                 self._held_by_ride_out = True
             remaining = max(quiet_remaining, ride_out_remaining)
+            # A drain that kills the pod sooner, such as on a node pool with a short termination
+            # limit, ends the quiet period too.
+            pod_remaining = self._gate.seconds_until_pod_deadline() if self._gate is not None else math.inf
+            cut_by_pod_deadline = pod_remaining < remaining
+            remaining = min(remaining, pod_remaining)
             if remaining > 0:
                 # An item or a safe point in this time hands the run off in the usual way. Short
                 # slices, so progress that lands during a ride-out ends the wait soon after.
                 await asyncio.wait({pull}, timeout=min(remaining, RIDE_OUT_WAIT_SLICE_SECONDS))
                 continue
-            if self._gate is not None and (self._held_by_ride_out or not decision.eligible):
+            if cut_by_pod_deadline:
+                preemption_reason = "pod_deadline"
+            elif self._gate is not None and (self._held_by_ride_out or not decision.eligible):
                 preemption_reason = self._gate.leave_reason()
             else:
                 preemption_reason = decision.reason

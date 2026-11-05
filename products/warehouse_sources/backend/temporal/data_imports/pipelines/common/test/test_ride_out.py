@@ -47,6 +47,7 @@ def _gate(
     legacy: bool = True,
     restarts_from_scratch: bool = False,
     shutdown_age: float | None = None,
+    pod_kill: float | None = None,
 ) -> tuple[HandoffGate, _Clock, DurableProgress]:
     clock = _Clock()
     monitor = _Monitor(shutting_down, shutdown_age)
@@ -62,6 +63,7 @@ def _gate(
         logger=MagicMock(),
         restarts_from_scratch=lambda: restarts_from_scratch,
         execution_age_seconds=lambda: age,
+        seconds_until_pod_kill=lambda: None if pod_kill is None else pod_kill - clock.now,
     )
     return gate, clock, durable
 
@@ -82,6 +84,13 @@ def _gate(
         pytest.param(
             {"restarts_from_scratch": True}, 6300.0, (True, "deadline"), id="from_scratch_leaves_before_grace_ends"
         ),
+        # A drain that kills the pod sooner than the grace, such as a node pool's termination limit.
+        pytest.param(
+            {"pod_kill": 600.0}, 0.0, (True, "pod_deadline"), id="pod_killed_within_the_margin_leaves_at_once"
+        ),
+        pytest.param({"pod_kill": 1800.0}, 899.0, (False, None), id="pod_kill_leaves_time_to_ride_out"),
+        pytest.param({"pod_kill": 1800.0}, 900.0, (True, "pod_deadline"), id="pod_kill_ends_the_ride_out_early"),
+        pytest.param({"pod_kill": 8100.0}, 3600.0, (True, "deadline"), id="later_pod_kill_keeps_the_cap"),
     ],
 )
 def test_the_gate_hands_off_only_when_a_restart_loses_nothing(
@@ -103,6 +112,7 @@ def test_the_gate_hands_off_only_when_a_restart_loses_nothing(
         pytest.param({"progress": True}, 0.0, id="progress"),
         pytest.param({"age": 10.0}, 0.0, id="young"),
         pytest.param({"restarts_from_scratch": True}, 6200.0, id="from_scratch"),
+        pytest.param({"pod_kill": 1800.0}, 800.0, id="pod_kill"),
     ],
 )
 def test_the_preemptor_waits_exactly_as_long_as_the_gate_would(kwargs: dict[str, Any], expected: float) -> None:
