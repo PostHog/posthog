@@ -181,12 +181,10 @@ def _get_trial_config(trial: TrialLaunch) -> SignalScoutConfig:
 
 
 def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None:
-    run = (
-        SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run")
-        .filter(task_run__task__origin_key=f"scout-trial:{trial.id}")
-        .first()
-    )
+    task_id = tasks_facade.get_task_id_by_idempotency_key(team_id, f"scout-trial:{trial.id}")
+    if task_id is None:
+        return None
+    run = SignalScoutRun.objects.for_team(team_id).select_related("task_run").filter(task_run__task_id=task_id).first()
     if run is None:
         return None
     return RunResult(
