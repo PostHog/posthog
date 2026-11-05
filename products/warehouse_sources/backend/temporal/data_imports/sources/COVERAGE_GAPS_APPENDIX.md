@@ -10718,22 +10718,24 @@ Note: The docs page is a Scalar viewer with the full OpenAPI YAML inlined — pa
 
 ## Segment — **thin**
 
-Today (17): `audit_events`, `destination_delivery_metrics`, `destinations`, `destinations_catalog`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `reverse_etl_syncs`, `sources`, `sources_catalog`, `tracking_plan_rules`, `tracking_plans`, `transformations`, `warehouses`, `warehouses_catalog`, `workspace`
+Today (22): `audit_events`, `delivery_overview`, `destination_delivery_metrics`, `destinations`, `destinations_catalog`, `event_volume`, `iam_groups`, `iam_users`, `labels`, `reverse_etl_models`, `reverse_etl_syncs`, `source_mtu_usage`, `sources`, `sources_catalog`, `tracking_plan_rules`, `tracking_plans`, `transformations`, `warehouse_syncs`, `warehouses`, `warehouses_catalog`, `workspace`, `workspace_mtu_usage`
 
 Diffed against: <https://docs.segmentapis.com/ (Segment Public API OpenAPI 3.0.3, v73.0.7, extracted from the Redocly state bundle https://docs.segmentapis.com/redocly-state-bf9e006a07a5265a778ac3938ef8f8f891686c5b.js)>
 
-- [ ] `/events/volume (Get Events Volume from Workspace)` — Segment's headline usage metric — event volume by source/day, the number every Segment customer wants in a warehouse (high)
-- [ ] `/usage/mtu/daily and /usage/mtu/sources/daily` — Daily MTU usage per workspace and per source — the billing metric (high)
-- [ ] `/warehouses/{warehouseId}/syncs and /warehouses/{warehouseId}/connected-sources/{sourceId}/syncs` — Warehouse sync run history/status — the state-transition history for the warehouses table already synced (high)
+- [x] `/events/volume (Get Events Volume from Workspace)` — Segment's headline usage metric — event volume by source/day, the number every Segment customer wants in a warehouse (high)
+- [x] `/usage/mtu/daily and /usage/mtu/sources/daily` — Daily MTU usage per workspace and per source — the billing metric (high)
+- [x] `/warehouses/{warehouseId}/syncs and /warehouses/{warehouseId}/connected-sources/{sourceId}/syncs` — Warehouse sync run history/status — the state-transition history for the warehouses table already synced (high)
 - [x] `/reverse-etl-models/{modelId}/subscriptionId/{subscriptionId}/syncs` — Reverse ETL sync statuses (rows loaded, failures) for the reverse_etl_models already synced (high)
 - [x] `/destinations/{destinationId}/delivery-metrics` — Per-destination delivery success/failure counts — core deliverability analysis for the destinations table (high)
 - [x] `/catalog/destinations, /catalog/sources, /catalog/warehouses` — Lookup tables resolving the metadata IDs carried on every synced source, destination, and warehouse row (high)
 - [x] `/tracking-plans/{trackingPlanId}/rules` — The actual event/property rules inside a tracking plan — tracking_plans alone is just a header row (high)
-- [ ] `/delivery-overview/successful-delivery, /failed-delivery, /failed-on-ingest, /filtered-at-source, /filtered-at-destination` — Time-series pipeline health metrics broken down by stage; the standard Delivery Overview report (medium)
+- [x] `/delivery-overview/successful-delivery, /failed-delivery, /failed-on-ingest, /filtered-at-source, /filtered-at-destination` — Time-series pipeline health metrics broken down by stage; the standard Delivery Overview report (medium)
 - [ ] `/destinations/{destinationId}/subscriptions` — Action mappings per destination — explains which events reach which destination (medium)
 - [ ] `/spaces and /spaces/{spaceId}/audiences` — Engage spaces and audience definitions plus /audiences/{id}/activations; entirely absent today (medium)
 - [ ] `/usage/api-calls/daily and /usage/api-calls/sources/daily` — Daily API call volume per workspace and source for cost attribution (medium)
 - [ ] `/roles (and /invites)` — Lookup resolving the role IDs referenced by iam_users and iam_groups permissions (low)
+
+Note: `warehouse_syncs` reads `/warehouses/{warehouseId}/syncs`, which already returns the syncs of every connected source. The per-source `/connected-sources/{sourceId}/syncs` route returns a subset of the same reports under the same 2 requests per minute limit, so it gets no table of its own. `delivery_overview` holds every stage in one table with a `stage` column, and also reads `/delivery-overview/successfully-received`, the first stage of the funnel. Delivery Overview does not cover Reverse ETL, so the sources of Reverse ETL models and their destinations are left out.
 
 Note: Static endpoint list, no dynamic discovery. The synced 11 tables cover ~15 of the ~95 GET operations in the spec; all of Engage (spaces, audiences, computed traits, profile warehouses), all usage/volume metrics, and all sync-history sub-resources are missing.
 
@@ -10792,16 +10794,16 @@ Note: The dependency and scan list endpoints are POST-with-body (paginated searc
 
 ## Semrush — **thin**
 
-Today (3): `site_audit`, `site_audit_issue_descriptions`, `site_audit_snapshots`
+Today (7): `domain_organic_competitors`, `domain_organic_keywords`, `site_audit`, `site_audit_history`, `site_audit_issue_descriptions`, `site_audit_issue_details`, `site_audit_snapshots`
 
 Diffed against: <https://developer.semrush.com/api/v3/projects/site-audit/>
 
-- [ ] `Snapshots history (GET /reports/v1/projects/{ID}/siteaudit/history)` — track historical site health scores and issue counts, beyond the snapshot identifiers currently imported (high)
-- [ ] `Snapshot issue details (GET /reports/v1/projects/{ID}/siteaudit/snapshot/{snapshotId}/issue/{issueId})` — identify affected URLs and measure the business impact of specific technical SEO issues (high)
-- [ ] `Domain Organic Search Keywords (GET /?type=domain_organic)` — analyze organic rankings, search volume, landing URLs, and estimated traffic for a domain (high)
+- [x] `Snapshots history (GET /reports/v1/projects/{ID}/siteaudit/history)` — track historical site health scores and issue counts, beyond the snapshot identifiers currently imported (high)
+- [x] `Snapshot issue details (GET /reports/v1/projects/{ID}/siteaudit/snapshot/{snapshotId}/issue/{issueId})` — identify affected URLs and measure the business impact of specific technical SEO issues (high)
+- [x] `Domain Organic Search Keywords (GET /?type=domain_organic)` — analyze organic rankings, search volume, landing URLs, and estimated traffic for a domain (high)
 - [ ] `Page list (GET /reports/v1/projects/{ID}/siteaudit/page/list)` — compare crawled pages and connect page identifiers to URLs (medium)
 - [ ] `Domain Paid Search Keywords (GET /?type=domain_adwords)` — compare paid keywords, positions, costs, and estimated traffic with organic performance (medium)
-- [ ] `Competitors in Organic Search (GET /?type=domain_organic_organic)` — measure keyword overlap and competitive search visibility (medium)
+- [x] `Competitors in Organic Search (GET /?type=domain_organic_organic)` — measure keyword overlap and competitive search visibility (medium)
 - [ ] `Domain Organic Pages (GET /?type=domain_organic_unique)` — compare landing pages by ranking keywords and estimated organic traffic (medium)
 
 Note: Parsed the Site Audit reference's operations and request examples. Also checked https://developer.semrush.com/api/v3/analytics/domain-reports/ for domain report operations. Current tables cover one project's audit metadata; domain reports need domain and database inputs. Issue details require snapshot and issue IDs; excluded audit launch and configuration operations.
@@ -10821,9 +10823,9 @@ Diffed against: <https://github.com/twilio/sendgrid-oai/tree/main/spec/json (off
 - [x] `GET /v3/categories/stats (and /v3/categories/stats/sums)` — Email stats broken down by category, the main way transactional senders segment performance (medium)
 - [x] `GET /v3/categories` — Category lookup resolving the category tags used on stats and messages (medium)
 - [x] `GET /v3/marketing/stats/automations (+ /{id}/links)` — Automation (journey) performance stats (medium)
-- [ ] `GET /v3/marketing/segments/2.0` — Marketing segment definitions; marketing_lists is synced but segments are not (medium)
-- [ ] `GET /v3/geo/stats, /v3/mailbox_providers/stats, /v3/devices/stats, /v3/clients/stats, /v3/browsers/stats` — Breakdown dimensions on the same stats fact (country, mailbox provider, device, client, browser) (medium)
-- [ ] `GET /v3/subusers and /v3/subusers/stats (+ /stats/monthly, /stats/sums, /reputations)` — Per-subuser volume and reputation — required for any agency or multi-tenant SendGrid account (medium)
+- [x] `GET /v3/marketing/segments/2.0` — Marketing segment definitions; marketing_lists is synced but segments are not (medium)
+- [x] `GET /v3/geo/stats, /v3/mailbox_providers/stats, /v3/devices/stats, /v3/clients/stats, /v3/browsers/stats` — Breakdown dimensions on the same stats fact (country, mailbox provider, device, client, browser) (medium)
+- [x] `GET /v3/subusers and /v3/subusers/stats (+ /stats/monthly, /stats/sums, /reputations)` — Per-subuser volume and reputation — required for any agency or multi-tenant SendGrid account (medium)
 
 Note: Current coverage is essentially only the suppression family plus templates and lists — 8 tables against a spec set of 46 OpenAPI files. Not a single statistics or activity endpoint is synced, which is the bulk of analytical value. /v3/marketing/contacts returns a sample only; the full contact set requires the async exports job (POST /v3/marketing/contacts/exports then poll and download).
 
