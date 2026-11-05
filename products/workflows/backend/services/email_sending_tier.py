@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
@@ -334,21 +334,59 @@ def _fetch_daily_metrics(
     workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    metric_names = [*SENT_METRICS, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    other_metrics = list(dict.fromkeys([HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]))
+    params: dict[str, Any] = {
+        "app_source": APP_SOURCE,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "team_ids": team_ids,
+        "sent": SENT_METRIC,
+        "sandbox": SANDBOX_SENT_METRIC,
+        "names": [*SENT_METRICS, *other_metrics],
+    }
+    in_window = "timestamp >= toDateTime64(%(after)s, 6)" + (
+        " AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""
+    )
+    in_hours = "toStartOfHour(timestamp) >= toStartOfHour(toDateTime64(%(after)s, 6))" + (
+        " AND toStartOfHour(timestamp) <= toStartOfHour(toDateTime64(%(before)s, 6))" if before else ""
+    )
+    hourly_others = ""
+    daily_others = ""
+    for index, metric_name in enumerate(other_metrics):
+        params[f"other_{index}"] = metric_name
+        hourly_others += f", sumIf(count, metric_name = %(other_{index})s AND {in_window}) AS other_{index}"
+        daily_others += f", sum(other_{index})"
+    query = f"""
+        SELECT team_id, toDate(hour) AS day,
+            sum(least(sent_in_window, greatest(0, sent_in_hour - sandbox_in_hour))){daily_others}
+        FROM (
+            SELECT
+                team_id,
+                toStartOfHour(timestamp) AS hour,
+                toInt64(sumIf(count, metric_name = %(sent)s AND {in_window})) AS sent_in_window,
+                toInt64(sumIf(count, metric_name = %(sent)s)) AS sent_in_hour,
+                toInt64(sumIf(count, metric_name = %(sandbox)s)) AS sandbox_in_hour{hourly_others}
+            FROM app_metrics2
+            WHERE app_source = %(app_source)s
+            {"AND team_id IN %(team_ids)s" if team_ids else ""}
+            AND {in_hours}
+            AND metric_name IN %(names)s
+            GROUP BY team_id, app_source_id, hour
+        )
+        GROUP BY team_id, day
+    """
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
     # covers the daily sweep, the admin recompute, and the backfill command.
     with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
-        return fetch_app_metric_daily_totals_by_team(
-            app_source=APP_SOURCE,
-            name=metric_names,
-            after=after,
-            before=before,
-            team_ids=team_ids,
-            workload=workload,
-            net_of={SENT_METRIC: SANDBOX_SENT_METRIC},
-        )
+        rows = sync_execute(query, params, workload=workload)
+
+    daily: dict[int, dict[str, dict[str, int]]] = {}
+    for team_id, day, own, *others in rows:
+        counts = {SENT_METRIC: int(own), **{name: int(count) for name, count in zip(other_metrics, others)}}
+        daily.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = counts
+    return daily
 
 
 def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
