@@ -1770,6 +1770,11 @@ class TestCredentialMoveNeedsReauth(SimpleTestCase):
                 True,
             ),
             (
+                "source_default_added",
+                [MAPPINGS[0], {**MAPPINGS[1], "filters": {**MAPPINGS[1]["filters"], "source": "events"}}],
+                False,
+            ),
+            (
                 "bytecode_recompiled",
                 [MAPPINGS[0], {**MAPPINGS[1], "filters": {**MAPPINGS[1]["filters"], "bytecode": ["_H", 2]}}],
                 False,

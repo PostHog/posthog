@@ -1185,9 +1185,12 @@ _DERIVED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "bytecode_contra
 def _comparable_filters(filters: Any) -> str:
     if not isinstance(filters, dict):
         return json.dumps(filters, sort_keys=True, default=str)
-    return json.dumps(
-        {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS}, sort_keys=True, default=str
-    )
+    # Rows saved before the serializer defaulted `source` lack it, and they mean "events".
+    comparable = {
+        "source": "events",
+        **{key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
+    }
+    return json.dumps(comparable, sort_keys=True, default=str)
 
 
 def _comparable_mappings(mappings: Any) -> list[tuple[dict[str, str], list[str], str]]:
