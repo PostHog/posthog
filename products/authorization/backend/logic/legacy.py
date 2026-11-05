@@ -60,7 +60,16 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     if context is not None and context != Context():
         raise NotImplementedError("The current access rules read no request context.")
     session = current() or Session()
+    _load_projects(session, requests)
     return [_check(session, request) for request in requests]
+
+
+def reuse(access: UserAccessControl) -> None:
+    """Let the checks in the current session read rules that a view already loaded."""
+    session = current()
+    if session is None or access.team is None or not isinstance(access.user, User) or not session.can_cache():
+        return
+    session.access.setdefault(_principal_key(access.user), access)
 
 
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
@@ -220,6 +229,42 @@ def _principal_key(principal: Any) -> PrincipalKey:
     if isinstance(principal, User):
         return ("user", principal.pk)
     return ("object", id(principal))
+
+
+def _project_id(resource: Resource) -> int | None:
+    """The team whose rules a check on `resource` reads, or None when it reads none."""
+    if resource.type in MEMBERSHIP_TYPES and resource.id is None:
+        return resource.project_id
+    if resource.type == ResourceType.PROJECT:
+        return int(resource.id) if resource.id is not None and resource.id.isdigit() else None
+    if resource.type in MEMBERSHIP_LEVELS:
+        return None
+    return resource.project_id
+
+
+def _load_projects(session: Session, requests: Sequence[CheckRequest]) -> None:
+    """Load every project of a batch with one query, instead of one query for each project."""
+    if len(requests) < 2 or not session.can_cache():
+        return
+    project_ids: dict[PrincipalKey, tuple[Any, set[int]]] = {}
+    for request in requests:
+        project_id = _project_id(request.resource)
+        if project_id is None:
+            continue
+        principal = _principal(session, request.subject)
+        if principal is not None:
+            project_ids.setdefault(_principal_key(principal), (principal, set()))[1].add(project_id)
+
+    for key, (principal, ids) in project_ids.items():
+        if len(ids) < 2:
+            continue
+        access = session.access.get(key)
+        if access is None:
+            first = Team.objects.filter(pk__in=ids).first()
+            if first is None:
+                continue
+            access = session.access[key] = UserAccessControl(user=cast(User, principal), team=first)
+        access.for_team_ids(ids)
 
 
 def _access(session: Session, principal: Any, team_id: int) -> UserAccessControl | None:
