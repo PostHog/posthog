@@ -5,14 +5,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use common::{
-    array, avro_from_canonical, canonical, get, js_sort_cmp, load_json, scenarios_dir, string,
-};
+use common::{array, canonical, get, js_sort_cmp, load_json, scenarios_dir, string};
 use futures::FutureExt;
 use ingestion_framework::{Headers, IngestionOutputs, KafkaMessage, OutputMessage};
-use logs_ingestion::avro::{decode_container, encode_container, Schema};
-use logs_ingestion::compare::kafka::{assign_all_partitions, run_compare, TopicPlan};
-use logs_ingestion::compare::{Comparator, CompareSettings, Side, Stream};
+use logs_ingestion::avro::decode_container;
 use logs_ingestion::js::{json_parse, json_stringify, JsObject, JsString, JsValue};
 use logs_ingestion::pipeline::scenario::{kafka_message, scenario_parts, PinnedClock};
 use logs_ingestion::pipeline::LogsIngestionConsumer;
@@ -449,61 +445,6 @@ fn canonical_output(output: &str, m: &KafkaMessage, inputs: &[Input]) -> JsValue
     ])
 }
 
-fn node_message(expected: &JsValue, inputs: &[Input]) -> KafkaMessage {
-    let value = get(expected, "value");
-    let bytes = match string(get(value, "kind")).as_str() {
-        "passthrough" => inputs[match get(value, "index") {
-            JsValue::Number(n) => *n as usize,
-            _ => panic!(),
-        }]
-        .message
-        .value
-        .clone()
-        .unwrap()
-        .to_vec(),
-        "avro" => {
-            let schema = Schema::parse_json(&json_stringify(get(value, "schema"))).unwrap();
-            let records: Vec<_> = array(get(value, "records"))
-                .iter()
-                .map(|r| avro_from_canonical(&schema, r))
-                .collect();
-            encode_container(&schema, &string(get(value, "codec")), &records).unwrap()
-        }
-        other => panic!("unexpected kind {other}"),
-    };
-    let JsValue::Object(headers) = get(expected, "headers") else {
-        panic!()
-    };
-    let partition = headers
-        .get("source_partition")
-        .map(string)
-        .unwrap_or_default();
-    let headers = headers
-        .iter()
-        .map(|(k, v)| {
-            let mut v = string(v);
-            if k.as_str() == Some("source_offset") {
-                let scenario: i64 = v.parse().unwrap();
-                v = inputs
-                    .iter()
-                    .find(|i| {
-                        i.scenario_offset == scenario
-                            && i.message.partition.to_string() == partition
-                    })
-                    .unwrap()
-                    .actual_offset
-                    .to_string();
-            }
-            (k.to_string(), Some(v.into_bytes()))
-        })
-        .collect();
-    KafkaMessage {
-        value: Some(bytes.into()),
-        headers,
-        ..Default::default()
-    }
-}
-
 async fn shadow_scenario(name: &str) {
     let client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
     let mut conn = match client.get_multiplexed_async_connection().await {
@@ -653,83 +594,6 @@ async fn shadow_scenario(name: &str) {
     assert!(parts.recorded.usage_rows.lock().unwrap().is_empty());
     assert!(parts.recorded.teams_ingested.lock().unwrap().is_empty());
     assert!(parts.recorded.metric_emits.lock().unwrap().is_empty());
-
-    let mut expected_records = 0u64;
-    for o in expected_outputs {
-        let topic = match string(get(o, "output")).as_str() {
-            "logs" => "node_logs",
-            "logs_dlq" => "node_dlq",
-            _ => continue,
-        };
-        let m = node_message(o, &inputs);
-        expected_records += if topic == "node_dlq" {
-            1
-        } else {
-            decode_container(m.value.as_deref().unwrap())
-                .map(|c| c.records.len() as u64)
-                .unwrap_or(1)
-        };
-        produce(&p, topic, None, &m).await;
-    }
-    let plan = [
-        TopicPlan {
-            topic: "node_logs".into(),
-            side: Side::Node,
-            stream: Stream::Logs,
-        },
-        TopicPlan {
-            topic: SHADOW_LOGS.into(),
-            side: Side::Rust,
-            stream: Stream::Logs,
-        },
-        TopicPlan {
-            topic: "node_dlq".into(),
-            side: Side::Node,
-            stream: Stream::Dlq,
-        },
-        TopicPlan {
-            topic: SHADOW_DLQ.into(),
-            side: Side::Rust,
-            stream: Stream::Dlq,
-        },
-    ];
-    let compare_consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", &bootstrap)
-        .set("group.id", "compare-test")
-        .set("auto.offset.reset", "earliest")
-        .create()
-        .unwrap();
-    assign_all_partitions(&compare_consumer, &plan, Duration::from_secs(10)).unwrap();
-    let mut comparator = Comparator::new(
-        CompareSettings {
-            lag_tolerance: Duration::from_secs(60),
-            warmup: Duration::ZERO,
-            max_pending: 10_000,
-            sample_limit: 20,
-        },
-        Instant::now(),
-    );
-    run_compare(
-        &compare_consumer,
-        &plan,
-        &mut comparator,
-        Some(Duration::from_secs(3)),
-        futures::future::pending(),
-    )
-    .await
-    .unwrap();
-    let report = comparator.finish();
-    assert_eq!(comparator.samples(), &[], "{name}: mismatch samples");
-    assert_eq!(
-        (
-            report.matched,
-            report.mismatched,
-            report.node_only,
-            report.rust_only
-        ),
-        (expected_records, 0, 0, 0),
-        "{name}: comparator report"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

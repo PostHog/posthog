@@ -17,7 +17,6 @@ bytes = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
-envconfig = { workspace = true }
 futures = { workspace = true }
 hashbrown = { version = "0.15", default-features = false }
 hex = "0.4"

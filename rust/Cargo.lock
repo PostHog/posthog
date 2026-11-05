@@ -7748,7 +7748,6 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
- "envconfig",
  "futures",
  "hashbrown 0.15.5",
  "hex",

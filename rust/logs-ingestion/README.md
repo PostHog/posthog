@@ -2,10 +2,7 @@
 
 Rust port of the Node logs and traces ingestion consumers (`nodejs/src/logs`).
 The library holds the pipeline, kept 1:1 with Node by the parity corpus (see [PORTING.md](PORTING.md)).
-Two binaries run it against Kafka:
-
-- `logs-ingestion` is the consumer service. It runs as the primary consumer, or as a shadow beside the Node consumer.
-- `logs-shadow-compare` compares the Node output with the shadow output.
+The `logs-ingestion` binary runs it against Kafka, as the primary consumer or as a shadow beside the Node consumer.
 
 ## The consumer service
 
@@ -79,29 +76,6 @@ HTTP_SERVER_PORT=6740 \
 cargo run --release -p logs-ingestion --bin logs-ingestion
 ```
 
-## The comparator
-
-`logs-shadow-compare` reads the Node and the shadow topics and compares them under the parity contract. It has no Kafka producer. It assigns itself every partition that the topics have at startup, instead of joining a group, so each replica compares all of both topics; run one replica. It reads from its group's committed offsets and stops on a fatal consumer error.
-
-- A `logs` record is matched by `source_topic`, `source_partition` and the record's `uuid`. A record with no `uuid` is matched by a hash of its content. A value that is not an Avro container is one item, matched by its hash.
-- A DLQ message is matched by `source_topic`, `source_partition` and `source_offset`.
-- Matched items compare every record field (numbers as doubles, map keys in any order) and every header. These headers are left out: `source_offset` on `logs` (shadow only), and `failed_at` (a clock) and `error_message` (the contract lets error text differ) on the DLQ.
-- An item whose counterpart has not arrived within the lag tolerance counts as Node-only or Rust-only. Items that arrive during the warm-up count as `warmup_unmatched` instead, because the two consumers start at different offsets.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `LOGS_SHADOW_COMPARE_GROUP_ID` | required | The group the comparator commits its offsets under. Must end with `-rust-shadow-compare` (after trimming), so it never equals a Node, ClickHouse Kafka-engine or shadow group. Auto commit records only its own progress. |
-| `LOGS_SHADOW_COMPARE_NODE_TOPIC`, `LOGS_SHADOW_COMPARE_RUST_TOPIC` | required | The two `logs` topics. |
-| `LOGS_SHADOW_COMPARE_NODE_DLQ_TOPIC`, `LOGS_SHADOW_COMPARE_RUST_DLQ_TOPIC` | unset | Both or neither. |
-| `LOGS_SHADOW_COMPARE_LAG_TOLERANCE_MS` | 120000 | How long an item waits for its counterpart. |
-| `LOGS_SHADOW_COMPARE_WARMUP_MS` | 300000 | Start-up window for `warmup_unmatched`. |
-| `LOGS_SHADOW_COMPARE_MAX_PENDING` | 1000000 | Waiting items kept before the oldest count as one-sided. |
-| `LOGS_SHADOW_COMPARE_MISMATCH_SAMPLE` | 200 | Mismatches logged with the key, the field, and the length and a short hash of each value. Values are customer content, so they are never logged. |
-| `LOGS_SHADOW_COMPARE_HTTP_PORT` | 6739 | `/_health` and `/metrics`. |
-| `KAFKA_CONSUMER_*` | | rdkafka settings, as for the service. `auto.offset.reset` defaults to `earliest`; set `KAFKA_CONSUMER_AUTO_OFFSET_RESET=latest` to skip the backlog. `allow.auto.create.topics` is always false. |
-
-Metrics: `logs_shadow_compare_records_total{result=matched|mismatched|node_only|rust_only|warmup_unmatched}`, `logs_shadow_compare_field_mismatches_total{field}` (`header:<name>` for a header) and `logs_shadow_compare_pending`. A summary is logged every minute and on SIGTERM.
-
 ## Tests
 
 ```bash
@@ -111,15 +85,14 @@ cargo test --release -p logs-ingestion
 
 - `tests/parity_corpus.rs` replays the corpus through the pipeline. It needs Redis on 127.0.0.1:6379.
 - `tests/service_postgres.rs` runs the Postgres dependencies against `test_posthog` on localhost:5432. It copies a team, seeds rule rows and deletes them. It skips without Postgres.
-- `tests/service_kafka.rs` runs on librdkafka's mock cluster: the Kafka outputs, commit-after-success with a real consumer group, and shadow mode end to end. For the `passthrough`, `parse-failures` and `codecs` scenarios it produces the inputs, runs one batch, checks that the shadow topics hold the outputs Node recorded and that no production topic received anything, then seeds a topic with Node's outputs and checks that the comparator reports zero mismatches.
+- `tests/service_kafka.rs` runs on librdkafka's mock cluster: the Kafka outputs, commit-after-success with a real consumer group, and shadow mode end to end. For the `passthrough`, `parse-failures` and `codecs` scenarios it produces the inputs, runs one batch, and checks that the shadow topics hold the outputs Node recorded and that no production topic received anything.
 
 ## Image
 
 `rust/Dockerfile` builds one binary named by `BIN`:
 
 ```bash
-docker build -f rust/Dockerfile --build-arg BIN=logs-ingestion -t logs-ingestion rust
-docker build -f rust/Dockerfile --build-arg BIN=logs-shadow-compare -t logs-shadow-compare rust
+docker build -f rust/Dockerfile --build-arg BIN=logs-ingestion -t logs-ingestion-rust rust
 ```
 
-CI builds only the images listed in `.github/rust-images.yml`, so both need an entry there before CI builds them. The build needs `protoc`, which the Dockerfile installs, for `usage-ingestion-proto`.
+CI builds it as the `logs-ingestion-rust` image (`.github/rust-images.yml`). The build needs `protoc`, which the Dockerfile installs, for `usage-ingestion-proto`.

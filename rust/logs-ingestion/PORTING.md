@@ -38,7 +38,6 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done (hog transformations: trait slot only) |
 | `servers/ingestion-logs-server.ts`, `servers/ingestion-traces-server.ts`, `logs/config.ts`, `logs/outputs/*`, `common/kafka/consumer/consumer-v2.ts` (batch loop) | `service`, `bin/logs-ingestion.rs` | Done, with shadow mode |
 | `common/utils/team-manager.ts`, `common/utils/lazy-loader.ts`, `quota-limiting.service.ts`, `sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`, `metric-rules-cache.ts`, `pattern-message-keys-cache.ts`, `metrics-emitter.ts` (POST), `usage-ingestion/*` | `service` | Done |
-| (no Node counterpart) shadow output comparison | `compare`, `bin/logs-shadow-compare.rs` | Done |
 
 ## API
 
@@ -252,10 +251,6 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - `build_deps` builds what the Node server builds. `shadow_deps` applies the shadow rules to any deps.
 - Postgres errors from a lost connection, a pool timeout or one of Node's `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` become `DependencyUnavailableError`.
 - `kafka_outputs::classify_produce_error` keeps the rdkafka code as a `KafkaProduceError`, named `MessageSizeTooLarge` for code 10 and `Error` otherwise, so the `logs` output rule applies to real delivery errors. An error with no code is a plain `Error`.
-
-### `compare`
-
-`Comparator` matches items by `Key` and compares their fields. `compare::kafka::run_compare` feeds it from a consumer. Nothing in the module produces.
 
 ## Not reproduced
 

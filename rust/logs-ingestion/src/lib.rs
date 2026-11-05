@@ -3,7 +3,6 @@
 pub mod attribute_value;
 pub mod avro;
 pub mod body_parse;
-pub mod compare;
 pub mod content_weights;
 pub mod filter_group;
 pub mod internal_logs;
