@@ -41,6 +41,7 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 - **Takes something away from the customer, or cannot be undone** (suspend, revoke, replace a token) sets `danger=True`, takes a form with a `reason` field, and sets `undo_hint` to how staff undo it, or that they cannot. The console writes the reason to the audit log and shows the undo hint on the confirm page.
 - A handler that moves money or sends messages builds its idempotency key from the `form_nonce` the console posts, so a double submit runs once.
 - Offer an operation only in the state where it makes sense. The console runs only operations the panel offers right now.
+- A form that edits current state sets `form_initial` from the record, so an unchanged submit changes nothing.
 - To report a failure, a handler adds an error message and returns a 4xx or 5xx response. For an operation with a form, the console then shows the form again with what staff typed.
 
 ## 5. Move a Django admin action without losing anyone
