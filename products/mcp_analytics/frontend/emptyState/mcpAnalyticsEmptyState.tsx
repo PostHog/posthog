@@ -3,12 +3,15 @@ import { IconMCP } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
 import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
+import { MCPSetupCard } from './MCPSetupCard'
+import { MCPSetupSidebar } from './MCPSetupSidebar'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
 const HedgehogPuzzle = pngHoggie(puzzlePng)
@@ -41,5 +44,15 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         previewLabel: 'Tool calls, once connected',
         Preview: MCPToolCallPreview,
         statusIndicator: <MCPListeningIndicator />,
+        featureFlagOverrides: {
+            [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: {
+                SetupActions: undefined,
+                SetupCard: MCPSetupCard,
+                // The setup card renders the indicator itself, as its footer.
+                statusIndicator: undefined,
+                previewLabel: undefined,
+                Preview: MCPSetupSidebar,
+            },
+        },
     },
 }
