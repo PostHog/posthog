@@ -437,6 +437,15 @@ class TestComputeGitState:
         _compute_git_state(wt, has_remotes=True)
         assert wt.dirty and wt.unpushed == 3 and not wt.detached and wt.unsafe
 
+    def test_untracked_file_is_dirty_when_git_config_hides_untracked_files(self, tmp_path) -> None:
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "config", "status.showUntrackedFiles", "no"], cwd=tmp_path, check=True)
+        (tmp_path / "new.py").write_text("never added\n")
+
+        wt = _make_worktree(tmp_path)
+        _compute_git_state(wt, has_remotes=False)
+        assert wt.dirty and wt.unsafe
+
     def test_squash_merged_branch_is_safe_until_it_gets_a_new_commit(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(worktrees.shutil, "which", lambda name: None)
 

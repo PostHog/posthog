@@ -1142,7 +1142,8 @@ def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
 
 
 def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
-    status = _git(wt.path, ["status", "--porcelain"])
+    # status.showUntrackedFiles=no would hide new files, and --force removes them without asking.
+    status = _git(wt.path, ["status", "--porcelain", "--untracked-files=normal"])
     if status is not None and status.returncode == 0:
         wt.dirty = bool(status.stdout.strip())
 
@@ -1268,14 +1269,15 @@ def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
 def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> list[tuple[str, str]]:
     """(patch id, commit) pairs for the patches that ``git <git_args>`` prints.
 
-    Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail."""
+    Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail.
+    --verbatim keeps whitespace in the id, so a re-indent committed after the merge does not match it."""
 
     try:
         patch = subprocess.run(["git", *git_args], cwd=cwd, capture_output=True, timeout=timeout)
         if patch.returncode != 0:
             return []
         ids = subprocess.run(
-            ["git", "patch-id", "--stable"], cwd=cwd, input=patch.stdout, capture_output=True, timeout=timeout
+            ["git", "patch-id", "--verbatim"], cwd=cwd, input=patch.stdout, capture_output=True, timeout=timeout
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
