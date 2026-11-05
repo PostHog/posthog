@@ -242,26 +242,26 @@ def build_html_wrap_design(html: str) -> dict:
     }
 
 
+_UNLAYER_BODY_CLASS = "u_body"
+
+
+def _is_unlayer_render_of(html: str, block_html: str) -> bool:
+    return _UNLAYER_BODY_CLASS in html and block_html in html
+
+
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
-    """Whether the stored design should be (re)built from html.
-
-    True when there is no design, or when the design is a stale html wrap: an untouched wrap whose
-    html block the email's html no longer contains. A wrap is derived from html alone, so a caller
-    that rewrites html and resends the old design leaves the visual editor opening the previous
-    version. Kept as stored:
-    - a design edited in the visual editor, which Unlayer normalizes so it never equals a fresh wrap;
-    - a wrap whose html contains its block, such as Unlayer's render of the wrap after a design
-      operation (workflow action_email, template design patch). Rewrapping that render would nest
-      a whole email layout inside one block.
-    """
-
     if not design:
         return True
     try:
         wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
     except (KeyError, IndexError, TypeError):
         return False
-    return isinstance(wrapped_html, str) and wrapped_html not in html and design == build_html_wrap_design(wrapped_html)
+    return (
+        isinstance(wrapped_html, str)
+        and wrapped_html != html
+        and design == build_html_wrap_design(wrapped_html)
+        and not _is_unlayer_render_of(html, wrapped_html)
+    )
 
 
 def register_supported_function(name: str) -> None:

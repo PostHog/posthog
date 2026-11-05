@@ -169,15 +169,12 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
-/**
- * The design the canvas should load for a stored email. An untouched html wrap is derived from
- * html alone, so when a programmatic edit rewrote the html but resent the old wrap, the wrap is
- * rebuilt from the current html instead of opening the previous version. Loaded as stored: a
- * design edited in the canvas (Unlayer normalizes it, so it never equals a fresh wrap), and a wrap
- * whose html contains its block, such as the server render after a design operation, which would
- * nest a whole email layout in one block if rewrapped.
- * Mirrors html_wrap_design_needs_refresh in products/cdp/backend/validation.py.
- */
+const UNLAYER_BODY_CLASS = 'u_body'
+
+function isUnlayerRenderOf(html: string, blockHtml: string): boolean {
+    return html.includes(UNLAYER_BODY_CLASS) && html.includes(blockHtml)
+}
+
 export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {
     const { html, design } = value
     if (!design) {
@@ -187,8 +184,9 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
     if (
         html &&
         typeof wrappedHtml === 'string' &&
-        !html.includes(wrappedHtml) &&
-        objectsEqual(design, buildHtmlWrapDesign(wrappedHtml))
+        wrappedHtml !== html &&
+        objectsEqual(design, buildHtmlWrapDesign(wrappedHtml)) &&
+        !isUnlayerRenderOf(html, wrappedHtml)
     ) {
         return buildHtmlWrapDesign(html)
     }
@@ -835,10 +833,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 design: emailTemplateContent.design ?? null,
             })
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                cache.lastEditorDesign = emailTemplateContent.design
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            const design = editorDesignForEmail(emailTemplateContent)
+            if (values.isEmailEditorReady && design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 

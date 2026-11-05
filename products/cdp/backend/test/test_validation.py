@@ -507,8 +507,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             ("plain_html", "<p>Old copy</p>", "<p>New copy</p>"),
-            # The reported broadcast: an agent wrapped one full email render, then replaced the html
-            # with another and resent the first wrap.
+            ("copy_appended_to_the_block", "<p>Old copy</p>", "<p>Old copy</p><p>New footer</p>"),
+            ("block_wrapped_in_new_markup", "<p>Old copy</p>", '<div style="padding: 8px"><p>Old copy</p></div>'),
             (
                 "full_render_replaced_by_another",
                 '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
@@ -517,8 +517,6 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         ]
     )
     def test_stale_html_wrap_design_is_rebuilt_from_new_html(self, _name, old_html, new_html):
-        # A caller that rewrites html but resends the old wrap would leave the visual editor
-        # opening the previous version of the email.
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {
             "from": "hi@posthog.com",
@@ -533,8 +531,6 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
 
     def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
-        # After a canvas edit the stored html is Unlayer's render, which never equals the html
-        # block inside the design, so a mismatch alone must not discard the edit.
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         edited_design = build_html_wrap_design("<p>Inner block</p>")
         edited_design["body"]["values"] = {"backgroundColor": "#ffffff"}
@@ -542,7 +538,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "from": "hi@posthog.com",
             "to": "a@b.com",
             "subject": "hi",
-            "html": "<html><body><p>Inner block</p></body></html>",
+            "html": '<html><body class="clean-body u_body"><p>Edited&nbsp;block</p></body></html>',
             "design": edited_design,
         }
 
@@ -550,23 +546,11 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["design"] == edited_design
 
-    @parameterized.expand(
-        [
-            (
-                # A server-side design edit (workflow action_email, template design patch) keeps the
-                # wrap's shape and stores Unlayer's render of it, which embeds the block verbatim.
-                "server_render_embedding_the_block",
-                '<!DOCTYPE html><html><body class="clean-body u_body"><div class="u-row-container">'
-                "<p>Inner block</p></div></body></html>",
-            ),
-            (
-                "caller_html_embedding_the_block",
-                '<div style="padding: 8px"><p>Inner block</p></div>',
-            ),
-        ]
-    )
-    def test_wrap_design_consistent_with_its_html_is_kept(self, _name, html):
-        # Rewrapping these would nest the whole rendered layout inside one html block.
+    def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self):
+        html = (
+            '<!DOCTYPE html><html><body class="clean-body u_body"><div class="u-row-container">'
+            "<p>Inner block</p></div></body></html>"
+        )
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         design = build_html_wrap_design("<p>Inner block</p>")
         value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": design}

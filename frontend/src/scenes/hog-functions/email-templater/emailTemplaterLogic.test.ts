@@ -300,6 +300,28 @@ describe('emailTemplaterLogic', () => {
                 })
             )
         })
+
+        it('applying a template whose stored wrap is stale loads its current html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            loadDesign.mockClear()
+
+            logic.actions.applyTemplate({
+                id: 'template-3',
+                name: 'Newsletter',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'News', html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
+                },
+            } as MessageTemplate)
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+        })
     })
 
     describe('html-only emails', () => {
@@ -342,8 +364,27 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
         })
 
-        it('loads the stored wrap when the html is its server render', () => {
-            // A design operation stores Unlayer's render of the wrap, which contains the block verbatim.
+        it('loads the current html when copy was appended to the wrapped html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        design: buildHtmlWrapDesign('<p>old</p>'),
+                        html: '<p>old</p><p>footer</p>',
+                    },
+                })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>old</p><p>footer</p>'))
+        })
+
+        it('loads the stored wrap when the html is its Unlayer render', () => {
             const loadDesign = jest.fn()
             const html = '<html><body class="clean-body u_body"><div class="u-row"><p>block</p></div></body></html>'
             logic = emailTemplaterLogic(

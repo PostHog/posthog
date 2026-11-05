@@ -251,9 +251,8 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A caller rewrote the html and resent the old wrap: the editor would open the old copy.
             ("stale_wrap_is_rebuilt", "<p>New copy</p>", "<p>New copy</p>"),
-            # A design patch stores Unlayer's render of the wrap; rewrapping it would nest the layout.
+            ("wrap_with_appended_copy_is_rebuilt", "<p>Old copy</p><p>Footer</p>", "<p>Old copy</p><p>Footer</p>"),
             (
                 "wrap_with_its_unlayer_render_is_kept",
                 '<html><body class="clean-body u_body"><div class="u-row"><p>Old copy</p></div></body></html>',
