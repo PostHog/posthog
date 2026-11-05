@@ -210,8 +210,8 @@ Full exports use a numeric team partition. Daily exports use `team_id_YYYY-MM-DD
 `duckling_groups_daily_backfill_sensor` schedules yesterday's team/date partition for teams with a successful full export.
 The date also appears in the run key and `groups_backfill/refresh_date` tag. Each daily partition tracks its own success and retries; previews do not count.
 The daily sensor checks every 10 minutes with the same scan limits, request cap, active-run checks, and failure backoff as discovery.
-Both sensors default to stopped for controlled rollout. Validate a manual team snapshot before starting automatic discovery; see the [groups rollout steps](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
-Starting the full-backfill sensor discovers all eligible teams, including existing memberships; the daily sensor only refreshes teams with a successful snapshot. Stored running sensor states must be stopped explicitly in Dagster.
+Both sensors default to running. The full-backfill sensor discovers all backfill-enabled teams in ready warehouses, including existing memberships; the daily sensor only refreshes teams with a successful snapshot.
+Dagster preserves explicit sensor overrides, so a previously stopped sensor must be started explicitly. See the [groups backfill controls](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
 
 The table name is `posthog.groups_<schema_name>`, derived from the control-plane team membership, including teams with grandfathered events or persons table names.
 Legacy teams without a membership use `posthog.groups` for manual runs.
