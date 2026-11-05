@@ -340,6 +340,7 @@ pre_save:products.event_definitions.backend.models.event_definition._capture_eve
 pre_save:products.feature_flags.backend.flag_version_sync.capture_cohort_definition_before_save
 pre_save:products.feature_flags.backend.flag_version_sync.capture_flag_definition_before_save
 pre_save:products.feature_flags.backend.session_recording_links.capture_replay_link_key_before_save
+pre_save:products.managed_warehouse.backend.signals.team_saving
 pre_save:products.signals.backend.receivers.capture_prior_state
 pre_save:products.surveys.backend.models.pre_save_survey
 pre_save:products.web_analytics.backend.heatmap_history_expiry.invalidate_history

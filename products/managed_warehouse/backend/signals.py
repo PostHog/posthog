@@ -6,8 +6,8 @@ a managed warehouse. ``member_teams`` reads the committed state when the push ru
 - An organization membership is created, changed (its level) or deleted: that member.
 - A user is deactivated: that user, in each of their organizations.
 - A role membership is created or deleted: that member.
-- A project is created or deleted, or a project or warehouse-objects access rule changes:
-  every member of the organization.
+- A project is created, deleted or moved to another organization, or an access rule on the
+  project or on warehouse data changes: every member of the organization (both, for a move).
 
 Access rules and role memberships arrive through the access_control facade, as ids.
 """
@@ -18,14 +18,14 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
 from posthog.models import OrganizationMembership, Team, User
 
 from products.managed_warehouse.backend import member_teams
 
 # Access rules on these resources change which teams a member sees, or the level on them.
-_ACCESS_RESOURCES = frozenset({"project", member_teams.WAREHOUSE_RESOURCE})
+_ACCESS_RESOURCES = frozenset({"project", *member_teams.RESTRICTING_RESOURCES})
 
 
 def _has_warehouse(organization_id: str) -> bool:
@@ -93,6 +93,18 @@ def team_saved(sender: Any, instance: Team, created: bool = False, **kwargs: Any
         _on_commit_organization(instance.organization_id)
 
 
+def team_saving(sender: Any, instance: Team, update_fields: Any = None, **kwargs: Any) -> None:
+    # A project moved to another organization: the members of the old one lose the team.
+    if instance._state.adding or not member_teams.is_enabled():
+        return
+    if update_fields is not None and not {"organization", "organization_id"} & set(update_fields):
+        return
+    previous = _team_organization_id(instance.pk)
+    if previous is not None and previous != instance.organization_id:
+        _on_commit_organization(previous)
+        _on_commit_organization(instance.organization_id)
+
+
 def team_deleted(sender: Any, instance: Team, **kwargs: Any) -> None:
     _on_commit_organization(instance.organization_id)
 
@@ -105,8 +117,7 @@ def access_rule_changed(team_id: int, resource: str) -> None:
 
 
 def role_membership_changed(user_id: int, organization_id: UUID) -> None:
-    if member_teams.is_enabled():
-        _on_commit_member(organization_id, _user_uuid(user_id))
+    _on_commit_member(organization_id, _user_uuid(user_id))
 
 
 def connect() -> None:
@@ -116,8 +127,12 @@ def connect() -> None:
     post_save.connect(membership_saved, sender=OrganizationMembership, dispatch_uid=f"{uid}_membership_saved")
     pre_delete.connect(membership_deleting, sender=OrganizationMembership, dispatch_uid=f"{uid}_membership_deleting")
     post_save.connect(user_saved, sender=User, dispatch_uid=f"{uid}_user_saved")
+    pre_save.connect(team_saving, sender=Team, dispatch_uid=f"{uid}_team_saving")
     post_save.connect(team_saved, sender=Team, dispatch_uid=f"{uid}_team_saved")
     post_delete.connect(team_deleted, sender=Team, dispatch_uid=f"{uid}_team_deleted")
     connect_access_change_receivers(
-        on_rule_change=access_rule_changed, on_role_membership_change=role_membership_changed, dispatch_uid=uid
+        on_rule_change=access_rule_changed,
+        on_role_membership_change=role_membership_changed,
+        is_active=member_teams.is_enabled,
+        dispatch_uid=uid,
     )

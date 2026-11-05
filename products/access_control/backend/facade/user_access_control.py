@@ -1312,6 +1312,35 @@ class UserAccessControl:
 
         return False
 
+    def lowest_object_access_level(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
+        """The lowest level that an object rule gives this user, across every object of ``resources``.
+
+        For a caller that grants a whole resource type at once and so cannot honor a restriction on one
+        object: it must not grant more than this. Each object is decided as the list filter decides it
+        (``_object_rows_decision``). An explicit (member or role) row decides. Without one, only a
+        default "none" restricts, because a higher object default loses to the resource rule. ``None``
+        means no object rule restricts the user. This includes org admins, who bypass object rules.
+
+        It ignores the creator exemption, so a creator can get a lower level than they have.
+        """
+        if not self._organization_membership or self.is_organization_admin:
+            return None
+        lowest: Optional[AccessControlLevel] = None
+        for resource in resources:
+            order = ordered_access_levels(resource)
+            rows_by_object_id: dict[str, list[_AccessControl]] = defaultdict(list)
+            for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
+                rows_by_object_id[access_control.resource_id].append(access_control)
+            for rows in rows_by_object_id.values():
+                row = self._object_rows_decision(resource, rows)
+                explicit = row.role_id is not None or row.organization_member_id is not None
+                if not explicit and row.access_level != NO_ACCESS_LEVEL:
+                    continue
+                level = cast(AccessControlLevel, row.access_level)
+                if lowest is None or order.index(level) < order.index(lowest):
+                    lowest = level
+        return lowest
+
     def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
         Get the effective access level for a resource, considering both resource-level

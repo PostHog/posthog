@@ -6,6 +6,10 @@ owner can see. PostHog is not a live dependency of that mint, so PostHog pushes 
 - Every team the member can see, by both access-control systems (``visible_teams_for_user``),
   goes in at the member's level on warehouse objects: ``viewer`` is ``read``, ``editor`` and
   above are ``write``. A team where that level is ``none`` is left out.
+- A team grant covers the whole namespace, so it cannot honor a rule on one table, view or
+  source. The level is the lowest of the warehouse-objects rule, the all-sources rule (a table
+  with a source falls back to it), and every object rule that applies to the member. A member
+  denied one table therefore gets no grant on that team.
 - A member who has left the organization, or whose user is deactivated, is removed. hogtower
   then revokes every team credential the member owns.
 
@@ -20,6 +24,7 @@ members hogtower still holds who have left, for a removal whose own push gave up
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from typing import Literal
 
 from django.conf import settings
@@ -42,6 +47,15 @@ READ = "read"
 WRITE = "write"
 # The access-control resource whose level decides read or write on a team's namespace.
 WAREHOUSE_RESOURCE: APIScopeObject = "warehouse_objects"
+SOURCE_RESOURCE: APIScopeObject = "external_data_source"
+# Every resource whose rules can lower a member's access to data in the namespace.
+RESTRICTING_RESOURCES: tuple[APIScopeObject, ...] = (
+    WAREHOUSE_RESOURCE,
+    SOURCE_RESOURCE,
+    "warehouse_table",
+    "warehouse_view",
+)
+_LEVEL_ORDER = ("none", "viewer", "editor", "manager")
 _READ_LEVELS = frozenset({"viewer"})
 _WRITE_LEVELS = frozenset({"editor", "manager"})
 
@@ -69,13 +83,26 @@ def member_teams(organization: Organization, user: User) -> dict[int, str]:
     visible = visible_teams_for_user(organization, access, UserPermissions(user)).values_list("id", flat=True)
     teams: dict[int, str] = {}
     for team_id, team_access in access.for_team_ids(list(visible)).items():
-        resolved = team_access.access_level_for_resource(WAREHOUSE_RESOURCE)
-        level = resolved.access_level if resolved else None
+        level = _namespace_level(team_access)
         if level in _WRITE_LEVELS:
             teams[team_id] = WRITE
         elif level in _READ_LEVELS:
             teams[team_id] = READ
     return teams
+
+
+def _namespace_level(team_access: UserAccessControl) -> str | None:
+    """The lowest level the member has on any data in the team's namespace."""
+    levels: list[str | None] = []
+    for resource in (WAREHOUSE_RESOURCE, SOURCE_RESOURCE):
+        resolved = team_access.access_level_for_resource(resource)
+        levels.append(resolved.access_level if resolved else None)
+    levels.append(team_access.lowest_object_access_level(RESTRICTING_RESOURCES))
+    known = [level for level in levels if level is not None]
+    if levels[0] is None or not known:
+        return None
+    # A level outside the order is unknown: treat it as no access.
+    return min(known, key=lambda level: _LEVEL_ORDER.index(level) if level in _LEVEL_ORDER else -1)
 
 
 def _version() -> int:
@@ -236,15 +263,30 @@ def _clear_pending(key: str) -> None:
         logger.warning("managed_warehouse_member_teams_cache_failure", exc_info=True)
 
 
+def _publish(key: str, send: Callable[[], object]) -> None:
+    """Send a claimed push. When the send fails, release the claim, or the next enqueue skips the push."""
+    try:
+        send()
+    except Exception:
+        _clear_pending(key)
+        raise
+
+
 def enqueue_member_push(organization_id: str, user_uuid: str, *, countdown: int = _ENQUEUE_COUNTDOWN_SECONDS) -> None:
     from products.managed_warehouse.backend.tasks.tasks import push_warehouse_member_teams  # noqa: PLC0415
 
-    if _claim_pending(_member_key(organization_id, user_uuid)):
-        push_warehouse_member_teams.apply_async((organization_id, user_uuid), countdown=countdown)
+    key = _member_key(organization_id, user_uuid)
+    if _claim_pending(key):
+        _publish(
+            key, lambda: push_warehouse_member_teams.apply_async((organization_id, user_uuid), countdown=countdown)
+        )
 
 
 def enqueue_organization_push(organization_id: str, *, countdown: int = _ENQUEUE_COUNTDOWN_SECONDS) -> None:
     from products.managed_warehouse.backend.tasks.tasks import push_warehouse_organization_member_teams  # noqa: PLC0415
 
-    if _claim_pending(_organization_key(organization_id)):
-        push_warehouse_organization_member_teams.apply_async((organization_id,), countdown=countdown)
+    key = _organization_key(organization_id)
+    if _claim_pending(key):
+        _publish(
+            key, lambda: push_warehouse_organization_member_teams.apply_async((organization_id,), countdown=countdown)
+        )

@@ -78,6 +78,52 @@ class TestMemberTeams(_MemberTeamsTest):
         self.membership.save()
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
+    def test_a_hidden_table_view_or_source_withholds_the_team(self) -> None:
+        # A team grant covers every table, so it cannot keep one hidden: the team is left out.
+        for resource in ("warehouse_table", "warehouse_view", "external_data_source"):
+            team = Team.objects.create(organization=self.organization, name=resource)
+            self._rule(team, resource, "none", resource_id=str(uuid4()))
+            assert team.id not in member_teams.member_teams(self.organization, self.member), resource
+
+    def test_a_member_denied_one_table_loses_the_team(self) -> None:
+        self._rule(
+            self.team, "warehouse_table", "none", resource_id=str(uuid4()), organization_member_id=self.membership.id
+        )
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_an_object_viewer_rule_lowers_write_to_read(self) -> None:
+        self._rule(
+            self.team, "warehouse_view", "viewer", resource_id=str(uuid4()), organization_member_id=self.membership.id
+        )
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+
+    def test_a_higher_object_rule_does_not_raise_the_team_level(self) -> None:
+        self._rule(self.team, "warehouse_objects", "viewer")
+        self._rule(self.team, "warehouse_table", "editor", resource_id=str(uuid4()))
+        self._rule(
+            self.team, "warehouse_table", "manager", resource_id=str(uuid4()), organization_member_id=self.membership.id
+        )
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+
+    def test_a_hidden_object_for_someone_else_does_not_restrict(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "testtest")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other)
+        self._rule(
+            self.team, "warehouse_table", "none", resource_id=str(uuid4()), organization_member_id=other_membership.id
+        )
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+
+    def test_no_access_to_all_sources_withholds_the_team(self) -> None:
+        # A table with a source falls back to the all-sources rule.
+        self._rule(self.team, "external_data_source", "none")
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_an_organization_admin_is_not_restricted_by_object_rules(self) -> None:
+        self._rule(self.team, "warehouse_table", "none", resource_id=str(uuid4()))
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+
     def test_another_organizations_teams_never_appear(self) -> None:
         elsewhere = Organization.objects.create(name="elsewhere")
         Team.objects.create(organization=elsewhere, name="theirs")
@@ -201,10 +247,11 @@ class TestReceivers(_MemberTeamsTest):
         self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
 
     def test_project_and_warehouse_rules_push_the_organization(self) -> None:
-        for resource in ("project", "warehouse_objects"):
+        for resource in ("project", *member_teams.RESTRICTING_RESOURCES):
             self.org_push.reset_mock()
+            resource_id = None if resource in ("project", "warehouse_objects") else str(uuid4())
             with self.captureOnCommitCallbacks(execute=True):
-                rule_id = self._rule(self.team, resource, "viewer")
+                rule_id = self._rule(self.team, resource, "viewer", resource_id=resource_id)
             self.org_push.assert_called_once_with(str(self.organization.id))
             self.org_push.reset_mock()
             with self.captureOnCommitCallbacks(execute=True):
@@ -226,6 +273,21 @@ class TestReceivers(_MemberTeamsTest):
             signals.team_deleted(Team, team)
         self.org_push.assert_called_once_with(str(self.organization.id))
 
+    def test_a_project_moved_to_another_organization_pushes_both(self) -> None:
+        target = Organization.objects.create(name="target")
+        DuckgresServer.objects.create(organization=target, host="h2", username="u", password="p")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.organization_id = target.id
+            self.team.save()
+        assert {call.args[0] for call in self.org_push.call_args_list} == {str(self.organization.id), str(target.id)}
+
+    def test_a_team_save_that_keeps_the_organization_pushes_nothing(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.name = "renamed"
+            self.team.save()
+            self.team.save(update_fields=["name"])
+        self.org_push.assert_not_called()
+
     def test_no_push_without_a_warehouse(self) -> None:
         DuckgresServer.objects.filter(organization=self.organization).delete()
         with self.captureOnCommitCallbacks(execute=True):
@@ -233,10 +295,15 @@ class TestReceivers(_MemberTeamsTest):
         self.member_push.assert_not_called()
 
     def test_no_push_when_disabled(self) -> None:
+        role_id = access_testing.create_role(organization_id=self.organization.id, name="Analysts")
         with override_settings(HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED=False):
             with self.captureOnCommitCallbacks(execute=True):
                 self.membership.delete()
                 self._rule(self.team, "project", "none")
+            # A role change does not reach the receiver, so it reads no role, when the push is off.
+            with patch.object(signals, "_user_uuid") as receiver_ran:
+                access_testing.add_role_member(role_id=role_id, user_id=self.user.id)
+            receiver_ran.assert_not_called()
         self.member_push.assert_not_called()
         self.org_push.assert_not_called()
 
@@ -304,6 +371,18 @@ class TestPushAllAndEnqueue(_MemberTeamsTest):
         ):
             assert member_teams.push_organization(str(self.organization.id)) == 2
         assert member_push.call_count == 2
+
+    def test_a_failed_publish_releases_the_claim(self) -> None:
+        from products.managed_warehouse.backend.tasks import tasks  # noqa: PLC0415
+
+        org, user = str(self.organization.id), str(self.member.uuid)
+        with patch.object(
+            tasks.push_warehouse_member_teams, "apply_async", side_effect=[OSError("broker"), None]
+        ) as send:
+            with pytest.raises(OSError):
+                member_teams.enqueue_member_push(org, user)
+            member_teams.enqueue_member_push(org, user)
+        assert send.call_count == 2
 
     def test_a_waiting_push_is_not_enqueued_twice(self) -> None:
         from products.managed_warehouse.backend.tasks import tasks  # noqa: PLC0415

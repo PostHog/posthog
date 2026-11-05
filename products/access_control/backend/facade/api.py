@@ -875,6 +875,7 @@ def connect_access_change_receivers(
     *,
     on_rule_change: Callable[[int, str], None],
     on_role_membership_change: Callable[[int, UUID], None],
+    is_active: Callable[[], bool],
     dispatch_uid: str,
 ) -> None:
     """Call back when an access rule or a role membership is saved or deleted.
@@ -884,15 +885,19 @@ def connect_access_change_receivers(
     saved and before one is deleted, so its role can still be read. ``organization_id`` is the
     role's organization: most role memberships carry no organization membership.
 
+    Neither runs while ``is_active()`` is false, so a disabled caller costs no role query.
+
     Both run inside the change's transaction: defer real work with ``transaction.on_commit``.
     Only ids cross this boundary, never the models.
     """
 
     def rule_changed(sender: object, instance: AccessControl, **kwargs: object) -> None:
-        on_rule_change(instance.team_id, instance.resource)
+        if is_active():
+            on_rule_change(instance.team_id, instance.resource)
 
     def role_membership_changed(sender: object, instance: RoleMembership, **kwargs: object) -> None:
-        on_role_membership_change(instance.user_id, instance.role.organization_id)
+        if is_active():
+            on_role_membership_change(instance.user_id, instance.role.organization_id)
 
     # weak=False: the receivers are closures, and nothing else holds them.
     post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")

@@ -80,8 +80,9 @@ Trino shadow materialization has a six-hour execution deadline. Its Temporal act
 hogtower mints team-scoped hoglake tokens from its own copy of which projects each organization member can see. With `HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED` and `HOGTOWER_API_URL` set, `member_teams.py` keeps that copy current:
 
 - Each visible project goes in at the member's level on warehouse objects. `viewer` becomes `read`, and `editor` or above becomes `write`. A project where the level is `none` is left out.
+- A team grant covers the whole namespace, so it cannot honor a rule on a single table, view or source. The level is therefore the lowest of the warehouse-objects rule, the all-sources rule, and every object rule that applies to the member. A member denied one table gets no grant on that project, and a member limited to `viewer` on one object gets `read`.
 - A member who leaves the organization, or whose user is deactivated, is removed. hogtower then revokes every team credential they own.
-- `signals.py` enqueues a push after a membership, role membership, project, or project or warehouse-objects access rule changes. The push runs as a Celery task that retries for about ten hours.
+- `signals.py` enqueues a push after a change to a membership, a role membership, or a project (created, deleted, or moved to another organization), or to an access rule on the project or on warehouse data. The push runs as a Celery task that retries for about ten hours.
 - `push managed warehouse member teams to hogtower` runs every hour and pushes every member of every Trino warehouse that hogtower lists. It catches changes that no signal reports, such as a user's reactivation. It also removes the members that hogtower still holds who have left, so a removal whose own push gave up is still reconciled.
 
 Each push sends the member's whole team set, versioned by the database clock. hogtower keeps the highest version, so pushes may finish in any order.
