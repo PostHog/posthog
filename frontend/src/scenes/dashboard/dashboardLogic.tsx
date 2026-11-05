@@ -753,6 +753,7 @@ export interface dashboardLogicValues {
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
+    carryingTile: boolean
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
     collapsedTileIds: Set<number>
@@ -784,6 +785,7 @@ export interface dashboardLogicValues {
     dashboardTileSpacingSaving: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    discardPromptOpen: boolean
     draftLayouts: ResponsiveLayouts | null
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
@@ -817,6 +819,7 @@ export interface dashboardLogicValues {
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
     layoutEditMode: boolean
+    layoutEditShortcutsEnabled: boolean
     layoutForItem: Record<string, TileLayout>
     layoutZoom: number
     layouts: ResponsiveLayouts
@@ -1394,6 +1397,9 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
+    setCarryingTile: (carryingTile: boolean) => {
+        carryingTile: boolean
+    }
     setCompareFilter: (compareFilter: CompareFilter | null) => {
         compareFilter: CompareFilter | null
     }
@@ -1443,6 +1449,9 @@ export interface dashboardLogicActions {
         dateFrom: string | null
         dateTo: string | null | undefined
         explicitDate: boolean | undefined
+    }
+    setDiscardPromptOpen: (discardPromptOpen: boolean) => {
+        discardPromptOpen: boolean
     }
     setExternalFilters: (filters: DashboardFilter) => {
         filters: DashboardFilter
@@ -1958,6 +1967,14 @@ export interface dashboardLogicMeta {
             autoBreakdownColorsEnabled: boolean,
             dataColorTheme: DataColorTheme | null
         ) => BreakdownColorConfig[]
+        layoutEditShortcutsEnabled: (
+            carryingTile: boolean,
+            discardPromptOpen: boolean,
+            showTextTileModal: boolean,
+            showImageTileModal: boolean,
+            showButtonTileModal: boolean,
+            addWidgetModalOpen: boolean
+        ) => boolean
         hasUnsavedColorChanges: (
             temporaryBreakdownColors: BreakdownColorConfig[],
             temporaryDataColorThemeId: {
@@ -2171,6 +2188,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
+        setCarryingTile: (carryingTile: boolean) => ({ carryingTile }),
+        setDiscardPromptOpen: (discardPromptOpen: boolean) => ({ discardPromptOpen }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3571,6 +3590,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setAddWidgetModalOpen: (_, { open }) => open,
             },
         ],
+        carryingTile: [
+            false,
+            {
+                setCarryingTile: (_, { carryingTile }) => carryingTile,
+                setDashboardMode: () => false,
+            },
+        ],
+        discardPromptOpen: [
+            false,
+            {
+                setDiscardPromptOpen: (_, { discardPromptOpen }) => discardPromptOpen,
+            },
+        ],
         addWidgetSelectedTypes: [
             [] as string[],
             {
@@ -4522,6 +4554,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const paletteSize = dataColorTheme ? Object.keys(dataColorTheme).length : undefined
                 return applyAutoBreakdownColors(tileBreakdownValues, kept, paletteSize)
             },
+        ],
+        layoutEditShortcutsEnabled: [
+            (s) => [
+                s.carryingTile,
+                s.discardPromptOpen,
+                s.showTextTileModal,
+                s.showImageTileModal,
+                s.showButtonTileModal,
+                s.addWidgetModalOpen,
+            ],
+            (...blockers: boolean[]): boolean => !blockers.some(Boolean),
         ],
         hasUnsavedColorChanges: [
             (s) => [s.temporaryBreakdownColors, s.temporaryDataColorThemeId, s.dashboard],
@@ -6268,9 +6311,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
+            if (values.discardPromptOpen) {
+                return
+            }
             reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            actions.setDiscardPromptOpen(true)
             LemonDialog.open({
                 title: 'Discard unsaved changes?',
+                onAfterClose: () => actions.setDiscardPromptOpen(false),
                 description:
                     'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',
                 primaryButton: {
