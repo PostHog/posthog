@@ -126,8 +126,9 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
 pub type FlagDefinitionsResponse = Value;
 
 /// Bound on the payload read a 304 makes when the memo has no entry for the
-/// current ETag. Matches the hypercache Redis timeout, so a slow read never
-/// holds up a 304: the poll goes unbilled and the next one retries.
+/// current ETag. Matches the hypercache Redis timeout. A slow read delays the
+/// 304 by at most this long, and then the poll goes unbilled and the next one
+/// retries.
 const BILLABLE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// How long a failed, slow, or non-Redis payload read is remembered. While
@@ -890,14 +891,15 @@ mod tests {
         let cache = DefinitionsBillableCache::with_failure_ttl(
             10,
             Duration::from_secs(3600),
-            Duration::from_millis(50),
+            Duration::from_millis(500),
         );
         assert_eq!(cache.get_or_load(1, "etag", async { None }).await, None);
         assert_eq!(
             cache.get_or_load(1, "etag", async { Some(true) }).await,
             None
         );
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // moka expires entries on its own clock, so a paused tokio clock would not age this one.
+        tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(
             cache.get_or_load(1, "etag", async { Some(true) }).await,
             Some(true)
