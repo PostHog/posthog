@@ -391,6 +391,20 @@ def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
     return list(TaskClientProvenance.choices)
 
 
+class TaskClient(models.TextChoices):
+    """Where a person took a turn on a task: the first-party clients, plus Slack, which is not a client app."""
+
+    POSTHOG_DESKTOP = TaskClientProvenance.POSTHOG_DESKTOP.value, "PostHog Desktop"
+    POSTHOG_MOBILE = TaskClientProvenance.POSTHOG_MOBILE.value, "PostHog Mobile"
+    POSTHOG_WEB = TaskClientProvenance.POSTHOG_WEB.value, "PostHog Web"
+    SLACK = "slack", "Slack"
+
+
+def task_client_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(TaskClient.choices)
+
+
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(Task.OriginProduct.choices)
@@ -530,6 +544,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         blank=True,
         editable=False,
     )
+    # The client of the latest person turn, so notifications can follow the user between clients.
+    last_client = models.CharField(
+        max_length=32,
+        choices=task_client_choices,
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    last_client_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -708,6 +731,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if self.task_number is None:
             self._assign_task_number()
+
+        if is_new and self.last_client is None:
+            if self.client_provenance:
+                self.last_client = self.client_provenance
+            elif self.origin_product == Task.OriginProduct.SLACK:
+                self.last_client = TaskClient.SLACK
+            if self.last_client is not None:
+                self.last_client_at = django_timezone.now()
 
         super().save(*args, **kwargs)
 

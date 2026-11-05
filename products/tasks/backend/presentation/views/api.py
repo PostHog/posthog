@@ -3784,6 +3784,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             if request.headers.get("X-PostHog-Client-Platform") == "mobile":
                 tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            tasks_facade.record_task_client(
+                task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+            )
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -3939,12 +3942,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if (
-                success
-                and method == "permission_response"
-                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
-            ):
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            if success and method == "permission_response":
+                if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                    tasks_facade.record_task_mobile_pickup(
+                        task_id=task_id, team_id=self.team_id, user_id=self._user_id()
+                    )
+                tasks_facade.record_task_client(
+                    task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+                )
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)

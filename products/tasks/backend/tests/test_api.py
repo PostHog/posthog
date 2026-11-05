@@ -117,6 +117,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskPin,
     TaskRun,
@@ -1672,6 +1673,8 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.client_provenance, expected)
         self.assertEqual(response.json()["client_provenance"], expected)
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @parameterized.expand(
         [
@@ -14733,6 +14736,35 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
+
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            ("web", ARRAY_APP_CLIENT_ID_DEV, TaskClientProvenance.POSTHOG_WEB, TaskClientProvenance.POSTHOG_WEB),
+            ("session", None, None, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_records_last_client(
+        self,
+        _name: str,
+        client_id: str | None,
+        header: TaskClientProvenance | None,
+        expected: TaskClient | TaskClientProvenance,
+        _mock_signal_followup,
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+        client = self._oauth_client(client_id) if client_id else self.client
+        headers = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
+
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
 
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")

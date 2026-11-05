@@ -653,6 +653,17 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="First-party PostHog client that created this task.",
     )
+    last_client = serializers.ChoiceField(
+        choices=tasks_facade.TaskClient.choices,
+        allow_null=True,
+        required=False,
+        help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",
+    )
+    last_client_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="When the latest person turn from `last_client` arrived.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -684,6 +695,8 @@ class TaskSerializer(DataclassSerializer):
             "slack_thread_references",
             "origin_key",
             "client_provenance",
+            "last_client",
+            "last_client_at",
         ]
 
 

@@ -190,6 +190,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskCommentActivity,
     TaskOwnershipChangedError,
@@ -1105,6 +1106,8 @@ def _task_detail_to_dto(
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
+        last_client=task.last_client,
+        last_client_at=task.last_client_at,
     )
 
 
@@ -8262,6 +8265,7 @@ def create_task(
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
+            record_task_client(task_id=str(warm_task.id), team_id=team_id, client=client_provenance)
             try:
                 _activate_warm_run(
                     warm_run,
@@ -12894,6 +12898,13 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
     actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
+
+
+def record_task_client(*, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None) -> None:
+    """Stamp the client a person used for their latest turn on this task. A null client changes nothing."""
+    if client is None:
+        return
+    Task.objects.filter(id=task_id, team_id=team_id).update(last_client=client, last_client_at=django_timezone.now())
 
 
 def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:
