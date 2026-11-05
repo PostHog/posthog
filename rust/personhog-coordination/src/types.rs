@@ -380,6 +380,8 @@ impl ChangelogConfig {
     /// late. A `retire_groups` edit also changes the object within an epoch
     /// and is never adopted from a watch; nothing reads that list from an
     /// adopted copy, since the coordinator and the control plane read etcd.
+    /// Recording the live cluster is the same: running processes see it only
+    /// at the next flip.
     pub fn supersedes(&self, adopted: &ChangelogConfig) -> bool {
         self.epoch > adopted.epoch
             || (self.epoch == adopted.epoch && self.draining.len() < adopted.draining.len())
