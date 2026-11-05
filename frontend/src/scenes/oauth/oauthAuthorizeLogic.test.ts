@@ -1,11 +1,14 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -300,6 +303,70 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopeAccess('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
+    it('loads an empty project list instead of failing for a user with no organization', async () => {
+        useMocks({
+            get: {
+                '/api/projects/': () => [404, { detail: 'You need to belong to an organization.' }],
+            },
+        })
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [] })
+
+        await expectLogic(logic, () => logic.actions.loadAllTeams())
+            .toDispatchActions(['loadAllTeamsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllTeamsFailure'])
+        expect(logic.values.allTeams).toEqual([])
+    })
+
+    it('creates an organization inline and selects its new project for a team-level grant', async () => {
+        const newOrganization = { id: 'new-org', name: 'New org' }
+        const newTeam = { id: 501, organization: newOrganization.id, name: 'Default project' }
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        logic.actions.setRequiredAccessLevel('team')
+        useMocks({
+            get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [newOrganization], team: newTeam },
+                '/api/organizations/new-org/projects/': { results: [newTeam], next: null },
+            },
+            post: {
+                '/api/organizations/': newOrganization,
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(logic.values.selectedOrganization).toBe(newOrganization.id)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([newTeam.id])
+        expect(logic.values.newOrganizationLoading).toBe(false)
+    })
+
+    it.each<{ failing: string; get: Record<string, MockSignature> }>([
+        {
+            failing: 'user',
+            get: { '/api/users/@me/': () => [500, { detail: 'Server error' }] },
+        },
+        {
+            failing: 'project',
+            get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [{ id: 'new-org', name: 'New org' }] },
+                '/api/organizations/new-org/projects/': () => [500, { detail: 'Server error' }],
+            },
+        },
+    ])('offers a reload instead of a retry when the $failing refresh fails after creation', async ({ get }) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        useMocks({ get, post: { '/api/organizations/': { id: 'new-org', name: 'New org' } } })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith(
+            expect.stringContaining('Reload the page'),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Reload' }) })
+        )
+        expect(userLogic.values.user).not.toBeNull()
+        expect(logic.values.newOrganizationLoading).toBe(false)
+        toastError.mockRestore()
     })
 
     const HINT_TEAMS = [
