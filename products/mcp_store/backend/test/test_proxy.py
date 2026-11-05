@@ -32,6 +32,7 @@ from products.mcp_store.backend.proxy import (
     build_upstream_auth_headers,
     validate_installation_auth,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
@@ -754,7 +755,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32002
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_unknown_tool_returns_method_not_found(self, mock_client_cls, mock_fetch):
         installation = self._installation()
@@ -776,7 +777,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         # An installation whose connect-time listing never landed has no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         installation = self._installation()
-        mock_fetch.return_value = [{"name": "search", "description": "Search"}]
+        mock_fetch.return_value = UpstreamToolList(tools=[{"name": "search", "description": "Search"}])
 
         response = self.client.post(
             self._proxy_url(installation.id),
@@ -804,7 +805,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
     ):
         installation = self._installation()
         self._tool(installation, "legacy", "needs_approval", removed_at=timezone.now())
-        mock_fetch.return_value = upstream_tools
+        mock_fetch.return_value = UpstreamToolList(tools=upstream_tools)
 
         response = self.client.post(
             self._proxy_url(installation.id),
