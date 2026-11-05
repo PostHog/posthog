@@ -33,7 +33,12 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_pin,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import REFRESH_FLOOR_FLAG, read_organization_plan_refresh_floor
+from products.data_modeling.backend.logic.refresh_floor import (
+    REFRESH_FLOOR_FLAG,
+    _recent_organization_package_label,
+    read_organization_plan_refresh_floor,
+    schedule_floor_for_organization,
+)
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
@@ -874,6 +879,24 @@ class TestMaybeReconcileDag(BaseTest):
         create.assert_awaited_once()
         queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
+    def test_organization_reconcile_keeps_its_own_retry_when_it_cannot_confirm_a_write(self):
+        dag = self._dag_with_target()
+        first_read = build_frequency_graph(dag)
+
+        with (
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids", return_value={tier_schedule_id(str(dag.id), H6)}),
+            mock.patch(f"{RECONCILE}.build_frequency_graph", side_effect=[first_read, RuntimeError("database down")]),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(OrganizationReconcileError),
+        ):
+            reconcile_organization_dags(str(self.organization.id))
+
+        queue_retry.assert_not_called()
+
     @parameterized.expand(
         [
             ("save", lambda dag: _reconcile_dag_best_effort(dag)),
@@ -1098,6 +1121,15 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(
             reading.floor.schedule_floor if reading.floor else None, timedelta(minutes=minutes) if minutes else None
         )
+
+    def test_endpoint_serving_reads_the_package_once_while_a_reconcile_reads_it_fresh(self):
+        _recent_organization_package_label.cache_clear()
+        with mock.patch(FLAG_RESULT, return_value=mock.Mock(enabled=False)):
+            with self.assertNumQueries(1):
+                schedule_floor_for_organization(self.organization)
+                schedule_floor_for_organization(self.organization)
+            with self.assertNumQueries(1):
+                read_organization_plan_refresh_floor(self.organization)
 
     @parameterized.expand(
         [

@@ -107,6 +107,10 @@ class OrganizationReconcileError(Exception):
     """At least one of the organization's DAGs failed to reconcile, so the caller should try again."""
 
 
+class UnconfirmedReconcileError(Exception):
+    """A reconcile wrote schedules but could not confirm they still match the graph."""
+
+
 def maybe_reconcile_dag(dag: DAG) -> None:
     """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
@@ -117,10 +121,10 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
-def _reconcile_dag(dag: DAG) -> list[str]:
+def _reconcile_dag(dag: DAG, *, raise_if_unconfirmed: bool = False) -> list[str]:
     graph = build_frequency_graph(dag)
     _warn_on_invalid_targets(dag, graph)
-    return reconcile_dag_schedules(dag, graph=graph)
+    return reconcile_dag_schedules(dag, graph=graph, raise_if_unconfirmed=raise_if_unconfirmed)
 
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
@@ -428,7 +432,9 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> list[str]:
+def reconcile_dag_schedules(
+    dag: DAG, *, graph: FrequencyGraph | None = None, raise_if_unconfirmed: bool = False
+) -> list[str]:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
@@ -442,6 +448,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     graph moved. A save that commits after that last read reconciles after this has stopped writing.
     If it can't confirm the schedules match, it queues a retry instead of raising, because the first
     write has already taken effect and `_bootstrap_dag_best_effort` treats a raise as nothing written.
+    With `raise_if_unconfirmed` it raises instead, for a caller that keeps its own record of the work.
     """
     team = dag.team
     if graph is None:
@@ -487,6 +494,8 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         logger.exception("Freshness schedule reconcile failed after a write", dag_id=str(dag.id), team_id=team.pk)
         capture_exception(error)
     logger.warning("Freshness schedule reconcile needs another run", dag_id=str(dag.id), team_id=team.pk)
+    if raise_if_unconfirmed:
+        raise UnconfirmedReconcileError(f"Could not confirm the schedules of DAG {dag.id} match its graph")
     # Failed deletes go back to the caller, which retries on them, and a second chain would run beside its own.
     if not failed_deletes:
         schedule_dag_schedule_reconcile(str(dag.id), team.pk)
@@ -514,7 +523,7 @@ def reconcile_organization_dags(organization_id: str) -> None:
         try:
             schedule_ids = list_existing_schedule_ids(str(dag.id))
             if schedule_ids and all(is_tier_schedule_id(schedule_id) for schedule_id in schedule_ids):
-                if _reconcile_dag(dag):
+                if _reconcile_dag(dag, raise_if_unconfirmed=True):
                     failed += 1
         except Exception as error:
             logger.exception("Organization schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
