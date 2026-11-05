@@ -71,6 +71,14 @@ def latest_enabled_source_config(
     return _to_snapshot(row)
 
 
+def analytics_source_enabled(team_id: int) -> bool:
+    """Whether the team turned on the Product analytics source, which also controls anomaly scoring."""
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    return SignalSourceConfig.objects.filter(
+        team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+    ).exists()
+
+
 def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
     """Which firing insight alerts the team's analytics source turns into signals.
 
