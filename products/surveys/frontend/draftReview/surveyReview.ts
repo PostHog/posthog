@@ -104,11 +104,20 @@ function joinClauses(clauses: SurveyReviewSummaryPart[][]): SurveyReviewSummaryP
     })
 }
 
-function buildAudience(survey: ReviewedSurvey): SectionContent {
-    if (getSurveyDelivery(survey) === 'hosted') {
-        return { summary: [em('Anyone with the link'), '.'] }
+function getLinkedFlagClauses(survey: ReviewedSurvey): SurveyReviewSummaryPart[][] {
+    const clauses: SurveyReviewSummaryPart[][] = []
+    if (survey.linked_flag?.key) {
+        clauses.push(['with ', em(survey.linked_flag.key), ' on'])
+    } else if (survey.linked_flag_id) {
+        clauses.push(['with ', em('a linked feature flag'), ' on'])
     }
+    if ((survey.linked_flag || survey.linked_flag_id) && survey.conditions?.linkedFlagVariant) {
+        clauses.push(['on the ', em(survey.conditions.linkedFlagVariant), ' variant'])
+    }
+    return clauses
+}
 
+function getTargetingClauses(survey: ReviewedSurvey): SurveyReviewSummaryPart[][] {
     const clauses: SurveyReviewSummaryPart[][] = []
     const filters = getSurveyTargetingFilters(survey)
     const ruleCount = getSurveyAudienceRuleCount(filters)
@@ -121,14 +130,15 @@ function buildAudience(survey: ReviewedSurvey): SectionContent {
     if (rolloutPercentage !== null && rolloutPercentage < 100) {
         clauses.push(['sampled at ', em(`${rolloutPercentage}%`)])
     }
-    if (survey.linked_flag?.key) {
-        clauses.push(['with ', em(survey.linked_flag.key), ' on'])
-    } else if (survey.linked_flag_id) {
-        clauses.push(['with ', em('a linked feature flag'), ' on'])
+    return clauses
+}
+
+function buildAudience(survey: ReviewedSurvey): SectionContent {
+    if (getSurveyDelivery(survey) === 'hosted') {
+        return { summary: [em('Anyone with the link'), '.'] }
     }
-    if ((survey.linked_flag || survey.linked_flag_id) && survey.conditions?.linkedFlagVariant) {
-        clauses.push(['on the ', em(survey.conditions.linkedFlagVariant), ' variant'])
-    }
+
+    const clauses = [...getTargetingClauses(survey), ...getLinkedFlagClauses(survey)]
     if (survey.conditions?.seenSurveyWaitPeriodInDays) {
         clauses.push([
             'who have not seen a survey in the last ',
@@ -152,6 +162,46 @@ function getWidgetOpener(survey: ReviewedSurvey): SurveyReviewSummaryPart[] | nu
         : [em('the feedback button')]
 }
 
+type SurveyConditions = NonNullable<ReviewedSurvey['conditions']>
+
+function describePageScope(conditions: SurveyConditions | null | undefined): SurveyReviewSummaryPart[] {
+    const scope: SurveyReviewSummaryPart[] = conditions?.url
+        ? [
+              'On pages where the URL ',
+              em(`${URL_MATCH_LABELS[conditions.urlMatchType ?? SurveyMatchType.Contains]} "${conditions.url}"`),
+          ]
+        : ['On ', em('any page')]
+    if (conditions?.selector) {
+        scope.push(' that have ', em(conditions.selector))
+    }
+    return scope
+}
+
+function describeDevices(conditions: SurveyConditions | null | undefined): SurveyReviewSummaryPart[] {
+    if (!conditions?.deviceTypes?.length) {
+        return []
+    }
+    const excluded = NEGATING_MATCH_TYPES.includes(conditions.deviceTypesMatchType as SurveyMatchType)
+    return [excluded ? ', not on ' : ', on ', em(conditions.deviceTypes.join(' or '))]
+}
+
+/** The SDK holds a survey back for the popup delay after it is due, whether it is due on load or on a trigger. */
+function describeTiming(
+    widgetOpener: SurveyReviewSummaryPart[] | null,
+    triggers: string[],
+    delaySeconds: number
+): SurveyReviewSummaryPart[] {
+    if (widgetOpener) {
+        return [', opened when someone clicks ', ...widgetOpener]
+    }
+    const delay: SurveyReviewSummaryPart[] =
+        delaySeconds > 0 ? [', ', em(pluralize(delaySeconds, 'second')), ' after'] : [', after']
+    if (triggers.length > 0) {
+        return [...delay, ' someone triggers ', em(triggers.join(' or '))]
+    }
+    return delaySeconds > 0 ? [...delay, ' the page loads'] : [', as soon as the page loads']
+}
+
 function buildWhen(survey: ReviewedSurvey): SectionContent {
     const delivery = getSurveyDelivery(survey)
     if (delivery === 'api') {
@@ -165,93 +215,76 @@ function buildWhen(survey: ReviewedSurvey): SectionContent {
     const triggers = [...(conditions?.events?.values ?? []), ...(conditions?.actions?.values ?? [])]
         .map((trigger) => trigger.name)
         .filter((name): name is string => !!name)
-
-    const summary: SurveyReviewSummaryPart[] = conditions?.url
-        ? [
-              'On pages where the URL ',
-              em(`${URL_MATCH_LABELS[conditions.urlMatchType ?? SurveyMatchType.Contains]} "${conditions.url}"`),
-          ]
-        : ['On ', em('any page')]
-    if (conditions?.selector) {
-        summary.push(' that have ', em(conditions.selector))
-    }
-    if (conditions?.deviceTypes?.length) {
-        const excluded = NEGATING_MATCH_TYPES.includes(conditions.deviceTypesMatchType as SurveyMatchType)
-        summary.push(excluded ? ', not on ' : ', on ', em(conditions.deviceTypes.join(' or ')))
-    }
     const widgetOpener = getWidgetOpener(survey)
-    summary.push(
-        ...(widgetOpener
-            ? [', opened when someone clicks ', ...widgetOpener]
-            : triggers.length > 0
-              ? [', after someone triggers ', em(triggers.join(' or '))]
-              : [', as soon as the page loads']),
-        '.'
-    )
+    const delaySeconds = survey.appearance?.surveyPopupDelaySeconds ?? 0
 
     const showsEverywhere = !widgetOpener && !conditions?.url && !conditions?.selector && triggers.length === 0
     return {
-        summary,
-        warning: showsEverywhere
-            ? 'Shows on every page as soon as it loads. Add a URL or event condition to limit where it appears.'
-            : undefined,
+        summary: [
+            ...describePageScope(conditions),
+            ...describeDevices(conditions),
+            ...describeTiming(widgetOpener, triggers, delaySeconds),
+            '.',
+        ],
+        warning: showsEverywhere ? getShowsEverywhereWarning(delaySeconds) : undefined,
     }
 }
 
-function buildFrequency(survey: ReviewedSurvey): SectionContent {
-    const summary: SurveyReviewSummaryPart[] = []
-    const delivery = getSurveyDelivery(survey)
+function getShowsEverywhereWarning(delaySeconds: number): string {
+    const timing = delaySeconds > 0 ? `${pluralize(delaySeconds, 'second')} after it loads` : 'as soon as it loads'
+    return `Shows on every page ${timing}. Add a URL or event condition to limit where it appears.`
+}
 
-    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
-    if (delivery !== 'hosted') {
-        if (repeatsOnEveryEvent) {
-            summary.push(em('Every time'), ' a trigger event fires.')
-        } else if (
-            survey.schedule === SurveySchedule.Recurring &&
-            survey.iteration_count &&
-            survey.iteration_frequency_days
-        ) {
-            summary.push(
-                'Up to ',
-                em(pluralize(survey.iteration_count, 'time')),
-                ' per person, ',
-                em(`once every ${pluralize(survey.iteration_frequency_days, 'day')}`),
-                '.'
-            )
-        } else if (survey.schedule === SurveySchedule.Always) {
-            summary.push(em('Every time'), ' the conditions match.')
-        } else {
-            summary.push('At most ', em('once'), ' per person.')
-        }
+function describeRepeats(survey: ReviewedSurvey): SurveyReviewSummaryPart[] {
+    if (doesSurveyRepeatOnEveryEvent(survey)) {
+        return [em('Every time'), ' a trigger event fires.']
     }
+    if (survey.schedule === SurveySchedule.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        return [
+            'Up to ',
+            em(pluralize(survey.iteration_count, 'time')),
+            ' per person, ',
+            em(`once every ${pluralize(survey.iteration_frequency_days, 'day')}`),
+            '.',
+        ]
+    }
+    if (survey.schedule === SurveySchedule.Always) {
+        return [em('Every time'), ' the conditions match.']
+    }
+    return ['At most ', em('once'), ' per person.']
+}
 
+function describeLimit(survey: ReviewedSurvey, delivery: SurveyDelivery): SurveyReviewSummaryPart[] {
     const limit = getSurveyCollectionLimitSummary(survey)
-    if (limit) {
-        summary.push(
-            ...(summary.length ? [' '] : []),
-            ...(limit.label === 'Response limit'
-                ? ['Stops collecting at ', em(limit.value), ' responses.']
-                : [
-                      'Collects up to ',
-                      em(pluralize(survey.response_sampling_limit ?? 0, 'response')),
-                      ' per ',
-                      em(
-                          formatInterval(survey.response_sampling_interval ?? 0, survey.response_sampling_interval_type)
-                      ),
-                      '.',
-                  ])
-        )
-    } else if (delivery === 'hosted') {
-        summary.push(em('No limit'), ' on responses.')
+    if (!limit) {
+        return delivery === 'hosted' ? [em('No limit'), ' on responses.'] : []
     }
+    if (limit.label === 'Response limit') {
+        return ['Stops collecting at ', em(limit.value), ' responses.']
+    }
+    return [
+        'Collects up to ',
+        em(pluralize(survey.response_sampling_limit ?? 0, 'response')),
+        ' per ',
+        em(formatInterval(survey.response_sampling_interval ?? 0, survey.response_sampling_interval_type)),
+        '.',
+    ]
+}
 
-    const schedule = repeatsOnEveryEvent ? null : getRecurringSurveyScheduleInfo(survey)
+function getRunLengthWarning(survey: ReviewedSurvey): string | undefined {
+    const schedule = doesSurveyRepeatOnEveryEvent(survey) ? null : getRecurringSurveyScheduleInfo(survey)
+    return schedule && schedule.totalDurationDays > DAYS_PER_YEAR
+        ? `Runs for ${formatRunLength(schedule.totalDurationDays)}. Lower the number of repeats if you meant less.`
+        : undefined
+}
+
+function buildFrequency(survey: ReviewedSurvey): SectionContent {
+    const delivery = getSurveyDelivery(survey)
+    const repeats = delivery === 'hosted' ? [] : describeRepeats(survey)
+    const limit = describeLimit(survey, delivery)
     return {
-        summary,
-        warning:
-            schedule && schedule.totalDurationDays > DAYS_PER_YEAR
-                ? `Runs for ${formatRunLength(schedule.totalDurationDays)}. Lower the number of repeats if you meant less.`
-                : undefined,
+        summary: [...repeats, ...(repeats.length && limit.length ? [' '] : []), ...limit],
+        warning: getRunLengthWarning(survey),
     }
 }
 
@@ -272,16 +305,20 @@ const QUESTION_PLACEMENT: Record<SurveyType, (survey: ReviewedSurvey) => SurveyR
     [SurveyType.ExternalSurvey]: () => [' on a hosted page.'],
 }
 
-function buildQuestions(survey: ReviewedSurvey): SectionContent {
-    const summary = [em(pluralize(survey.questions.length, 'question')), ...QUESTION_PLACEMENT[survey.type](survey)]
-
+function getQuestionsWarning(survey: ReviewedSurvey): string | undefined {
+    if (survey.questions.length === 0) {
+        return 'Add at least one question.'
+    }
     const untitled = survey.questions.flatMap((question, index) => (question.question?.trim() ? [] : [index + 1]))
+    return untitled.length > 0
+        ? `${pluralize(untitled.length, 'Question', 'Questions', false)} ${untitled.join(', ')} ${untitled.length === 1 ? 'has' : 'have'} no text.`
+        : undefined
+}
+
+function buildQuestions(survey: ReviewedSurvey): SectionContent {
     return {
-        summary,
-        warning:
-            untitled.length > 0
-                ? `${pluralize(untitled.length, 'Question', 'Questions', false)} ${untitled.join(', ')} ${untitled.length === 1 ? 'has' : 'have'} no text.`
-                : undefined,
+        summary: [em(pluralize(survey.questions.length, 'question')), ...QUESTION_PLACEMENT[survey.type](survey)],
+        warning: getQuestionsWarning(survey),
     }
 }
 

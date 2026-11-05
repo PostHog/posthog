@@ -98,6 +98,33 @@ describe('getSurveyReviewSections', () => {
             warning: 'Shows on every page as soon as it loads. Add a URL or event condition to limit where it appears.',
         },
         {
+            name: 'a popup delay on page load says how long after the page loads',
+            survey: {
+                conditions: { events: { values: [] }, actions: { values: [] } },
+                appearance: { surveyPopupDelaySeconds: 5 },
+            },
+            statuses: { when: 'warning' },
+            key: 'when',
+            summary: 'On any page, 5 seconds after the page loads.',
+            warning:
+                'Shows on every page 5 seconds after it loads. Add a URL or event condition to limit where it appears.',
+        },
+        {
+            name: 'a popup delay after a trigger says how long after the trigger',
+            survey: { appearance: { surveyPopupDelaySeconds: 1 } },
+            statuses: {},
+            key: 'when',
+            summary: 'On pages where the URL contains "/checkout", 1 second after someone triggers purchase completed.',
+        },
+        {
+            name: 'a survey with no questions is a warning',
+            survey: { questions: [] },
+            statuses: { questions: 'warning' },
+            key: 'questions',
+            summary: '0 questions in a popover, bottom right.',
+            warning: 'Add at least one question.',
+        },
+        {
             name: 'a recurring schedule that runs longer than a year is a warning',
             survey: { schedule: SurveySchedule.Recurring, iteration_count: 12, iteration_frequency_days: 365 },
             statuses: { frequency: 'warning' },

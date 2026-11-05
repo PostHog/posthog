@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getNextPreviewPageIndex } from 'scenes/surveys/surveyPreviewNavigation'
-import { clampPreviewPageIndex } from 'scenes/surveys/utils'
+import { clampPreviewPageIndex, getFirstPreviewPageIndex } from 'scenes/surveys/utils'
 
 import { SurveyPosition } from '~/types'
 
@@ -44,7 +44,7 @@ export function SurveyInContextPreview({
     const [device, setDevice] = useState<PreviewDevice>('desktop')
     const delivery = getSurveyDelivery(survey)
     const pageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
-    // SurveyAppearancePreview re-renders the posthog-js survey whenever this callback changes identity,
+    // SurveyAppearancePreview re-renders the posthog-js survey whenever a callback changes identity,
     // and this component re-renders on every review section hover.
     const onPreviewSubmit = useCallback(
         (response: string | string[] | number | null): void => {
@@ -53,6 +53,10 @@ export function SurveyInContextPreview({
                 setSelectedPageIndex(nextPageIndex)
             }
         },
+        [survey, pageIndex, setSelectedPageIndex]
+    )
+    const onPreviewBack = useCallback(
+        (): void => setSelectedPageIndex(Math.max(getFirstPreviewPageIndex(survey), pageIndex - 1)),
         [survey, pageIndex, setSelectedPageIndex]
     )
 
@@ -65,7 +69,12 @@ export function SurveyInContextPreview({
     }
 
     const preview = (
-        <SurveyAppearancePreview survey={survey} previewPageIndex={pageIndex} onPreviewSubmit={onPreviewSubmit} />
+        <SurveyAppearancePreview
+            survey={survey}
+            previewPageIndex={pageIndex}
+            onPreviewSubmit={onPreviewSubmit}
+            onPreviewBack={onPreviewBack}
+        />
     )
 
     if (delivery === 'hosted') {
@@ -132,14 +141,14 @@ export function SurveyInContextPreview({
                     </div>
                     <div
                         className={cn(
-                            'absolute rounded',
+                            'absolute flex max-h-[calc(100%-2rem)] flex-col rounded',
                             isMobile
                                 ? 'inset-x-3 bottom-3'
                                 : POSITION_CLASSES[survey.appearance?.position ?? SurveyPosition.Right],
                             highlightClasses(highlightedArea === 'survey')
                         )}
                     >
-                        {preview}
+                        <div className="min-h-0 overflow-y-auto rounded">{preview}</div>
                     </div>
                 </div>
             </div>
