@@ -2759,13 +2759,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const sender = inserted
                     ? await resolveInsertedStepSender(inserted, values.workflow).catch(() => null)
                     : null
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 const step = values.workflow.actions.find((action) => action.id === actionId)
-                if (
-                    cache.disposables.isDisposed ||
-                    !sender ||
-                    !step ||
-                    !stepTakesSender(step, values.workflow, sender)
-                ) {
+                if (!sender || !step || !stepTakesSender(step, values.workflow, sender)) {
                     return
                 }
                 actions.setWorkflowAction(actionId, withStepSender(step, sender.integrationId))
