@@ -1277,7 +1277,9 @@ def _aggregate_quota_usage(
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
             feature_flag_requests=billable_feature_flag_requests(
-                decide_requests, local_evaluation_requests, local_evaluation_not_modified_requests
+                decide=decide_requests,
+                local_evaluation=local_evaluation_requests,
+                local_evaluation_not_modified=local_evaluation_not_modified_requests,
             ),
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),

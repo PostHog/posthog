@@ -45,9 +45,18 @@ FeatureFlagRequestUsageRow = tuple[datetime, RawRequestType, int, str]
 
 # A 304 is a local evaluation request, so it shows with the others, but it bills like a remote one.
 _RAW_REQUEST_TYPES: dict[RawRequestType, tuple[FeatureFlagRequestType, int]] = {
-    "remote_evaluation": (FeatureFlagRequestType.REMOTE_EVALUATION, billable_feature_flag_requests(1, 0, 0)),
-    "local_evaluation": (FeatureFlagRequestType.LOCAL_EVALUATION, billable_feature_flag_requests(0, 1, 0)),
-    "local_evaluation_not_modified": (FeatureFlagRequestType.LOCAL_EVALUATION, billable_feature_flag_requests(0, 0, 1)),
+    "remote_evaluation": (
+        FeatureFlagRequestType.REMOTE_EVALUATION,
+        billable_feature_flag_requests(decide=1, local_evaluation=0, local_evaluation_not_modified=0),
+    ),
+    "local_evaluation": (
+        FeatureFlagRequestType.LOCAL_EVALUATION,
+        billable_feature_flag_requests(decide=0, local_evaluation=1, local_evaluation_not_modified=0),
+    ),
+    "local_evaluation_not_modified": (
+        FeatureFlagRequestType.LOCAL_EVALUATION,
+        billable_feature_flag_requests(decide=0, local_evaluation=0, local_evaluation_not_modified=1),
+    ),
 }
 
 

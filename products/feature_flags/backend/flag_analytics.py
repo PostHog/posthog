@@ -110,7 +110,7 @@ USAGE_EVENT_NAMES = {
 LOCAL_EVALUATION_BILLING_WEIGHT = 10
 
 
-def billable_feature_flag_requests(decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
+def billable_feature_flag_requests(*, decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
     return decide + local_evaluation * LOCAL_EVALUATION_BILLING_WEIGHT + local_evaluation_not_modified
 
 

@@ -3564,9 +3564,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
         local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
         billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
-            decide_requests_count_in_period,
-            local_evaluation_requests_count_in_period,
-            local_evaluation_not_modified_requests_count_in_period,
+            decide=decide_requests_count_in_period,
+            local_evaluation=local_evaluation_requests_count_in_period,
+            local_evaluation_not_modified=local_evaluation_not_modified_requests_count_in_period,
         ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
