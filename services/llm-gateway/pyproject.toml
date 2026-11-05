@@ -41,6 +41,7 @@ dev = [
     "fakeredis==2.23.3",
     "asyncpg-stubs>=0.30.0",
     "types-cachetools>=5.5.0",
+    "pytest-xdist>=3.6.0",
 ]
 
 [project.scripts]
