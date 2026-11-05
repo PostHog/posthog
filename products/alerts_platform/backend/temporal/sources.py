@@ -51,7 +51,7 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.INSIGHT: SourceBinding(
         workflow="insight-alert-platform-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(minutes=20),
+        evaluation_timeout=dt.timedelta(minutes=22),
         # Not the pool size. A check frees its slot in seconds, so the pool turns over many times a
         # tick, and a limit equal to its size caps checks per minute far below what it can run.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK,

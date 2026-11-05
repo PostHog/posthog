@@ -182,7 +182,7 @@ class TestStrictAndFixContracts:
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
         assert result.exit_code == 0
-        assert "uv run mypy --cache-fine-grained ." in result.output
+        assert "uv run mypy ." in result.output
         # Giving the check a `verify` would tax every push with a repo-wide mypy run.
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
         assert "mypy" not in ran

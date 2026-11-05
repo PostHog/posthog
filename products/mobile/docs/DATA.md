@@ -29,6 +29,17 @@ Each interface names the serializer it mirrors.
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
 
+## Connectivity
+
+`src/lib/connectivity.ts` maps Expo Network events to `unknown`, `connected` or `offline` and keeps the connection type for prefetch. Unknown states permit reads. The monitor checks state on foreground entry and removes listeners on disposal. It sends no external probes and stores no network names or addresses. Connected state does not confirm backend availability.
+
+- TanStack Query pauses reads offline and resumes them on reconnect. Cached content stays visible. Screens without cached data show an offline message.
+- Report streams resume from the saved cursor. Streams with fatal errors or terminal runs stay stopped.
+- Views retries each failed, interrupted read once on reconnect, including failures reported after reconnect. This retry skips the one-minute client interval. Server refresh limits still apply.
+- A handoff or pin stops if the connection drops during a prerequisite read. Reconnect can complete the shared read but cannot resume the write.
+
+Expo Network requires new iOS and Android binaries. Do not deploy this dependency through an OTA update to an older native runtime.
+
 ## The inbox list
 
 `useInboxItems()` reads `signals/reports/?view=for_you&sort=priority` one page of 20 reports at a time, with `useInfiniteQuery`.
@@ -79,10 +90,10 @@ The task fills in when it arrives.
 A failed background refetch keeps the cached report on screen.
 
 **Prefetch and refresh.**
-The inbox prefetches the report detail, work log and Today page of the first 40 rows (the first two pages, as they load), and of the rows that scroll into view plus 5 ahead.
+The inbox waits for row visibility, then prefetches report detail, work log and Today page for visible rows plus one ahead. Earlier offscreen rows are excluded, and scrolling replaces queued work. There is no initial page-wide prefetch.
 These are the requests the report screen waits for before its first render; the task and the metric queries load after it opens.
 It also prefetches the signals of a report when the Today page answers 404 or 403, because the signals are the evidence then.
-It works on two reports at a time and skips done and dismissed rows.
+It skips done and dismissed rows and sends one speculative request at a time, without retries. It runs only while the inbox is focused and foregrounded, the device reports a connected Wi-Fi or Ethernet link, and no observed foreground query is fetching. Unknown connection types and cellular links pause prefetch but do not block foreground reads. Pausing, switching project or account, or unmounting cancels only inactive queries started by the prefetcher. Opening a report adopts its shared requests, so cleanup leaves those observed reads running and failures use the foreground observer’s retry policy.
 It uses a 5 minute stale time, so a refresh or a scroll does not fetch a report again within 5 minutes of its prefetch.
 A report the cache dropped while the app was idle is fetched again when its row comes into view.
 The screen and the prefetcher share the query factories in `src/features/report/queries.ts`, so they read and write the same cache entries.
@@ -96,6 +107,7 @@ It also carries `from`, read from the route's `from` param: `inbox` (a row tap),
 
 **Full report.** "Read the full report" under the lede opens `/report/{id}/details` when the report has a summary or at least one signal.
 The screen reads `useReport(id)`, so it shares the report screen's cache and does not poll.
+The Charts section follows the summary and shows the same chart titles, captions, and open links as the abbreviated report.
 The signals can arrive after the first render when a Today page exists, because the report screen does not wait for them then; the Signals section appears when they land.
 `mobile_report_details_opened` is sent once per open, with `report_id`, `has_summary` and `signal_count`.
 `mobile_report_details_link_opened` carries `report_id` and `target`: `web` (Open in PostHog), `replay` (a signal's Watch session) or `link` (a link in the summary or a signal).
@@ -147,7 +159,9 @@ A metric has a saved snapshot (`value`, `value_at`, up to 14 undated `series` po
 - **Open link.** `{host}/project/{id}/insights/new#q=<query>` with the embed flags (`full`, `embedded`, `show*`) removed. A link over 8,000 characters is dropped, because nginx refuses a longer request line.
 
 `reportChartView(chart, scope)` builds a `ReportChartView`.
-The app draws a chart only when it is an `InsightVizNode` with a `TrendsQuery` source, one series, no breakdown, and a display that draws buckets over time (`ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, the three bar displays, or none).
+The app draws a chart only when it is an `InsightVizNode` with a `TrendsQuery` source, one output series, no breakdown, and a display that draws buckets over time (`ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, the three bar displays, or none).
+A single `formulaNodes` entry can combine multiple input series into that output series.
+Queries with multiple output formulas keep their open link instead of drawing only the first result.
 Such a chart gets `data` (its own display kept, the same clean-up as a metric) and a format from `aggregationAxisFormat`.
 Any other chart (SQL, saved insight, pie, number, table, breakdown) has no `data` and stays in the list with its title and open link:
 `/sql?open_query=` for a `DataVisualizationNode` with a `HogQLQuery` source, `/insights/{shortId}` for a `SavedInsightNode`.
@@ -183,6 +197,10 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 - Without live buckets, the observation draws the snapshot's undated series. The points are one interval apart and the last one sits at `value_at`, or at the current time when that is unknown.
 - While the live query loads, nothing is drawn, so the chart does not draw the snapshot and then redraw.
 - With no points at all, the observation leaves the chart out. A drawable chart in the Charts section shows a spinner while it loads, then "No data in this window." or an error line.
+
+Each report screen uses `ChartCanvasBudget`, active only while that screen has focus.
+The observation and report charts share the limit of six native canvases.
+Additional charts and charts on an unfocused screen use sparklines of the same height.
 
 ## Actions
 

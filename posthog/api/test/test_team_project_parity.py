@@ -28,6 +28,7 @@ PROJECT_ONLY_SERIALIZER_FIELDS = {
     "deletion_scheduled_at",
     "tags",
     "logo_media_id",
+    "is_ai_data_processing_approved",
 }
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).

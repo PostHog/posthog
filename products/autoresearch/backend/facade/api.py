@@ -28,9 +28,12 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.tasks.backend.facade.model_catalogue import REASONING_EFFORT_DISPLAY_NAMES, display_name_for_model
 
 from ..dataset import templates as templates_module
@@ -623,7 +626,7 @@ def _training_run_row(
 # ── Pipelines ──────────────────────────────────────────────────────────────
 
 
-def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipeline], int]:
+def list_pipelines(team_id: int, page: PageRequest) -> Page[Pipeline]:
     """One page of the team's non-archived pipelines, newest first, plus the total count."""
     qs = (
         AutoresearchPipeline.objects.for_team(team_id)
@@ -631,24 +634,16 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
         .select_related("created_by")
         .order_by("-created_at")
     )
-    count = qs.count()
-    rows = list(
-        qs[offset : offset + limit].prefetch_related(
-            Prefetch(
-                "models",
-                queryset=AutoresearchModel.objects.for_team(team_id)
-                .filter(role=AutoresearchModel.Role.CHAMPION)
-                .order_by("-created_at"),
-                to_attr="prefetched_champions",
-            )
-        )
-    )
-    champions: dict[UUID, AutoresearchModel] = {
-        row.id: row.prefetched_champions[0] for row in rows if row.prefetched_champions
-    }
-    activity = _pipeline_activity(team_id, [row.id for row in rows], champions)
-    pipelines = [_pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]) for row in rows]
-    return pipelines, count
+    rows = select_page(qs, page)
+    champions: dict[UUID, AutoresearchModel] = {}
+    for model in (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline_id__in=[row.id for row in rows.results], role=AutoresearchModel.Role.CHAMPION)
+        .order_by("-created_at")
+    ):
+        champions.setdefault(model.pipeline_id, model)
+    activity = _pipeline_activity(team_id, [row.id for row in rows.results], champions)
+    return rows.map(lambda row: _pipeline_to_contract(row, champion=champions.get(row.id), activity=activity[row.id]))
 
 
 def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
@@ -974,8 +969,8 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     observed as an outcome.
     """
     try:
-        action = Action.objects.get(id=action_id, team__project_id=project_id, deleted=False)
-    except (Action.DoesNotExist, ValueError, TypeError, OverflowError):
+        action = get_action(action_id=action_id, project_id=project_id, include_deleted=False)
+    except (ActionNotFound, ValueError, TypeError, OverflowError):
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     step_events = action.get_step_events()
     if any(event is None or event == PREDICTION_EVENT_NAME for event in step_events):
@@ -1121,14 +1116,13 @@ def validate_features_sql(features_sql: str) -> None:
 # ── Models ─────────────────────────────────────────────────────────────────
 
 
-def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
+def list_models(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Model]:
     qs = AutoresearchModel.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    rows = list(qs[offset : offset + limit])
-    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows})
-    return [_model_to_contract(row, in_shadow_set=row.pk in in_shadow) for row in rows], count
+    rows = select_page(qs, page)
+    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows.results})
+    return rows.map(lambda row: _model_to_contract(row, in_shadow_set=row.pk in in_shadow))
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
@@ -1147,12 +1141,11 @@ def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | N
 # ── Operational runs ───────────────────────────────────────────────────────
 
 
-def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
+def list_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Run]:
     qs = AutoresearchRun.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_run_to_contract)
 
 
 def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
@@ -1177,7 +1170,10 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         return
     action_id = definition.get("action_id")
     action = (
-        Action.objects.filter(id=action_id, team__project_id=pipeline.team.project_id, deleted=False).first()
+        next(
+            iter(get_actions(action_ids=[action_id], project_id=pipeline.team.project_id, include_deleted=False)),
+            None,
+        )
         if isinstance(action_id, int)
         else None
     )
@@ -1323,7 +1319,7 @@ def validate_pipeline_online(
     _require_resolvable_target(pipeline)
     try:
         runs = run_online_validation_for_pipeline(pipeline=pipeline, user=user)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         raise AutoresearchConflict("The pipeline's target action no longer exists.")
     return [_run_to_contract(run) for run in runs]
 
@@ -1419,14 +1415,11 @@ def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> Predict
 # ── Training runs ──────────────────────────────────────────────────────────
 
 
-def list_training_runs(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[TrainingRun], int]:
+def list_training_runs(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[TrainingRun]:
     qs = AutoresearchTrainingRun.objects.for_team(team_id).prefetch_related("iterations").order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_training_run_to_contract)
 
 
 def get_training_run(
@@ -1486,7 +1479,11 @@ def start_training(
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
     from ..training.runner import run_training  # noqa: PLC0415
+    from ..training.stale import fail_stale_training_runs  # noqa: PLC0415
 
+    # A run whose sandbox died would otherwise refuse this start for good.
+    if (pipeline_uuid := _as_uuid(pipeline_id)) is not None:
+        fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_uuid)
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
@@ -1499,7 +1496,7 @@ def start_training(
                 user_id=user_id,
                 kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
             )
-        except Action.DoesNotExist:
+        except ActionNotFound:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
         except (ValueError, SandboxInferenceError) as exc:
             # run_training refuses an unresolvable target or a departed creator before any write.
@@ -1993,12 +1990,9 @@ def delete_artifact(
 # ── Suggestions ────────────────────────────────────────────────────────────
 
 
-def list_suggestions(
-    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
-) -> tuple[list[Suggestion], int]:
+def list_suggestions(team_id: int, *, pipeline_id: str | UUID | None, page: PageRequest) -> Page[Suggestion]:
     qs = _suggestion_rows(team_id, pipeline_id=pipeline_id).order_by("-created_at")
-    count = qs.count()
-    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+    return select_page(qs, page).map(_suggestion_to_contract)
 
 
 def _suggestion_rows(team_id: int, *, pipeline_id: str | UUID | None) -> Any:

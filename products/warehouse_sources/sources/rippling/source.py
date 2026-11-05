@@ -1,0 +1,135 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.rippling._config import RipplingSourceConfig
+from products.warehouse_sources.sources.rippling.rippling import (
+    RipplingResumeConfig,
+    rippling_source,
+    validate_credentials as validate_rippling_credentials,
+)
+from products.warehouse_sources.sources.rippling.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+    detect,
+)
+
+
+@SourceRegistry.register
+class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    codebase_detection = detect(env=("^RIPPLING_",))
+
+    # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
+    # header is sent, serves the version bound to the API token account-side (chosen when the
+    # customer mints the token) — never a moving "latest". We send the token as-is with no version
+    # header, so every pin issues byte-for-byte identical requests; the pin only records which tier
+    # a source targets, and adding a header would override the customer's token version — the silent
+    # move this framework prevents. New sources default to v2, Rippling's current REST API tier.
+    # Rippling calls its V1 tier legacy with no published sunset date, so the v1 label is deprecated
+    # and its pins are repinned to v2 by data migration (a pure relabel).
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
+    deprecated_versions = (VersionDeprecation(version="v1", sunset_at=None),)
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developer.rippling.com/documentation/rest-api/essentials/versioning"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.RIPPLING
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.rippling.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://rest.ripplingapis.com": "Rippling authentication failed. Please check your API token (tokens expire after 30 days of inactivity).",
+            "403 Client Error: Forbidden for url: https://rest.ripplingapis.com": "Rippling denied access. Please check that your API token has the read scope enabled for this dataset.",
+        }
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.RIPPLING,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
+            label="Rippling",
+            caption="""Enter your Rippling API token to pull your Rippling workforce data into the PostHog Data warehouse.
+
+A Rippling admin can create a scoped API token under Settings > Company Settings > API Access. Enable the read scope for each dataset you want to sync (e.g. `companies.read`, `users.read`, `workers.read`, `departments.read`, `teams.read`, `levels.read`, `work-locations.read`, `employment-types.read`, `compensations.read`, `time-entries.read`, `leave-requests.read`, `payroll-runs.read`, `worker-payroll-records.read`, `tracks.read`, `titles.read`, `leave-balances.read`, `leave-accruals.read`, `worker-changes.read`, `worker-change-fields.read`). Payroll tables need Rippling Global Payroll. Worker change tables need the Worker Changes API entitlement, which your Rippling account team can turn on. Note that tokens expire after 30 days of inactivity.""",
+            iconPath="/static/services/rippling.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/rippling",
+            releaseStatus=ReleaseStatus.BETA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_token",
+                        label="API token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_schemas(
+        self,
+        config: RipplingSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+
+    def validate_credentials(
+        self,
+        config: RipplingSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if validate_rippling_credentials(config.api_token):
+            return True, None
+
+        return False, "Invalid Rippling API token"
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RipplingResumeConfig]:
+        return ResumableSourceManager[RipplingResumeConfig](inputs, RipplingResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: RipplingSourceConfig,
+        resumable_source_manager: ResumableSourceManager[RipplingResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return rippling_source(
+            api_token=config.api_token,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
+        )

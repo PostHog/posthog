@@ -50,6 +50,7 @@
                 "feature_flag",
                 "heatmap",
                 "hog_flow",
+                "inbox",
                 "insight",
                 "llm_analytics",
                 "llm_playground",

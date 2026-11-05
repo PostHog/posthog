@@ -43,10 +43,19 @@ s3://<bucket>/<prefix>/
 ├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
 ├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
 ├── inbox_user_vectors/v1/dt=YYYY-MM-DD/       # per-user mean report vectors of past engagement, by kind
-└── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
+├── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
+└── inbox_activity_summary_profile_vectors/v1/dt=YYYY-MM-DD/ # the same shape, for the rendering with the profile
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
+
+`inbox_report_state` also records the report's content columns, and `inbox_report_model_data` passes them through: `chart_count`, `metric_count`, `suggested_prompt_count` and `tag_count`, `content_revision_count` and `corroboration_count`, `user_authored`, and `already_addressed`.
+No model reads them yet.
+
+- The list lengths are computed in Postgres, so the job never loads chart or metric definitions. A stored value that is not a list counts as 0. A null counter is stored as 0.
+- `already_addressed` comes from the same actionability artefact as `actionability`, with the same cutoff rules. It is null when that artefact is missing, was edited after the cutoff, or holds no boolean.
+- Partitions written before these columns landed do not have them. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today.
+- The columns do not bump `FEATURE_SCHEMA_VERSION`. A bump sets off the labels refresh sensor, which rewrites every labels partition in the lookback, and no label changed. A reader tells the partitions apart by the presence of the columns.
 
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it. No model family trains on it since `title_embeddings` was retired; the snapshot stays for offline reads. It carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
 
@@ -67,9 +76,10 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 | `open`    | the last 50 reports anyone on the team opened before `as_of`                                     |
 | `action`  | the last 50 reports anyone on the team acted on through a UI intent action (`UI_ACTION_COLUMNS`) |
 | `dismiss` | the last 50 reports anyone on the team dismissed from the UI                                     |
+| `fixed`   | the last 50 reports the team got fixed (`first_fixed_at`, from the status stream)                |
 
 - The columns are `team_id`, `kind`, `vector` (small-1536), `n_reports` and `as_of`.
-- The inputs are the dt=D `inbox_report_embeddings` and `inbox_report_labels` snapshots only. The engagement moments are the labels' first-event timestamps of the inbox app events, so MCP reads and agent actions never count. A project is a team, not an organization.
+- The inputs are the dt=D `inbox_report_embeddings` and `inbox_report_labels` snapshots only. The `open`, `action` and `dismiss` moments are the labels' first-event timestamps of the inbox app events, so MCP reads and agent actions never count there. The `fixed` moment comes from the status stream, so a fix through an agent counts. A project is a team, not an organization.
 - A kind with fewer than `MIN_HISTORY_REPORTS` reports keeps its row, with its real `n_reports` and an all-zero vector. A team with no report vector before `as_of` has no rows.
 - The asset filters the embeddings snapshot through `training_consent_team_ids()` again, so an opt-out after the snapshot was written takes effect.
 - **It is a leaf.** Nothing joins it, it is not in `inbox_report_model_data`'s deps, and its object carries its own `PROJECT_VECTORS_SCHEMA_VERSION`, so a failure here does not fail the training table. Its deps on the embeddings and labels assets keep it after the embeddings snapshot, so the two vector-heavy steps do not share the run pod's memory.
@@ -80,6 +90,7 @@ Point-in-time contract:
 - A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 - Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
+- Serving loads every kind of the day and gives each model the kinds its `metadata.json` lists, in that order. A day written before `PROJECT_VECTORS_SCHEMA_VERSION` 2, or a mirror day built from a v1 engagement export, has no `fixed` rows. A model that reads a kind the day has no rows for is skipped with `project_vector_kinds_missing`. When the served model hits it, the pass fails.
 
 ### User vectors
 
@@ -92,12 +103,12 @@ The asset calls it with `as_of` = the end of dt=D, on the dt=D interactions and 
 
 ### Engagement export
 
-`inbox_engagement_export` sends the UI engagement moments of the other region's reports to the mirror store, so that region can build its own project vectors from its own report embeddings.
-The inbox telemetry of every region lands in the US dogfood project, so the `open`, `action` and `dismiss` moments of an EU report exist only in the US labels snapshot.
+`inbox_engagement_export` sends the engagement moments of the other region's reports to the mirror store, so that region can build its own project vectors from its own report embeddings.
+The inbox telemetry of every region lands in the US dogfood project, so the `open`, `action`, `dismiss` and `fixed` moments of an EU report exist only in the US labels snapshot.
 
 - It runs only when `INBOX_RANKING_SERVING_MIRROR_BUCKET` is set. Otherwise it logs and writes nothing.
 - The rows are the dt=D labels rows whose `report_id` has no `SignalReport` in this region's Postgres before the cutoff. A row whose id is not a UUID is dropped.
-- The columns are exactly `LABEL_COLUMNS` from `dataset/project_vectors.py`: `report_id` and the first opened, first UI dismissed and first UI action timestamps. There are no team ids, no counts, no text and no vectors, so the other region passes the file to `project_vectors()` unchanged.
+- The columns are exactly `ENGAGEMENT_EXPORT_COLUMNS` from `dataset/project_vectors.py`: `report_id` and the first opened, first UI dismissed, first UI action and first fixed timestamps. There are no team ids, no counts, no text and no vectors, so the other region passes the file to `project_vectors()` unchanged.
 - The labels snapshot is cumulative, so each day is a full snapshot as of the end of dt=D.
 - The key is `serving_engagement_key(prefix, dt)`: `<prefix>/serving/engagement/<dt>/engagement.parquet`. The mirror's write grant covers only `<prefix>/serving/`. The write sets `ACL: bucket-owner-full-control` and stamps the row count, the snapshot date and `ENGAGEMENT_EXPORT_SCHEMA_VERSION` in the object metadata.
 - **It is a leaf.** Nothing joins it. A mirror write failure does not fail the asset: it logs, and the output metadata carries `written=false`. The metadata also carries `rows`, `excluded_rows` (the rows whose report is in this region), `local_share` (`excluded_rows` over all labels rows), `bytes` and `s3_key`.
@@ -114,7 +125,7 @@ The report vectors of a region exist only in its own ClickHouse, so the training
 - It registers on EU only (`is_inbox_ranking_mirror_registered()`), in its own daily job `inbox_ranking_mirror_job` at 05:30 UTC, after the training region's dataset run.
 - The schedule skips its ticks until `INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED` is set. A run by hand works without it.
 - The report vectors come from `report_embeddings_table`, the same function the `inbox_report_embeddings` snapshot uses, for the teams in this region's `training_consent_team_ids()`.
-- The engagement moments come from the dt=D engagement export at `serving_engagement_key`, in this region's object store. When dt=D is missing, it uses the newest export up to `ENGAGEMENT_EXPORT_MAX_AGE_DAYS` older and logs a warning. When none is in that window, or the export has another schema version, the asset fails.
+- The engagement moments come from the dt=D engagement export at `serving_engagement_key`, in this region's object store. When dt=D is missing, it uses the newest export up to `ENGAGEMENT_EXPORT_MAX_AGE_DAYS` older and logs a warning. When none is in that window, or the export has a schema version the reader does not know, the asset fails. The reader takes `ENGAGEMENT_EXPORT_SCHEMA_VERSION` and the version before it, because the two regions deploy apart. A v1 export has no `first_fixed_at`, so the day gets four kinds and no `fixed` rows.
 - It calls `project_vectors()` in memory with `as_of` at the end of dt=D, and writes no dataset object.
 - The output is `serving_project_vectors_key(prefix, dt)` in this region's object store, stamped with the row count, the snapshot date, `PROJECT_VECTORS_SCHEMA_VERSION` and the export date it read.
 - The output metadata carries the rows, the teams, the teams with enough history for each kind, the export date and its age.
@@ -188,6 +199,13 @@ That table drops a row 3 months after its `timestamp`, and `UserActivitySummaryV
 - A re-run replaces the rows the source still returns and keeps the rows it no longer returns, so a re-run after the TTL does not erase history. It drops the rows of teams without training consent.
 - **It is a leaf.** Nothing joins it, so a failure here does not fail the training table. A day of vectors is small, so it has no ordering dependency.
 - Backfill: materialize every partition from the first activity summary build that is still inside the source TTL. Repeat for the matching partitions after a backfill of past-dated summaries, before those vectors expire.
+
+`inbox_activity_summary_profile_vectors` is the same leaf for the `summary_profile` rendering, with its own `ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION`.
+That rendering embeds `summary_profile_text`: the headline, the theme labels and the profile.
+It shares the `document_id` and `timestamp` of the `summary_text` vector of the same build, so a backtest can compare the two user vectors on the same builds.
+The tick emits it only while `emit_profile_embeddings` is on in the `activity-summary` flag payload, and only for a summary with a profile.
+The activity summary backfill does not emit it.
+Each asset reads only its own rendering.
 
 ## The training dag
 
@@ -452,7 +470,8 @@ An experiment is a `MODEL_FAMILIES` entry with `experiment=True`, a `baseline` s
 - **Its own job.** `inbox_ranking_nn_experiments_job` (`nn/experiments.py`, on `signals_ml`) trains every live experiment, one after the other. It has its own runtime and memory tags, so it never uses the `nn` job's budget. It holds three assets, run one step at a time in one process: `inbox_ranking_nn_experiment_candidates` (the report-grain experiments), `inbox_ranking_nn_pair_examples` and `inbox_ranking_nn_pair_experiment_candidates` (the pair-grain experiments, after the pair examples). The report experiments do not depend on the pair examples, so a failed pair step skips only the pair experiments. Its schedule (08:00 UTC, after the `nn` job's 3h budget) selects the report asset when a report experiment is live and the two pair assets when a pair experiment is live, and skips when nothing is live.
 - **No new examples.** It reads the day's `inbox_ranking_nn_examples` object. A day without that object is skipped, and so is a family after its `expires` day.
 - **Never served.** The serving manifest reads only `serving_families()`. The pin check refuses an experiment key, so the promote job, the served pointer and the pins cannot name one. To serve the recipe, register it as a serving family under a new `model_name`.
-- **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's within-team and pooled holdout AUC for both arms, and the mean, min and max of the gaps. One `inbox_ranking_experiment_compared` event per head carries the gaps.
+- **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's holdout AUC for both arms, and the mean, min and max of the gaps. The reads are `within_team` (pairs pooled over teams), `within_team_macro` (each team weighs the same), the same two without the dogfood project (`within_team_non_dogfood`, `within_team_non_dogfood_macro`), and `pooled` for reference. The non-dogfood macro delta also gets a team bootstrap interval, the method the pair lane uses. One `inbox_ranking_experiment_compared` event per head carries the gaps of every read and the interval's `low`, `high` and `teams`.
+- **A/A control.** `nn_with_prio_aa_v1` is `nn_with_prio_v2` against itself. Its `seed_offset` fits its arm on seeds other than the baseline's, so its deltas show how large a delta from noise alone is. Read an experiment's delta against the A/A deltas of the same days before calling it a win.
 - **Side inputs.** A side input beyond the report vectors needs a loader in `training/side_inputs.py`. The registry refuses a frame without a timezone-aware `as_of_column` and drops the rows known after the partition end. A feature set in the dags reads the frame through `rows_as_of`. A set in `features.py` cannot import the dags, so it applies the same `<= as_of` cut on the loader's column itself.
 
 The live report-grain experiment is `nn_with_prio_sources_v1`, graded against `nn_with_prio_v2` until 2026-11-11. The pair-grain experiments are under [User-history families](#user-history-families). Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
@@ -544,7 +563,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 `consent.training_consent_team_ids()` returns the consenting teams that hold an inbox report, and every asset reads it once per run.
 
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
-- `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings` and `inbox_activity_summary_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings`, `inbox_activity_summary_vectors` and `inbox_activity_summary_profile_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.

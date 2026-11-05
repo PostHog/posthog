@@ -15,8 +15,8 @@ import {
 export { convertHogToJS }
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side

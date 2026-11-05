@@ -1,5 +1,3 @@
-import { combineUrl } from 'kea-router'
-
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -10,10 +8,6 @@ import { urls } from 'scenes/urls'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import {
-    CATEGORY_SEARCH_PARAM,
-    SELF_MANAGED_CATEGORY,
-} from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceCategories'
 import { DirectConnectSourcesTable } from 'products/data_warehouse/frontend/shared/components/DirectConnectSourcesTable'
 import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'
@@ -70,21 +64,6 @@ export function SourcesList(): JSX.Element {
             <SceneSection
                 title="Self-managed data warehouse sources"
                 description="Connect to your own data sources, making them queryable in PostHog"
-                actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        to={
-                            combineUrl(urls.dataPipelinesNew('source'), {
-                                [CATEGORY_SEARCH_PARAM]: SELF_MANAGED_CATEGORY,
-                            }).url
-                        }
-                        data-attr="new-self-managed-source"
-                    >
-                        New self-managed source
-                    </LemonButton>
-                }
             >
                 <SelfManagedSourcesTable />
             </SceneSection>
