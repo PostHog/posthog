@@ -12,6 +12,7 @@ use capture_apm_metrics::config::Config;
 use capture_apm_metrics::management;
 use capture_apm_metrics::prometheus;
 use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
+use capture_apm_metrics::k8s_resource_attributes::K8sResourceAttributes;
 use capture_apm_metrics::service::{export_metrics_http, MetricsService};
 use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
@@ -248,6 +249,9 @@ async fn run(
         config.base.max_request_body_size_bytes,
         config.remote_write_max_expanded_bytes,
         series_label_gate,
+        Arc::new(K8sResourceAttributes::from_token_list(
+            &config.remote_write_k8s_resource_attribute_tokens,
+        )),
     );
     let http_bind = format!("{}:{}", config.base.host, config.base.port);
     info!("Listening on {}", http_bind);

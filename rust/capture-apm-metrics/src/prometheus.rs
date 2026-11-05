@@ -140,8 +140,11 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (rows, timestamps_overridden) =
+    let (mut rows, timestamps_overridden) =
         write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    // Before the histogram fold, so folded histograms carry the attributes and
+    // fingerprint them.
+    service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
     service.series_label_gate.apply(&token, &mut rows);
     let row_count = rows.len();
