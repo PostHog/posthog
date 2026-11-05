@@ -4,10 +4,10 @@ import { PendingApprovalSchema, type PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
+import { parseOrThrow, parseOrUndefined } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
-import { parseProjectId } from './ids'
-import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
+import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
@@ -98,8 +98,8 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
 export type PendingLogin = z.output<typeof PendingLoginSchema>
 
 // PostHog refuses a client it hasn't verified with `unauthorized_client`, and its description says why.
-function unauthorizedClient(host: Host, body: { error?: string; error_description?: unknown }): HogError | undefined {
-    if (body.error !== 'unauthorized_client' || typeof body.error_description !== 'string') {
+function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError | undefined {
+    if (body?.error !== 'unauthorized_client' || typeof body.error_description !== 'string') {
         return undefined
     }
     return new HogError(
@@ -109,14 +109,16 @@ function unauthorizedClient(host: Host, body: { error?: string; error_descriptio
     )
 }
 
-interface DeviceAuthorizationResponse {
-    device_code?: string
-    user_code?: string
-    verification_uri?: string
-    verification_uri_complete?: string
-    expires_in?: number
-    interval?: number
-}
+type OAuthError = z.output<typeof OAuthErrorBody>
+
+const DeviceAuthorizationResponse = z.looseObject({
+    device_code: z.string().min(1),
+    user_code: z.string().min(1),
+    verification_uri: z.string().min(1),
+    verification_uri_complete: z.string().optional(),
+    expires_in: z.number().positive(),
+    interval: z.number().optional(),
+})
 
 // hog opens the approval page only on the host it logs in to. A server that names another origin could
 // send the person to a look-alike page, and the code check wouldn't catch it: that server chose the code.
@@ -141,12 +143,12 @@ export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: rea
             'Wait a minute, then run `hog auth login` again.'
         )
     }
-    const body = (response.json ?? {}) as DeviceAuthorizationResponse & { error?: string; error_description?: unknown }
-    const refused = unauthorizedClient(host, body)
+    const refused = unauthorizedClient(host, parseOrUndefined(OAuthErrorBody, response.json))
     if (refused) {
         throw refused
     }
-    if (!response.ok || !body.device_code || !body.user_code || !body.verification_uri || !body.expires_in) {
+    const body = response.ok ? parseOrUndefined(DeviceAuthorizationResponse, response.json) : undefined
+    if (body === undefined) {
         throw new HogError(
             'login_unavailable',
             `${host} didn't start a login: it answered with HTTP ${response.status}.`,
@@ -184,10 +186,14 @@ export async function pollDeviceLogin(
     if (response.status >= 500) {
         return { state: 'retry', reason: `PostHog answered with HTTP ${response.status}.` }
     }
-    const body = (response.json ?? {}) as TokenResponse & { error?: string; error_description?: unknown }
     if (response.ok) {
-        const scopedTeam = body.scoped_teams?.[0]
-        if (scopedTeam === undefined || !body.refresh_token) {
+        const body = parseOrThrow(TokenResponse, response.json, {
+            code: 'unexpected_response',
+            context: "PostHog approved the login, but its answer isn't what hog expects.",
+            hint: 'Run `hog auth login` to start again.',
+        })
+        const projectId = body.scoped_teams?.[0]
+        if (projectId === undefined || !body.refresh_token) {
             throw new HogError(
                 'unexpected_response',
                 'PostHog approved the login, but its answer had no project or no refresh token.',
@@ -196,17 +202,11 @@ export async function pollDeviceLogin(
         }
         return {
             state: 'approved',
-            value: OAuthLogin.fromTokens(runtime, body, {
-                host: pending.host,
-                projectId: parseProjectId(scopedTeam, {
-                    code: 'unexpected_response',
-                    hint: 'Run `hog auth login` to start again.',
-                }),
-                scopes: pending.scopes,
-            }),
+            value: OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes }),
         }
     }
-    switch (body.error) {
+    const body = parseOrUndefined(OAuthErrorBody, response.json)
+    switch (body?.error) {
         case 'authorization_pending':
             return { state: 'pending' }
         case 'slow_down':

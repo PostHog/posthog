@@ -61,39 +61,46 @@ export const EndpointFile = z
 export type EndpointFile = z.infer<typeof EndpointFile>
 export type EndpointVariable = NonNullable<EndpointFile['variables']>[number]
 
-export interface MaterializationStatus {
-    status?: string | null
-    can_materialize?: boolean
-    last_materialized_at?: string | null
-    error?: string | null
-    reason?: string | null
-}
+// The API answers keep fields hog doesn't name, because `hog endpoints get` prints the whole answer.
+const MaterializationStatus = z.looseObject({
+    status: z.string().nullish(),
+    can_materialize: z.boolean().optional(),
+    last_materialized_at: z.string().nullish(),
+    error: z.string().nullish(),
+    reason: z.string().nullish(),
+})
 
-export interface Endpoint {
-    id: string
-    name: string
-    description?: string | null
-    query: Record<string, unknown>
-    is_active: boolean
-    data_freshness_seconds?: number | null
-    endpoint_path?: string
-    url?: string | null
-    ui_url?: string | null
-    created_at: string
-    updated_at: string
-    is_materialized: boolean
-    current_version?: number
-    versions_count?: number
-    materialization?: MaterializationStatus | null
-}
+export type MaterializationStatus = z.infer<typeof MaterializationStatus>
 
-export interface InsightVariable {
-    id: string
-    name: string
-    code_name: string
-    type: string
-    default_value?: unknown
-}
+export const Endpoint = z.looseObject({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().nullish(),
+    query: z.record(z.string(), z.unknown()),
+    is_active: z.boolean(),
+    data_freshness_seconds: z.number().nullish(),
+    endpoint_path: z.string().optional(),
+    url: z.string().nullish(),
+    ui_url: z.string().nullish(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    is_materialized: z.boolean(),
+    current_version: z.number().optional(),
+    versions_count: z.number().optional(),
+    materialization: MaterializationStatus.nullish(),
+})
+
+export type Endpoint = z.infer<typeof Endpoint>
+
+export const InsightVariable = z.looseObject({
+    id: z.string(),
+    name: z.string(),
+    code_name: z.string(),
+    type: z.string(),
+    default_value: z.unknown().optional(),
+})
+
+export type InsightVariable = z.infer<typeof InsightVariable>
 
 const VARIABLE_REFERENCE = /\{variables\.([a-zA-Z_][a-zA-Z0-9_]*)\}/g
 

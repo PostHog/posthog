@@ -1,18 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
+import { parseOrThrow, parseOrUndefined } from '@/core/schema'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
 import { hostKey, hostUrl, type Host } from './host'
-import type { ProjectId } from './ids'
+import { ProjectIdSchema, type ProjectId } from './ids'
 import type { LoginRecord } from './settings'
-import { parseOAuthAccessToken, parseOAuthRefreshToken, type OAuthAccessToken, type OAuthRefreshToken } from './tokens'
+import {
+    OAuthAccessTokenSchema,
+    OAuthRefreshTokenSchema,
+    type OAuthAccessToken,
+    type OAuthRefreshToken,
+} from './tokens'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
 export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-metadata.json'
@@ -21,13 +28,21 @@ const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
 const REFRESH_MARGIN_MS = 10 * 60_000
 
-export interface TokenResponse {
-    access_token?: string
-    refresh_token?: string
-    expires_in?: number
-    scope?: string
-    scoped_teams?: number[]
-}
+export const TokenResponse = z.looseObject({
+    access_token: OAuthAccessTokenSchema,
+    refresh_token: OAuthRefreshTokenSchema.optional(),
+    expires_in: z.number(),
+    scope: z.string().optional(),
+    scoped_teams: z.array(ProjectIdSchema).optional(),
+})
+
+export type TokenResponse = z.output<typeof TokenResponse>
+
+// An RFC 6749 error answer. hog reads `error` only when the answer is one.
+export const OAuthErrorBody = z.looseObject({
+    error: z.string().optional().catch(undefined),
+    error_description: z.unknown(),
+})
 
 export function oauthPost(
     runtime: Runtime,
@@ -93,19 +108,19 @@ export class OAuthLogin implements AccessKey {
             loginId?: string
         }
     ): OAuthLogin {
-        if (!body.access_token || body.expires_in === undefined) {
+        const refreshToken = body.refresh_token ?? previous.refreshToken
+        if (refreshToken === undefined) {
             throw new HogError(
                 'unexpected_response',
-                'PostHog answered without an access token.',
+                'PostHog answered without a refresh token.',
                 'Run `hog auth login` to log in again.'
             )
         }
-        const unexpected = { code: 'unexpected_response' }
         return new OAuthLogin({
             host: previous.host,
             projectId: previous.projectId,
-            accessToken: parseOAuthAccessToken(body.access_token, unexpected),
-            refreshToken: parseOAuthRefreshToken(body.refresh_token ?? previous.refreshToken, unexpected),
+            accessToken: body.access_token,
+            refreshToken,
             expiresAt: runtime.now() + body.expires_in * 1000,
             scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
             loginId: previous.loginId ?? randomUUID(),
@@ -186,11 +201,15 @@ export class OAuthLogin implements AccessKey {
             refresh_token: this.refreshToken,
             client_id: HOG_CLIENT_ID,
         })
-        const body = (response.json ?? {}) as TokenResponse & { error?: string }
         if (response.ok) {
+            const body = parseOrThrow(TokenResponse, response.json, {
+                code: 'unexpected_response',
+                context: "PostHog's answer to the renewal isn't what hog expects.",
+                hint: 'Run `hog auth login` to log in again.',
+            })
             return OAuthLogin.fromTokens(runtime, body, this)
         }
-        if (body.error === 'invalid_grant') {
+        if (parseOrUndefined(OAuthErrorBody, response.json)?.error === 'invalid_grant') {
             throw new HogError(
                 'session_expired',
                 'Your hog login expired or was revoked.',

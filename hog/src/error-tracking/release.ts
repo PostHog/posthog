@@ -1,15 +1,14 @@
+import { z } from 'zod'
+
 import { HogError } from '@/core/errors'
 
 import { contentHash } from './container'
 import type { GitInfo } from './git'
 import { ApiFailure, errorCode, type SymbolSetClient } from './upload'
 
-export interface Release {
-    id: string
-    hash_id: string
-    version: string
-    project: string
-}
+const Release = z.looseObject({ id: z.string(), hash_id: z.string(), version: z.string(), project: z.string() })
+
+export type Release = z.output<typeof Release>
 
 export interface ReleaseFields {
     name?: string
@@ -59,7 +58,7 @@ export async function findRelease(
 
 async function lookup(client: SymbolSetClient, hashId: string): Promise<Release | undefined> {
     try {
-        return (await client.api('GET', `error_tracking/releases/hash/${hashId}`)) as Release
+        return await client.api('GET', `error_tracking/releases/hash/${hashId}`, Release)
     } catch (error) {
         if (error instanceof ApiFailure && error.status === 404) {
             return undefined
@@ -94,7 +93,7 @@ export async function fetchOrCreateRelease(
     }
     Object.assign(body, { hash_id: hashId, version, project: name })
     try {
-        const created = (await client.api('POST', 'error_tracking/releases', body)) as Release
+        const created = await client.api('POST', 'error_tracking/releases', Release, body)
         return { ...created, id: created.id.toLowerCase() }
     } catch (error) {
         if (error instanceof ApiFailure && isStructuredCode(error.body, 'release_hash_in_use')) {

@@ -1,9 +1,9 @@
-import { defineCommand } from '@/core/command'
-import { printDiagnostics, type Diagnostics } from '@/core/diagnostics'
+import { z } from 'zod'
 
-interface MetadataResponse extends Diagnostics {
-    isValid?: boolean | null
-}
+import { defineCommand } from '@/core/command'
+import { Diagnostics, printDiagnostics } from '@/core/diagnostics'
+
+const MetadataResponse = Diagnostics.extend({ isValid: z.boolean().nullish() })
 
 export default defineCommand({
     description: 'Check the syntax and types of a HogQL query without running it',
@@ -16,9 +16,11 @@ export default defineCommand({
 
     async run({ args, ctx }) {
         const api = await ctx.posthog()
-        const response = await api.post<MetadataResponse>('query', {
-            query: { kind: 'HogQLMetadata', language: 'hogQL', query: args.query },
-        })
+        const response = await api.post(
+            'query',
+            { query: { kind: 'HogQLMetadata', language: 'hogQL', query: args.query } },
+            MetadataResponse
+        )
         return { query: args.query, response }
     },
 

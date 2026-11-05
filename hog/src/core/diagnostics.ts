@@ -1,19 +1,21 @@
+import { z } from 'zod'
+
 import { escapeControls, type Output, type Style } from './output'
 import { plural } from './text'
 
 // One problem the server found in a piece of source text. The offsets count Unicode code points,
 // as Python strings do, and are null when the problem has no location.
-export interface Diagnostic {
-    message: string
-    start?: number | null
-    end?: number | null
-}
+const Diagnostic = z.looseObject({ message: z.string(), start: z.number().nullish(), end: z.number().nullish() })
 
-export interface Diagnostics {
-    errors?: Diagnostic[] | null
-    warnings?: Diagnostic[] | null
-    notices?: Diagnostic[] | null
-}
+type Diagnostic = z.infer<typeof Diagnostic>
+
+export const Diagnostics = z.looseObject({
+    errors: z.array(Diagnostic).nullish(),
+    warnings: z.array(Diagnostic).nullish(),
+    notices: z.array(Diagnostic).nullish(),
+})
+
+export type Diagnostics = z.infer<typeof Diagnostics>
 
 export function printDiagnostics(out: Output, source: string, diagnostics: Diagnostics): void {
     const groups: { label: string; style: Style; items: Diagnostic[] }[] = [

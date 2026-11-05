@@ -9,9 +9,14 @@ export interface ParseFailure {
     exitCode?: number
 }
 
-// The schemas in hog set their own messages, so the first issue already reads as a sentence.
+// The schemas in hog set their own messages, so the first issue already reads as a sentence. A
+// problem inside a document, such as an API answer, starts with the field it is in.
 export function firstProblem(error: z.ZodError): string {
-    return error.issues[0]?.message ?? 'The value is not valid.'
+    const issue = error.issues[0]
+    if (issue === undefined) {
+        return 'The value is not valid.'
+    }
+    return issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ${issue.message}` : issue.message
 }
 
 export function problemWith(schema: z.ZodType, raw: unknown): string | undefined {

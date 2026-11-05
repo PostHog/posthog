@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { plural } from '@/core/text'
@@ -5,11 +7,14 @@ import { listInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles } from '@/endpoints/files'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
-interface RunResponse {
-    columns?: string[] | null
-    results?: unknown[] | null
-    hasMore?: boolean | null
-}
+// The whole answer reaches agents, so fields hog doesn't name stay.
+const RunResponse = z.looseObject({
+    columns: z.array(z.string()).nullish(),
+    results: z.array(z.unknown()).nullish(),
+    hasMore: z.boolean().nullish(),
+})
+
+type RunResponse = z.infer<typeof RunResponse>
 
 // HogQL finds a variable by its project ID, so a file's variables must exist in the project. A
 // value left out uses the variable's default.
@@ -113,11 +118,11 @@ export default defineCommand({
             if (values.size > 0) {
                 query.variables = await queryVariables(api, values)
             }
-            return api.post<RunResponse>('query/', { query, name: 'endpoints_cli', refresh: 'blocking' })
+            return api.post('query/', { query, name: 'endpoints_cli', refresh: 'blocking' }, RunResponse)
         }
 
         try {
-            return await api.post<RunResponse>(`endpoints/${encodeURIComponent(args.name!)}/run/`, withVariables)
+            return await api.post(`endpoints/${encodeURIComponent(args.name!)}/run/`, withVariables, RunResponse)
         } catch (error) {
             if (error instanceof ApiError && error.status === 404) {
                 throw error.withHint(

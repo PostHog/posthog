@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { z } from 'zod'
 
 import type { LoadedConfig } from '@/core/config'
 import type { Context } from '@/core/context'
@@ -48,14 +49,12 @@ export function isLanguage(value: string): value is Language {
     return (LANGUAGES as readonly string[]).includes(value)
 }
 
-export interface Definitions {
-    content: string
-    event_count: number
-    schema_hash: string
-}
+const Definitions = z.looseObject({ content: z.string(), event_count: z.number(), schema_hash: z.string() })
+
+export type Definitions = z.infer<typeof Definitions>
 
 export function fetchDefinitions(ctx: Context, language: Language): Promise<Definitions> {
-    return ctx.posthog().then((api) => api.get<Definitions>(`event_definitions/${language}/`))
+    return ctx.posthog().then((api) => api.get(`event_definitions/${language}/`, Definitions))
 }
 
 // posthog.json stores paths relative to its own folder. A new file goes in the working folder.

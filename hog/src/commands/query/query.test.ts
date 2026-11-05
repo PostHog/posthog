@@ -13,6 +13,19 @@ const ROWS = {
 }
 
 describe('hog query', () => {
+    test('run fails on an answer of the wrong shape, and names the field', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: TEST_CREDENTIALS,
+            respond: () => ({ status: 200, body: { results: 'not rows' } }),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({
+            code: 'unexpected_response',
+            message: expect.stringContaining('results:'),
+        })
+    })
+
     test.each([
         ['a pipe gets one JSON array per row', false, [], '["$pageview",70]\n["signup",null]\n'],
         [

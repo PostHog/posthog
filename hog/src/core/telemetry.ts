@@ -119,7 +119,14 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
+// A field that isn't a non-empty string reads as missing, so a surprising answer only leaves the
+// event anonymous.
+const Text = z.unknown().transform((value) => (typeof value === 'string' && value ? value : undefined))
+const IdentityUser = z.looseObject({
+    distinct_id: Text,
+    organization: z.looseObject({ id: Text }).optional().catch(undefined),
+})
+const IdentityProject = z.looseObject({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
 // to a random install ID otherwise. Events carry no argument or option values and no error messages,
@@ -259,22 +266,25 @@ export class Telemetry {
     }
 
     private async lookup(key: AccessKey): Promise<Identity> {
-        const get = async (path: string): Promise<Record<string, any> | undefined> => {
+        const get = async <S extends z.ZodType>(path: string, schema: S): Promise<z.output<S> | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, key.host), {
                     headers: { Authorization: `Bearer ${key.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
-                return response.ok ? ((await response.json()) as Record<string, any>) : undefined
+                return response.ok ? parseJsonOrUndefined(await response.text(), schema) : undefined
             } catch {
                 return undefined
             }
         }
-        const [user, project] = await Promise.all([get('/api/users/@me/'), get(`/api/projects/${key.projectId}/`)])
+        const [user, project] = await Promise.all([
+            get('/api/users/@me/', IdentityUser),
+            get(`/api/projects/${key.projectId}/`, IdentityProject),
+        ])
         return {
-            distinctId: text(user?.distinct_id),
-            organization: text(project?.organization) ?? text(user?.organization?.id),
-            project: text(project?.uuid),
+            distinctId: user?.distinct_id,
+            organization: project?.organization ?? user?.organization?.id,
+            project: project?.uuid,
         }
     }
 

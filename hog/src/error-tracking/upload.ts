@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
+import { parseOrThrow } from '@/core/schema'
 import { USER_AGENT } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
@@ -128,18 +129,22 @@ export function uuidv7(now: number): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-interface PresignedPost {
-    url: string
-    fields: Record<string, string>
-}
+const PresignedPost = z.looseObject({ url: z.string(), fields: z.record(z.string(), z.string()) })
 
-interface StartEntry {
-    presigned_url: PresignedPost
-    fallback_presigned_url?: PresignedPost | null
-    presigned_put_url?: string | null
-    fallback_presigned_put_url?: string | null
-    symbol_set_id: string
-}
+type PresignedPost = z.output<typeof PresignedPost>
+
+const StartEntry = z.looseObject({
+    presigned_url: PresignedPost,
+    fallback_presigned_url: PresignedPost.nullish(),
+    presigned_put_url: z.string().nullish(),
+    fallback_presigned_put_url: z.string().nullish(),
+    symbol_set_id: z.string(),
+})
+
+type StartEntry = z.output<typeof StartEntry>
+
+const CheckResponse = z.looseObject({ chunk_ids_to_upload: z.array(z.unknown()) })
+const StartResponse = z.looseObject({ id_map: z.record(z.string(), StartEntry).nullish() })
 
 type Target = { kind: 'put'; url: string } | { kind: 'post'; form: PresignedPost }
 
@@ -163,7 +168,12 @@ export class SymbolSetClient {
         return new URL(path, hostUrl(host, `api/projects/${projectId}/`))
     }
 
-    async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+    async api<S extends z.ZodType>(
+        method: 'GET' | 'POST',
+        path: string,
+        schema: S,
+        body?: unknown
+    ): Promise<z.output<S>> {
         await this.throttle.wait()
         const url = this.projectUrl(path)
         // Only a failed request becomes an ApiFailure. A renewal that fails keeps its own error and hint.
@@ -188,12 +198,10 @@ export class SymbolSetClient {
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())
         }
-        return text
-            ? parseJson(text, z.unknown(), {
-                  code: 'unexpected_response',
-                  context: `PostHog answered ${url} with a body hog can't read.`,
-              })
-            : undefined
+        return parseJson(text || 'null', schema, {
+            code: 'unexpected_response',
+            context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
+        })
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
@@ -269,11 +277,13 @@ export class SymbolSetClient {
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
             try {
-                const response = (await withRetries(
+                // The answer is checked after the retries, because an answer of the wrong shape is
+                // not worth sending the request again for.
+                const answer = await withRetries(
                     this.runtime,
                     3,
                     () =>
-                        this.api('POST', 'error_tracking/symbol_sets/bulk_check_upload', {
+                        this.api('POST', 'error_tracking/symbol_sets/bulk_check_upload', z.unknown(), {
                             symbol_sets: slice.map((upload) => this.entry(upload)),
                             force: options.force,
                             skip_on_conflict: options.skipOnConflict,
@@ -285,10 +295,8 @@ export class SymbolSetClient {
                             error.status >= 400 &&
                             error.status < 500
                         )
-                )) as { chunk_ids_to_upload?: unknown }
-                if (!Array.isArray(response?.chunk_ids_to_upload)) {
-                    throw new Error('unexpected check response')
-                }
+                )
+                const response = parseOrThrow(CheckResponse, answer, { code: 'unexpected_response' })
                 for (const chunkId of response.chunk_ids_to_upload) {
                     needed.add(String(chunkId))
                 }
@@ -310,16 +318,16 @@ export class SymbolSetClient {
         const attemptId = uuidv7(this.runtime.now())
         let idMap: Record<string, StartEntry>
         try {
-            const response = (await withRetries(this.runtime, 3, () =>
-                this.api('POST', 'error_tracking/symbol_sets/bulk_start_upload', {
+            const answer = await withRetries(this.runtime, 3, () =>
+                this.api('POST', 'error_tracking/symbol_sets/bulk_start_upload', z.unknown(), {
                     symbol_sets: batch.map((upload) => this.entry(upload)),
                     upload_attempt_id: attemptId,
                     upload_run_id: runId,
                     force: options.force,
                     skip_on_conflict: options.skipOnConflict,
                 })
-            )) as { id_map?: Record<string, StartEntry> }
-            idMap = response?.id_map ?? {}
+            )
+            idMap = parseOrThrow(StartResponse, answer, { code: 'unexpected_response' }).id_map ?? {}
         } catch (error) {
             throw startFailure(error)
         }
@@ -353,7 +361,7 @@ export class SymbolSetClient {
         }
         try {
             await withRetries(this.runtime, 3, () =>
-                this.api('POST', 'error_tracking/symbol_sets/bulk_finish_upload', {
+                this.api('POST', 'error_tracking/symbol_sets/bulk_finish_upload', z.unknown(), {
                     content_hashes: finishHashes,
                     upload_attempt_id: attemptId,
                     upload_run_id: runId,

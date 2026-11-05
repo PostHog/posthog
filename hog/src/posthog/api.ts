@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { HogError } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
+import { parseOrThrow, parseOrUndefined } from '@/core/schema'
 import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
@@ -83,6 +84,13 @@ export class ApiError extends HogError {
     }
 }
 
+// A DRF error body. `type` is the DRF error type, such as `validation_error`.
+const ErrorBody = z.looseObject({
+    type: z.string().optional().catch(undefined),
+    code: z.string().optional().catch(undefined),
+    detail: z.string().optional().catch(undefined),
+})
+
 export class PostHogApi {
     constructor(
         private readonly session: KeySession,
@@ -109,23 +117,30 @@ export class PostHogApi {
         return url
     }
 
-    get<T>(path: string): Promise<T> {
-        return this.request<T>('GET', path)
+    // Each call names the schema of the answer it expects, so a command never works with a shape
+    // PostHog didn't send.
+    get<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>> {
+        return this.request('GET', path, schema)
     }
 
-    post<T>(path: string, body: unknown): Promise<T> {
-        return this.request<T>('POST', path, body)
+    post<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
+        return this.request('POST', path, schema, body)
     }
 
-    patch<T>(path: string, body: unknown): Promise<T> {
-        return this.request<T>('PATCH', path, body)
+    patch<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
+        return this.request('PATCH', path, schema, body)
     }
 
-    delete<T>(path: string): Promise<T> {
-        return this.request<T>('DELETE', path)
+    delete<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>> {
+        return this.request('DELETE', path, schema)
     }
 
-    private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
+    private async request<S extends z.ZodType>(
+        method: Method,
+        path: string,
+        schema: S,
+        body?: unknown
+    ): Promise<z.output<S>> {
         const url = this.url(path)
         const response = await this.session.send(
             (token) => sendRequest(this.fetchFn, url, { method, body, token }),
@@ -141,11 +156,15 @@ export class PostHogApi {
         if (!response.ok) {
             throw this.failure(response.status, response.json)
         }
-        return response.json as T
+        return parseOrThrow(schema, response.json, {
+            code: 'unexpected_response',
+            context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
+            hint: 'Check that the host runs a recent version of PostHog.',
+        })
     }
 
     private failure(status: number, body: unknown): ApiError {
-        const error = (body ?? {}) as { type?: string; code?: string; detail?: string }
+        const error = parseOrUndefined(ErrorBody, body) ?? {}
         const hints: Record<number, string> = {
             401: 'Check that the personal API key is valid.',
             403: 'Check that the personal API key has access to this project.',

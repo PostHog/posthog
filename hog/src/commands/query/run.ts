@@ -1,14 +1,17 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 
-interface QueryResponse {
-    columns?: string[] | null
-    results?: unknown[][] | null
-    types?: [string, string][] | null
-    hasMore?: boolean | null
-}
+// The whole answer reaches agents, so fields hog doesn't name stay.
+const QueryResponse = z.looseObject({
+    columns: z.array(z.string()).nullish(),
+    results: z.array(z.array(z.unknown())).nullish(),
+    types: z.array(z.tuple([z.string(), z.string()])).nullish(),
+    hasMore: z.boolean().nullish(),
+})
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -39,10 +42,11 @@ export default defineCommand({
     async run({ args, ctx }) {
         const api = await ctx.posthog()
         try {
-            return await api.post<QueryResponse>('query', {
-                query: { kind: 'HogQLQuery', query: args.query },
-                refresh: 'blocking',
-            })
+            return await api.post(
+                'query',
+                { query: { kind: 'HogQLQuery', query: args.query }, refresh: 'blocking' },
+                QueryResponse
+            )
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')
