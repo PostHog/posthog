@@ -389,7 +389,7 @@ export const SignalsConfigCreateBody = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics \/ anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
 })
 
@@ -622,6 +622,10 @@ export const signalsReportsCreateBodyLinksItemReasonMax = 500
 
 export const signalsReportsCreateBodyLinksMax = 10
 
+export const signalsReportsCreateBodySourceIssuesItemUrlMax = 500
+
+export const signalsReportsCreateBodySourceIssuesMax = 5
+
 export const signalsReportsCreateBodyTagsMax = 10
 
 export const signalsReportsCreateBodyIdempotencyKeyMax = 200
@@ -774,7 +778,7 @@ export const SignalsReportsCreateBody = () => zod
             .max(signalsReportsCreateBodyChartsMax)
             .optional()
             .describe(
-                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.'
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsReportsCreateBodySuggestedPromptsItemMax))
@@ -810,6 +814,24 @@ export const SignalsReportsCreateBody = () => zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsReportsCreateBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsReportsCreateBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.'
             ),
         tags: zod
             .array(zod.string())
@@ -1465,7 +1487,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `scout_note_left`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `scout_note_left`, `source_issue`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -3580,6 +3602,10 @@ export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEditReportBodyLinksMax = 10
 
+export const signalsScoutEditReportBodySourceIssuesItemUrlMax = 500
+
+export const signalsScoutEditReportBodySourceIssuesMax = 5
+
 export const signalsScoutEditReportBodyTagsMax = 10
 
 export const SignalsScoutEditReportBody = () => zod
@@ -3639,12 +3665,14 @@ export const SignalsScoutEditReportBody = () => zod
             .string()
             .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
-            .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+            .describe(
+                "Optional free-form note to append to the report's work log, attributed to this scout. Prefer it over rewriting a report you did not author: a note is additive and keeps the audit trail."
+            ),
         corroboration_only: zod
             .boolean()
             .optional()
             .describe(
-                'Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.'
+                "Set only when `append_note` confirms the finding with no new information. The first four confirmations stay in the work log as entries; later ones only raise the report's corroboration count. Other notes always stay in the work log."
             ),
         append_evidence: zod
             .array(
@@ -3707,7 +3735,7 @@ export const SignalsScoutEditReportBody = () => zod
             .string()
             .nullish()
             .describe(
-                "Optional repository to point the report at, as `owner\/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change."
+                "Optional repository to point the report at, as `owner\/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land."
             ),
         charts: zod
             .array(
@@ -3752,7 +3780,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodyChartsMax)
             .nullish()
             .describe(
-                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
+                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so read the report first and send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
         metrics: zod
             .array(
@@ -3856,7 +3884,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodyMetricsMax)
             .nullish()
             .describe(
-                "The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only\/queryless payloads are invalid, and legacy rows of that shape are always redacted."
+                "The report's full impact-metric set, at most 6. Omit it or send null to keep the current set, send an empty list to clear it, or send the complete replacement. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`\/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid."
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
@@ -3893,6 +3921,24 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsScoutEditReportBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.'
+            ),
         tags: zod
             .array(zod.string())
             .max(signalsScoutEditReportBodyTagsMax)
@@ -3904,7 +3950,7 @@ export const SignalsScoutEditReportBody = () => zod
             .boolean()
             .optional()
             .describe(
-                "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why."
+                "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it: put that in `append_note`. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why."
             ),
         actionability: zod
             .union([
@@ -4030,6 +4076,10 @@ export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEmitReportBodyLinksMax = 10
+
+export const signalsScoutEmitReportBodySourceIssuesItemUrlMax = 500
+
+export const signalsScoutEmitReportBodySourceIssuesMax = 5
 
 export const signalsScoutEmitReportBodyTagsMax = 10
 
@@ -4183,7 +4233,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .max(signalsScoutEmitReportBodyChartsMax)
             .optional()
             .describe(
-                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.'
             ),
         metrics: zod
             .array(
@@ -4287,7 +4337,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .max(signalsScoutEmitReportBodyMetricsMax)
             .optional()
             .describe(
-                'Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value\/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only\/queryless payloads are invalid; legacy rows of that shape are always redacted.'
+                'Optional typed impact measurements, at most 6. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`\/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.'
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
@@ -4323,6 +4373,24 @@ export const SignalsScoutEmitReportBody = () => zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsScoutEmitReportBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.'
             ),
         tags: zod
             .array(zod.string())
@@ -5197,7 +5265,7 @@ export const SignalsSourceConfigsCreateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys."
         ),
     config_set: zod
         .record(zod.string(), zod.unknown())
@@ -5383,7 +5451,7 @@ export const SignalsSourceConfigsUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys."
         ),
     config_set: zod
         .record(zod.string(), zod.unknown())
@@ -5562,7 +5630,7 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys."
         ),
     config_set: zod
         .record(zod.string(), zod.unknown())
