@@ -60,7 +60,7 @@ report = (root / 'report-header.yaml').read_text()
 suffix = report[report.index('    - await: { idle: true }'):]
 details = 'steps:\n    - tool: gesture-tap\n      args: { x: 0.3, y: 0.217 }\n' + suffix.replace('report-', 'details-')
 (root / 'details-header.yaml').write_text(details)
-(root / 'report-header.yaml').write_text(report + details.removeprefix('steps:\n'))
+(root / 'report-header.yaml').write_text((report + details.removeprefix('steps:\n')).replace('    - await: { idle: true }\n', ''))
 PY
 
 for file in "${files[@]}"; do
