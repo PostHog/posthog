@@ -164,10 +164,11 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         kept = self._alert()
         backfill_platform_insight_alert_configurations(team_id=self.team.id)
 
-        if route == "with_the_alert":
-            deleted.delete()
-        else:
-            deleted.insight.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            if route == "with_the_alert":
+                deleted.delete()
+            else:
+                deleted.insight.delete()
 
         assert set(self._copies()) == {kept.id}
 

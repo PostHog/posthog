@@ -12,6 +12,8 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
+
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
@@ -112,14 +114,18 @@ def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
 
 
 def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
-    """Deletes the copy of an alert insight still owns, inside the transaction that deletes the
-    alert, by any route: the API, an insight sweep, or a cascade.
+    """Deletes the copy of an alert insight owns once the alert's delete commits, by any route: the
+    API, an insight sweep, or a cascade.
 
-    A copy the platform owns is left to `delete_moved_alert_copy`, which runs after its firings end.
+    After the commit, so each copy is locked in a transaction of its own. A sweep or a cascade
+    deletes several alerts in one transaction, and locking their copies there in deletion order can
+    deadlock with `record_outcomes`, which locks them in id order. A copy whose delete fails is left
+    for `delete_orphaned_platform_insight_alert_copies`.
     """
-    alert = _locked(team_id, alert_id)
-    if alert is not None and not alert.platform_owned:
-        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+    transaction.on_commit(
+        lambda: delete_copy(team_id=team_id, legacy_configuration_id=alert_id, owner=PlatformAlertOwner.SOURCE),
+        robust=True,
+    )
 
 
 def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:

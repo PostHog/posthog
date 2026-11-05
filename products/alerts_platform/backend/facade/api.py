@@ -36,7 +36,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
     delivery_holds,
@@ -380,10 +380,10 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    """Deletes the copy of a source alert, whichever stack owns it, inside the transaction that
-    deletes the source row."""
-    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert with the source row, in its transaction or after it
+    commits. With `owner`, only a copy that stack owns."""
+    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
 
 
 def delete_orphaned_shadow_copies(

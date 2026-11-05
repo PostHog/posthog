@@ -7,7 +7,6 @@ and the next check reads back. Writing the copy here would fork it, so those are
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from itertools import batched
 from typing import Final
 from uuid import UUID
 
@@ -374,15 +373,17 @@ def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLife
     )
 
 
-def delete_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    """Deletes the copy of a source alert, whichever stack owns it, with its instances and threads.
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert, with its instances and threads. With `owner`, only a copy
+    that stack owns.
 
-    Call it inside the transaction that deletes the source row. The copy has no foreign key to that
-    row, so nothing else removes it.
+    Call it with the source row's delete, in its transaction or after it commits. The copy has no
+    foreign key to that row, so nothing else removes it.
     """
-    _delete_each(
-        PlatformAlertConfiguration.objects.for_team(team_id).filter(legacy_configuration_id=legacy_configuration_id)
+    copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        legacy_configuration_id=legacy_configuration_id
     )
+    _delete_each(copies if owner is None else copies.filter(owner=owner))
 
 
 def delete_orphaned_shadow_copies(
@@ -400,15 +401,19 @@ def delete_orphaned_shadow_copies(
     so a copy found without its row stays an orphan.
     """
     # Cross-team on purpose: a one-off sweep over every copy of the kind. Each delete is scoped to
-    # the copy's own team.
-    copies = (
-        PlatformAlertConfiguration.objects.unscoped()
-        .filter(source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False)
-        .values_list("id", "team_id", "legacy_configuration_id")
-        .iterator(chunk_size=batch_size)
+    # the copy's own team. Paged by id rather than with `iterator()`, because PgBouncer disables
+    # server-side cursors and `iterator()` would then load every copy at once.
+    copies = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind.value, owner=PlatformAlertOwner.SOURCE, legacy_configuration_id__isnull=False
     )
     found = 0
-    for batch in batched(copies, batch_size, strict=False):
+    after: UUID | None = None
+    while batch := list(
+        (copies if after is None else copies.filter(id__gt=after))
+        .order_by("id")
+        .values_list("id", "team_id", "legacy_configuration_id")[:batch_size]
+    ):
+        after = batch[-1][0]
         existing = set(existing_source_ids([legacy_id for _, _, legacy_id in batch if legacy_id is not None]))
         orphans = [
             (configuration_id, team_id) for configuration_id, team_id, legacy_id in batch if legacy_id not in existing
