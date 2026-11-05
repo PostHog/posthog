@@ -120,7 +120,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
             const gotoConfiguration = async (): Promise<void> => {
                 await page.goto(`/ai-evals/evaluations/${evaluationId}`)
                 await page.getByTestId('llma-evaluation-configuration-tab').click()
-                await page.getByTestId('llma-evaluation-create-step-check').click()
+                await page.getByTestId('llma-evaluation-create-step-output').click()
             }
 
             for (const option of [failOption, passOption]) {
@@ -151,7 +151,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
 
             await page.goto(`/ai-evals/evaluations/${legacy.evaluation_id}`)
             await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await page.getByTestId('llma-evaluation-create-step-check').click()
+            await page.getByTestId('llma-evaluation-create-step-output').click()
             await expect(page.getByTestId('llma-evaluation-true-is-pass')).toHaveClass(/LemonButton--primary/)
         })
     })
@@ -275,7 +275,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
 
             await page.goto(`/ai-evals/evaluations/${evalCId}`)
             await page.getByTestId('llma-evaluation-configuration-tab').click()
-            await page.getByTestId('llma-evaluation-create-step-check').click()
+            await expect(page.getByTestId('llma-evaluation-create-step-output')).toHaveCount(0)
             await expect(page.getByTestId('llma-evaluation-true-is-failure')).toHaveCount(0)
 
             const sentimentEvents = buildSentimentRunEvents(
