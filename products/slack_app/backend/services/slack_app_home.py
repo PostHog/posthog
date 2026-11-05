@@ -2188,6 +2188,21 @@ def _apply_personal_preferences(
     )
 
 
+def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, model: str) -> None:
+    """Raises ``ValidationError`` with a message for the person, like the Home tab editor."""
+    _apply_personal_preferences(
+        integration,
+        slack_user_id,
+        runtime_adapter=runtime_adapter_for(model),
+        model=model,
+        reasoning_effort=None,
+    )
+
+
+def has_personal_model(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    return _stored_personal_preferences(integration, slack_user_id) != AIPreferences()
+
+
 def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the viewer's central per-(user, project) preference, which resets
     them to the project default. The reset button only renders for viewers with
@@ -2580,17 +2595,22 @@ def _auto_model_choice_offered(integration: WorkspaceIntegration, slack_user_id:
     return _resolve_home_user(integration, slack_user_id) is not None
 
 
+def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
+    """The PostHog user this Slack user linked, the check behind "Connected as" on the Home tab."""
+    slack_team_id = integration.integration_id
+    return find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=_workspace_org_ids(slack_team_id),
+    )
+
+
 def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
-    candidate_org_ids = _workspace_org_ids(slack_team_id)
-    linked_user = find_linked_posthog_user(
-        slack_user_id=slack_user_id,
-        slack_team_id=slack_team_id,
-        candidate_org_ids=candidate_org_ids,
-    )
+    linked_user = linked_posthog_user(integration, slack_user_id)
     if linked_user is not None:
         return AccountState(enabled=True, linked_email=linked_user.email)
 

@@ -55,6 +55,11 @@ from products.notebooks.backend.facade.content import build_markdown_notebook_co
 from products.notebooks.backend.facade.contracts import NotebookData
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.facade import api as signals
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+)
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -286,6 +291,17 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         return deliveries
 
     try:
+        # Inside the try, so a failed read of the filter drops the signal instead of failing the activity.
+        filter_outcome = await sync_to_async(_alert_filter_outcome, thread_sensitive=False)(alert, insight)
+        if filter_outcome != AlertFilterOutcome.PASSED:
+            logger.info(
+                "anomaly_investigation.signal_skipped",
+                alert_id=str(alert.id),
+                **_subject_ids(subject),
+                verdict=result.report.verdict,
+                reason="filter_invalid" if filter_outcome == AlertFilterOutcome.INVALID else "filtered",
+            )
+            return deliveries
         await _emit_investigation_signal(
             team=team,
             alert=alert,
@@ -414,6 +430,14 @@ def _subject_ids(subject: AlertCheck | InsightAlertInvestigation) -> dict[str, s
     if isinstance(subject, InsightAlertInvestigation):
         return {"investigation_id": str(subject.id), "evaluation_key": subject.evaluation_key}
     return {"alert_check_id": str(subject.id)}
+
+
+def _alert_filter_outcome(alert: AlertConfiguration, insight: Insight) -> AlertFilterOutcome:
+    return evaluate_alert_filter(
+        get_analytics_alert_name_patterns(team_id=alert.team_id),
+        alert_name=alert.name,
+        insight_name=insight.name or insight.derived_name,
+    )
 
 
 def should_emit_investigation_signal(verdict: str | None, inconclusive_action: str | None) -> bool:

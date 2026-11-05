@@ -894,8 +894,7 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     """What the run is, as footer segments: the model, the thread cost, the plan that pays for
     it, then the project it answered from.
 
-    Shared by the reply footer and the progress message so the two cannot describe one
-    run differently, and so the escaping below has a single home.
+    Kept apart from the links so the escaping below has a single home.
     """
     segments: list[str] = []
     if footer.model:
@@ -910,17 +909,6 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
         # rather than on the way in, so `RunFooter.project` stays the plain name.
         segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     return segments
-
-
-def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
-    """The run's project and model as a standalone `context` block, or `None` when
-    neither is known.
-
-    What a message that is still working can say about its run: the links the reply
-    footer carries lead to an answer that does not exist yet.
-    """
-    segments = _run_context_segments(footer)
-    return context_block(" · ".join(segments)) if segments else None
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
