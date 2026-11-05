@@ -2,24 +2,22 @@ import { z } from 'zod'
 
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 
-// PostHog sends a project ID as a number and hog keeps it as text, as it appears in URLs.
+// PostHog sends a project ID as a number and hog keeps it as text, as it appears in URLs. The
+// messages leave out the value, because a user who pastes a token into the wrong flag would see
+// it in logs.
+const PROJECT_ID_ERROR = 'The project ID must be a number. Pass a numeric project ID, like 12345.'
+
 export const ProjectIdSchema = z
-    .union([z.string(), z.int()], { error: 'The project ID must be a number. Pass a numeric project ID, like 12345.' })
+    .union([z.string(), z.int()], { error: PROJECT_ID_ERROR })
     .transform(String)
-    .pipe(
-        z.string().regex(/^\d+$/, {
-            error: (issue) =>
-                `The project ID must be a number, but it is "${String(issue.input)}". Pass a numeric project ID, like 12345.`,
-        })
-    )
+    .pipe(z.string().regex(/^\d+$/, { error: PROJECT_ID_ERROR }))
     .brand<'ProjectId'>()
 
 export type ProjectId = z.output<typeof ProjectIdSchema>
 
 export const OrganizationIdSchema = z
     .guid({
-        error: (issue) =>
-            `The organization ID must be a UUID, but it is "${String(issue.input)}". Pass the organization's UUID, like 0188f5b4-1d2a-7000-8a1c-3f6e2b9c7d10.`,
+        error: "The organization ID must be a UUID. Pass the organization's UUID, like 0188f5b4-1d2a-7000-8a1c-3f6e2b9c7d10.",
     })
     .brand<'OrganizationId'>()
 
