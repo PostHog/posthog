@@ -1,101 +1,66 @@
 import { z } from 'zod'
 
-import { parser } from '@/core/schema'
+import { parseOrThrow, type ParseFailure } from '@/core/schema'
 
-// The prefixes PostHog issues, from posthog/models/utils.py.
-const TOKEN_KINDS = {
-    personalApiKey: { prefix: 'phx_', name: 'a personal API key' },
-    projectToken: { prefix: 'phc_', name: 'a project token' },
-    // Project secret API keys and team secret tokens share the prefix.
-    projectSecretApiKey: { prefix: 'phs_', name: 'a project secret API key' },
-    teamSecretToken: { prefix: 'phs_', name: 'a team secret token' },
-    oauthAccessToken: { prefix: 'pha_', name: 'an OAuth access token' },
-    oauthRefreshToken: { prefix: 'phr_', name: 'an OAuth refresh token' },
-} as const
-
-type TokenKind = keyof typeof TOKEN_KINDS
-
-// `phs_` names both secret kinds, because hog can't tell them apart.
-const PREFIX_NAMES: Record<string, string> = {
-    ...Object.fromEntries(Object.values(TOKEN_KINDS).map(({ prefix, name }) => [prefix, name])),
+// What each prefix PostHog issues means, from posthog/models/utils.py. Project secret API keys and
+// team secret tokens share `phs_`, so hog can't tell them apart.
+const KNOWN_PREFIXES: Record<string, string> = {
+    phx_: 'a personal API key',
+    phc_: 'a project token',
     phs_: 'a secret API key',
+    pha_: 'an OAuth access token',
+    phr_: 'an OAuth refresh token',
 }
 
-// New tokens are base57 and older ones URL-safe base64, so both fit.
-const TOKEN_BODY = /^[A-Za-z0-9_-]+$/
-
-const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
-
 // The message never contains the value, which would end up in logs and agent transcripts.
-function tokenErrorMessage(value: string, name: string, rule: string): string {
-    const other = PREFIX_NAMES[value.slice(0, 4)]
+function tokenError(value: unknown, name: string, rule: string): string {
+    const other = typeof value === 'string' ? KNOWN_PREFIXES[value.slice(0, 4)] : undefined
     return other
         ? `This is ${other}, not ${name}, which must ${rule}.`
         : `This doesn't look like ${name}: it must ${rule}.`
 }
 
-// For a token that starts with its prefix: what is wrong with the rest of it.
-function tokenBodyErrorMessage(value: string, prefix: string, noun: string): string | undefined {
-    const body = value.slice(prefix.length)
-    if (body === '') {
-        return `The ${noun} is cut off: nothing follows ${prefix}.`
-    }
-    return TOKEN_BODY.test(body)
-        ? undefined
-        : `The ${noun} has characters a token can't have, such as a space or a quote. Copy it again.`
-}
-
-function tokenSchema(kind: TokenKind): z.ZodString {
-    const { prefix, name } = TOKEN_KINDS[kind]
-    const noun = name.replace(/^an? /, '')
-    return z.string({ error: `The ${noun} must be text.` }).check((ctx) => {
-        const value = ctx.value
-        const message = value.startsWith(prefix)
-            ? tokenBodyErrorMessage(value, prefix, noun)
-            : tokenErrorMessage(value, name, `start with ${prefix}`)
-        if (message) {
-            ctx.issues.push({ code: 'custom', input: value, message })
-        }
+// New tokens are base57 and older ones URL-safe base64, so the part after the prefix fits both.
+function prefixedToken(prefix: string, name: string): z.ZodString {
+    return z.string({ error: 'The token must be text.' }).regex(new RegExp(`^${prefix}[A-Za-z0-9_-]+$`), {
+        error: (issue) =>
+            typeof issue.input === 'string' && issue.input.startsWith(prefix)
+                ? `This token is cut off, or has characters a token can't have, such as a space or a quote. Copy it again.`
+                : tokenError(issue.input, name, `start with ${prefix}`),
     })
 }
 
 // PostHog also accepts a custom project token, with or without the prefix and with any characters,
 // so only an empty token or one with another kind's prefix fails.
-function projectTokenErrorMessage(value: string): string | undefined {
-    const { prefix, name } = TOKEN_KINDS.projectToken
-    if (value.startsWith(prefix)) {
-        return value === prefix ? `The project token is cut off: nothing follows ${prefix}.` : undefined
+function projectTokenError(value: string): string | undefined {
+    if (value === '' || value === 'phc_') {
+        return 'The project token is empty.'
     }
-    const other = PREFIX_NAMES[value.slice(0, 4)]
-    if (other) {
-        return `This is ${other}, not ${name}.`
-    }
-    return value === '' ? 'The project token is empty.' : undefined
+    const other = value.startsWith('phc_') ? undefined : KNOWN_PREFIXES[value.slice(0, 4)]
+    return other ? `This is ${other}, not a project token.` : undefined
 }
 
-export const PersonalApiKeySchema = tokenSchema('personalApiKey').brand<'PersonalApiKey'>()
+export const PersonalApiKeySchema = prefixedToken('phx_', 'a personal API key').brand<'PersonalApiKey'>()
+export const ProjectSecretApiKeySchema = prefixedToken(
+    'phs_',
+    'a project secret API key'
+).brand<'ProjectSecretApiKey'>()
+export const TeamSecretTokenSchema = prefixedToken('phs_', 'a team secret token').brand<'TeamSecretToken'>()
+export const OAuthAccessTokenSchema = prefixedToken('pha_', 'an OAuth access token').brand<'OAuthAccessToken'>()
+export const OAuthRefreshTokenSchema = prefixedToken('phr_', 'an OAuth refresh token').brand<'OAuthRefreshToken'>()
+
 export const ProjectTokenSchema = z
-    .string({ error: 'The project token must be text.' })
-    .check((ctx) => {
-        const message = projectTokenErrorMessage(ctx.value)
-        if (message) {
-            ctx.issues.push({ code: 'custom', input: ctx.value, message })
-        }
+    .string({ error: 'The token must be text.' })
+    .refine((value) => projectTokenError(value) === undefined, {
+        error: (issue) => projectTokenError(String(issue.input)),
     })
     .brand<'ProjectToken'>()
-export const ProjectSecretApiKeySchema = tokenSchema('projectSecretApiKey').brand<'ProjectSecretApiKey'>()
-export const TeamSecretTokenSchema = tokenSchema('teamSecretToken').brand<'TeamSecretToken'>()
-export const OAuthAccessTokenSchema = tokenSchema('oauthAccessToken').brand<'OAuthAccessToken'>()
-export const OAuthRefreshTokenSchema = tokenSchema('oauthRefreshToken').brand<'OAuthRefreshToken'>()
 
 // A workload token is a JWT, which has no PostHog prefix.
 export const WorkloadTokenSchema = z
-    .string({ error: 'The workload token must be text.' })
-    .check((ctx) => {
-        if (!JWT.test(ctx.value)) {
-            const message = tokenErrorMessage(ctx.value, 'a workload token', 'be a JWT, three parts joined by dots')
-            ctx.issues.push({ code: 'custom', input: ctx.value, message })
-        }
+    .string({ error: 'The token must be text.' })
+    .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, {
+        error: (issue) => tokenError(issue.input, 'a workload token', 'be a JWT, three parts joined by dots'),
     })
     .brand<'WorkloadToken'>()
 
@@ -112,25 +77,50 @@ export type BearerToken = PersonalApiKey | OAuthAccessToken
 const LOG_IN_AGAIN = 'Run `hog auth login` to log in again.'
 const PROJECT_SETTINGS = 'Copy it again from your project settings: https://app.posthog.com/settings/project-details'
 
-export const parsePersonalApiKey = parser(PersonalApiKeySchema, {
-    code: 'invalid_personal_api_key',
-    hint: 'Create a personal API key in PostHog: https://app.posthog.com/settings/user-api-keys',
-})
-export const parseProjectToken = parser(ProjectTokenSchema, { code: 'invalid_project_token', hint: PROJECT_SETTINGS })
-export const parseProjectSecretApiKey = parser(ProjectSecretApiKeySchema, {
-    code: 'invalid_project_secret_api_key',
-    hint: PROJECT_SETTINGS,
-})
-export const parseTeamSecretToken = parser(TeamSecretTokenSchema, {
-    code: 'invalid_team_secret_token',
-    hint: PROJECT_SETTINGS,
-})
-export const parseOAuthAccessToken = parser(OAuthAccessTokenSchema, {
-    code: 'invalid_oauth_access_token',
-    hint: LOG_IN_AGAIN,
-})
-export const parseOAuthRefreshToken = parser(OAuthRefreshTokenSchema, {
-    code: 'invalid_oauth_refresh_token',
-    hint: LOG_IN_AGAIN,
-})
-export const parseWorkloadToken = parser(WorkloadTokenSchema, { code: 'invalid_workload_token' })
+export function parsePersonalApiKey(raw: unknown, failure?: Partial<ParseFailure>): PersonalApiKey {
+    return parseOrThrow(PersonalApiKeySchema, raw, {
+        code: 'invalid_personal_api_key',
+        hint: 'Create a personal API key in PostHog: https://app.posthog.com/settings/user-api-keys',
+        ...failure,
+    })
+}
+
+export function parseProjectToken(raw: unknown, failure?: Partial<ParseFailure>): ProjectToken {
+    return parseOrThrow(ProjectTokenSchema, raw, { code: 'invalid_project_token', hint: PROJECT_SETTINGS, ...failure })
+}
+
+export function parseProjectSecretApiKey(raw: unknown, failure?: Partial<ParseFailure>): ProjectSecretApiKey {
+    return parseOrThrow(ProjectSecretApiKeySchema, raw, {
+        code: 'invalid_project_secret_api_key',
+        hint: PROJECT_SETTINGS,
+        ...failure,
+    })
+}
+
+export function parseTeamSecretToken(raw: unknown, failure?: Partial<ParseFailure>): TeamSecretToken {
+    return parseOrThrow(TeamSecretTokenSchema, raw, {
+        code: 'invalid_team_secret_token',
+        hint: PROJECT_SETTINGS,
+        ...failure,
+    })
+}
+
+export function parseOAuthAccessToken(raw: unknown, failure?: Partial<ParseFailure>): OAuthAccessToken {
+    return parseOrThrow(OAuthAccessTokenSchema, raw, {
+        code: 'invalid_oauth_access_token',
+        hint: LOG_IN_AGAIN,
+        ...failure,
+    })
+}
+
+export function parseOAuthRefreshToken(raw: unknown, failure?: Partial<ParseFailure>): OAuthRefreshToken {
+    return parseOrThrow(OAuthRefreshTokenSchema, raw, {
+        code: 'invalid_oauth_refresh_token',
+        hint: LOG_IN_AGAIN,
+        ...failure,
+    })
+}
+
+export function parseWorkloadToken(raw: unknown, failure?: Partial<ParseFailure>): WorkloadToken {
+    return parseOrThrow(WorkloadTokenSchema, raw, { code: 'invalid_workload_token', ...failure })
+}
