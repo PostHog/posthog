@@ -407,19 +407,45 @@ def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) 
     return candidates[0] if len(candidates) == 1 else None
 
 
+def _keeps_stored_sender(mapping: dict, stored_values: dict[str, dict]) -> bool:
+    raw_inputs = mapping.get("inputs")
+    inputs = raw_inputs if isinstance(raw_inputs, dict) else {}
+    for key, stored in stored_values.items():
+        entry = inputs.get(key)
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if (
+            isinstance(value, dict)
+            and value.get("from") == stored.get("from")
+            and (value.get("replyTo") or "") == (stored.get("replyTo") or "")
+        ):
+            return True
+    return False
+
+
 def _stored_email_values_by_mapping(instance: Optional[HogFunction], mappings: Any) -> list[dict[str, dict]]:
     if not isinstance(mappings, list):
         return []
     stored_mappings = [m for m in (instance.mappings if instance else None) or [] if isinstance(m, dict)]
+    stored_for = [
+        _stored_mapping_for(mapping, index, stored_mappings) if isinstance(mapping, dict) else None
+        for index, mapping in enumerate(mappings)
+    ]
+    values = [
+        _stored_email_values_by_key(stored.get("inputs_schema"), stored.get("inputs")) if stored is not None else {}
+        for stored in stored_for
+    ]
+    keeps = [
+        stored is not None and _keeps_stored_sender(mapping, value)
+        for mapping, stored, value in zip(mappings, stored_for, values)
+    ]
     claimed: list[dict] = []
-    result: list[dict[str, dict]] = []
-    for index, mapping in enumerate(mappings):
-        stored = _stored_mapping_for(mapping, index, stored_mappings) if isinstance(mapping, dict) else None
-        if stored is None or any(stored is earlier for earlier in claimed):
-            result.append({})
-            continue
-        claimed.append(stored)
-        result.append(_stored_email_values_by_key(stored.get("inputs_schema"), stored.get("inputs")))
+    result: list[dict[str, dict]] = [{} for _ in mappings]
+    for keeps_first in (True, False):
+        for index, stored in enumerate(stored_for):
+            if stored is None or keeps[index] != keeps_first or any(stored is earlier for earlier in claimed):
+                continue
+            claimed.append(stored)
+            result[index] = values[index]
     return result
 
 
