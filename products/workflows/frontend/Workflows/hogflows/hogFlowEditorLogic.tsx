@@ -2762,7 +2762,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
 
             prepareFirstRunSender: async () => {
-                // A second setup while one runs would cancel its sender list load, so later calls share the running one.
                 cache.senderPreparation ??= prepareSandboxSender()
                     .catch(() => undefined)
                     .finally(() => {

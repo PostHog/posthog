@@ -1,4 +1,6 @@
-import { ApiConfig } from 'lib/api'
+import posthog from 'posthog-js'
+
+import api, { ApiConfig, ApiRequest } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
@@ -7,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { IntegrationType } from '~/types'
 
-import { integrationsEmailSandboxSenderCreate, integrationsList } from 'products/integrations/frontend/generated/api'
+import { integrationsEmailSandboxSenderCreate } from 'products/integrations/frontend/generated/api'
 
 import {
     DefaultEmailSender,
@@ -16,18 +18,7 @@ import {
     verifiedOwnEmailSenders,
 } from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-
-type EmailStepValue = { from?: { integrationId?: number; email?: string; name?: string }; replyTo?: string }
-
-function emailStepValue(action: HogFlowAction): EmailStepValue | null {
-    const config = action.config as Record<string, any> | undefined
-    return config?.template_id === 'template-email' ? (config.inputs?.email?.value ?? null) : null
-}
-
-function takesOwnSender(action: HogFlowAction): boolean {
-    const value = emailStepValue(action)
-    return !!value && !value.from?.integrationId
-}
+import { emailStepValue, takesOwnSender, withEmailSender, withStepSender } from './workflowEmailPrefill'
 
 function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     const value = emailStepValue(action)
@@ -41,46 +32,20 @@ function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     )
 }
 
-function withSender(action: HogFlowAction, integrationId: number): HogFlowAction {
-    const config = action.config as Record<string, any>
-    const email = config.inputs.email
-    return {
-        ...action,
-        config: {
-            ...config,
-            inputs: {
-                ...config.inputs,
-                email: { ...email, value: { ...email.value, from: { ...email.value.from, integrationId } } },
-            },
-        },
-    } as HogFlowAction
-}
-
 export function sandboxSenderEnabled(): boolean {
     return !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]
 }
 
-// Reads every page, so a sender past the first page still counts. A failed page throws instead of using a stale list.
-async function loadAllIntegrations(): Promise<IntegrationType[]> {
-    const projectId = String(ApiConfig.getCurrentProjectId())
-    const integrations: IntegrationType[] = []
-    let offset = 0
-    for (;;) {
-        const page = await integrationsList(projectId, { limit: 100, offset })
-        integrations.push(
-            ...page.results.map(
-                (integration) => ({ ...integration, config: integration.config ?? {} }) as unknown as IntegrationType
-            )
-        )
-        if (!page.next || page.results.length === 0) {
-            return integrations
-        }
-        offset += page.results.length
-    }
+async function loadEveryIntegrationPage(): Promise<IntegrationType[]> {
+    const integrations = await api.loadPaginatedResults<IntegrationType>(
+        new ApiRequest().integrations().withQueryString({ kind: 'email', limit: 100 }).assembleFullUrl(),
+        Infinity
+    )
+    return integrations.map((integration) => ({ ...integration, config: integration.config ?? {} }))
 }
 
 async function provisionSandboxSender(): Promise<number> {
-    const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentProjectId()))
+    const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentTeamId()))
     await integrationsLogic.findMounted()?.asyncActions.loadIntegrations()
     return sandbox.id
 }
@@ -102,15 +67,19 @@ function chooseSender(integrations: IntegrationType[], sandboxAllowed: boolean):
 }
 
 async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmailSender | null> {
-    const integrations = await loadAllIntegrations()
-    if (!sandboxApplies(integrations, allowSandbox) || integrations.some(isSandboxEmailSender)) {
-        return chooseSender(integrations, allowSandbox)
+    try {
+        const integrations = await loadEveryIntegrationPage()
+        if (!sandboxApplies(integrations, allowSandbox)) {
+            return resolveDefaultEmailSender(integrations, teamDefaultSenderId())
+        }
+        const sandbox = integrations.find(isSandboxEmailSender)
+        return { integrationId: sandbox?.id ?? (await provisionSandboxSender()), reason: 'sandbox_sender' }
+    } catch (error) {
+        posthog.captureException(error, { feature: 'workflows-sandbox-sender', step: 'first-run sender' })
+        throw error
     }
-    return { integrationId: await provisionSandboxSender(), reason: 'sandbox_sender' }
 }
 
-// An email step inserted meanwhile takes its sender from the shared list, so preparation ends only once that list
-// has loaded. A shared load still in flight is replaced, and the await follows whichever load finishes last.
 async function sharedIntegrationsLoaded(): Promise<void> {
     const logic = integrationsLogic.findMounted()
     if (logic && logic.values.integrations === null) {
@@ -133,7 +102,7 @@ export function withInsertedStepSender(
     const sender = takesOwnSender(action)
         ? chooseSender(integrations ?? [], takesSandboxSender(action, workflow))
         : null
-    return { action: sender ? withSender(action, sender.integrationId) : action, sender }
+    return { action: sender ? withStepSender(action, sender.integrationId) : action, sender }
 }
 
 export async function withFirstRunSender(
@@ -146,15 +115,9 @@ export async function withFirstRunSender(
     if (!sender) {
         return { workflow, sender: null }
     }
-    const takesSender = (action: HogFlowAction): boolean =>
-        sender.reason === 'sandbox_sender' ? takesSandboxSender(action, workflow) : takesOwnSender(action)
-    return {
-        workflow: {
-            ...workflow,
-            actions: workflow.actions.map((action) =>
-                takesSender(action) ? withSender(action, sender.integrationId) : action
-            ),
-        },
-        sender,
-    }
+    const takesSender =
+        sender.reason === 'sandbox_sender'
+            ? (action: HogFlowAction): boolean => takesSandboxSender(action, workflow)
+            : takesOwnSender
+    return { workflow: withEmailSender(workflow, sender.integrationId, takesSender).workflow, sender }
 }
