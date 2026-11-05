@@ -457,6 +457,7 @@ def fetch_app_metric_daily_totals_by_team(
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
     workload: Workload = Workload.DEFAULT,
+    net_of: Optional[dict[str, str]] = None,
 ) -> dict[int, dict[str, dict[str, int]]]:
     """Daily metric totals per team, keyed `{team_id: {"YYYY-MM-DD": {metric_name: count}}}`.
 
@@ -464,11 +465,13 @@ def fetch_app_metric_daily_totals_by_team(
     apart from one burst of the same size once the window is summed.
 
     Called without team_ids, the daily tier sweep scans the whole fleet. The result is bounded per
-    team, at most one row per metric name per day, but it grows linearly with the number of sending
-    teams because app_source alone does not prune the app_metrics2 primary key. This is affordable at
-    the current scale and runs on the LONG_RUNNING queue. If the sending fleet grows large, batch by
-    team or aggregate to one row per team here.
+    team, at most one row per day, but it grows linearly with the number of sending teams because
+    app_source alone does not prune the app_metrics2 primary key. This is affordable at the current
+    scale and runs on the LONG_RUNNING queue. If the sending fleet grows large, batch by team or
+    aggregate to one row per team here.
     """
+    netted = net_of or {}
+    subtracted = set(netted.values())
     clickhouse_kwargs: dict[str, Any] = {
         "app_source": app_source,
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -476,20 +479,39 @@ def fetch_app_metric_daily_totals_by_team(
         "name": name,
         "team_ids": team_ids,
     }
+    aliases = {metric_name: f"metric_{index}" for index, metric_name in enumerate(dict.fromkeys(name))}
+    for metric_name, alias in aliases.items():
+        clickhouse_kwargs[f"{alias}_name"] = metric_name
+
+    raw_bounds = "timestamp >= toDateTime64(%(after)s, 6)" + (
+        " AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""
+    )
+    hour_bounds = "toStartOfHour(timestamp) >= toStartOfHour(toDateTime64(%(after)s, 6))" + (
+        " AND toStartOfHour(timestamp) <= toStartOfHour(toDateTime64(%(before)s, 6))" if before else ""
+    )
+    hourly = ", ".join(
+        f"sumIf(count, metric_name = %({alias}_name)s AND {hour_bounds if metric_name in subtracted else raw_bounds}) AS {alias}"
+        for metric_name, alias in aliases.items()
+    )
+    daily = ", ".join(
+        f"sum(greatest(0, toInt64({alias}) - toInt64({aliases[netted[metric_name]]})))"
+        if metric_name in netted
+        else f"sum({alias})"
+        for metric_name, alias in aliases.items()
+    )
 
     clickhouse_query = f"""
-        SELECT
-            team_id,
-            toDate(timestamp) as day,
-            metric_name,
-            sum(count) as count
-        FROM app_metrics2
-        WHERE app_source = %(app_source)s
-        {"AND team_id IN %(team_ids)s" if team_ids else ""}
-        AND timestamp >= toDateTime64(%(after)s, 6)
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
-        AND metric_name IN %(name)s
-        GROUP BY team_id, day, metric_name
+        SELECT team_id, toDate(hour) AS day, {daily}
+        FROM (
+            SELECT team_id, app_source_id, toStartOfHour(timestamp) AS hour, {hourly}
+            FROM app_metrics2
+            WHERE app_source = %(app_source)s
+            {"AND team_id IN %(team_ids)s" if team_ids else ""}
+            AND {hour_bounds}
+            AND metric_name IN %(name)s
+            GROUP BY team_id, app_source_id, hour
+        )
+        GROUP BY team_id, day
     """
 
     results = sync_execute(clickhouse_query, clickhouse_kwargs, workload=workload)
@@ -498,8 +520,8 @@ def fetch_app_metric_daily_totals_by_team(
         raise ValueError("Unexpected results from ClickHouse")
 
     totals: dict[int, dict[str, dict[str, int]]] = {}
-    for team_id, day, metric_name, count in results:
-        totals.setdefault(team_id, {}).setdefault(day.strftime("%Y-%m-%d"), {})[metric_name] = count
+    for team_id, day, *counts in results:
+        totals.setdefault(team_id, {})[day.strftime("%Y-%m-%d")] = dict(zip(aliases, (int(c) for c in counts)))
     return totals
 
 
