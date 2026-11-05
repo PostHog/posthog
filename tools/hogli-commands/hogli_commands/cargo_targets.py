@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -96,13 +97,67 @@ def last_cargo_build_epoch(target: Path) -> float:
     return newest
 
 
+def looks_like_cargo_target(path: Path) -> bool:
+    return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+
+
+@dataclass(frozen=True, kw_only=True)
+class SharedCargoTarget:
+    path: Path
+    reason: str
+
+
+def shared_cargo_targets() -> list[SharedCargoTarget]:
+    """Cargo target dirs that live outside any checkout, so builds from every repo and worktree go into them."""
+
+    cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+    candidates: list[SharedCargoTarget] = []
+    if env_target := os.environ.get("CARGO_TARGET_DIR"):
+        candidates.append(SharedCargoTarget(path=Path(env_target), reason="CARGO_TARGET_DIR points here."))
+    else:
+        candidates.append(
+            SharedCargoTarget(
+                path=Path.home() / ".cargo" / "target",
+                reason="Cargo built here while the Flox env set CARGO_TARGET_DIR.",
+            )
+        )
+    if config_target := _configured_target_dir(cargo_home / "config.toml"):
+        candidates.append(
+            SharedCargoTarget(
+                path=config_target, reason=f"build.target-dir in {cargo_home / 'config.toml'} points here."
+            )
+        )
+
+    unique: dict[InodeKey, SharedCargoTarget] = {}
+    for candidate in candidates:
+        if candidate.path.is_absolute() and (key := inode_key(candidate.path)) is not None:
+            unique.setdefault(key, candidate)
+    return list(unique.values())
+
+
+def _configured_target_dir(config: Path) -> Path | None:
+    try:
+        target_dir = tomllib.loads(config.read_text()).get("build", {}).get("target-dir")
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return None
+    return Path(target_dir) if isinstance(target_dir, str) else None
+
+
+def unused_cargo_target(target: Path, built_before_epoch: float) -> bool:
+    """Whether no build used *target* after *built_before_epoch* and no cargo runs that could be using it now."""
+
+    if target.is_symlink() or not target.is_dir() or not looks_like_cargo_target(target):
+        return False
+    if last_cargo_build_epoch(target) >= built_before_epoch:
+        return False
+    # A shell with another environment can build here, and its CARGO_TARGET_DIR is not visible from this process.
+    return _cargo_pids() == []
+
+
 def unused_legacy_cargo_target(built_before_epoch: float) -> Path | None:
     """The ~/.cargo/target that Cargo used when the Flox env set CARGO_TARGET_DIR, if no build used it after *built_before_epoch*."""
 
     target = Path.home() / ".cargo" / "target"
-    if os.environ.get("CARGO_TARGET_DIR") or not target.is_dir() or target.is_symlink():
+    if os.environ.get("CARGO_TARGET_DIR"):
         return None
-    if last_cargo_build_epoch(target) >= built_before_epoch:
-        return None
-    # A shell with an older Flox env can still build here, and its CARGO_TARGET_DIR is not visible from this process.
-    return target if _cargo_pids() == [] else None
+    return target if unused_cargo_target(target, built_before_epoch) else None

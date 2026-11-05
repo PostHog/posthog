@@ -4,7 +4,7 @@ These tools each create throwaway git worktrees that accumulate over time. A
 single PostHog worktree carries multi-GB `node_modules`, Python venvs, and Rust
 build artifacts, so stale ones are by far the largest reclaimable disk on a dev
 machine. This command finds them, filters by age, and either removes the whole
-worktree or just its dependencies/build artifacts (keeping the code).
+worktree or just its dependencies and build output (keeping the code).
 
 The discovery roots and dependency patterns are PostHog-specific, but the age
 logic and deletion modes are generic.
@@ -16,10 +16,12 @@ state it cannot read (present-but-corrupt/locked) unless `--include-dirty` is
 given. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
 the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
-deps` only removes recreatable artifacts, so it has no such gate — it can strip
-deps from a worktree that is idle by the activity signal but still has a live
-dev server running. Both modes skip a worktree where cargo or rustc runs, and
-`--mode deps` keeps a Cargo target that a build used after the cutoff.
+deps` and `--mode build` only remove recreatable artifacts, so they have no such
+gate, so they can strip a worktree that is idle by the activity signal but still
+has a live dev server running. They never remove a path that holds a tracked
+file, and `build` removes only paths that git ignores. Every mode skips a
+worktree where cargo or rustc runs, and deps and build keep a Cargo target that
+a build used after the cutoff.
 """
 
 from __future__ import annotations
@@ -42,7 +44,14 @@ import click
 from hogli import telemetry
 from hogli.manifest import REPO_ROOT
 
-from .cargo_targets import last_cargo_build_epoch, unused_legacy_cargo_target, worktrees_running_cargo
+from .cargo_targets import (
+    SharedCargoTarget,
+    last_cargo_build_epoch,
+    looks_like_cargo_target,
+    shared_cargo_targets,
+    unused_cargo_target,
+    worktrees_running_cargo,
+)
 from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
@@ -62,20 +71,34 @@ from .devbox.config import (
 )
 from .doctor import _format_size
 
+WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw")
+
 
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
-# Claude Code and Codex nest worktrees directly under the repo; PostHog Desktop
-# keeps them in the home directory as <id>/posthog. Returned as (source, root).
-# The phw root must match WORKTREE_BASE in bin/posthog-worktree, including its
+# Claude Code nests worktrees under the repo. The Codex app and PostHog Desktop
+# keep them in the home directory as <id>/<repo>, and Claude Code agents make
+# throwaway ones in their scratchpad. Returned as (source, root). The phw root
+# must match WORKTREE_BASE in bin/posthog-worktree, including its
 # POSTHOG_WORKTREE_BASE override.
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     phw_base = os.environ.get("POSTHOG_WORKTREE_BASE") or str(Path.home() / ".worktrees" / "posthog")
     return [
         ("claude", repo_root / ".claude" / "worktrees"),
+        ("claude-scratchpad", _claude_scratchpad_root()),
         ("codex", repo_root / ".codex" / "worktrees"),
+        ("codex", repo_root / ".codex-worktrees"),
+        ("codex", Path.home() / ".codex" / "worktrees"),
         ("posthog-code", Path.home() / ".posthog-code" / "worktrees"),
         ("phw", Path(phw_base).expanduser()),
     ]
+
+
+def _claude_scratchpad_root() -> Path:
+    return Path("/tmp") / f"claude-{os.getuid()}"
+
+
+# Claude Code's scratchpad worktrees sit at <root>/<encoded project>/<session id>/scratchpad/<worktree>.
+_SCRATCHPAD_DISCOVERY_DEPTH = 4
 
 
 def worktree_source(path: Path) -> str:
@@ -90,49 +113,69 @@ def _source_under(resolved_path: Path, repo_root: Path) -> str:
     return "other"
 
 
-# Dependency/build-artifact directory names removed in --mode deps. Matched at
-# any depth and never descended into once matched, so walking stays cheap.
-DEPS_RECURSIVE_DIRS = frozenset(
-    {
-        "node_modules",
-        "target",  # Cargo — guarded by _looks_like_cargo_target
-        "__pycache__",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".parcel-cache",
-        ".turbo",
-    }
-)
+ARTIFACT_KINDS = ("deps", "build")
+_DEPS = frozenset({"deps"})
+_BUILD = frozenset({"build"})
 
-# Directories never walked into when collecting deps — either handled explicitly
-# below or off-limits (git metadata).
-DEPS_WALK_SKIP = frozenset({".git", ".flox", ".venv", "venv"})
 
-# Explicit relative paths (globs allowed) removed in --mode deps. These are not
-# matched recursively, so they must name their location from the worktree root.
-DEPS_EXPLICIT_PATHS = (
-    ".venv",
-    "venv",
-    ".flox/cache/venv",
-    ".flox/cache/go",
-    ".flox/cache/go-build",
-    "frontend/dist",
-    "frontend/.cache",
-    "frontend/tmp",
-    "frontend/storybook-static",
-    "storybook-static",
-    "playwright-report",
-    "playwright/test-results",
-    "test-results",
-    "products/*/dist",
-    "products/*/storybook-static",
-)
+def _is_python_venv(path: Path) -> bool:
+    return (path / "pyvenv.cfg").is_file()
 
-# Leaf names of the explicit artifact paths above — pruned from os.walk so the
-# walk doesn't descend their interiors before the explicit-glob pass deletes
-# them wholesale.
-DEPS_WALK_PRUNE_LEAVES = frozenset({"dist", ".cache", "tmp", "storybook-static", "playwright-report", "test-results"})
+
+_BUILD_MANIFESTS = ("package.json", "pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml", "go.mod", "CMakeLists.txt")
+
+
+def _beside_build_manifest(path: Path) -> bool:
+    return any((path.parent / manifest).is_file() for manifest in _BUILD_MANIFESTS)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _ArtifactRule:
+    kinds: frozenset[str]
+    applies_to: Callable[[Path], bool] = lambda path: True
+
+
+# Directory names matched at any depth and never descended into once matched.
+ARTIFACT_DIRS: dict[str, _ArtifactRule] = {
+    "node_modules": _ArtifactRule(kinds=_DEPS),
+    ".venv": _ArtifactRule(kinds=_DEPS, applies_to=_is_python_venv),
+    "venv": _ArtifactRule(kinds=_DEPS, applies_to=_is_python_venv),
+    ".tox": _ArtifactRule(kinds=_DEPS),
+    ".nox": _ArtifactRule(kinds=_DEPS),
+    ".pnpm-store": _ArtifactRule(kinds=_DEPS),
+    # Cargo builds the dependencies and the repo's own crates into the same target dir.
+    "target": _ArtifactRule(kinds=_DEPS | _BUILD, applies_to=looks_like_cargo_target),
+    "__pycache__": _ArtifactRule(kinds=_BUILD),
+    ".pytest_cache": _ArtifactRule(kinds=_BUILD),
+    ".mypy_cache": _ArtifactRule(kinds=_BUILD),
+    ".ruff_cache": _ArtifactRule(kinds=_BUILD),
+    ".parcel-cache": _ArtifactRule(kinds=_BUILD),
+    ".turbo": _ArtifactRule(kinds=_BUILD),
+    ".next": _ArtifactRule(kinds=_BUILD),
+    ".nuxt": _ArtifactRule(kinds=_BUILD),
+    ".svelte-kit": _ArtifactRule(kinds=_BUILD),
+    ".vite": _ArtifactRule(kinds=_BUILD),
+    ".react-router": _ArtifactRule(kinds=_BUILD),
+    "storybook-static": _ArtifactRule(kinds=_BUILD),
+    "playwright-report": _ArtifactRule(kinds=_BUILD),
+    "test-results": _ArtifactRule(kinds=_BUILD),
+    "blob-report": _ArtifactRule(kinds=_BUILD),
+    "htmlcov": _ArtifactRule(kinds=_BUILD),
+    # These names are generic, so they count only as the output of a package built in the same directory.
+    "coverage": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+    "dist": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+    "build": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+}
+
+# Flox keeps environment state such as a local Postgres data dir under .flox/cache, so only these children are artifacts.
+FLOX_CACHE_ARTIFACTS: dict[str, frozenset[str]] = {"venv": _DEPS, "go": _DEPS, "go-build": _BUILD}
+
+# A .tsbuildinfo left behind makes `tsc --build` skip emitting into an outDir that was removed.
+BUILD_FILE_SUFFIXES = (".tsbuildinfo", ".node")
+
+BUILD_EXPLICIT_PATHS = ("frontend/.cache", "frontend/tmp")
+
+_WALK_SKIP = frozenset({".git", ".venv", "venv"})
 
 _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
@@ -159,8 +202,8 @@ class Worktree:
     branch: str
     last_activity: float
     size: float = 0.0
-    deps_items: list[Path] = field(default_factory=list)
-    deps_sizes: dict[str, float] = field(default_factory=dict)
+    artifact_items: list[Path] = field(default_factory=list)
+    artifact_sizes: dict[str, float] = field(default_factory=dict)
     dirty: bool = False
     unpushed: int = 0
     detached: bool = False
@@ -212,15 +255,17 @@ class WorktreeBox:
 )
 @click.option(
     "--mode",
-    type=click.Choice(["full", "deps"], case_sensitive=False),
     default=None,
-    help="Required. 'full' removes the whole worktree; 'deps' removes only deps/build artifacts, keeping the code.",
+    metavar="full|deps|build",
+    help="Required. 'full' removes the whole worktree. 'deps' removes installed dependencies such as node_modules, "
+    "Python venvs and Cargo target dirs. 'build' removes build output and tool caches that git ignores, such as "
+    "Cargo target, dist, .next and __pycache__. Combine deps and build with a comma: --mode deps,build.",
 )
 @click.option(
     "--source",
     "sources",
     multiple=True,
-    type=click.Choice(["claude", "codex", "posthog-code", "phw"], case_sensitive=False),
+    type=click.Choice(WORKTREE_SOURCES, case_sensitive=False),
     help="Restrict to specific tool(s). Repeatable. Default: all of them.",
 )
 @click.option(
@@ -242,7 +287,7 @@ class WorktreeBox:
     default=None,
     help="What to do with orphaned worktrees (admin entry pruned, not in `git worktree list`; "
     "committed work is safe in branch refs). yes=include, no=skip, ask=prompt when any are found. "
-    "Default: yes for --mode deps, ask for --mode full.",
+    "Default: yes for --mode deps and build, ask for --mode full.",
 )
 @click.option(
     "--stop-boxes",
@@ -265,7 +310,7 @@ class WorktreeBox:
 @click.option(
     "--unattended",
     is_flag=True,
-    help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps from worktrees "
+    help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps and build output from worktrees "
     "idle for 7 days. Implies --yes and --keep-boxes.",
 )
 @click.pass_context
@@ -320,12 +365,13 @@ def worktrees_clean(
             "Both --before and --mode are required.\n\n"
             "Examples:\n"
             "  hogli worktrees:clean --before 7d --mode deps     # free deps in worktrees idle >7 days\n"
+            "  hogli worktrees:clean --before 7d --mode deps,build\n"
             "  hogli worktrees:clean --before 2026-06-01 --mode full\n"
             "  hogli worktrees:clean --before all --mode full --dry-run\n"
             "  hogli worktrees:clean --before 30d --mode full --repo ~/Projects/other-repo"
         )
 
-    mode = mode.lower()
+    mode = _parse_mode(mode)
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
@@ -336,9 +382,11 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
-    # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
-    if mode == "deps" and selected_sources is None and repo is None:
-        _clean_legacy_cargo_target(cutoff, dry_run, yes)
+    # A shared Cargo target belongs to no single worktree, so a run narrowed by --source leaves it alone.
+    # Any repo can build into it, so --repo does not narrow it, and it goes only once no build has used it since the cutoff.
+    if mode != "full" and selected_sources is None:
+        _clean_shared_cargo_targets(cutoff, dry_run, yes)
+    _clean_leftover_worktree_dirs(_leftover_worktree_dirs(repo_root, selected_sources, cutoff), dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -429,7 +477,7 @@ def worktrees_clean(
             return
 
     click.echo(f"Measuring {len(stale)} worktree(s)…")
-    _populate_sizes(stale, mode, cutoff)
+    _populate_sizes(stale, mode, cutoff, repo_common)
 
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
@@ -438,7 +486,7 @@ def worktrees_clean(
         )
 
     total = sum(wt.size for wt in stale)
-    action = "fully remove" if mode == "full" else "strip deps/build artifacts from"
+    action = "fully remove" if mode == "full" else f"strip {_describe_artifact_kinds(mode)} from"
     click.echo(
         f"\nWould {action} {len(stale)} worktree(s); estimated up to ~{_format_size(total)} "
         "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
@@ -465,7 +513,7 @@ def worktrees_clean(
     # A build can start, or finish, while the prompt waits.
     stale = _without_cargo_builds(stale)
     for wt in stale:
-        wt.deps_items = [item for item in wt.deps_items if not _cargo_built_since(item, cutoff)]
+        wt.artifact_items = [item for item in wt.artifact_items if not _cargo_built_since(item, cutoff)]
     if not stale:
         click.echo("Nothing left to remove.")
         return
@@ -503,7 +551,7 @@ def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, 
         raise click.UsageError("Pass at most one of --stop-boxes, --delete-boxes, --keep-boxes.")
     if (stop_boxes or delete_boxes) and mode != "full":
         raise click.UsageError(
-            "--stop-boxes and --delete-boxes need --mode full, because --mode deps keeps the worktree."
+            f"--stop-boxes and --delete-boxes need --mode full, because --mode {mode} keeps the worktree."
         )
     if keep_boxes or mode != "full":
         return None
@@ -717,15 +765,15 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
 
 
 def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
-    """Resolve --orphans, defaulting per mode: deps cleans orphans (their deps are
-    just recreatable artifacts), full prompts (it deletes the working copy)."""
+    """Resolve --orphans, defaulting per mode: deps and build clean orphans (they
+    remove only recreatable artifacts), full prompts (it deletes the working copy)."""
 
     if explicit is not None:
         return explicit.lower()
     return "ask" if mode == "full" else "yes"
 
 
-_UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps"))
+_UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
 
@@ -839,6 +887,29 @@ def _git_common_dir(start: Path) -> Path | None:
     return _resolve(common)
 
 
+def _parse_mode(value: str) -> str:
+    """Normalize --mode to ``full`` or a comma list of artifact kinds in a fixed order, such as ``deps,build``."""
+
+    parts = {part.strip().lower() for part in value.split(",") if part.strip()}
+    unknown = parts - {"full", *ARTIFACT_KINDS}
+    if not parts or unknown:
+        raise click.BadParameter(f"{value!r} is not full, deps, build, or a comma list of deps and build.")
+    if "full" in parts:
+        if len(parts) > 1:
+            raise click.BadParameter("full removes the whole worktree, so it cannot be combined with deps or build.")
+        return "full"
+    return ",".join(kind for kind in ARTIFACT_KINDS if kind in parts)
+
+
+def _artifact_kinds(mode: str) -> frozenset[str]:
+    return frozenset(mode.split(",")) & frozenset(ARTIFACT_KINDS)
+
+
+def _describe_artifact_kinds(mode: str) -> str:
+    labels = {"deps": "dependencies", "build": "build output"}
+    return " and ".join(labels[kind] for kind in ARTIFACT_KINDS if kind in _artifact_kinds(mode))
+
+
 def _parse_cutoff(value: str) -> tuple[float, str]:
     """Parse --before into (cutoff_epoch, human_label). Raises click.BadParameter on garbage."""
 
@@ -896,7 +967,7 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
 
 
 def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
-    found = _discover_worktrees(root)
+    found = _discover_worktrees(root, max_depth=_SCRATCHPAD_DISCOVERY_DEPTH if root == _claude_scratchpad_root() else 2)
     seen = {_resolve(path) for path in found}
     resolved_root = _resolve(root)
     for path in registry:
@@ -938,6 +1009,79 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict] | None:
         elif line.startswith("locked"):
             current["locked"] = True
     return registry
+
+
+def _leftover_worktree_dirs(repo_root: Path, selected_sources: set[str] | None, cutoff: float) -> list[Path]:
+    """Folders where a worktree was, that now hold only the flox caches its removal could not delete.
+
+    Go writes its module cache without write permission, which stopped earlier
+    removals part way. A worktree root in the home directory is shared across
+    repos, so there a folder counts only when it carries this repo's name, as
+    the worktrees there do.
+    """
+
+    leftovers: list[Path] = []
+    for source, root in _worktree_roots(repo_root):
+        if source in ("phw", "claude-scratchpad") or (selected_sources is not None and source not in selected_sources):
+            continue
+        if _is_under(_resolve(root), repo_root):
+            candidates = _child_dirs(root)
+        else:
+            candidates = [child / repo_root.name for child in _child_dirs(root)]
+        for candidate in candidates:
+            if _holds_only_flox_caches(candidate) and _newest_mtime([candidate, candidate / ".flox"]) < cutoff:
+                leftovers.append(candidate)
+    return leftovers
+
+
+def _child_dirs(directory: Path) -> list[Path]:
+    try:
+        return [child for child in directory.iterdir() if child.is_dir() and not child.is_symlink()]
+    except OSError:
+        return []
+
+
+def _holds_only_flox_caches(directory: Path) -> bool:
+    try:
+        if {entry.name for entry in directory.iterdir()} != {".flox"}:
+            return False
+        if {entry.name for entry in (directory / ".flox").iterdir()} != {"cache"}:
+            return False
+        cache_entries = {entry.name for entry in (directory / ".flox" / "cache").iterdir()}
+    except OSError:
+        return False
+    return bool(cache_entries) and cache_entries <= FLOX_CACHE_ARTIFACTS.keys()
+
+
+def _newest_mtime(paths: Sequence[Path]) -> float:
+    try:
+        return max(path.stat().st_mtime for path in paths)
+    except OSError:
+        return float("inf")
+
+
+def _clean_leftover_worktree_dirs(leftovers: list[Path], dry_run: bool, yes: bool) -> None:
+    if not leftovers:
+        return
+    size = sum(_du_sizes(leftovers).values())
+    click.echo(
+        f"{len(leftovers)} folder(s) of removed worktrees hold only flox caches ({_format_size(size)}), "
+        "because Go's read-only module cache stopped their removal:"
+    )
+    for leftover in leftovers[:5]:
+        click.echo(f"  {_display_path(leftover)}")
+    if len(leftovers) > 5:
+        click.echo(f"  … and {len(leftovers) - 5} more")
+    if dry_run:
+        click.echo("[DRY-RUN] Not deleted.\n")
+        return
+    if not yes and not click.confirm("Delete them?", default=False):
+        click.echo()
+        return
+    failed = _delete_paths(leftovers)
+    for leftover in leftovers:
+        _cleanup_empty_parent(leftover)
+    click.echo(f"✓ Deleted {len(leftovers) - failed} folder(s).\n")
 
 
 def _protected_paths(repo_root: Path) -> set[Path]:
@@ -1179,8 +1323,11 @@ def _repo_has_remotes(repo_root: Path) -> bool:
 
 
 def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str] | None:
+    # A plain `git status` refreshes the index, and the index mtime is one of the worktree's activity signals.
     try:
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            ["git", "--no-optional-locks", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
 
@@ -1216,16 +1363,19 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     return " · ".join(parts)
 
 
-def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None:
-    """Fill in .size (and deps items/sizes for deps mode) using a thread pool."""
+def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float, repo_common: Path | None) -> None:
+    """Fill in .size, and the artifact items and sizes outside full mode, using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
-            wt.deps_sizes = _du_sizes([wt.path])
+            wt.artifact_sizes = _du_sizes([wt.path])
         else:
-            wt.deps_items = [item for item in _collect_deps_items(wt.path) if not _cargo_built_since(item, cutoff)]
-            wt.deps_sizes = _du_sizes(wt.deps_items)
-        wt.size = sum(wt.deps_sizes.values())
+            artifacts = _git_approved_artifacts(
+                wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode)), repo_common
+            )
+            wt.artifact_items = [item for item in artifacts if not _cargo_built_since(item, cutoff)]
+            wt.artifact_sizes = _du_sizes(wt.artifact_items)
+        wt.size = sum(wt.artifact_sizes.values())
 
     if not worktrees:
         return
@@ -1233,51 +1383,135 @@ def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None
         list(pool.map(work, worktrees))
 
 
-def _collect_deps_items(worktree: Path) -> list[Path]:
-    """Find dependency/build-artifact directories inside a worktree.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _Artifact:
+    path: Path
+    kinds: frozenset[str]
+
+
+def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]:
+    """Find the dependency and build-output paths of the selected *kinds* inside a worktree.
 
     Every returned path is resolved and confirmed to stay within the worktree, so
     a symlinked component (e.g. a `frontend` symlinked to shared storage) can
-    never cause deletion outside the worktree.
+    never cause deletion outside the worktree. The walk does not enter another
+    repository, submodule or worktree nested inside this one.
     """
 
     worktree_resolved = _resolve(worktree)
-    items: list[Path] = []
-    seen: set[Path] = set()
+    found: dict[Path, frozenset[str]] = {}
 
-    def add(candidate: Path) -> None:
+    def add(candidate: Path, rule_kinds: frozenset[str]) -> None:
+        selected = rule_kinds & kinds
+        if not selected:
+            return
         resolved = _resolve(candidate)
-        if not _is_under(resolved, worktree_resolved):
-            return  # symlink/`..` escape — refuse to delete outside the worktree
-        if resolved not in seen and resolved.exists():
-            seen.add(resolved)
-            items.append(resolved)
+        if _is_under(resolved, worktree_resolved) and resolved.exists():
+            found.setdefault(resolved, selected)
 
-    for dirpath, dirnames, _ in os.walk(worktree):
-        matched: list[str] = []
-        for name in list(dirnames):
-            if name in DEPS_RECURSIVE_DIRS:
-                full = Path(dirpath) / name
-                if name == "target" and not _looks_like_cargo_target(full):
-                    continue
-                add(full)
-                matched.append(name)
-        # Don't descend into matched artifacts, skip-listed dirs, or the
-        # explicit-path artifact dirs (handled by the glob pass below).
-        dirnames[:] = [
-            d for d in dirnames if d not in matched and d not in DEPS_WALK_SKIP and d not in DEPS_WALK_PRUNE_LEAVES
-        ]
+    for dirpath, dirnames, filenames in os.walk(worktree):
+        parent = Path(dirpath)
+        descend: list[str] = []
+        for name in dirnames:
+            child = parent / name
+            if name == ".flox":
+                for cache_child, rule_kinds in FLOX_CACHE_ARTIFACTS.items():
+                    add(child / "cache" / cache_child, rule_kinds)
+                continue
+            rule = ARTIFACT_DIRS.get(name)
+            if rule is not None and rule.applies_to(child):
+                add(child, rule.kinds)
+                continue
+            if name in _WALK_SKIP or (child / ".git").exists():
+                continue
+            descend.append(name)
+        dirnames[:] = descend
+        for name in filenames:
+            if name.endswith(BUILD_FILE_SUFFIXES):
+                add(parent / name, _BUILD)
 
-    for pattern in DEPS_EXPLICIT_PATHS:
+    for pattern in BUILD_EXPLICIT_PATHS:
         for path in worktree.glob(pattern):
             if path.is_dir():
-                add(path)
+                add(path, _BUILD)
 
-    return items
+    outermost = sorted(found, key=lambda path: len(path.parts))
+    kept: list[_Artifact] = []
+    for path in outermost:
+        if not any(path.is_relative_to(artifact.path) for artifact in kept):
+            kept.append(_Artifact(path=path, kinds=found[path]))
+    return kept
 
 
-def _looks_like_cargo_target(path: Path) -> bool:
-    return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact], repo_common: Path | None) -> list[Path]:
+    """The artifacts that hold no tracked file and, unless they are dependencies, hold only files that git ignores.
+
+    A generated file that the repo commits, or a file git does not ignore, may be
+    someone's work, so a path that holds one stays. A dependency folder may be
+    outside .gitignore, because no one writes their own files into one. When git
+    cannot answer, nothing is approved.
+    """
+
+    if not artifacts:
+        return []
+    git_prefix = _git_prefix_for(worktree, repo_common)
+    status = (
+        None
+        if git_prefix is None
+        else _git(
+            worktree,
+            [*git_prefix, "status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"],
+            timeout=120.0,
+        )
+    )
+    if status is None or status.returncode != 0:
+        click.echo(f"  ⚠️  git could not list what {_display_path(worktree)} ignores, so nothing in it is removed.")
+        return []
+
+    untracked: set[str] = set()
+    ignored: set[str] = set()
+    entries = iter(status.stdout.split("\0"))
+    for entry in entries:
+        code, path = entry[:2], entry[3:].rstrip("/")
+        if code == "??":
+            untracked.add(path)
+        elif code == "!!":
+            ignored.add(path)
+        elif "R" in code or "C" in code:
+            next(entries, None)
+
+    worktree_resolved = _resolve(worktree)
+    approved: list[Path] = []
+    for artifact in artifacts:
+        relative = artifact.path.relative_to(worktree_resolved).as_posix()
+        if _is_or_is_under_any(relative, ignored) or (
+            "deps" in artifact.kinds and _is_or_is_under_any(relative, untracked)
+        ):
+            approved.append(artifact.path)
+    return approved
+
+
+def _is_or_is_under_any(relative_path: str, directories: set[str]) -> bool:
+    while relative_path:
+        if relative_path in directories:
+            return True
+        relative_path = relative_path.rpartition("/")[0]
+    return False
+
+
+def _git_prefix_for(worktree: Path, repo_common: Path | None) -> list[str] | None:
+    """The git arguments that address *worktree*, or None when no git dir can describe it.
+
+    An orphaned worktree has lost its own index, so it is checked against the
+    shared repository, whose index tracks almost the same files.
+    """
+
+    gitdir = _gitdir_for(worktree)
+    if gitdir is not None and gitdir.is_dir():
+        return []
+    if repo_common is None:
+        return None
+    return [f"--git-dir={repo_common}", f"--work-tree={_resolve(worktree)}"]
 
 
 def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
@@ -1295,18 +1529,21 @@ def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
 
 
 def _cargo_built_since(path: Path, cutoff: float) -> bool:
-    return path.name == "target" and _looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
+    return path.name == "target" and looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
 
 
-def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
-    target = unused_legacy_cargo_target(cutoff)
-    if target is None:
-        return
+def _clean_shared_cargo_targets(cutoff: float, dry_run: bool, yes: bool) -> None:
+    for shared in shared_cargo_targets():
+        if unused_cargo_target(shared.path, cutoff):
+            _clean_shared_cargo_target(shared, cutoff, dry_run, yes)
 
+
+def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run: bool, yes: bool) -> None:
+    target = shared.path
     size = sum(_du_sizes([target]).values())
     click.echo(
-        f"Old shared Cargo target {_display_path(target)}: {_format_size(size)}, "
-        f"last build {_ago(last_cargo_build_epoch(target))} ago. Cargo built here while the Flox env set CARGO_TARGET_DIR."
+        f"Shared Cargo target {_display_path(target)}: {_format_size(size)}, "
+        f"last build {_ago(last_cargo_build_epoch(target))} ago. {shared.reason}"
     )
     if dry_run:
         click.echo("[DRY-RUN] Not deleted.\n")
@@ -1314,7 +1551,7 @@ def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
     if not yes and not click.confirm("Delete it?", default=False):
         click.echo()
         return
-    if unused_legacy_cargo_target(cutoff) is None:
+    if not unused_cargo_target(target, cutoff):
         click.echo("A build used it while the prompt waited, so it is kept.\n")
         return
     if _delete_paths([target]) == 0:
@@ -1394,8 +1631,8 @@ def _execute(
             click.echo(f"  skipped {_display_path(wt.path)}: a running process now has it as its working directory")
             continue
         before_remove(wt)
-        if mode == "deps":
-            if _delete_paths(wt.deps_items):
+        if mode != "full":
+            if _delete_paths(wt.artifact_items):
                 failed += 1
             else:
                 removed += 1
@@ -1492,12 +1729,15 @@ def _rmtree(path: Path) -> None:
 
 
 def _delete_paths(paths: Sequence[Path]) -> int:
-    """Remove deps directories; return how many could not be removed."""
+    """Remove artifact directories and files; return how many could not be removed."""
 
     failures = 0
     for path in paths:
         try:
-            _rmtree(path)
+            if path.is_dir() and not path.is_symlink():
+                _rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
         except OSError as err:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1

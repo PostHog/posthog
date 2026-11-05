@@ -14,7 +14,12 @@ from unittest.mock import Mock, patch
 import click
 from hogli import telemetry
 from hogli_commands import worktrees
-from hogli_commands.cargo_targets import unused_legacy_cargo_target, worktrees_running_cargo
+from hogli_commands.cargo_targets import (
+    shared_cargo_targets,
+    unused_cargo_target,
+    unused_legacy_cargo_target,
+    worktrees_running_cargo,
+)
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -22,16 +27,19 @@ from hogli_commands.worktrees import (
     _belongs_to_repo,
     _boxes_of_removed_worktrees,
     _clean_worktree_boxes,
-    _collect_deps_items,
+    _collect_artifacts,
     _compute_git_state,
     _discover_root_worktrees,
     _du_sizes,
     _execute,
+    _git_approved_artifacts,
     _in_use,
     _include_orphans,
     _is_under,
+    _leftover_worktree_dirs,
     _match_worktree_boxes,
     _parse_cutoff,
+    _parse_mode,
     _populate_sizes,
     _reclaimed_bytes,
     _registered_worktrees,
@@ -179,6 +187,20 @@ class TestParseCutoff:
             _parse_cutoff(value)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("deps", "deps"), ("build,deps", "deps,build"), (" BUILD , build ", "build"), ("full", "full")],
+)
+def test_parse_mode_normalizes_kinds(value: str, expected: str) -> None:
+    assert _parse_mode(value) == expected
+
+
+@pytest.mark.parametrize("value", ["full,deps", "deps,cache", "", ","])
+def test_parse_mode_rejects_full_with_kinds_and_unknown_kinds(value: str) -> None:
+    with pytest.raises(click.BadParameter):
+        _parse_mode(value)
+
+
 class TestBelongsToRepo:
     def test_path_inside_repo_belongs(self, tmp_path) -> None:
         repo = tmp_path / "repo"
@@ -247,7 +269,80 @@ class TestWorktreeRoots:
         assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
 
+def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = ()) -> Path:
+    for relative, content in files.items():
+        (path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (path / relative).write_text(content)
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    if tracked:
+        subprocess.run(["git", "add", "--", *tracked], cwd=path, check=True)
+    return path
+
+
 class TestCollectDepsItems:
+    @pytest.mark.parametrize(
+        ("mode", "expected_removed"),
+        [
+            (
+                "build",
+                {
+                    "web/dist",
+                    ".pytest_cache",
+                    "web/app.tsbuildinfo",
+                    ".flox/cache/go-build",
+                },
+            ),
+            (
+                "deps",
+                {
+                    "web/node_modules",
+                    "scratch/node_modules",
+                    "tools/.venv",
+                    ".flox/cache/venv",
+                },
+            ),
+        ],
+    )
+    def test_removes_only_untracked_artifacts_and_build_output_that_git_ignores(
+        self, tmp_path, mode: str, expected_removed: set[str]
+    ) -> None:
+        worktree = _git_worktree(
+            tmp_path / "wt",
+            {
+                ".gitignore": "dist/\nnode_modules/\n.venv/\n*.tsbuildinfo\n.flox/cache/\n",
+                "web/package.json": "{}",
+                "web/dist/app.js": "",
+                "web/app.tsbuildinfo": "",
+                "web/node_modules/react/index.js": "",
+                "web/build/notes.md": "",
+                "action/package.json": "{}",
+                "action/dist/index.js": "",
+                ".pytest_cache/.gitignore": "*\n",
+                ".pytest_cache/v/cache/lastfailed": "{}",
+                "scratch/node_modules/left-pad/index.js": "",
+                "vendored/node_modules/shim/index.js": "",
+                "tools/.venv/pyvenv.cfg": "",
+                ".flox/cache/venv/pyvenv.cfg": "",
+                ".flox/cache/go-build/README": "",
+                ".flox/cache/postgres/data/PG_VERSION": "16",
+                "vendor/repo/.git/HEAD": "",
+                "vendor/repo/package.json": "{}",
+                "vendor/repo/dist/lib.js": "",
+            },
+            tracked=(".gitignore", "web/package.json", "action/package.json"),
+        )
+        # Git adds a file under an ignored folder only by force, as a committed GitHub Action bundle or vendored package needs.
+        subprocess.run(
+            ["git", "add", "-f", "action/dist/index.js", "vendored/node_modules/shim/index.js"],
+            cwd=worktree,
+            check=True,
+        )
+
+        artifacts = _collect_artifacts(worktree, frozenset({mode}))
+        removed = _git_approved_artifacts(worktree, artifacts, repo_common=None)
+
+        assert {path.relative_to(worktree.resolve()).as_posix() for path in removed} == expected_removed
+
     def test_never_escapes_worktree_via_symlinked_parent(self, tmp_path) -> None:
         worktree = tmp_path / "wt"
         (worktree / "node_modules").mkdir(parents=True)
@@ -255,9 +350,10 @@ class TestCollectDepsItems:
         # `frontend` symlinked to shared external storage that has its own dist/.
         external = tmp_path / "external"
         (external / "dist").mkdir(parents=True)
+        (external / "package.json").write_text("{}")
         (worktree / "frontend").symlink_to(external, target_is_directory=True)
 
-        items = _collect_deps_items(worktree)
+        items = [artifact.path for artifact in _collect_artifacts(worktree, frozenset({"deps", "build"}))]
         worktree_resolved = worktree.resolve()
 
         # The real node_modules is collected; nothing resolves outside the worktree.
@@ -268,16 +364,16 @@ class TestCollectDepsItems:
     def test_deps_mode_keeps_a_cargo_target_built_after_the_cutoff(self, tmp_path) -> None:
         cutoff = time.time() - 7 * 86400
         worktree = tmp_path / "wt"
-        (worktree / "node_modules").mkdir(parents=True)
+        _git_worktree(worktree, {"node_modules/left-pad/index.js": ""})
         stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
         # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
         _write_cargo_target(worktree / "cli" / "target", time.time())
         _write_cargo_target(worktree / "plugin" / "target", time.time(), profile=Path("wasm32-wasip1") / "release")
         wt = _make_worktree(worktree)
 
-        _populate_sizes([wt], "deps", cutoff)
+        _populate_sizes([wt], "deps", cutoff, repo_common=None)
 
-        assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
+        assert sorted(wt.artifact_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
 
 
 def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = Path("debug")) -> Path:
@@ -307,6 +403,35 @@ def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: b
     monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
 
 
+class TestLeftoverWorktreeDirs:
+    @pytest.mark.parametrize(
+        ("relative", "extra_entry", "expected_leftover"),
+        [
+            (".claude/worktrees/gone", None, True),
+            (".claude/worktrees/gone", ".git", False),
+            (".claude/worktrees/gone", "docker/compose.yml", False),
+            (".claude/worktrees/gone", ".flox/cache/postgres/PG_VERSION", False),
+            ("home/.codex/worktrees/1a2b/repo", None, True),
+            ("home/.codex/worktrees/1a2b/other-repo", None, False),
+        ],
+        ids=["only_go_cache", "still_a_worktree", "other_files", "flox_state", "home_root", "other_repos_name"],
+    )
+    def test_folder_counts_only_when_it_holds_nothing_but_flox_caches(
+        self, tmp_path, monkeypatch, relative: str, extra_entry: str | None, expected_leftover: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        repo = tmp_path / "repo"
+        folder = tmp_path / relative if relative.startswith("home/") else repo / relative
+        (folder / ".flox" / "cache" / "go" / "pkg" / "mod").mkdir(parents=True)
+        if extra_entry is not None:
+            (folder / extra_entry).parent.mkdir(parents=True, exist_ok=True)
+            (folder / extra_entry).write_text("")
+
+        leftovers = _leftover_worktree_dirs(repo, selected_sources=None, cutoff=time.time() + 60)
+
+        assert leftovers == ([folder] if expected_leftover else [])
+
+
 class TestCargoTargets:
     @pytest.mark.parametrize("lsof_available", [True, False], ids=["traced", "lsof_unavailable"])
     def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch, lsof_available) -> None:
@@ -321,7 +446,7 @@ class TestCargoTargets:
 
     @pytest.mark.parametrize(
         "cargo_target_dir_set,days_since_build,cargo_running,expected_offered",
-        [(False, 10, False, True), (True, 10, False, False), (False, 1, False, False), (False, 10, True, False)],
+        [(False, 10, False, True), (True, 10, False, True), (False, 1, False, False), (False, 10, True, False)],
         ids=["unused", "cargo_target_dir_set", "built_recently", "cargo_running_elsewhere"],
     )
     def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
@@ -342,9 +467,13 @@ class TestCargoTargets:
         else:
             monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
 
-        offered = unused_legacy_cargo_target(time.time() - 7 * 86400)
+        cutoff = time.time() - 7 * 86400
 
-        assert offered == (target if expected_offered else None)
+        assert unused_legacy_cargo_target(cutoff) == (target if expected_offered and not cargo_target_dir_set else None)
+        # The command also offers the target that CARGO_TARGET_DIR names, under the same build-age checks.
+        assert [shared.path for shared in shared_cargo_targets() if unused_cargo_target(shared.path, cutoff)] == (
+            [target] if expected_offered else []
+        )
 
 
 class TestRegisteredWorktrees:
