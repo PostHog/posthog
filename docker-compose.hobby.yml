@@ -116,6 +116,10 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; beat and the
+            # Celery tasks run here, so without it the opt-out never reaches them.
+            # Empty when unset, which apps.py treats as not opted out.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-}
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -536,6 +540,10 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # The documented telemetry opt-out. web already receives it; the Temporal
+            # activities run Django code here, so without it the opt-out never reaches them.
+            # Empty when unset, which apps.py treats as not opted out.
+            OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-}
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'

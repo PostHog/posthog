@@ -6,6 +6,7 @@ from celery import shared_task
 from celery.schedules import crontab
 
 from posthog.celery_queues import CeleryQueue
+from posthog.cloud_utils import is_cloud
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.mcp_registry.backend.aggregation import aggregate_measured_servers
@@ -21,7 +22,18 @@ MCP_REGISTRY_SYNC_CRONTAB = crontab(hour="5", minute="45")
 
 
 def is_pipeline_enabled() -> bool:
-    """Deployment-level kill switch, evaluated with a constant distinct_id. Fails closed."""
+    """Deployment-level kill switch. Fails closed.
+
+    Cloud only: a self-hosted install never crawls the public registry or probes
+    third-party hosts on a schedule, and never asks PostHog Cloud for the flag. The
+    flag used to be evaluated on Cloud from self-hosted workers too, which made every
+    hobby install open outbound connections to 500 arbitrary hosts a day and trip the
+    operator's egress monitoring (#130094). An operator who wants the pipeline runs
+    the sync_mcp_registry management command, which bypasses this gate on purpose.
+    """
+    if not is_cloud():
+        logger.info("mcp_registry.pipeline_skipped", reason="self_hosted")
+        return False
     try:
         return bool(
             posthoganalytics.feature_enabled(
