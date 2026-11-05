@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -100,5 +102,37 @@ describe('projectLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname === path).toBe(staysOpen)
+    })
+
+    it.each([
+        ['createProject', 'createProjectFailure'],
+        ['updateCurrentProject', 'updateCurrentProjectFailure'],
+    ] as const)('%s toasts a duplicate name 409 and does not report it', async (actionName, failureAction) => {
+        const detail = 'There is already a project called "Taken" in this organization. Choose a different name.'
+        useMocks({
+            post: { '/api/projects/': () => [409, { type: 'validation_error', code: 'conflict', detail }] },
+            patch: { '/api/projects/:id': () => [409, { type: 'validation_error', code: 'conflict', detail }] },
+        })
+        initKeaTests()
+        const logic = projectLogic()
+        logic.mount()
+        logic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        try {
+            await expectLogic(logic, () => {
+                if (actionName === 'createProject') {
+                    logic.actions.createProject({ name: 'Taken' })
+                } else {
+                    logic.actions.updateCurrentProject({ name: 'Taken' })
+                }
+            }).toDispatchActions([failureAction])
+
+            expect(toastError).toHaveBeenCalledWith(detail)
+            expect(captureException).not.toHaveBeenCalled()
+        } finally {
+            toastError.mockRestore()
+            captureException.mockRestore()
+        }
     })
 })
