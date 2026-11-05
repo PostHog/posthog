@@ -29,6 +29,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.dataclasses import frozen
+from posthog.security.outbound_proxy import internal_requests
 
 if TYPE_CHECKING:
     from types_boto3_sqs import SQSClient
@@ -294,8 +295,9 @@ PostToWebhook = Callable[[str], int]
 def post_to_webhook(body: str) -> int:
     if not settings.SES_EVENTS_REPLAY_WEBHOOK_URL:
         raise ReplayNotConfigured("SES_EVENTS_REPLAY_WEBHOOK_URL is not set")
-    # The webhook parses a text/plain body, which is the content type SNS itself sends.
-    response = requests.post(
+    # The webhook parses a text/plain body, which is the content type SNS itself sends. The URL is
+    # cluster-local, and Smokescreen in HTTP_PROXY refuses cluster-local hosts, so skip the proxy.
+    response = internal_requests.post(
         settings.SES_EVENTS_REPLAY_WEBHOOK_URL,
         data=body.encode(),
         headers={"Content-Type": "text/plain; charset=UTF-8", "x-amz-sns-message-type": "Notification"},

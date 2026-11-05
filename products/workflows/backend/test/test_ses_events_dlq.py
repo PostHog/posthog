@@ -3,12 +3,15 @@ import base64
 from collections.abc import Callable
 from typing import Any
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, override_settings
 
 import requests
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
+from products.workflows.backend.services import ses_events_dlq
 from products.workflows.backend.services.ses_events_dlq import (
     MIN_MAX_PER_SECOND,
     DlqQueue,
@@ -351,6 +354,22 @@ class TestReplaySesEventsDlq(SimpleTestCase):
     def test_refuses_to_replay_without_a_webhook_url(self) -> None:
         with self.assertRaises(ReplayNotConfigured):
             run(FakeSqs([sns_message("a")]), StubWebhook())
+
+
+class TestPostToWebhook(SimpleTestCase):
+    @override_settings(
+        SES_EVENTS_REPLAY_WEBHOOK_URL="http://cdp-api-webhooks.cdp-api-webhooks.svc.cluster.local/public/m/ses_webhook"
+    )
+    def test_posts_without_the_egress_proxy(self) -> None:
+        # Django pods get Smokescreen in HTTP_PROXY, and Smokescreen refuses cluster-local hosts.
+        response = requests.Response()
+        response.status_code = 200
+        with patch.object(ses_events_dlq.internal_requests, "post", return_value=response) as post:
+            status = ses_events_dlq.post_to_webhook("{}")
+
+        assert status == 200
+        assert ses_events_dlq.internal_requests.trust_env is False
+        post.assert_called_once()
 
 
 class TestSummarizeDlqMessage(SimpleTestCase):
