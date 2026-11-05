@@ -419,10 +419,12 @@ pub struct Config {
     pub continuous_profiling: ContinuousProfilingConfig,
 
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
+    /// Capture-ai raises it to at least `router::AI_BODY_SIZE`.
     #[envconfig(default = "10485760")]
     pub capture_v1_max_compressed_body_bytes: usize,
 
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
+    /// Capture-ai raises it to at least `router::AI_BODY_SIZE`.
     #[envconfig(default = "52428800")]
     pub capture_v1_max_decompressed_body_bytes: usize,
 

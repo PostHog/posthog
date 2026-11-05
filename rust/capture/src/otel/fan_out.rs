@@ -2,6 +2,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
+use prost::Message;
 use serde_json::{Map, Value};
 
 use super::error_status::apply_error_status_properties;
@@ -113,6 +114,24 @@ fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     let secs = (nanos / 1_000_000_000) as i64;
     let nsecs = (nanos % 1_000_000_000) as u32;
     Utc.timestamp_opt(secs, nsecs).single()
+}
+
+/// Protobuf bytes of the resource copies [`expand_into_events`] makes, one per AI span.
+pub fn resource_copy_bytes(request: &ExportTraceServiceRequest) -> usize {
+    request
+        .resource_spans
+        .iter()
+        .map(|rs| {
+            let resource_bytes = rs.resource.as_ref().map_or(0, Message::encoded_len);
+            let ai_spans = rs
+                .scope_spans
+                .iter()
+                .flat_map(|ss| &ss.spans)
+                .filter(|span| providers::get_provider_raw(&span.attributes).is_some())
+                .count();
+            resource_bytes.saturating_mul(ai_spans)
+        })
+        .fold(0, usize::saturating_add)
 }
 
 /// Convert OTLP spans into [`SpanEvent`]s. `request_fallback_distinct_id` is
