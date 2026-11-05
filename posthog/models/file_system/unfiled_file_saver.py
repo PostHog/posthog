@@ -11,7 +11,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
-from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -21,8 +20,8 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
+# Sealed products add their own models with `register_mixin_model` (actions, canvas, experiments).
 MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
-    "action": Action,
     "feature_flag": FeatureFlag,
     "insight": Insight,
     "dashboard": Dashboard,
