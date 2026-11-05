@@ -10,7 +10,7 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError
 
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.services.ticket_brief import write_brief_for_ticket
+from products.conversations.backend.ticket_brief.writer import write_brief_for_ticket
 
 
 class Command(BaseCommand):
