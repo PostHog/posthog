@@ -3658,18 +3658,22 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
-    def test_implementation_creation_respects_an_external_claim(self):
+    # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
+    # agent claim does not.
+    @parameterized.expand([("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)])
+    def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
+        holder = self.user if own_agent else self.create_organization_user("teammate")
         report = SignalReport.objects.create(team=self.team)
         assignment = SignalReportAssignment.all_teams.create(
-            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+            team=self.team, report=report, actor_kind="agent", actor_user=holder, actor_agent="test-agent"
         )
         response = self._post_signal_report_task(report.id, "implementation")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, expected_status)
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
-        self.assertFalse(Task.objects.filter(title="Report task").exists())
+        self.assertEqual(Task.objects.filter(title="Report task").exists(), own_agent)
 
     @parameterized.expand(
         [
