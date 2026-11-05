@@ -297,7 +297,7 @@ describe('classic chat transport', () => {
         await act(async () => result.current.reload())
         expect(result.current.historyError).toBeNull()
     })
-    test.each(['stream', 'history'])(
+    test.each(['stream', 'history', 'snapshot'])(
         'exposes and resumes forms from %s without reconnecting or duplicating submissions',
         async (source) => {
             const form = {
@@ -309,15 +309,21 @@ describe('classic chat transport', () => {
             }
             const message = { id: 'form-message', type: 'ai', content: '', tool_calls: [form] }
             const saved = {
+                id: 'saved-chat',
                 messages: [message],
                 title: 'A chat',
                 pending_approvals: [],
                 status: 'in_progress',
             } as unknown as Awaited<ReturnType<typeof getConversation>>
             if (source === 'history') jest.mocked(getConversation).mockResolvedValueOnce(saved)
-            const { result } = renderHook(() => useClassicChat(source === 'history' ? 'saved-chat' : undefined), {
-                wrapper,
-            })
+            const { result } = renderHook(
+                () =>
+                    useClassicChat(
+                        source === 'stream' ? undefined : 'saved-chat',
+                        source === 'snapshot' ? saved : undefined
+                    ),
+                { wrapper }
+            )
             await act(async () => undefined)
             if (source === 'stream') {
                 jest.mocked(readSse).mockImplementationOnce(async (_response, onEvent) => {

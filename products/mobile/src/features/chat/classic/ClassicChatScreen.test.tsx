@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 
 import { useChatDraft } from '../useChatDraft'
 import { ClassicChatScreen } from './ClassicChatScreen'
+import { EMPTY_CLASSIC_STATE } from './classicMessages'
 import { useClassicChat } from './useClassicChat'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
@@ -139,8 +140,11 @@ describe('classic chat draft recovery', () => {
             historyError: null,
             stopping: false,
             error: null,
-            state: { messages: [], approval: null, title: null, progress: null, error: null },
+            state: EMPTY_CLASSIC_STATE,
             answer: jest.fn(),
+            form: null,
+            submitForm: jest.fn(),
+            dismissForm: jest.fn(),
             stop: jest.fn(),
             reload: jest.fn(),
             reset: jest.fn(),
