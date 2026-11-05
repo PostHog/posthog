@@ -30,13 +30,12 @@ class SequenzyEndpointConfig:
     pagination: Literal["cursor", "offset", "page", "single_page"]
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: str | None = None
-    page_size: int | None = None
+    page_size: int = 100
     params: dict[str, str | int] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
-    # How the incremental cursor reaches the server: `days` is the email-sends lookback window,
-    # `start_end` is the events time range. Without a cursor both read the largest window.
-    time_filter: Literal["days", "start_end"] | None = None
+    event_time_range: bool = False
+    resume_pages: bool = True
     # Set on a child endpoint whose path takes one id per row of the parent endpoint.
     fanout: DependentEndpointConfig | None = None
     sort_mode: Literal["asc", "desc"] | None = "desc"
@@ -124,15 +123,16 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
         data_selector="emailSends",
         pagination="page",
         page_size=100,
-        # Oldest first, so sends that arrive mid-sync land on later pages instead of shifting
-        # the rows of pages that are not read yet.
-        params={"sortField": "createdAt", "sortOrder": "asc"},
+        # A send's status and engagement timestamps change after `createdAt`, so every run
+        # reads the whole retained window and the merge updates older rows. Oldest first, so
+        # sends that arrive mid-sync land on later pages.
+        params={"days": EMAIL_SENDS_RETENTION_DAYS, "sortField": "createdAt", "sortOrder": "asc"},
         partition_key="createdAt",
         incremental_fields=[_datetime_field("createdAt")],
         default_incremental_field="createdAt",
-        time_filter="days",
-        # `days` is a coarse window that moves with the clock, so a continued run cannot skip to
-        # the last value it read.
+        # The `days` window counts back from the server's clock, so a page number saved by one
+        # attempt points at other rows on the next.
+        resume_pages=False,
         sort_mode=None,
     ),
     "campaign_events": SequenzyEndpointConfig(
@@ -146,7 +146,7 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
         partition_key="eventTime",
         incremental_fields=[_datetime_field("eventTime")],
         default_incremental_field="eventTime",
-        time_filter="start_end",
+        event_time_range=True,
         fanout=DependentEndpointConfig(
             parent_name="campaigns",
             resolve_param="campaignId",
@@ -169,7 +169,7 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
         partition_key="eventTime",
         incremental_fields=[_datetime_field("eventTime")],
         default_incremental_field="eventTime",
-        time_filter="start_end",
+        event_time_range=True,
         fanout=DependentEndpointConfig(
             parent_name="sequences",
             resolve_param="sequenceId",
@@ -202,9 +202,10 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
 
 ENDPOINTS = tuple(ENDPOINTS_CONFIG.keys())
 
-# Only email sends and the event streams take a server-side time filter. The other list
-# endpoints have no created/updated filter (subscribers only filter on `unsubscribedAt`,
-# which covers opted-out contacts alone), so they are full-refresh only.
+# The API expires email sends and events, so these tables merge to keep older rows, and the
+# events take a server-side time filter. The other list endpoints have no created/updated
+# filter (subscribers only filter on `unsubscribedAt`, which covers opted-out contacts
+# alone), so they are full-refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ENDPOINTS_CONFIG.items() if config.incremental_fields
 }

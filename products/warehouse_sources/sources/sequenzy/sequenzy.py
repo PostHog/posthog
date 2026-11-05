@@ -1,5 +1,4 @@
-import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.sdk import (
@@ -19,7 +18,6 @@ from products.warehouse_sources.sources.sdk import (
     rest_api_resource,
 )
 from products.warehouse_sources.sources.sequenzy.settings import (
-    EMAIL_SENDS_RETENTION_DAYS,
     ENDPOINTS_CONFIG,
     EVENTS_MAX_WINDOW,
     SEQUENZY_BASE_URL,
@@ -65,34 +63,22 @@ def _time_filter_params(
     db_incremental_field_last_value: Any,
     now: datetime,
 ) -> dict[str, Any]:
-    last_value = (
-        _to_utc(db_incremental_field_last_value)
-        if should_use_incremental_field and db_incremental_field_last_value
-        else None
-    )
+    if not config.event_time_range:
+        return {}
 
-    if config.time_filter == "days":
-        if last_value is None:
-            return {"days": EMAIL_SENDS_RETENTION_DAYS}
-        # `days` counts back from the server's clock; one extra day covers sends at the edge
-        # of the window, and the merge drops the overlap.
-        days = math.ceil((now - last_value) / timedelta(days=1)) + 1
-        return {"days": min(max(days, 1), EMAIL_SENDS_RETENTION_DAYS)}
-
-    if config.time_filter == "start_end":
-        if last_value is None:
-            return {"period": "90d"}
-        start = max(last_value, now - EVENTS_MAX_WINDOW)
-        return {"start": _format_timestamp(start), "end": _format_timestamp(now)}
-
-    return {}
+    # Every request of a run, resumed attempts included, shares one `end`. A relative
+    # `period` would move with each request, so events for a parent read early could fall
+    # behind the watermark that later parents advance.
+    start = now - EVENTS_MAX_WINDOW
+    if should_use_incremental_field and db_incremental_field_last_value:
+        start = max(_to_utc(db_incremental_field_last_value), start)
+    return {"start": _format_timestamp(start), "end": _format_timestamp(now)}
 
 
 def _make_paginator(config: SequenzyEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
         return JSONResponseCursorPaginator(cursor_path="pagination.nextCursor", cursor_param="cursor")
     if config.pagination == "offset":
-        assert config.page_size is not None
         return OffsetPaginator(
             limit=config.page_size,
             offset_param="offset",
@@ -109,7 +95,7 @@ def _request_params(config: SequenzyEndpointConfig, time_filter_params: dict[str
     # The cursor and page-number paginators only inject their own pagination param, so
     # the page size rides along as a plain query param. The offset paginator sends
     # `limit` itself.
-    if config.pagination in ("cursor", "page") and config.page_size is not None:
+    if config.pagination in ("cursor", "page"):
         params["limit"] = config.page_size
     params.update(time_filter_params or {})
     return params
@@ -215,7 +201,7 @@ def sequenzy_source(
         }
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            if not state:
+            if not state or not endpoint_config.resume_pages:
                 return
             resumable_source_manager.save_state(
                 SequenzyResumeConfig(
@@ -231,7 +217,9 @@ def sequenzy_source(
             job_id,
             None,
             resume_hook=save_checkpoint,
-            initial_paginator_state=_paginator_state(resume_config) if resume_config else None,
+            initial_paginator_state=(
+                _paginator_state(resume_config) if resume_config and endpoint_config.resume_pages else None
+            ),
         )
 
     return SourceResponse(

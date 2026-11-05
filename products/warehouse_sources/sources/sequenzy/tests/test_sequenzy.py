@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-
 import time_machine
 
 from products.warehouse_sources.sources.sdk.testing import (
@@ -115,7 +114,9 @@ class TestSequenzyFanOut:
         assert {r.param("eventTypes") for r in child_requests} == {
             "send,delivery,bounce,complaint,open,click,unsubscribe,delivery_delay,transport_failure"
         }
-        assert {r.param("period") for r in child_requests} == {"90d"}
+        assert {(r.param("start"), r.param("end"), r.param("period")) for r in child_requests} == {
+            ("2026-03-17T13:00:00.000Z", "2026-06-15T12:00:00.000Z", None)
+        }
         assert {r.param("limit") for r in child_requests} == {"500"}
         assert [(row["id"], row[parent_key]) for row in result.rows] == [("e1", "p1"), ("e2", "p1")]
 
@@ -166,19 +167,17 @@ class TestSequenzyFanOut:
 
 class TestSequenzyTimeFilter:
     @pytest.mark.parametrize(
-        ("inputs", "expected_days"),
+        "inputs",
         [
-            ({}, "14"),
-            (_incremental(NOW - dt.timedelta(days=2, hours=12)), "4"),
-            (_incremental(NOW - dt.timedelta(minutes=5)), "2"),
-            (_incremental(NOW - dt.timedelta(days=30)), "14"),
+            {},
+            _incremental(NOW - dt.timedelta(minutes=5)),
         ],
     )
-    def test_email_sends_days_window(self, inputs: dict[str, Any], expected_days: str) -> None:
+    def test_email_sends_read_the_whole_retained_window(self, inputs: dict[str, Any]) -> None:
         result = _drive("email_sends", [_numbered_page("emailSends", [{"id": "s1"}], total_pages=1)], **inputs)
 
         request = result.requests[0]
-        assert request.param("days") == expected_days
+        assert request.param("days") == "14"
         assert (request.param("sortField"), request.param("sortOrder")) == ("createdAt", "asc")
 
     @pytest.mark.parametrize(
@@ -214,12 +213,18 @@ class TestSequenzyResume:
             ("subscribers", SequenzyResumeConfig(cursor="cur_saved"), "cursor", "cur_saved"),
             ("campaigns", SequenzyResumeConfig(offset=100), "offset", "100"),
             ("email_metrics", SequenzyResumeConfig(page=2), "page", "2"),
+            ("email_sends", SequenzyResumeConfig(page=3), "page", "1"),
         ],
     )
     def test_resume_seeds_first_request(
         self, endpoint: str, resume: SequenzyResumeConfig, param: str, expected: Any
     ) -> None:
-        selector = {"subscribers": "subscribers", "campaigns": "campaigns", "email_metrics": "emails"}[endpoint]
+        selector = {
+            "subscribers": "subscribers",
+            "campaigns": "campaigns",
+            "email_metrics": "emails",
+            "email_sends": "emailSends",
+        }[endpoint]
         responses = [
             _make_http_response({"success": True, selector: [], "pagination": {"nextCursor": None}}),
         ]
