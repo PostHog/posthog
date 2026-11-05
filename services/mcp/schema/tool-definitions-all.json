@@ -18060,7 +18060,7 @@
         "feature": "workflows",
         "summary": "Make email template transactional (execute)",
         "title": "Make email template transactional (execute)",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["transactional_email:write"],
         "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
         "annotations": {
             "destructiveHint": true,
@@ -18076,7 +18076,7 @@
         "feature": "workflows",
         "summary": "Make email template transactional (prepare)",
         "title": "Make email template transactional (prepare)",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["transactional_email:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
