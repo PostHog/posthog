@@ -93,6 +93,8 @@ class TimeBucketCollector(TraversingVisitor):
         for cte in (node.ctes or {}).values():
             self.visit(cte)
         self.visit(node.select_from)
+        for expr in node.array_join_list or []:
+            self.visit(expr)
         for expr in node.select:
             self.visit(expr)
         for expr in node.group_by or []:

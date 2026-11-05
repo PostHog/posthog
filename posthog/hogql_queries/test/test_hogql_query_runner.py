@@ -802,6 +802,11 @@ class TestFinestTimeBucket(SimpleTestCase):
                 "with d as (select toStartOfDay(timestamp) as day from events) select day, count() from d group by day",
                 "day",
             ),
+            (
+                "inside_array_join",
+                "select bucket, count() from events array join [toStartOfMinute(timestamp)] as bucket group by bucket",
+                "minute",
+            ),
         ]
     )
     def test_finest_time_bucket(self, _name: str, sql: str, expected: Optional[str]) -> None:
