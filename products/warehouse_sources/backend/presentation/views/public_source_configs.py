@@ -20,20 +20,20 @@ from products.warehouse_sources.backend.facade.source_management import SourceRe
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# Web workers recycle often, so most catalog requests land on a process that has not imported the
-# source registry yet, and its vendor SDK imports are slow. The catalog is identical in every process of a
-# deploy, so share it through the Django cache, keyed by commit. It is stored as JSON text so that a
-# cache read never unpickles classes from the source modules this cache exists to avoid importing.
 SHARED_CATALOG_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 def shared_catalog_cache_key(*, include_tables: bool) -> str | None:
-    if settings.DEBUG:
-        # Local edits do not change the commit, so a shared entry would hide them until it expires.
-        return None
+    """Key for the catalog shared through the Django cache, or None when it must not be shared.
+
+    Web workers recycle often, so most catalog requests land on a process that has not imported the
+    source registry yet, and its vendor SDK imports are slow. The catalog is identical in every
+    process of a deploy, so the key is the commit. The value is JSON text, so a cache read never
+    unpickles classes from the source modules this cache exists to avoid importing.
+    """
     commit = get_git_commit_full()
-    if not commit:
-        # Without a commit we cannot tell deploys apart, so a shared entry could outlive a code change.
+    if settings.DEBUG or not commit:
+        # A local edit or a missing commit leaves the key unchanged, so a shared entry could hide a code change.
         return None
     return f"warehouse_sources:source_configs:v1:{commit}:{'tables' if include_tables else 'no_tables'}"
 
@@ -50,7 +50,8 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
 
     The catalog is deploy-static (it only changes when source code ships), so the result is
     memoized per process and shared across processes through the Django cache — callers must
-    treat it as read-only.
+    treat it as read-only. Both paths return the catalog decoded from JSON written with the DRF
+    encoder, so a cache hit and a miss give the same shape as the rendered response.
     """
     cache_key = shared_catalog_cache_key(include_tables=include_tables)
     if cache_key is not None:
@@ -68,7 +69,6 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
             cache.set(cache_key, serialized, timeout=SHARED_CATALOG_CACHE_TTL_SECONDS)
         except Exception:
             logger.exception("build_source_configs: shared cache write failed")
-    # The DRF encoder matches how the response renders. Decode on both paths, so a hit and a miss give the same shape.
     return json.loads(serialized)
 
 

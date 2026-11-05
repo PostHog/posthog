@@ -30,7 +30,6 @@ class TestPublicSourceConfigs(APIBaseTest):
                     "warehouse_sources.catalog.build",
                 ]
 
-                # A fresh process reads the catalog from the shared cache instead of loading the registry.
                 build_source_configs.cache_clear()
                 start_span.reset_mock()
                 with patch(f"{MODULE}.SourceRegistry.get_all_sources") as get_all_sources:
