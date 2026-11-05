@@ -63,3 +63,17 @@ const text2 = value as string
 // A comment that says to treat a value as Host is not a cast.
 // ok: hog-host-cast-outside-host-module
 const text3 = value
+
+// ok: hog-host-cast-outside-host-module
+const prose = 'treat the value as Host'
+
+/* ok: hog-host-cast-outside-host-module */ /* treat the value as Host */
+const afterBlock = value
+
+// ok: hog-host-cast-outside-host-module
+import {
+    thing as Host,
+} from 'elsewhere'
+
+// ruleid: hog-host-cast-outside-host-module
+const afterCall = load('x') as Host
