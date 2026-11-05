@@ -15,6 +15,7 @@ from datetime import datetime
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -153,6 +154,7 @@ def fetch_source_products_for_reports(
     report_ids: list[str],
     *,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    max_execution_time: int | None = None,
 ) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
 
@@ -218,6 +220,7 @@ def fetch_source_products_for_reports(
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
         },
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_time) if max_execution_time else None,
     )
 
     return {

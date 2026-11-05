@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -25,6 +25,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, OAuthApplication, Organization, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
@@ -2851,26 +2852,35 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default", {}, True),
-            ("opted_out", {"include_source_metadata": "false"}, False),
+            ("default", {}, None, True, True),
+            ("opted_out", {"include_source_metadata": "false"}, None, False, False),
+            ("timed_out", {}, ClickHouseQueryTimeOut(), True, False),
         ]
     )
-    def test_list_source_metadata_opt_out(self, _name, query, expect_lookup):
+    def test_list_source_metadata(self, _name, query, fetch_error, expect_lookup, expect_available):
         report = self._create_report()
 
-        with patch(
-            "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={
-                str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
-            },
-        ) as fetch_source_products:
+        with (
+            override_settings(SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS=2),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={
+                    str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
+                },
+                side_effect=fetch_error,
+            ) as fetch_source_products,
+        ):
             response = self.client.get(self._list_url(**query))
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_metadata_available"] is expect_available
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert fetch_source_products.called is expect_lookup
-        assert row["source_products"] == (["zendesk"] if expect_lookup else [])
-        assert row["scout_name"] == ("signals-scout-support" if expect_lookup else None)
+        if expect_lookup:
+            assert fetch_source_products.call_args.kwargs == {"max_execution_time": 2}
+        else:
+            fetch_source_products.assert_not_called()
+        assert row["source_products"] == (["zendesk"] if expect_available else [])
+        assert row["scout_name"] == ("signals-scout-support" if expect_available else None)
 
     def test_source_metadata_returns_one_entry_per_requested_id(self):
         known, unknown = str(uuid.uuid4()), str(uuid.uuid4())

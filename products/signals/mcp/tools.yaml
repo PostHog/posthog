@@ -548,6 +548,10 @@ tools:
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
             `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status:
             unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.
+
+            `source_products` and `scout_name` come from a separate read with a short time limit. When the response has
+            `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null
+            `scout_name` does not mean the report has none. Say so instead of reporting them as values.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues

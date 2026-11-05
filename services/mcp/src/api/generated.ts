@@ -74779,6 +74779,8 @@ export namespace Schemas {
          * @nullable
          */
       ranking_pill?: boolean | null;
+      /** Whether the rows carry their source metadata. False when the request passed include_source_metadata=false, or when the ClickHouse read failed or took too long. Then each row has an empty source_products and a null scout_name that do not mean the report has none. Load them with source_metadata. */
+      source_metadata_available?: boolean;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
