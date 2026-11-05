@@ -8,6 +8,7 @@ command both call `write_brief_for_ticket`.
 
 from __future__ import annotations
 
+import re
 import json as json_module
 import asyncio
 from typing import Any
@@ -22,7 +23,6 @@ import posthoganalytics
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
-from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -37,15 +37,19 @@ from products.conversations.backend.ai.llms import (
 )
 from products.conversations.backend.ai.suggest import _build_ticket_context
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import TicketBriefItemKind
+from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.ticket_brief.limits import (
     MAX_AREA,
     MAX_ASK,
     MAX_ERROR_MESSAGE,
     MAX_FACT,
     MAX_FACTS,
+    MAX_ITEM_LABEL,
     MAX_PURPOSE,
     MAX_QUESTION,
     MAX_QUESTIONS,
+    MAX_SCREENSHOTS,
     MAX_TRIED,
     MAX_URL_LENGTH,
 )
@@ -160,19 +164,13 @@ def _build_brief(parsed: dict[str, Any]) -> dict[str, Any]:
     return brief
 
 
-def _replay_url_for(ticket: Ticket) -> str | None:
-    """The replay link of the session the ticket came from, or None when it has no usable one.
+def _usable_url(candidate: object) -> str | None:
+    """The value as a URL the brief may carry, or None.
 
-    The link is read from the ticket rather than asked of the model, so it points at a session
-    that really exists. The widget writes it under `session_replay_url`; `replay_url` is the
-    older key.
-
-    It is checked against the same contract TicketBriefSerializer states for the field, because
-    the widget only caps the length of what a customer sends, and this value joins the brief
-    after the serializer has already run.
+    Everything here reaches the brief after `TicketBriefSerializer` has already run, so each
+    value is checked against the same contract the serializer states for its field. The widget
+    endpoint is public and only caps the length of what it is sent.
     """
-    context = ticket.session_context if isinstance(ticket.session_context, dict) else {}
-    candidate = context.get("session_replay_url") or context.get("replay_url")
     if not isinstance(candidate, str) or len(candidate) > MAX_URL_LENGTH:
         return None
     try:
@@ -182,15 +180,103 @@ def _replay_url_for(ticket: Ticket) -> str | None:
     return candidate
 
 
+def _replay_url_for(ticket: Ticket) -> str | None:
+    """The replay link of the session the ticket came from, or None when it has no usable one.
+
+    The link is read from the ticket rather than asked of the model, so it points at a session
+    that really exists. The widget writes it under `session_replay_url`; `replay_url` is the
+    older key.
+    """
+    context = ticket.session_context if isinstance(ticket.session_context, dict) else {}
+    return _usable_url(context.get("session_replay_url") or context.get("replay_url"))
+
+
+_ITEM_KIND_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"/feature[_-]flags/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.FEATURE_FLAG),
+    (re.compile(r"/experiments/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.EXPERIMENT),
+    (re.compile(r"/insights/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.INSIGHT),
+    (re.compile(r"/dashboard(?:s)?/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.DASHBOARD),
+    (re.compile(r"/surveys/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.SURVEY),
+    (re.compile(r"/(?:replay|session-recordings|recordings)/[^/?#\s]+", re.IGNORECASE), TicketBriefItemKind.REPLAY),
+)
+
+_POSTHOG_PROJECT_PATH = re.compile(r"/project/\d+", re.IGNORECASE)
+
+
+def _item_kind_for(url: str) -> str:
+    """Which kind of item a URL points at.
+
+    Derived from the path rather than asked of the model, so the kind matches the link the
+    engineer opens. A PostHog URL with no object in its path is the project itself; anything
+    else is a link out, which the panel still renders.
+    """
+    for pattern, kind in _ITEM_KIND_PATHS:
+        if pattern.search(url):
+            return kind
+    if _POSTHOG_PROJECT_PATH.search(url):
+        return TicketBriefItemKind.PROJECT
+    return TicketBriefItemKind.EXTERNAL
+
+
+def _affected_items_for(ticket: Ticket) -> list[dict[str, str]]:
+    """The items the ticket is about, from the page the customer was on when they wrote in.
+
+    Read from the ticket rather than asked of the model: the widget records the page, so the
+    link points somewhere real, and the model cannot cite a URL a customer never sent.
+    """
+    context = ticket.session_context if isinstance(ticket.session_context, dict) else {}
+    url = _usable_url(context.get("current_url") or context.get("url") or context.get("$current_url"))
+    if url is None:
+        return []
+    kind = _item_kind_for(url)
+    return [{"kind": kind, "url": url, "label": _truncate(TicketBriefItemKind(kind).label, MAX_ITEM_LABEL)}]
+
+
+def _screenshot_urls_for(team_id: int, ticket_id: str) -> list[str]:
+    """The images the customer attached, oldest first.
+
+    Attachments are already rehosted and stored as image nodes on each message, so the brief
+    links what the customer actually sent. Private messages are left out, the same as the
+    context the model reads: a teammate's internal note is not the customer's evidence.
+    """
+    urls: list[str] = []
+    seen: set[str] = set()
+    comments = visible_ticket_messages(team_id, ticket_id).order_by("created_at").values_list("rich_content", flat=True)
+    for rich_content in comments:
+        nodes = rich_content.get("content") if isinstance(rich_content, dict) else None
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict) or node.get("type") != "image":
+                continue
+            attrs = node.get("attrs")
+            url = _usable_url(attrs.get("src") if isinstance(attrs, dict) else None)
+            if url is None or url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) == MAX_SCREENSHOTS:
+                return urls
+    return urls
+
+
 def _store_brief(team_id: int, ticket_id: str, brief: dict[str, Any]) -> bool:
     """Write the brief onto the ticket. Returns False when the ticket is gone."""
+    # Gathered before the lock, because reading the messages is a second query and the row stays
+    # locked until the transaction commits.
+    screenshot_urls = _screenshot_urls_for(team_id, ticket_id)
     with transaction.atomic():
         ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
         if ticket is None:
             return False
+        evidence: dict[str, Any] = {}
         replay_url = _replay_url_for(ticket)
         if replay_url:
-            brief = {**brief, "replay_url": replay_url}
+            evidence["replay_url"] = replay_url
+        affected_items = _affected_items_for(ticket)
+        if affected_items:
+            evidence["affected_items"] = affected_items
+        if screenshot_urls:
+            evidence["screenshot_urls"] = screenshot_urls
+        brief = {**brief, **evidence}
         ticket.ticket_brief = brief
         ticket.save(update_fields=["ticket_brief", "updated_at"])
     return True
@@ -254,11 +340,7 @@ def _ticket_context_for(team_id: int, ticket_id: str) -> str | None:
     ticket = Ticket.objects.select_related("team").filter(id=ticket_id, team_id=team_id).first()
     if ticket is None:
         return None
-    comments = list(
-        Comment.objects.filter(team_id=team_id, scope="conversations_ticket", item_id=str(ticket.id))
-        .exclude(item_context__is_private=True)
-        .order_by("created_at")
-    )
+    comments = list(visible_ticket_messages(team_id, str(ticket.id)).order_by("created_at"))
     return _build_ticket_context(ticket, comments, ticket.team)
 
 

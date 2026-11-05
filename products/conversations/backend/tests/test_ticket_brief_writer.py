@@ -2,12 +2,18 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import Team
+from posthog.models.comment import Comment
+
+from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import TicketBriefItemKind
 from products.conversations.backend.ticket_brief.limits import (
     MAX_AREA,
     MAX_ASK,
@@ -17,14 +23,19 @@ from products.conversations.backend.ticket_brief.limits import (
     MAX_PURPOSE,
     MAX_QUESTION,
     MAX_QUESTIONS,
+    MAX_SCREENSHOTS,
     MAX_TRIED,
+    MAX_URL_LENGTH,
 )
 from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
 from products.conversations.backend.ticket_brief.writer import (
+    _ITEM_KIND_PATHS,
     MAX_CONTEXT_CHARS,
     MAX_OUTPUT_TOKENS,
+    _affected_items_for,
     _bounded_context,
     _build_brief,
+    _screenshot_urls_for,
     write_brief,
 )
 
@@ -196,3 +207,124 @@ class TestWriteBrief(SimpleTestCase):
         assert bounded.endswith("NEWEST")
         assert "OLDEST" not in bounded
         assert len(bounded) <= MAX_CONTEXT_CHARS + 4
+
+    @parameterized.expand(
+        [
+            ("feature_flag", "https://us.posthog.com/project/2/feature_flags/14", "feature_flag"),
+            ("experiment", "https://us.posthog.com/project/2/experiments/88", "experiment"),
+            ("insight", "https://us.posthog.com/project/2/insights/aB3xY", "insight"),
+            ("dashboard", "https://us.posthog.com/project/2/dashboard/7", "dashboard"),
+            ("survey", "https://us.posthog.com/project/2/surveys/5", "survey"),
+            ("replay", "https://us.posthog.com/project/2/replay/0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "replay"),
+            ("project_page_with_no_object", "https://us.posthog.com/project/2/settings", "project"),
+            ("a_link_out", "https://example.com/status/incident-4", "external"),
+        ]
+    )
+    def test_the_page_the_customer_was_on_becomes_an_item_of_its_own_kind(
+        self, _name: str, url: str, expected_kind: str
+    ) -> None:
+        # The panel labels the link by this kind, so a wrong one sends the engineer to the wrong
+        # product area. A kind outside the enum is worse: the serializer rejects the object and
+        # the ticket loses its whole brief.
+        ticket = Ticket(session_context={"current_url": url})
+        items = _affected_items_for(ticket)
+        assert [item["kind"] for item in items] == [expected_kind]
+        assert [item["url"] for item in items] == [url]
+        assert TicketBriefSerializer(data={**BASE, "affected_items": items}).is_valid()
+
+    @parameterized.expand(
+        [
+            ("not_a_url", "notaurl"),
+            ("a_script_url", "javascript:alert(1)"),
+            ("over_the_cap", "https://us.posthog.com/project/2/insights/" + "x" * MAX_URL_LENGTH),
+            ("not_a_string", 12),
+            ("absent", None),
+        ]
+    )
+    def test_a_page_that_is_not_a_usable_url_yields_no_item(self, _name: str, current_url: object) -> None:
+        # session_context arrives from the public widget endpoint, which only caps the length of
+        # what it is sent. These values join the brief after the serializer has run, so nothing
+        # else stops a script URL reaching the panel as a link.
+        assert _affected_items_for(Ticket(session_context={"current_url": current_url})) == []
+
+    def test_every_kind_the_classifier_can_return_is_one_the_serializer_accepts(self) -> None:
+        # The classifier and the enum are edited in different files. A kind the serializer
+        # rejects costs the ticket its whole brief, not just the link.
+        kinds = {kind for _pattern, kind in _ITEM_KIND_PATHS} | {
+            TicketBriefItemKind.PROJECT,
+            TicketBriefItemKind.EXTERNAL,
+        }
+        assert kinds <= set(TicketBriefItemKind.values)
+
+
+class TestBriefScreenshots(BaseTest):
+    def _ticket(self) -> Ticket:
+        return Ticket.objects.create(
+            team=self.team,
+            ticket_number=1,
+            widget_session_id="brief-shots",
+            distinct_id="brief-shots-d1",
+        )
+
+    def _message(self, ticket: Ticket, *image_urls: str, context: dict[str, Any] | None = None) -> None:
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            item_context={} if context is None else context,
+            content="",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "image", "attrs": {"src": url}} for url in image_urls],
+            },
+        )
+
+    @parameterized.expand([("key_absent", {}), ("explicitly_public", {"is_private": False})])
+    def test_a_public_message_keeps_its_screenshots_however_it_records_that(
+        self, _name: str, context: dict[str, Any]
+    ) -> None:
+        # A JSON exclude drops the rows where the key is absent, because SQL NULL is not False,
+        # so filtering private notes with `exclude` alone silently loses every screenshot on a
+        # message that never set the key.
+        ticket = self._ticket()
+        self._message(ticket, "https://img.example.com/shot.png", context=context)
+        assert _screenshot_urls_for(self.team.id, str(ticket.id)) == ["https://img.example.com/shot.png"]
+
+    def test_screenshots_are_collected_oldest_first_and_only_from_what_the_customer_sent(self) -> None:
+        # A teammate's private note is not the customer's evidence, and the model never sees it
+        # either, so a brief that links it shows the engineer a screenshot the customer never
+        # sent. Order matters because the panel numbers them as the customer sent them.
+        ticket = self._ticket()
+        self._message(ticket, "https://img.example.com/first.png")
+        self._message(ticket, "https://img.example.com/internal.png", context={"is_private": True})
+        self._message(ticket, "https://img.example.com/second.png", "https://img.example.com/first.png")
+        assert _screenshot_urls_for(self.team.id, str(ticket.id)) == [
+            "https://img.example.com/first.png",
+            "https://img.example.com/second.png",
+        ]
+
+    def test_more_screenshots_than_the_cap_are_dropped_rather_than_costing_the_whole_brief(self) -> None:
+        # The serializer rejects a list over the cap, and it runs on the whole brief, so one
+        # chatty thread would otherwise leave the ticket with no brief at all.
+        ticket = self._ticket()
+        self._message(ticket, *[f"https://img.example.com/{i}.png" for i in range(MAX_SCREENSHOTS + 3)])
+        urls = _screenshot_urls_for(self.team.id, str(ticket.id))
+        assert len(urls) == MAX_SCREENSHOTS
+        assert TicketBriefSerializer(data={**BASE, "screenshot_urls": urls}).is_valid()
+
+    def test_another_team_s_messages_never_reach_this_ticket_s_brief(self) -> None:
+        # item_id is a bare string rather than a foreign key, so the team filter is the only
+        # thing scoping this read.
+        ticket = self._ticket()
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "image", "attrs": {"src": "https://img.example.com/x.png"}}],
+            },
+        )
+        assert _screenshot_urls_for(self.team.id, str(ticket.id)) == []
