@@ -144,13 +144,29 @@ pub fn read_as_with_byte_count<T>(data: &[u8]) -> Result<(T, usize), Error>
 where
     T: SymbolData,
 {
+    read_as_with_byte_count_limited(data, usize::MAX)
+}
+
+/// Like `read_as_with_byte_count`, but fails with `Error::DecompressedTooLarge` instead of
+/// producing a payload larger than `max_bytes`. Use it for data from an untrusted source: a
+/// small zstd frame can decompress to many gigabytes, and the frame header that declares the
+/// size is written by the uploader.
+pub fn read_as_with_byte_count_limited<T>(
+    data: &[u8],
+    max_bytes: usize,
+) -> Result<(T, usize), Error>
+where
+    T: SymbolData,
+{
     let version = read_version(data)?;
 
     match version {
         V1_VERSION => {
             assert_at_least_as_long_as(v1_header_len(), data.len())?;
             assert_data_type_impl(data, T::data_type())?;
-            let payload = data[v1_header_len()..].to_vec();
+            let payload = &data[v1_header_len()..];
+            assert_within_limit(payload.len(), max_bytes)?;
+            let payload = payload.to_vec();
             let byte_count = payload.len();
             T::from_bytes(payload).map(|v| (v, byte_count))
         }
@@ -160,14 +176,21 @@ where
             let compression = Compression::try_from(data[v2_header_len() - 1])?;
             let payload = &data[v2_header_len()..];
             let decompressed = match compression {
-                Compression::None => payload.to_vec(),
+                Compression::None => {
+                    assert_within_limit(payload.len(), max_bytes)?;
+                    payload.to_vec()
+                }
                 Compression::Zstd => {
-                    let mut decoder = zstd::Decoder::new(Cursor::new(payload))
+                    let decoder = zstd::Decoder::new(Cursor::new(payload))
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
                     let mut out = Vec::new();
+                    // One byte past the limit is enough to tell an oversized payload from one
+                    // that is exactly at the limit.
                     decoder
+                        .take((max_bytes as u64).saturating_add(1))
                         .read_to_end(&mut out)
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
+                    assert_within_limit(out.len(), max_bytes)?;
                     out
                 }
             };
@@ -176,6 +199,13 @@ where
         }
         other => Err(Error::WrongVersion(other, VERSION)),
     }
+}
+
+fn assert_within_limit(len: usize, max_bytes: usize) -> Result<(), Error> {
+    if len > max_bytes {
+        return Err(Error::DecompressedTooLarge(max_bytes as u64));
+    }
+    Ok(())
 }
 
 fn read_version(buffer: &[u8]) -> Result<u32, Error> {
