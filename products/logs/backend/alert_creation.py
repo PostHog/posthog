@@ -38,8 +38,8 @@ def check_alert_slot(team_id: int) -> None:
     """Raises `AlertLimitReached` when the team is at its cap. The caller holds the cap lock."""
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
-    # Every logs row, and every platform alert with no logs row. A copy outlives its logs row when the
-    # alert is deleted while logs owns it, so copies are not counted.
+    # Every logs row, and every platform alert with no logs row. A copy stands for a logs row already
+    # counted here, so copies are not counted.
     alerts = LogsAlertConfiguration.objects.filter(team_id=team_id).count() + count_configurations(
         team_id=team_id, source_kind=SourceKind.LOGS, native_only=True
     )

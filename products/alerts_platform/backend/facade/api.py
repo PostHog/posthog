@@ -215,8 +215,8 @@ def count_configurations(
 ) -> int:
     """How many alerts of a kind a team has on the platform. For a source's admission.
 
-    A source that keeps rows counts them and adds `native_only`, because a copy outlives its source
-    row when the source deletes an alert the platform does not own.
+    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
+    already counts, and a copy left by a delete from before copies went with their row counts nothing.
     """
     return platform_reads.count_configurations(
         team_id=team_id,
