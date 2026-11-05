@@ -220,6 +220,16 @@ describe('ReportContextMenu', () => {
         await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
     })
 
+    it.each([
+        { name: "a teammate's claim", assignee: teammateClaim, disabled: true },
+        { name: "the user's agent claim", assignee: myAgentClaim, disabled: true },
+        { name: "the user's own claim", assignee: myClaim, disabled: false },
+    ])('gates Create PR on $name', ({ assignee, disabled }) => {
+        openMenu(makeReport({ assignee }))
+
+        expect(screen.getByText('Create PR').closest('[role="menuitem"]')?.hasAttribute('data-disabled')).toBe(disabled)
+    })
+
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.
     it('copies the absolute report detail link', () => {
         openMenu(makeReport())
