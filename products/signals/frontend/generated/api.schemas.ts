@@ -833,9 +833,9 @@ export interface SignalTeamConfigApi {
      * @items.maxLength 255
      */
     implementation_repositories?: string[]
-    /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+    /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
     anomaly_scoring_enabled?: boolean
-    /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+    /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
     readonly anomaly_scoring_available: boolean
     /**
      * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
@@ -2498,6 +2498,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly tracker_issue_error: string | null
+    /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+    readonly source_issues: readonly string[]
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -2522,10 +2524,20 @@ export interface SignalReportListApi {
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
-     * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
+     * Sort key from the ranker named by the list response's ranker field, for sort=recommended and sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the stored personal ranking gets its position in that ranking from 0, and every other report gets the number of those positions plus its key from the recommended ranker. Null for every other sort.
      * @nullable
      */
     readonly inbox_merge_key: number | null
+    /**
+     * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * @nullable
+     */
+    readonly personal_tier: string | null
+    /**
+     * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * @nullable
+     */
+    readonly personal_reason: string | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -2536,12 +2548,19 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended: priority, or open, action or fix for that outcome of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
     /**
-     * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+     * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+     * @nullable
+     */
+    ranking_id?: string | null
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
+    count_is_capped?: boolean
+    /**
+     * Whether the client shows a ranking score pill on each card, when sort=recommended or sort=personal. The same flag arm sets this and the ranker. Null for every other sort.
      * @nullable
      */
     ranking_pill?: boolean | null
@@ -2718,6 +2737,17 @@ export interface ReportLinkWriteApi {
 }
 
 /**
+ * One external issue the report is about.
+ */
+export interface SourceIssueWriteApi {
+    /**
+     * The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.
+     * @maxLength 500
+     */
+    url: string
+}
+
+/**
  * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
  * taken from the URL path; a person is the authenticated caller.
  */
@@ -2768,12 +2798,12 @@ export interface EmitReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
-     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.
      * @maxItems 20
      */
     charts?: ReportChartApi[]
     /**
-     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+     * Optional typed impact measurements, at most 6. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.
      * @maxItems 6
      */
     metrics?: ReportMetricWriteApi[]
@@ -2788,6 +2818,11 @@ export interface EmitReportRequestApi {
      * @maxItems 10
      */
     links?: ReportLinkWriteApi[]
+    /**
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.
+     * @maxItems 5
+     */
+    source_issues?: SourceIssueWriteApi[]
     /**
      * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
      * @maxItems 10
@@ -3045,6 +3080,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly tracker_issue_error: string | null
+    /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+    readonly source_issues: readonly string[]
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -5719,6 +5756,7 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  * * `report_link` - Report Link
+ * * `source_issue` - Source Issue
  * * `autostart_skip` - Autostart Skip
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
@@ -5762,6 +5800,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
     ReportLink: 'report_link',
+    SourceIssue: 'source_issue',
     AutostartSkip: 'autostart_skip',
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
@@ -6586,7 +6625,7 @@ export interface PersonalRankingApi {
     personalized: boolean
     /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
     cached: boolean
-    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a report in the list changed since the build, and the next scheduled build updates it. Pass `refresh` for a new list now. */
     stale: boolean
     /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
     building: boolean
@@ -6600,6 +6639,11 @@ export interface PersonalRankingApi {
      * @nullable
      */
     generated_at: string | null
+    /**
+     * When a build or a check last compared the list with your full inbox. The list is current as at this time. Null when no list is stored.
+     * @nullable
+     */
+    checked_at: string | null
     /**
      * How long the model call of the build took, in ms. Null when there was no model call.
      * @nullable
@@ -8759,7 +8803,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. `report_note` for one left from a report through this API with `report_id` set: steering written straight for you, about the report its content names. */
+    /** Where the note came from. `human`: left directly through this API. `report_note`: left through this API with `report_id` set, about the report its content names. `report_dismissal`: the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. `report_discussion`: the question someone asked when they opened a discussion on a report. `report_feedback`: the note someone left when they rated a report useful or not. `report_reviewer_correction`: someone added or removed a suggested reviewer on a report, or a person or their agent claimed a report. The `scout-notes-list` tool description says how a scout reads each origin. */
     origin: string
 }
 
@@ -10030,12 +10074,12 @@ export interface EditReportRequestApi {
      */
     summary?: string | null
     /**
-     * Optional free-form note to append to the report's work log (attributed to this scout).
+     * Optional free-form note to append to the report's work log, attributed to this scout. Prefer it over rewriting a report you did not author: a note is additive and keeps the audit trail.
      * @maxLength 10000
      * @nullable
      */
     append_note?: string | null
-    /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
+    /** Set only when `append_note` confirms the finding with no new information. The first four confirmations stay in the work log as entries; later ones only raise the report's corroboration count. Other notes always stay in the work log. */
     corroboration_only?: boolean
     /**
      * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
@@ -10049,18 +10093,18 @@ export interface EditReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
-     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change.
+     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land.
      * @nullable
      */
     repository?: string | null
     /**
-     * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
+     * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so read the report first and send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
      * @maxItems 20
      * @nullable
      */
     charts?: ReportChartApi[] | null
     /**
-     * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+     * The report's full impact-metric set, at most 6. Omit it or send null to keep the current set, send an empty list to clear it, or send the complete replacement. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.
      * @maxItems 6
      * @nullable
      */
@@ -10078,12 +10122,17 @@ export interface EditReportRequestApi {
      */
     links?: ReportLinkWriteApi[]
     /**
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+     * @maxItems 5
+     */
+    source_issues?: SourceIssueWriteApi[]
+    /**
      * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
      * @maxItems 10
      * @nullable
      */
     tags?: string[] | null
-    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it: put that in `append_note`. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
     supersedes_implementation?: boolean
     /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
      *
@@ -10134,6 +10183,8 @@ export interface EditReportResponseApi {
     evidence_appended: number
     /** How many typed report-to-report links this edit wrote; 0 if none. */
     links_appended: number
+    /** How many source issues this edit added that the report did not name yet; 0 if none. */
+    source_issues_appended: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -10787,7 +10838,7 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10801,7 +10852,7 @@ export interface SignalSourceConfigApi {
     source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
     config?: SignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: SignalSourceConfigApiConfigSet
@@ -10823,7 +10874,7 @@ export interface PaginatedSignalSourceConfigListApi {
 }
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10837,7 +10888,7 @@ export interface PatchedSignalSourceConfigApi {
     source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
     config?: PatchedSignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: PatchedSignalSourceConfigApiConfigSet
@@ -11242,6 +11293,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     */
+    ranking_id?: string
+    /**
      * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
@@ -11266,7 +11321,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
      */
     sort?: string
     /**
@@ -11417,6 +11472,12 @@ export type SignalsReportsForMeRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.
+     * @minimum 0
+     * @maximum 10080
+     */
+    max_age_minutes?: number
     /**
      * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */
@@ -11669,6 +11730,10 @@ export type SignalsScoutNotesListParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Return only the standing notes, which have no `expires_at`. Pair it with `date_from` to re-read the standing notes of a recent window that the newest-first cap would hide.
+     */
+    only_without_expiry?: boolean
     /**
      * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1

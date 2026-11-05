@@ -28,6 +28,7 @@ export interface FeatureFlagRequestUsageSdkTotal {
     sdk: string
     remoteRequests: number
     localRequests: number
+    localBillingUnits: number
     billingUnits: number
     billingUnitsShare: number
 }
@@ -299,6 +300,7 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                         sdk: item.sdk,
                         remoteRequests: 0,
                         localRequests: 0,
+                        localBillingUnits: 0,
                         billingUnits: 0,
                         billingUnitsShare: 0,
                     }
@@ -306,6 +308,7 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                         current.remoteRequests += item.request_count
                     } else {
                         current.localRequests += item.request_count
+                        current.localBillingUnits += item.billing_units
                     }
                     current.billingUnits += item.billing_units
                     totals.set(item.sdk, current)

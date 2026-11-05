@@ -63,7 +63,7 @@ from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -1262,8 +1262,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             self._query_events("SELECT distinct_id FROM calls")
 
     def test_view_that_names_flag_calls_only_through_an_action_raises(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
-        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.pk})")
+        action = create_action(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.id})")
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
             self._query_events("SELECT distinct_id FROM calls")

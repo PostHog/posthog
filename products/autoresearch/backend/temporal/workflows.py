@@ -33,7 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-    from products.actions.backend.models.action import Action
+    from products.actions.backend.facade.contracts import ActionNotFound
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
@@ -53,6 +53,7 @@ with workflow.unsafe.imports_passed_through():
         run_inference_for_pipeline,
         score_shadow_set_for_run,
     )
+    from products.autoresearch.backend.limits import check_training_run_cap, limits_for_team
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -209,7 +210,7 @@ def _champion_for_inference(pipeline: AutoresearchPipeline) -> AutoresearchModel
         build_target_condition(
             target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
         )
-    except (ValueError, Action.DoesNotExist) as exc:
+    except (ValueError, ActionNotFound) as exc:
         raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
     model = (
         AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -732,6 +733,7 @@ class KickoffTrainingResult:
     kicked_off: bool
     # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
     # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # | "team_daily_cap"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -879,6 +881,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
     if loaded.created_by is not None and (gate := _tasks_gate(loaded)):
         return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
+    limits = limits_for_team(inp.team_id)
 
     with team_scope(inp.team_id), transaction.atomic():
         pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=inp.pipeline_id)
@@ -937,6 +940,11 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
+        # Checked last, so a pipeline with no run due does not wait on the team's advisory lock.
+        if cap := check_training_run_cap(inp.team_id, limits):
+            detail = f"{cap.used} of {cap.limit} training runs in the last 24 hours"
+            return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
+
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         try:
             with transaction.atomic():
@@ -946,8 +954,9 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                     user_id=pipeline.created_by_id,
                     rescue=rescue,
                     kickoff_reason=kickoff_reason,
+                    limits=limits,
                 )
-        except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
+        except (ValueError, SandboxInferenceError, ActionNotFound) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))

@@ -67,3 +67,20 @@ Its body tells the agent to:
 
 Pinning the version keeps a publish that lands mid-fetch from mixing two versions of the skill.
 Skill content only crosses the MCP server when a skill is invoked; the bundle itself carries discovery metadata only.
+
+## The `phs` bridge in task sandboxes
+
+A task sandbox lists only the user's own skills as stubs, so it also gets a fixed `phs` skill that runs any store skill the user can read, such as a teammate's.
+`/phs <name> [arguments]` fetches the skill with `skill-get`, pages through the body and pins the version, the same way a stub does.
+`/phs` or `/phs list [keyword]` calls `skill-list`, and a name `skill-get` cannot find triggers a `skill-list` search for close matches.
+The bridge reads and runs skills only.
+
+The task worker sets `TaskRun.state["store_skills_bridge"]` from the same `skills-store-in-sandbox` evaluation as `store_skills`.
+`store_skills` is empty both when the flag is off and when the user owns no skills, so it cannot carry this switch.
+The sandbox agent writes the bridge in `syncStoreSkills` (`packages/agent/packages/harness/src/extensions/skills-store/store-skills.ts`), so the Claude, Codex and Pi servers share it:
+
+- It is written even when `store_skills` is empty, because a user with no skills of their own needs it most.
+- It carries the store marker and `metadata.role: bridge`. Pruning keeps it while the switch is on and removes it when the switch is off. It is not counted in the prompt's number of the user's skills.
+- A null run state leaves the bridge on disk as it is, the same as stubs.
+- A team skill named `phs` in `store_skills` replaces it, including on a resumed sandbox. A non-store skill named `phs` is never replaced.
+- `skill-get` resolves in the run's project, so the bridge cannot fetch skills from another project.
