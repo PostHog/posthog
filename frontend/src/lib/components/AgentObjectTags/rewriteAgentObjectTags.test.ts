@@ -135,6 +135,12 @@ describe('rewriteAgentObjectTags', () => {
         expect(rewriteAgentObjectTags('<insight id="a">x</insight>', '')).toBe('[x](/insights/a)')
     })
 
+    it('rewrites a tag after a line that only looks like a fence opener', () => {
+        expect(rewriteAgentObjectTags('```js`\n<insight id="a">x</insight>', BASE)).toBe(
+            '```js`\n[x](/project/2/insights/a)'
+        )
+    })
+
     it('keeps a trailing partial tag in complete text', () => {
         expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
         expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
@@ -142,13 +148,25 @@ describe('rewriteAgentObjectTags', () => {
 
     describe('escapeRawHtmlTags', () => {
         it.each([
-            ['an unknown tag', 'keep <example> intact', 'keep \\<example> intact'],
-            ['a closing tag', 'keep </example> intact', 'keep \\</example> intact'],
-            ['a tag with attributes', '<div class="a">x</div>', '\\<div class="a">x\\</div>'],
-            ['a self-closing tag', 'line<br/>break', 'line\\<br/>break'],
-            ['a comment', 'a <!-- note --> b', 'a \\<!-- note --> b'],
-            ['a tag after an even backslash run', 'a \\\\<example>', 'a \\\\\\<example>'],
-            ['a tag already escaped', 'a \\<example>', 'a \\<example>'],
+            ['an unknown tag', 'keep <example> intact', 'keep &lt;example> intact'],
+            ['a closing tag', 'keep </example> intact', 'keep &lt;/example> intact'],
+            ['a tag with attributes', '<div class="a">x</div>', '&lt;div class="a">x&lt;/div>'],
+            ['a self-closing tag', 'line<br/>break', 'line&lt;br/>break'],
+            ['a comment', 'a <!-- note --> b', 'a &lt;!-- note --> b'],
+            [
+                'a bare url running into a tag',
+                '<script src="https://example.com/x.js"></script>',
+                '&lt;script src="https&#58;//example.com/x.js">&lt;/script>',
+            ],
+            ['a www url running into a tag', 'www.example.com/a<b>', 'www&#46;example.com/a&lt;b>'],
+            [
+                'a bare url before a space and a tag',
+                'see https://example.com/a <b>',
+                'see https://example.com/a &lt;b>',
+            ],
+            ['a bare url in inline code', '`https://example.com/a<b>`', '`https://example.com/a<b>`'],
+            ['a tag after an even backslash run', 'a \\\\<example>', 'a \\\\&lt;example>'],
+            ['a tag the person escaped', 'a \\<example>', 'a &lt;example>'],
             ['inline code', 'use `<example>` here', 'use `<example>` here'],
             ['a fenced block', '```html\n<example>\n```', '```html\n<example>\n```'],
             ['a url autolink', 'see <https://example.com/a?b=1>', 'see <https://example.com/a?b=1>'],
