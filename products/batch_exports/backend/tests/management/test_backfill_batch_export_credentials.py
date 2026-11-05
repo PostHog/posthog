@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import transaction
+from django.db import connection, transaction
 
 from parameterized import parameterized
 
@@ -118,13 +118,37 @@ class TestBackfillBatchExportCredentials(BaseTest):
             sensitive_config={"password": "fake-conflicting-secret" if conflict else SECRET},
         )
 
-    def test_links_connection_and_keeps_inline_values(self) -> None:
-        export = self._create()
-        original = deepcopy(export.destination.config)
+    def _stored_config(self, export: BatchExport) -> bytes:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT config::text FROM posthog_batchexportdestination WHERE id = %s",
+                [export.destination_id],
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0].encode("utf-8")
 
-        self.assertEqual(
-            self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_created"): 1}
+    def test_links_connection_and_keeps_inline_values(self) -> None:
+        export = self._create(
+            config={
+                **INLINE,
+                "copy_inputs": {
+                    "bucket_credentials": AWS_PAIR,
+                    "authorization": {
+                        "aws_access_key_id": "fake-second-key",
+                        "aws_secret_access_key": "gAAAAAfake-undecryptable-ciphertext",
+                    },
+                },
+            }
         )
+        original = deepcopy(export.destination.config)
+        original_stored_config = self._stored_config(export)
+        stdout = StringIO()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("backfill_batch_export_credentials", "--execute", stdout=stdout)
+
+        self.assertIn("Redshift integration_created: 1", stdout.getvalue())
 
         export.destination.refresh_from_db()
         row = IntegrationManager.aws_redshift.credentials.get(
@@ -143,7 +167,11 @@ class TestBackfillBatchExportCredentials(BaseTest):
         )
         self.assertEqual(row.sensitive_config, {"password": SECRET})
         self.assertEqual(export.destination.config, original)
+        self.assertEqual(self._stored_config(export), original_stored_config)
+        self.assertEqual(export.destination.config["copy_inputs"], original["copy_inputs"])
+        self.assertEqual(export.destination.config["user"], INLINE["user"])
         self.assertEqual(export.destination.config["password"], SECRET)
+        self.assertEqual(IntegrationManager.aws_s3.credentials.list(self.team.id), [])
         self.sync.assert_called_once_with(export, created=False)
         self.assertEqual(self.sync.call_args.args[0].destination.integration_id, row.id)
         self.assertEqual(self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="unchanged"): 1})
@@ -156,10 +184,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
 
         self.assertEqual(
             self._run(execute=False),
-            {
-                CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_created"): 1,
-                CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved"): 1,
-            },
+            {CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_created"): 1},
         )
 
         export.destination.refresh_from_db()
@@ -183,7 +208,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 1)
 
     def test_existing_link_keeps_inline_values(self) -> None:
-        export = self._create()
+        export = self._create(config={**INLINE, "copy_inputs": {"authorization": AWS_PAIR}})
         row = self._existing(export)
         export.destination.integration_id = row.id
         export.destination.save(update_fields=["integration_id"])
@@ -194,22 +219,14 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export.destination.refresh_from_db()
         self.assertEqual(export.destination.config, original)
         self.assertEqual(verify_batch_export_credentials(), {})
+        stdout = StringIO()
+        call_command("backfill_batch_export_credentials", "--verify", stdout=stdout)
+        self.assertIn("Total outcomes: 0", stdout.getvalue())
         self.sync.assert_not_called()
 
-    @parameterized.expand([("connection",), ("copy",)])
-    def test_conflict_skips_all_writes(self, variant: str) -> None:
-        config = {**INLINE, "copy_inputs": {"authorization": AWS_PAIR}} if variant == "copy" else INLINE
-        export = self._create(config=config)
-        if variant == "connection":
-            self._existing(export, conflict=True)
-        else:
-            name = f"Fake export COPY credentials ({str(export.destination.id)[:8]})"
-            IntegrationManager.aws_s3.credentials.create(
-                self.team.id,
-                external_id=name,
-                config={"name": name},
-                sensitive_config={**AWS_PAIR, "aws_secret_access_key": "fake-conflict"},
-            )
+    def test_conflict_skips_all_writes(self) -> None:
+        export = self._create()
+        self._existing(export, conflict=True)
         original = deepcopy(export.destination.config)
 
         self.assertEqual(
@@ -225,9 +242,7 @@ class TestBackfillBatchExportCredentials(BaseTest):
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
         self.assertEqual(export.destination.config, original)
-        self.assertEqual(
-            len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), int(variant == "connection")
-        )
+        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 1)
         self.sync.assert_not_called()
 
     @parameterized.expand(
@@ -281,98 +296,6 @@ class TestBackfillBatchExportCredentials(BaseTest):
         )
         self.assertEqual(row.config["port"], 5439)
         self.assertEqual(export.destination.config, config)
-
-    @parameterized.expand([(False,), (True,)])
-    def test_copy_pairs_share_or_split_integrations(self, distinct: bool) -> None:
-        second = {**AWS_PAIR, "aws_secret_access_key": "fake-second-secret"} if distinct else AWS_PAIR
-        export = self._create(
-            config={
-                **INLINE,
-                "copy_inputs": {
-                    "bucket_credentials": AWS_PAIR,
-                    "authorization": second,
-                    "s3_bucket": "fake-bucket",
-                },
-            }
-        )
-
-        counts = self._run()
-
-        export.destination.refresh_from_db()
-        copy = export.destination.config["copy_inputs"]
-        bucket = IntegrationManager.aws_s3.credentials.get(self.team.id, int(copy["bucket_credentials"]))
-        authorization = IntegrationManager.aws_s3.credentials.get(self.team.id, int(copy["authorization"]))
-        self.assertEqual(bucket.sensitive_config, AWS_PAIR)
-        self.assertEqual(authorization.sensitive_config, second)
-        self.assertEqual(bucket.id == authorization.id, not distinct)
-        name = f"Fake export COPY credentials ({str(export.destination.id)[:8]})"
-        self.assertEqual(bucket.config, {"name": name})
-        self.assertEqual(authorization.config, {"name": f"{name} 2" if distinct else name})
-        self.assertEqual(copy["s3_bucket"], "fake-bucket")
-        self.assertEqual({key: export.destination.config[key] for key in INLINE}, INLINE)
-        self.assertEqual(
-            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved")], 1
-        )
-        self.assertIsInstance(self.sync.call_args.args[0].destination.config["copy_inputs"]["authorization"], int)
-        self.assertEqual(len(IntegrationManager.aws_s3.credentials.list(self.team.id)), 2 if distinct else 1)
-        self.assertEqual(self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="unchanged"): 1})
-        self.sync.assert_called_once()
-
-    @parameterized.expand(
-        [
-            ("role", "arn:aws:iam::000000000000:role/fake-role"),
-            ("default", "default"),
-            ("id", 123),
-            ("digit_string", "123"),
-            ("incomplete", {"aws_access_key_id": "fake-access-key"}),
-        ]
-    )
-    def test_copy_leaves_other_values_untouched(self, variant: str, value: object) -> None:
-        export = self._create(
-            config={**INLINE, "copy_inputs": {"bucket_credentials": AWS_PAIR, "authorization": value}}
-        )
-        original = deepcopy(export.destination.config["copy_inputs"]["authorization"])
-
-        counts = self._run()
-
-        export.destination.refresh_from_db()
-        self.assertEqual(export.destination.config["copy_inputs"]["authorization"], original)
-        self.assertTrue(str(export.destination.config["copy_inputs"]["bucket_credentials"]).isdigit())
-        self.assertEqual(
-            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_skipped_incomplete")],
-            int(variant == "incomplete"),
-        )
-
-    @parameterized.expand([("incomplete",), ("linked",), ("preview",)])
-    def test_copy_is_independent_of_connection_creation(self, variant: str) -> None:
-        export = self._create(config={**INLINE, "copy_inputs": {"authorization": AWS_PAIR}})
-        if variant == "incomplete":
-            export.destination.config.pop("password")
-        elif variant == "linked":
-            export.destination.integration_id = self._existing(export).id
-        export.destination.save(update_fields=["config", "integration_id"])
-        original = deepcopy(export.destination.config)
-
-        counts = self._run(execute=variant != "preview")
-
-        export.destination.refresh_from_db()
-        self.assertEqual(
-            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_credentials_moved")], 1
-        )
-        if variant == "preview":
-            self.assertEqual(export.destination.config, original)
-            self.assertEqual(IntegrationManager.aws_s3.credentials.list(self.team.id), [])
-            self.sync.assert_not_called()
-        else:
-            copy_id = int(export.destination.config["copy_inputs"]["authorization"])
-            self.assertEqual(
-                IntegrationManager.aws_s3.credentials.get(self.team.id, copy_id).sensitive_config, AWS_PAIR
-            )
-            if variant == "incomplete":
-                self.assertIsNone(export.destination.integration_id)
-                self.assertEqual(
-                    counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_incomplete")], 1
-                )
 
     @parameterized.expand([(False, False, True), (False, True, True), (True, False, False)])
     def test_only_live_exports_are_changed(self, deleted: bool, paused: bool, expected_change: bool) -> None:
@@ -454,19 +377,14 @@ class TestBackfillBatchExportCredentials(BaseTest):
         else:
             logger.warning.assert_not_called()
 
-    @parameterized.expand([("connection", "needs_integration"), ("copy", "needs_copy_move")])
-    def test_verify_before_and_after_backfill(self, variant: str, outcome: str) -> None:
-        export = self._create()
-        if variant == "copy":
-            export.destination.integration_id = self._existing(export).id
-            export.destination.config["copy_inputs"] = {"authorization": AWS_PAIR}
-            export.destination.save(update_fields=["config", "integration_id"])
+    def test_verify_before_and_after_backfill(self) -> None:
+        self._create()
         stdout = StringIO()
 
         with self.assertRaises(CommandError):
             call_command("backfill_batch_export_credentials", "--verify", stdout=stdout)
 
-        self.assertIn(f"{outcome}: 1", stdout.getvalue())
+        self.assertIn("needs_integration: 1", stdout.getvalue())
         self.sync.assert_not_called()
         self._run()
         stdout = StringIO()
@@ -515,25 +433,8 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.assertEqual(IntegrationManager.aws_redshift.credentials.list(self.team.id), [])
         self.sync.assert_not_called()
 
-    def test_copy_reuses_matching_integration(self) -> None:
-        export = self._create(config={**INLINE, "copy_inputs": {"authorization": AWS_PAIR}})
-        name = f"Fake export COPY credentials ({str(export.destination.id)[:8]})"
-        row = IntegrationManager.aws_s3.credentials.create(
-            self.team.id, external_id=name, config={"name": name}, sensitive_config=AWS_PAIR
-        )
-
-        self._run()
-
-        export.destination.refresh_from_db()
-        self.assertEqual(int(export.destination.config["copy_inputs"]["authorization"]), row.id)
-        self.assertEqual(len(IntegrationManager.aws_s3.credentials.list(self.team.id)), 1)
-
-    @parameterized.expand([("connection",), ("copy",)])
-    def test_verify_incomplete_rows_remain_visible(self, variant: str) -> None:
-        config: dict[str, object] = {}
-        if variant == "copy":
-            config["copy_inputs"] = {"authorization": {"aws_access_key_id": "fake-key"}}
-        self._create(config=config)
+    def test_verify_incomplete_rows_remain_visible(self) -> None:
+        self._create(config={})
 
         counts = verify_batch_export_credentials()
 
@@ -541,23 +442,10 @@ class TestBackfillBatchExportCredentials(BaseTest):
             counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_incomplete")], 1
         )
         self.assertEqual(counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="needs_integration")], 0)
-        self.assertEqual(counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="needs_copy_move")], 0)
-        if variant == "copy":
-            self.assertEqual(
-                counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_skipped_incomplete")], 1
-            )
 
-    @parameterized.expand([("connection",), ("copy",)])
-    def test_undecryptable_values_are_not_migrated(self, variant: str) -> None:
+    def test_undecryptable_connection_values_are_not_migrated(self) -> None:
         ciphertext = "gAAAAAfake-undecryptable-ciphertext"
-        if variant == "copy":
-            config = {
-                **INLINE,
-                "copy_inputs": {"authorization": {**AWS_PAIR, "aws_secret_access_key": ciphertext}},
-            }
-        else:
-            config = {**INLINE, "password": ciphertext}
-        export = self._create(config=config)
+        export = self._create(config={**INLINE, "password": ciphertext})
         original = deepcopy(export.destination.config)
 
         self.assertEqual(

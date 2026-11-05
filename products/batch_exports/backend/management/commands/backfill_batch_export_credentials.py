@@ -13,8 +13,8 @@ from products.batch_exports.backend.logic.credentials_backfill import (
 
 class Command(BaseCommand):
     help = (
-        "Link Redshift batch export credentials to Integrations. Keep inline connection values. "
-        "Replace inline AWS key pairs in Redshift COPY settings with Integration IDs. Preview by default. "
+        "Link Redshift batch exports to connection Integrations. Keep all destination config values. "
+        "Preview by default. "
         "After --execute, schedules are synced unless --no-sync-schedules is set. "
         "Use update_batch_export_schedules to sync schedules later. Output contains counts only."
     )

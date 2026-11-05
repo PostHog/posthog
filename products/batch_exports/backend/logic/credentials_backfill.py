@@ -1,4 +1,4 @@
-"""Link Redshift credentials to Integrations while keeping inline connection values."""
+"""Link Redshift connection credentials to Integrations without changing destination config."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field, replace
 from functools import partial
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 
@@ -28,10 +28,8 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DESTINATION_TYPES = (BatchExportDestinationType.REDSHIFT,)
-NEEDS_WORK = frozenset({"needs_integration", "needs_copy_move"})
-UNRESOLVED_SKIPS = frozenset(
-    {"skipped_incomplete", "skipped_unreadable", "skipped_conflict", "copy_skipped_incomplete"}
-)
+NEEDS_WORK = frozenset({"needs_integration"})
+UNRESOLVED_SKIPS = frozenset({"skipped_incomplete", "skipped_unreadable", "skipped_conflict"})
 
 
 @frozen
@@ -50,19 +48,10 @@ class _Credentials:
 
 
 @frozen
-class _CopyMove:
-    key: str
-    credentials_index: int
-
-
-@frozen
 class _DestinationPlan:
-    config: dict[str, object] = field(repr=False, default_factory=dict)
-    credentials: tuple[_Credentials, ...] = field(repr=False, default=())
-    connection_index: int | None = None
-    copy_moves: tuple[_CopyMove, ...] = ()
-    outcomes: tuple[str, ...] = ()
-    needs: tuple[str, ...] = ()
+    credentials: _Credentials | None = field(repr=False, default=None)
+    outcome: str = "unchanged"
+    needs_integration: bool = False
 
 
 def _required(config: Mapping[str, object], *keys: str) -> dict[str, str] | None:
@@ -75,27 +64,12 @@ def _required(config: Mapping[str, object], *keys: str) -> dict[str, str] | None
     return values
 
 
-def _has_undecryptable_value(value: object) -> bool:
-    # The config field ignores decrypt errors and returns ciphertext for values it cannot read.
-    if isinstance(value, str):
-        return value.startswith(FERNET_TOKEN_PREFIX)
-    if isinstance(value, dict):
-        return any(_has_undecryptable_value(item) for item in value.values())
-    if isinstance(value, list):
-        return any(_has_undecryptable_value(item) for item in value)
+def _has_undecryptable_connection_value(config: Mapping[str, object]) -> bool:
+    for key in ("host", "user", "password", "port"):
+        value = config.get(key)
+        if isinstance(value, str) and value.startswith(FERNET_TOKEN_PREFIX):
+            return True
     return False
-
-
-def _aws_credentials(config: Mapping[str, object], name: str) -> _Credentials | None:
-    values = _required(config, "aws_access_key_id", "aws_secret_access_key")
-    if values is None:
-        return None
-    return _Credentials(
-        accessor=IntegrationManager.aws_s3.credentials,
-        external_id=name,
-        config={"name": name},
-        sensitive_config=dict(values),
-    )
 
 
 def _connection_credentials(export: BatchExport, config: Mapping[str, object]) -> _Credentials | None:
@@ -124,73 +98,24 @@ def _connection_credentials(export: BatchExport, config: Mapping[str, object]) -
 
 
 def _plan(destination: BatchExportDestination, export: BatchExport) -> _DestinationPlan:
-    if not isinstance(destination.config, dict) or _has_undecryptable_value(destination.config):
-        return _DestinationPlan(outcomes=("skipped_unreadable",))
-    config: dict[str, object] = dict(destination.config)
-    credentials: list[_Credentials] = []
-    outcomes: list[str] = []
-    needs: list[str] = []
-    connection_index: int | None = None
-    if destination.integration_id is None:
-        connection = _connection_credentials(export, config)
-        if connection is None:
-            outcomes.append("skipped_incomplete")
-        else:
-            needs.append("needs_integration")
-            connection_index = len(credentials)
-            credentials.append(connection)
+    if destination.integration_id is not None:
+        return _DestinationPlan()
+    if not isinstance(destination.config, dict) or _has_undecryptable_connection_value(destination.config):
+        return _DestinationPlan(outcome="skipped_unreadable")
+    credentials = _connection_credentials(export, destination.config)
+    if credentials is None:
+        return _DestinationPlan(outcome="skipped_incomplete")
 
-    copy_moves: list[_CopyMove] = []
-    copy_credentials: list[int] = []
-    copy_inputs = config.get("copy_inputs")
-    if isinstance(copy_inputs, dict):
-        for key in ("bucket_credentials", "authorization"):
-            value = copy_inputs.get(key)
-            if not isinstance(value, dict):
-                continue
-            suffix = f" {len(copy_credentials) + 1}" if copy_credentials else ""
-            name = f"{export.name} COPY credentials ({str(destination.id)[:8]}){suffix}"
-            candidate = _aws_credentials(value, name)
-            if candidate is None:
-                outcomes.append("copy_skipped_incomplete")
-                continue
-            index = next(
-                (
-                    index
-                    for index in copy_credentials
-                    if credentials[index].sensitive_config == candidate.sensitive_config
-                ),
-                None,
-            )
-            if index is None:
-                index = len(credentials)
-                credentials.append(candidate)
-                copy_credentials.append(index)
-            copy_moves.append(_CopyMove(key=key, credentials_index=index))
-            if "needs_copy_move" not in needs:
-                needs.append("needs_copy_move")
+    existing = credentials.accessor.find(export.team_id, external_id=credentials.external_id)
+    if existing is not None:
+        if existing.config != credentials.config or existing.sensitive_config != credentials.sensitive_config:
+            return _DestinationPlan(outcome="skipped_conflict", needs_integration=True)
+        credentials = replace(credentials, existing_id=existing.id)
 
-    for index, candidate in enumerate(credentials):
-        existing = candidate.accessor.find(export.team_id, external_id=candidate.external_id)
-        if existing is None:
-            continue
-        if existing.config != candidate.config or existing.sensitive_config != candidate.sensitive_config:
-            return _DestinationPlan(outcomes=("skipped_conflict",), needs=tuple(needs))
-        credentials[index] = replace(candidate, existing_id=existing.id)
-
-    if connection_index is not None:
-        outcomes.append(
-            "integration_reused" if credentials[connection_index].existing_id is not None else "integration_created"
-        )
-    if copy_moves:
-        outcomes.append("copy_credentials_moved")
     return _DestinationPlan(
-        config=config,
-        credentials=tuple(credentials),
-        connection_index=connection_index,
-        copy_moves=tuple(copy_moves),
-        outcomes=tuple(outcomes) or ("unchanged",),
-        needs=tuple(needs),
+        credentials=credentials,
+        outcome="integration_reused" if credentials.existing_id is not None else "integration_created",
+        needs_integration=True,
     )
 
 
@@ -232,7 +157,6 @@ def _export_for_destination(destination: BatchExportDestination, team_ids: Seque
 
 def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcome]) -> None:
     try:
-        # Keep the in-memory destination: a reload would stringify the integration ids in copy_inputs.
         export.refresh_from_db(
             fields=[
                 field.name
@@ -251,36 +175,21 @@ def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcom
 
 
 def _apply(destination: BatchExportDestination, export: BatchExport, plan: _DestinationPlan) -> bool:
-    if "skipped_conflict" in plan.outcomes or "skipped_unreadable" in plan.outcomes:
+    credentials = plan.credentials
+    if credentials is None:
         return False
-    integration_ids: list[int] = []
-    for credentials in plan.credentials:
-        if credentials.existing_id is not None:
-            integration_ids.append(credentials.existing_id)
-        else:
-            row = credentials.accessor.create(
-                export.team_id,
-                external_id=credentials.external_id,
-                config=credentials.config,
-                sensitive_config=credentials.sensitive_config,
-            )
-            integration_ids.append(row.id)
-    config = dict(plan.config)
-    if plan.copy_moves:
-        copy_inputs = dict(cast(dict[str, object], config["copy_inputs"]))
-        for move in plan.copy_moves:
-            copy_inputs[move.key] = integration_ids[move.credentials_index]
-        config["copy_inputs"] = copy_inputs
-    update_fields: list[str] = []
-    if plan.connection_index is not None:
-        destination.integration_id = integration_ids[plan.connection_index]
-        update_fields.append("integration_id")
-    if config != destination.config:
-        destination.config = config
-        update_fields.append("config")
-    if not update_fields:
-        return False
-    destination.save(update_fields=update_fields)
+    if credentials.existing_id is not None:
+        integration_id = credentials.existing_id
+    else:
+        row = credentials.accessor.create(
+            export.team_id,
+            external_id=credentials.external_id,
+            config=credentials.config,
+            sensitive_config=credentials.sensitive_config,
+        )
+        integration_id = row.id
+    destination.integration_id = integration_id
+    destination.save(update_fields=["integration_id"])
     export.destination = destination
     return True
 
@@ -317,8 +226,7 @@ def backfill_batch_export_credentials(
                     if export is None:
                         continue
                     plan = _plan(destination, export)
-                for outcome in plan.outcomes:
-                    counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=plan.outcome)] += 1
             except IntegrationConflict:
                 counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="skipped_conflict")] += 1
             except Exception as error:
@@ -344,9 +252,8 @@ def verify_batch_export_credentials(
             if export is None:
                 continue
             plan = _plan(destination, export)
-            for outcome in plan.needs:
-                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
-            for outcome in plan.outcomes:
-                if outcome in UNRESOLVED_SKIPS:
-                    counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
+            if plan.needs_integration:
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="needs_integration")] += 1
+            if plan.outcome in UNRESOLVED_SKIPS:
+                counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=plan.outcome)] += 1
     return counts

@@ -1,3 +1,4 @@
+import json
 import typing
 import datetime as dt
 from datetime import timedelta
@@ -509,6 +510,34 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         return self.source.version_key if self.source is not None else None
 
 
+def _redshift_copy_uses_integration(config: object, integration_id: int) -> bool:
+    if not isinstance(config, dict):
+        return False
+
+    copy_inputs = config.get("copy_inputs")
+    if isinstance(copy_inputs, str):
+        try:
+            copy_inputs = json.loads(copy_inputs)
+        except json.JSONDecodeError:
+            return False
+    if not isinstance(copy_inputs, dict):
+        return False
+
+    for field_name in ("bucket_credentials", "authorization"):
+        value = copy_inputs.get(field_name)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value == integration_id:
+            return True
+        if isinstance(value, str) and value.isdigit():
+            try:
+                if int(value) == integration_id:
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
     """Return a list of batch exports using integration_id.
 
@@ -518,12 +547,21 @@ def get_batch_exports_using_integration(team_id: int, integration_id: int) -> li
     We only consider batch exports that are not deleted, as deleted batch
     exports are not relevant to users.
     """
-    return list(
-        BatchExport.objects.filter(
+    copy_export_ids = [
+        export.id
+        for export in BatchExport.objects.filter(
             team_id=team_id,
             deleted=False,
-            destination__in=BatchExportDestination.objects.filter(integration_id=integration_id),
-        ).only("id", "name")
+            destination__type=BatchExportDestination.Destination.REDSHIFT,
+        )
+        .select_related("destination")
+        .only("id", "destination_id", "destination__config")
+        if _redshift_copy_uses_integration(export.destination.config, integration_id)
+    ]
+    return list(
+        BatchExport.objects.filter(team_id=team_id, deleted=False)
+        .filter(Q(destination__integration_id=integration_id) | Q(id__in=copy_export_ids))
+        .only("id", "name")
     )
 
 
