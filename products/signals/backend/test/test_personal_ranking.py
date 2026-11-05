@@ -1,6 +1,7 @@
 import json
 import datetime
 import dataclasses
+from collections.abc import Callable
 from io import StringIO
 from types import SimpleNamespace
 from typing import Any
@@ -972,7 +973,7 @@ class TestForMeEndpoint(APIBaseTest):
         self._claimed_report("Not in the stored list")
         with (
             patch.object(personal_ranking_serve, "gather_candidates") as gather,
-            self.assertNumQueries(23),
+            self.assertNumQueries(30),
         ):
             body = self._get(max_age_minutes=60)
         assert (self._state(body), self.queued, gather.call_count) == ((True, True, False), [], 0)
@@ -1039,6 +1040,28 @@ class TestForMeEndpoint(APIBaseTest):
         self._run_builds()
         # A read that queued no build spent no bucket, so the burst still has one build left.
         assert self._get(refresh="true")["building"] is not builds
+
+    @parameterized.expand(
+        [
+            ("resolved", lambda report: SignalReport.objects.filter(id=report.id).update(status="resolved")),
+            ("suppressed", lambda report: SignalReport.objects.filter(id=report.id).update(status="suppressed")),
+            ("claim_released", lambda report: SignalReportAssignment.all_teams.filter(report=report).delete()),
+        ]
+    )
+    def test_a_plain_read_drops_a_report_that_is_no_longer_theirs(
+        self, _name: str, leave: Callable[[SignalReport], Any]
+    ) -> None:
+        kept = self._claimed_report("Kept")
+        left = self._claimed_report("Left")
+        self._get()
+        self._run_builds()
+        leave(left)
+
+        with patch.object(personal_ranking_serve, "gather_candidates") as gather:
+            body = self._get()
+
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(kept.id)]
+        assert (body["stale"], gather.call_count) == (True, 0)
 
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}

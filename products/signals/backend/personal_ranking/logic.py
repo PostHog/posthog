@@ -334,6 +334,31 @@ def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) 
     PersonalInboxRanking.objects.for_team(team.id).filter(id=row.id).update(checked_at=now)
 
 
+@frozen
+class InputCheck:
+    unchanged: bool
+    calls_model: bool
+
+
+def check_inputs(team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime) -> InputCheck:
+    """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    latest = latest_row(team, user)
+    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
+    summary_version = ready_summary_version(team, user)
+    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=None)
+    if (
+        latest is not None
+        and latest.input_hash == current_hash
+        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
+    ):
+        record_check(team, latest, now)
+        return InputCheck(unchanged=True, calls_model=False)
+    return InputCheck(
+        unchanged=False,
+        calls_model=bool(candidates) and may_call_model(team, summary_ready=summary_version is not None),
+    )
+
+
 def _client(
     team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig, trigger: BuildTrigger
 ) -> OpenAI:
