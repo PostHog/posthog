@@ -108,10 +108,6 @@ class DataWarehouseSavedQuerySerializerMixin:
                 .first()
             )
 
-    @extend_schema_field(ViewEngineSerializer)
-    def get_engine(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
-        return ViewEngineSerializer(view.engine).data
-
     @extend_schema_field(serializers.BooleanField())
     def get_is_raw_managed_trino(self, view: DataWarehouseSavedQuery) -> bool:
         return view.engine.is_raw_trino
@@ -232,7 +228,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
-    engine = serializers.SerializerMethodField(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
+    engine = ViewEngineSerializer(read_only=True, help_text=VIEW_ENGINE_HELP_TEXT)
     is_raw_managed_trino = serializers.SerializerMethodField(read_only=True, help_text=IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
