@@ -34,17 +34,55 @@ describe('setupMode', () => {
     it.each([
         {
             case: 'a listed and a called tool',
-            row: ['["search_docs","create_issue"]', ['search_docs']],
+            row: [['["search_docs","create_issue"]', 'docs'], [['docs', 'search_docs']]],
             expected: { listed: ['search_docs', 'create_issue'], called: ['search_docs'] },
         },
         {
-            case: 'no tools/list yet',
-            row: [null, ['search_docs']],
-            expected: { listed: null, called: ['search_docs'] },
+            case: 'calls to another server',
+            row: [
+                ['["search_docs"]', 'docs'],
+                [
+                    ['billing', 'refund'],
+                    ['docs', 'search_docs'],
+                ],
+            ],
+            expected: { listed: ['search_docs'], called: ['search_docs'] },
         },
-        { case: 'a list that is not JSON', row: ['search_docs', []], expected: { listed: null, called: [] } },
-        { case: 'JSON that is not a list', row: ['{"tool":"a"}', []], expected: { listed: null, called: [] } },
-        { case: 'blank tool names', row: ['["a",""]', ['', 'a']], expected: { listed: ['a'], called: ['a'] } },
+        {
+            case: 'a listing without a server name',
+            row: [
+                ['["search_docs","refund"]', null],
+                [
+                    ['billing', 'refund'],
+                    ['docs', 'search_docs'],
+                ],
+            ],
+            expected: { listed: ['search_docs', 'refund'], called: ['refund', 'search_docs'] },
+        },
+        {
+            case: 'no tools/list yet',
+            row: [
+                [null, null],
+                [
+                    ['docs', 'search_docs'],
+                    [null, 'create_issue'],
+                ],
+            ],
+            expected: { listed: null, called: ['create_issue', 'search_docs'] },
+        },
+        { case: 'a list that is not JSON', row: [['search_docs', null], []], expected: { listed: null, called: [] } },
+        { case: 'JSON that is not a list', row: [['{"tool":"a"}', null], []], expected: { listed: null, called: [] } },
+        {
+            case: 'blank and repeated tool names',
+            row: [
+                ['["a","","a"]', null],
+                [
+                    [null, ''],
+                    [null, 'a'],
+                ],
+            ],
+            expected: { listed: ['a'], called: ['a'] },
+        },
         { case: 'no row', row: undefined, expected: { listed: null, called: [] } },
     ])('reads the server tools from $case', ({ row, expected }) => {
         expect(serverToolsFrom(row)).toEqual(expected)

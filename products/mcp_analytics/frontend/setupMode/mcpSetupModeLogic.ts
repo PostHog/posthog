@@ -47,10 +47,12 @@ const FIRST_CALL_POLL_MS = 10000
 const SERVER_TOOLS_POLL_MS = 10000
 
 // Bounded to 30 days like the activity overview, so a project with months of calls stays cheap.
+// The SDKs omit the names on an empty or failed tools/list, which must not hide an earlier good one.
+// The names and the server come from one event as a tuple, because argMax skips a null server alone.
 const SERVER_TOOLS_QUERY = `
 SELECT
-    argMaxIf(properties.$mcp_listed_tool_names, timestamp, event = '$mcp_tools_list') AS listed,
-    groupUniqArrayIf(properties.$mcp_tool_name, event = '$mcp_tool_call') AS called
+    argMaxIf(tuple(properties.$mcp_listed_tool_names, properties.$mcp_server_name), timestamp, event = '$mcp_tools_list' AND isNotNull(properties.$mcp_listed_tool_names)) AS listing,
+    groupUniqArrayIf(tuple(properties.$mcp_server_name, properties.$mcp_tool_name), event = '$mcp_tool_call') AS called
 FROM events
 WHERE event IN ('$mcp_tools_list', '$mcp_tool_call') AND timestamp >= now() - INTERVAL 30 DAY
 `

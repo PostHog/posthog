@@ -51,7 +51,9 @@ function ToolsBody({ tools, failed }: { tools: MCPServerTools | null; failed: bo
         return <p className="m-0 text-xs text-secondary">{COPY.empty}</p>
     }
     const called = new Set(tools.called)
-    const hidden = names.length - MAX_ROWS
+    // Called tools first, so a check never hides past the last row.
+    const rows = [...names.filter((name) => called.has(name)), ...names.filter((name) => !called.has(name))]
+    const hidden = rows.length - MAX_ROWS
     return (
         <>
             {tools.listed ? (
@@ -60,7 +62,7 @@ function ToolsBody({ tools, failed }: { tools: MCPServerTools | null; failed: bo
                 </span>
             ) : null}
             <ul className="m-0 flex list-none flex-col p-0">
-                {names.slice(0, MAX_ROWS).map((name) => (
+                {rows.slice(0, MAX_ROWS).map((name) => (
                     <ToolRow key={name} name={name} called={called.has(name)} />
                 ))}
             </ul>

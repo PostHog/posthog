@@ -50,7 +50,10 @@ export interface MCPServerTools {
 }
 
 function toolNames(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((name): name is string => typeof name === 'string' && name !== '') : []
+    if (!Array.isArray(value)) {
+        return []
+    }
+    return [...new Set(value.filter((name): name is string => typeof name === 'string' && name !== ''))]
 }
 
 // `$mcp_listed_tool_names` is an array property, which HogQL returns as its JSON text.
@@ -66,7 +69,18 @@ function listedToolNames(value: unknown): string[] | null {
     }
 }
 
-/** Reads the `[listed, called]` row of the server tools query. */
+/**
+ * Reads the `[[listed, server], [server, tool][]]` row of the server tools query. A project can run
+ * several servers, so only calls to the server that sent the listing count against it.
+ */
 export function serverToolsFrom(row: readonly unknown[] | undefined): MCPServerTools {
-    return { listed: listedToolNames(row?.[0]), called: toolNames(row?.[1]) }
+    const listing = Array.isArray(row?.[0]) ? (row[0] as unknown[]) : []
+    const server = typeof listing[1] === 'string' && listing[1] !== '' ? listing[1] : null
+    const calls = Array.isArray(row?.[1]) ? (row[1] as unknown[]) : []
+    const called = calls
+        .filter((pair): pair is [unknown, unknown] => Array.isArray(pair))
+        .filter(([callServer]) => server === null || callServer === server)
+        .map(([, tool]) => tool)
+    // ClickHouse returns the calls in no fixed order, so sort them to keep rows still between polls.
+    return { listed: listedToolNames(listing[0]), called: toolNames(called).sort() }
 }
