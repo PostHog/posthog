@@ -358,6 +358,27 @@ export function inheritedCadence(
     }
 }
 
+function strandedPinReason(stranded: NodePinBlockerApi): string {
+    const view = stranded.name ? `downstream view ${stranded.name}` : 'a downstream view'
+    return `Can't pin: ${view} reads fresh data only through this view`
+}
+
+function pinTooltip(
+    cadence: DataModelingSyncInterval,
+    option: SyncFrequencyBoundsApi['options'][number],
+    delayedViews: { name: string }[] | undefined
+): string {
+    const delayed = delayedViews?.map((view) => view.name) ?? []
+    const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
+    const who =
+        names.length > 1
+            ? `Downstream views ${names.join(', ')} refresh`
+            : names.length === 1
+              ? `Downstream view ${names[0]} refreshes`
+              : 'A downstream view refreshes'
+    return `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`
+}
+
 export function buildOptions(
     bounds?: SyncFrequencyBoundsApi | null,
     {
@@ -389,21 +410,13 @@ export function buildOptions(
         if (canPin && stranded && (pinned || needsPin(unpinnedBy, cadence))) {
             return {
                 ...segment(cadence),
-                disabledReason: `Can't pin: ${stranded.name ? `downstream view ${stranded.name}` : 'a downstream view'} reads fresh data only through this view`,
+                disabledReason: strandedPinReason(stranded),
             }
         }
         if (canPin && needsPin(unpinnedBy, cadence)) {
-            const delayed = pinDelays[cadence]?.map((view) => view.name) ?? []
-            const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
-            const who =
-                names.length > 1
-                    ? `Downstream views ${names.join(', ')} refresh`
-                    : names.length === 1
-                      ? `Downstream view ${names[0]} refreshes`
-                      : 'A downstream view refreshes'
             return {
                 ...segment(cadence),
-                tooltip: `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`,
+                tooltip: pinTooltip(cadence, option, pinDelays[cadence]),
             }
         }
         return {
