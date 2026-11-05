@@ -1,14 +1,14 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { useValues } from 'kea'
 
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
@@ -344,6 +344,39 @@ export const QuickEntry = {
         }),
     ],
 } satisfies Story
+
+export const QuickEntryWithGithubAccessExplanation: Story = {
+    ...QuickEntry,
+    name: 'Welcome with GitHub access explanation',
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_GITHUB_ACCESS_EXPLANATION]: 'test' },
+    },
+    play: async ({ canvas }) => {
+        const explanation = await canvas.findByText('Why GitHub access?')
+        const controls = [
+            explanation,
+            canvas.getByText('Connect GitHub'),
+            canvas.queryByText('Start manually'),
+            canvas.queryByText('Read the docs'),
+        ].filter((element): element is HTMLElement => element !== null)
+        const positions = controls.map((element) => element.getBoundingClientRect().y)
+        await userEvent.click(explanation)
+        const accessSummary = await within(document.body).findByText(
+            'We use GitHub access to research issues and may automatically open pull requests with proposed fixes.'
+        )
+        await expect(accessSummary).toBeVisible()
+        controls.forEach((element, index) => {
+            expect(element.getBoundingClientRect().y).toBe(positions[index])
+        })
+    },
+}
+
+export const GithubWithAccessExplanation: Story = {
+    ...Github,
+    name: 'Review with GitHub access explanation',
+    parameters: QuickEntryWithGithubAccessExplanation.parameters,
+    play: QuickEntryWithGithubAccessExplanation.play,
+}
 
 export const NarrowWelcomeEntry: Story = {
     ...QuickEntry,
