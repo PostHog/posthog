@@ -25,6 +25,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_ai_overage_bytes_patch_defaults,
     add_pre_business_knowledge_usage_patch_defaults,
     add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
@@ -181,6 +182,7 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
             add_pre_local_evaluation_not_modified_patch_defaults,
             "teams_with_local_evaluation_not_modified_requests_count_in_period",
         ),
+        (add_pre_ai_overage_bytes_patch_defaults, "teams_with_ai_overage_bytes_in_period"),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(

@@ -55,6 +55,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_active_hog_transformations_in_period,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
+    get_teams_with_ai_overage_bytes_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
@@ -537,6 +538,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_ai_event_count_in_period",
         fn=get_teams_with_ai_event_count_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_ai_overage_bytes_in_period",
+        fn=get_teams_with_ai_overage_bytes_in_period,
     ),
     QuerySpec(
         name="teams_with_ai_credits_used_in_period",
