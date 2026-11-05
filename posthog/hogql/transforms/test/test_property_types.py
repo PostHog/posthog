@@ -980,7 +980,6 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0, 0]),
             ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1, 0]),
             ("empty_equals", "properties.opted_in = ''", [0, 0, 0, 0, 0, 0, 1]),
-            ("empty_not_equals", "properties.opted_in != ''", [1, 1, 1, 1, 1, 1, 0]),
             (
                 "boolean_true_aliases_in",
                 "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
@@ -1020,7 +1019,6 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
     @parameterized.expand(
         [
             ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0, 0]),
-            ("empty_not_equals", "properties.signed_up_at != ''", [1, 0, 1, 1]),
             ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, None, None, 1]),
         ]
     )

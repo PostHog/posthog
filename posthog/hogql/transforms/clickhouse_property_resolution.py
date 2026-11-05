@@ -2156,16 +2156,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         field_type, property_name = single
         property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
         semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
-        if semantic_type.family in ("float", "boolean"):
-            unreadable = any(convert_literal_to_runtime_type(value, semantic_type) is None for value in values)
-        elif semantic_type.family == "datetime":
-            # ClickHouse's best-effort parser accepts spellings a Python check would reject, so only the empty string,
-            # which no parser reads as a date and time, counts as unreadable. A list that also holds dates keeps its
-            # conversion, because a date such as '2024-04-06' matches a stored '2024-04-06 00:00:00' only through it.
-            unreadable = values == [""]
-        else:
+        if semantic_type.family == "datetime":
+            # ClickHouse's best-effort parser accepts spellings a Python check would reject, so only a lone empty
+            # string counts as unreadable. A list that also holds dates keeps its conversion, because '2024-04-06'
+            # matches a stored '2024-04-06 00:00:00' only through it.
+            if values != [""]:
+                return None
+        elif semantic_type.family not in ("float", "boolean"):
             return None
-        if not unreadable:
+        elif all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
             return None
         source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or not _is_dynamic_json_source(source):
@@ -2547,13 +2546,12 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         # A user-written `toBool(properties.x)` over a String property keeps its cast and is handled by
         # `_optimize_materialized_equals`. The swapper's Boolean cast over a Boolean-typed property is the one looked
         # through here, so that text the property cannot be read as compares as text.
-        # A declared String column stores '' the same as a missing key, and arrays and objects serialize differently
-        # from scalars, so a String property keeps its full read for those constants. A typed property compares them
-        # as text below: its Float64, Bool or DateTime read of such a constant can only fail.
+        # A String property keeps its full read for '' and for constants that start with `[` or `{`, because a declared
+        # String column stores '' the same as a missing key, and arrays and objects serialize differently from scalars.
+        # A typed property compares those constants as text, because its typed read of them can only fail.
+        scalar_text = all(value and not value.startswith(("[", "{")) for value in values)
         prop = None
-        if not self._is_boolean_conversion(property_expr) and not any(
-            not value or value.startswith(("[", "{")) for value in values
-        ):
+        if scalar_text and not self._is_boolean_conversion(property_expr):
             prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
         prop = prop or self._typed_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
