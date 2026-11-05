@@ -121,8 +121,13 @@ for phase in before after; do
         xcrun simctl install "$device" "$binary"
     else
         (cd android && ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --max-workers=2 --console=plain '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g') > "$phase_dir/build.log" 2>&1
-        adb install -r android/app/build/outputs/apk/release/app-release.apk
+        cp android/app/build/outputs/apk/release/app-release.apk "$phase_dir/app-release.apk"
+        adb install -r "$phase_dir/app-release.apk"
         adb shell pm clear com.posthog.mobile
+    fi
+    if [[ "$platform" == android ]]; then
+        python3 scripts/capture-android-header.py "$phase_dir"
+        continue
     fi
     argent e2e run "$capture_dir/report-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/report.json"
     if [[ "$platform" == ios ]]; then

@@ -25,7 +25,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   persist-credentials: false
-                  fetch-depth: 3
+                  fetch-depth: 10
                   sparse-checkout: products/mobile
                   sparse-checkout-cone-mode: false
             - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
