@@ -1,6 +1,6 @@
 import re
 from time import perf_counter
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from django.core.cache import cache
 from django.http import HttpRequest, JsonResponse
@@ -95,6 +95,7 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade.api import validate_account_users_access
@@ -590,7 +591,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # A shared-link viewer has no user, and the share itself authorizes the result.
         if isinstance(request.user, User):
             for resource in resources:
-                if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                if not self.user_access_control.check_access_level_for_resource(
+                    cast(APIScopeObject, resource), "viewer"
+                ):
                     raise PermissionDenied(f"You do not have access to {resource}.")
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
