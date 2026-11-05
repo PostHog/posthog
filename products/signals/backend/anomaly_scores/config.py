@@ -1,7 +1,10 @@
 """Scoring settings, and the levers of the scheduled tick, read from the `anomaly-scoring` flag payload.
 
 The payload parse fails closed: a missing, malformed or unreadable payload turns the tick off. An invalid
-field falls back to its default, and no default is unbounded.
+field falls back to its default, and no default is unbounded. A malformed team allowlist also turns the tick
+off, because its default enrolls every team of the listed organizations.
+
+A `deployments` object, keyed by `settings.CLOUD_DEPLOYMENT`, holds per-region overrides of the top-level fields.
 """
 
 import uuid
@@ -9,6 +12,8 @@ import hashlib
 import dataclasses
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from django.conf import settings
 
 import structlog
 
@@ -116,6 +121,14 @@ DEFAULT_TICK_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONT
 
 
 @frozen
+class TickFanOut:
+    """How the tick runs its picks: this many shards side by side, each with this many picks in flight."""
+
+    shards: int
+    concurrency: int
+
+
+@frozen
 class AnomalyScoringConfig:
     enabled: bool = False
     organization_ids: tuple[str, ...] = ()
@@ -129,9 +142,14 @@ class AnomalyScoringConfig:
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
     # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
-    # the two passes use the per-pass caps below instead.
+    # the two passes use the per-pass caps below instead. Each pick cap is per shard, see `fan_out`.
     max_insights_per_tick: int = 8
+    # Picks in flight in each shard.
     max_concurrency: int = 2
+    # Shards of the tick. Each shard runs its own picks, and all the picks of one team go to one shard.
+    shards: int = 1
+    # Picks in flight over all the shards. It lowers the shard count, so the cluster load has one upper limit.
+    max_total_concurrency: int = 8
     # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
     max_queries_per_hour: int = 120
     max_queries_per_project_per_hour: int = 30
@@ -152,12 +170,28 @@ class AnomalyScoringConfig:
     max_train_insights_per_tick: int = 2
     # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.
     active_window_days: int = 90
+    # On, the tick plans from the stored due list, and a slow job refreshes the list. See `due_list.py`.
+    due_list: bool = False
+    # Each enrolled team's due list refreshes about this often.
+    due_list_refresh_hours: int = 6
+    # ClickHouse CPU seconds of scoring queries per UTC day, read from the query log, see `spend.py`. Zero is off.
+    # A project at its limit gets no picks until the next UTC day. Near the fleet limit, train picks stop first.
+    max_cpu_seconds_per_project_per_day: int = 0
+    max_fleet_cpu_seconds_per_day: int = 0
+
+    def fan_out(self) -> TickFanOut:
+        concurrency = min(self.max_concurrency, self.max_total_concurrency)
+        return TickFanOut(
+            shards=max(1, min(self.shards, self.max_total_concurrency // concurrency)), concurrency=concurrency
+        )
 
 
 DISABLED = AnomalyScoringConfig()
 # The largest value a flag payload can set for each lever of the tick.
 MAX_INSIGHTS_PER_TICK = 50
 MAX_CONCURRENCY = 8
+MAX_SHARDS = 8
+MAX_TOTAL_CONCURRENCY = 32
 MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 MAX_SCORE_QUERIES_PER_HOUR = 5000
@@ -165,6 +199,7 @@ MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
 MAX_SCORE_INSIGHTS_PER_TICK = 200
 MAX_TRAIN_INSIGHTS_PER_TICK = 50
 MAX_ACTIVE_WINDOW_DAYS = 365
+MAX_DUE_LIST_REFRESH_HOURS = 48
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -182,6 +217,14 @@ def _team_ids(value: Any) -> tuple[int, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+
+
+def _allow_team_ids(value: Any) -> tuple[int, ...] | None:
+    """`None` when the allowlist is malformed. An empty allowlist enrolls every team of the listed organizations."""
+    if not isinstance(value, list):
+        return None
+    team_ids = _team_ids(value)
+    return team_ids if team_ids or not value else None
 
 
 def _canonical_uuid(value: str) -> str | None:
@@ -238,11 +281,15 @@ def parse_limits(payload: Any) -> ScoringLimits:
 def parse_config(payload: Any) -> AnomalyScoringConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
+    allow_team_ids = _allow_team_ids(payload.get("allow_team_ids", []))
+    if allow_team_ids is None:
+        logger.warning("anomaly_scoring_config_malformed_allowlist")
+        return DISABLED
     defaults = AnomalyScoringConfig()
     return AnomalyScoringConfig(
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
-        allow_team_ids=_team_ids(payload.get("allow_team_ids")),
+        allow_team_ids=allow_team_ids,
         self_driving_organization_percentage=_percentage(
             payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
         ),
@@ -253,6 +300,10 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
             _positive_int(payload.get("max_insights_per_tick"), defaults.max_insights_per_tick), MAX_INSIGHTS_PER_TICK
         ),
         max_concurrency=min(_positive_int(payload.get("max_concurrency"), defaults.max_concurrency), MAX_CONCURRENCY),
+        shards=min(_positive_int(payload.get("shards"), defaults.shards), MAX_SHARDS),
+        max_total_concurrency=min(
+            _positive_int(payload.get("max_total_concurrency"), defaults.max_total_concurrency), MAX_TOTAL_CONCURRENCY
+        ),
         max_queries_per_hour=min(
             _positive_int(payload.get("max_queries_per_hour"), defaults.max_queries_per_hour), MAX_QUERIES_PER_HOUR
         ),
@@ -293,6 +344,17 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         active_window_days=min(
             _positive_int(payload.get("active_window_days"), defaults.active_window_days), MAX_ACTIVE_WINDOW_DAYS
         ),
+        due_list=payload.get("due_list") is True,
+        due_list_refresh_hours=min(
+            _positive_int(payload.get("due_list_refresh_hours"), defaults.due_list_refresh_hours),
+            MAX_DUE_LIST_REFRESH_HOURS,
+        ),
+        max_cpu_seconds_per_project_per_day=_positive_int(
+            payload.get("max_cpu_seconds_per_project_per_day"), defaults.max_cpu_seconds_per_project_per_day
+        ),
+        max_fleet_cpu_seconds_per_day=_positive_int(
+            payload.get("max_fleet_cpu_seconds_per_day"), defaults.max_fleet_cpu_seconds_per_day
+        ),
     )
 
 
@@ -332,8 +394,32 @@ def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
     return has_enabled_source(team.id)
 
 
+def deployment_payload(payload: Any, deployment: str | None) -> Any:
+    """The payload with the entry of `deployment` in its `deployments` object merged over the top-level fields.
+
+    A malformed `deployments` object or entry is ignored, so the top-level fields apply. Each field then gets
+    the same validation and caps as a top-level field.
+    """
+    if not isinstance(payload, dict) or "deployments" not in payload:
+        return payload
+    base = {key: value for key, value in payload.items() if key != "deployments"}
+    deployments = payload["deployments"]
+    if not isinstance(deployments, dict):
+        logger.warning("anomaly_scoring_config_malformed_deployments")
+        return base
+    if deployment is None or deployment not in deployments:
+        return base
+    override = deployments[deployment]
+    if not isinstance(override, dict) or "deployments" in override:
+        logger.warning("anomaly_scoring_config_malformed_deployment_override", deployment=deployment)
+        return base
+    return {**base, **override}
+
+
 def read_payload() -> dict | None:
-    return read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID)
+    return deployment_payload(
+        read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID), settings.CLOUD_DEPLOYMENT
+    )
 
 
 def read_config(payload: Any) -> AnomalyScoringConfig:

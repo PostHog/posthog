@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -11,10 +12,14 @@ from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.scopes import APIScopeObject
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
-from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
+from posthog.temporal.health_checks.models import (
+    DEFAULT_ACTIVE_SINCE_DAYS,
+    DEFAULT_EXECUTION_TIMEOUT,
+    HealthCheckResult,
+)
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS, ensure_registry_loaded
 
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -152,6 +157,7 @@ class HealthCheckRegistration:
     max_concurrent: int
     rollout_percentage: float
     not_processed_threshold: float
+    execution_timeout: timedelta
     dry_run: bool
     active_since_days: int | None
     product: Product | None
@@ -170,6 +176,11 @@ class HealthCheckRegistration:
             raise ValueError(
                 f"HealthCheckRegistration not_processed_threshold must be between 0 and 1, "
                 f"got {self.not_processed_threshold}"
+            )
+        # Temporal reads a zero timeout as no timeout, which would let a broken run block the schedule again.
+        if self.execution_timeout <= timedelta(0):
+            raise ValueError(
+                f"HealthCheckRegistration execution_timeout must be positive, got {self.execution_timeout}"
             )
         # The denied ids are looked up under the resource, so a key alone would gate nobody.
         if self.access_controlled_object_key is not None and self.access_controlled_resource is None:
@@ -199,6 +210,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         max_concurrent=cls.policy.max_concurrent,
         rollout_percentage=cls.rollout_percentage,
         not_processed_threshold=cls.not_processed_threshold,
+        execution_timeout=cls.execution_timeout,
         dry_run=cls.dry_run,
         active_since_days=cls.active_since_days,
         product=cls.product,
@@ -221,6 +233,7 @@ class HealthCheck:
     schedule: str | None = None
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
+    execution_timeout: timedelta = DEFAULT_EXECUTION_TIMEOUT
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
     # False stops the `$health_check_issue_firing` and `$health_check_issue_resolved` events for

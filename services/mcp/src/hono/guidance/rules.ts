@@ -16,6 +16,10 @@ const guidanceRuleSchema = z.object({
         /** Dot path into the call arguments whose string value `argPattern` must match. */
         argPath: z.string().min(1).optional(),
         argPattern: z.instanceof(RegExp).optional(),
+        /** A longer `argPath` value never matches, so `argPattern` only runs on bounded input. */
+        argMaxLength: z.number().int().min(1).optional(),
+        /** Call arguments that rule the call out when they are set, such as a target outside the project. */
+        excludeArgs: z.array(z.string().min(1)).optional(),
         outcome: z.enum(['any', 'success', 'error']),
         presets: z.array(z.enum(scopePresets)).min(1),
     }),
@@ -35,6 +39,35 @@ export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
 
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
+export const MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG = 'mcp-guidance-sql-typed-runner'
+
+const TYPED_RUNNER_TOOLS = [
+    'query-trends',
+    'query-funnel',
+    'query-retention',
+    'query-stickiness',
+    'query-paths',
+    'query-lifecycle',
+]
+
+// A query with any of these constructs needs SQL, so the typed-runner hint stays silent. A first or
+// last timestamp grouped by event is an event inventory, which `read-data-schema` answers. The scans
+// after `max(timestamp` and `GROUP BY` are bounded, because an unbounded scan takes quadratic time.
+const SQL_ONLY_CONSTRUCTS = [
+    String.raw`\b(JOIN|WITH|OVER|UNION|HAVING)\b`,
+    String.raw`\bFROM\s+events\b(?:\s+(?:AS\s+)?\w+)?\s*,`,
+    String.raw`\bsystem\.`,
+    String.raw`\(\s*SELECT\b`,
+    String.raw`\barray\w*\s*\(`,
+    String.raw`\b(groupArray|groupUniqArray|argMax|argMin|dateDiff|date_diff)\w*\s*\(`,
+    String.raw`\b(max|min)(If)?\s*\(\s*(\w+\.)?timestamp\b(?![\s\S]{0,1000}\bGROUP\s+BY\s+event\b)`,
+    String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S]){0,300}?\b(person_id|distinct_id|session_id)\b`,
+    String.raw`(\bSELECT\b|,)\s*(DISTINCT\s+)?(\w+\.)*\$?(person_id|distinct_id|session_id)\b\s*(AS\s+\w+\s*)?(,|\bFROM\b)`,
+]
+const SIMPLE_EVENTS_AGGREGATE = new RegExp(
+    String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
+    'i'
+)
 
 const RULES: GuidanceRule[] = [
     {
@@ -85,6 +118,33 @@ const RULES: GuidanceRule[] = [
             'Before another attempt, check the schema: query `system.information_schema.tables` and',
             '`system.information_schema.columns` for table and column names, or call `read-data-schema` for',
             'event and property names. Then rewrite the query against that schema.',
+        ].join(' '),
+    },
+    {
+        id: 'sql-aggregate-to-typed-runner',
+        flag: MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG,
+        trigger: {
+            tool: 'execute-sql',
+            argPath: 'query',
+            argPattern: SIMPLE_EVENTS_AGGREGATE,
+            argMaxLength: 4000,
+            // A direct warehouse connection has its own `events` table, which typed runners cannot query.
+            excludeArgs: ['connectionId'],
+            outcome: 'success',
+            presets: ['user'],
+        },
+        threshold: 1,
+        maxPerSession: 1,
+        suppressIfCalled: TYPED_RUNNER_TOOLS,
+        requiresTool: ['query-trends', 'query-funnel', 'read-data-schema'],
+        text: [
+            'This SQL is a simple aggregate over events.',
+            'Before you report these numbers, run the same calculation with `query-trends`,',
+            'or with `query-funnel` for conversion between steps, and report that result.',
+            "The typed runner applies the project's default test account filter, which raw SQL does not apply,",
+            'so the numbers can differ.',
+            'Keep this SQL only when the user asked for SQL or the runners cannot express the calculation.',
+            'To only check that an event or property exists, use `read-data-schema`.',
         ].join(' '),
     },
 ]

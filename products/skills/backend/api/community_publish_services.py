@@ -26,6 +26,8 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
+
+# nosemgrep: integration-model-through-sdk (an unsaved row for the publisher adapter, never stored)
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH

@@ -162,6 +162,7 @@ export function CohortTaxonomicField({
     criteria,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     hideUnsupportedRecentOperators,
+    includeHiddenEvents,
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
@@ -218,6 +219,7 @@ export function CohortTaxonomicField({
                 [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
             }}
             excludedOperators={excludedOperators}
+            includeHiddenEvents={includeHiddenEvents}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}

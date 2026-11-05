@@ -17,8 +17,8 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType, OrganizationMemberType } from '~/types'
 

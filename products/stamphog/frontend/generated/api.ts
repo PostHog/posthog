@@ -22,6 +22,7 @@ import type {
     StamphogAvailableRepositoriesApi,
     StamphogDigestRunsListParams,
     StamphogInstallInfoApi,
+    StamphogOwnersFileApi,
     StamphogPullRequestApi,
     StamphogPullRequestsListParams,
     StamphogRepoConfigApi,
@@ -254,6 +255,24 @@ export const stamphogRepoConfigsDestroy = async (
     return apiMutator<void>(getStamphogRepoConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getStamphogRepoConfigsOwnersFileRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/stamphog/repo_configs/${id}/owners_file/`
+}
+
+/**
+ * Check whether the repository's default branch has a root owners.yaml. Reviewer requests (routing_mode) read the code owners from it. Makes one GitHub call, so ask only when needed.
+ */
+export const stamphogRepoConfigsOwnersFileRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StamphogOwnersFileApi> => {
+    return apiMutator<StamphogOwnersFileApi>(getStamphogRepoConfigsOwnersFileRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

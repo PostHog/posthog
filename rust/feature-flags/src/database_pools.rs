@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::config::Config;
+use crate::config::{Config, PoolerStatementTimeoutPools};
 use crate::database::pool_names;
 use common_database::{get_pool_with_config, PoolConfig};
 use sqlx::PgPool;
@@ -31,11 +31,14 @@ impl DatabasePools {
         max_connections: Option<u32>,
         statement_timeout_ms: u64,
         pool_name: &str,
+        pooler_statement_timeout_pools: &PoolerStatementTimeoutPools,
     ) -> PoolConfig {
         PoolConfig {
             min_connections,
             max_connections: max_connections.unwrap_or(base.max_connections),
-            statement_timeout_ms: if statement_timeout_ms > 0 {
+            statement_timeout_ms: if statement_timeout_ms > 0
+                && !pooler_statement_timeout_pools.0.contains(pool_name)
+            {
                 Some(statement_timeout_ms)
             } else {
                 None
@@ -45,16 +48,9 @@ impl DatabasePools {
         }
     }
 
-    /// Lists each pool, with its statement timeout, where one call can outlast the request timeout.
-    /// A statement timeout of 0 leaves the query unbounded.
-    ///
-    /// This bounds one call, not one request. A request that runs several calls in sequence can
-    /// still outlast the request timeout.
-    ///
-    /// A pool that aliases another pool runs with that pool's statement timeout. The check skips
-    /// an aliased pool, because its own setting has no effect.
-    fn pools_over_request_timeout(config: &Config) -> Vec<(&'static str, u64)> {
-        let acquire_ms = config.acquire_timeout_secs.saturating_mul(1000);
+    /// Lists each pool with its configured statement timeout and whether the service creates it.
+    /// The service does not create a pool that aliases another pool or has no database URL.
+    fn pool_statement_timeouts(config: &Config) -> [(&'static str, u64, bool); 5] {
         let routing = config.is_persons_db_routing_enabled();
         let writes = !*config.skip_writes;
         [
@@ -84,14 +80,27 @@ impl DatabasePools {
                 config.is_behavioral_cohorts_db_configured(),
             ),
         ]
-        .into_iter()
-        .filter(|&(_, statement_timeout_ms, built)| {
-            built
-                && (statement_timeout_ms == 0
-                    || acquire_ms.saturating_add(statement_timeout_ms) >= config.request_timeout_ms)
-        })
-        .map(|(pool, statement_timeout_ms, _)| (pool, statement_timeout_ms))
-        .collect()
+    }
+
+    /// Lists each pool, with its statement timeout, where one call can outlast the request timeout.
+    /// A statement timeout of 0 leaves the query unbounded.
+    ///
+    /// This bounds one call, not one request. A request that runs several calls in sequence can
+    /// still outlast the request timeout.
+    ///
+    /// The check skips an aliased pool, because its own setting has no effect.
+    fn pools_over_request_timeout(config: &Config) -> Vec<(&'static str, u64)> {
+        let acquire_ms = config.acquire_timeout_secs.saturating_mul(1000);
+        Self::pool_statement_timeouts(config)
+            .into_iter()
+            .filter(|&(_, statement_timeout_ms, built)| {
+                built
+                    && (statement_timeout_ms == 0
+                        || acquire_ms.saturating_add(statement_timeout_ms)
+                            >= config.request_timeout_ms)
+            })
+            .map(|(pool, statement_timeout_ms, _)| (pool, statement_timeout_ms))
+            .collect()
     }
 
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
@@ -173,6 +182,28 @@ impl DatabasePools {
             );
         }
 
+        let listed = &config.pooler_statement_timeout_pools.0;
+        if !listed.is_empty() {
+            let mut pools_without_set = Vec::new();
+            for (pool, _, built) in Self::pool_statement_timeouts(config) {
+                if !listed.contains(pool) {
+                    continue;
+                }
+                if built {
+                    pools_without_set.push(pool);
+                } else {
+                    tracing::warn!(
+                        pool,
+                        "POOLER_STATEMENT_TIMEOUT_POOLS lists a pool that this service does not create, because it aliases another pool or has no database URL, so the listing has no effect. An aliased pool uses the setting of the pool it aliases"
+                    );
+                }
+            }
+            info!(
+                pools = ?pools_without_set,
+                "The pooler sets statement_timeout on these pools, so they send no SET"
+            );
+        }
+
         // Create base pool config (used for both readers and writers)
         let base_pool_config = PoolConfig {
             min_connections: 0, // Will be overridden per pool
@@ -194,7 +225,8 @@ impl DatabasePools {
             min_non_persons_reader_connections,
             None,
             config.non_persons_reader_statement_timeout_ms,
-            "non_persons_reader",
+            pool_names::NON_PERSONS_READER,
+            &config.pooler_statement_timeout_pools,
         );
         info!(
             pool = "non_persons_reader",
@@ -208,7 +240,8 @@ impl DatabasePools {
             min_persons_reader_connections,
             None,
             config.persons_reader_statement_timeout_ms,
-            "persons_reader",
+            pool_names::PERSONS_READER,
+            &config.pooler_statement_timeout_pools,
         );
         info!(
             pool = "persons_reader",
@@ -222,7 +255,8 @@ impl DatabasePools {
             min_non_persons_writer_connections,
             None,
             config.writer_statement_timeout_ms,
-            "non_persons_writer",
+            pool_names::NON_PERSONS_WRITER,
+            &config.pooler_statement_timeout_pools,
         );
 
         // Persons writer pool config (should be fast transactional operations)
@@ -231,7 +265,8 @@ impl DatabasePools {
             min_persons_writer_connections,
             None,
             config.writer_statement_timeout_ms,
-            "persons_writer",
+            pool_names::PERSONS_WRITER,
+            &config.pooler_statement_timeout_pools,
         );
         info!(
             pool = "writer",
@@ -339,6 +374,7 @@ impl DatabasePools {
                 Some(5),
                 Self::BEHAVIORAL_COHORTS_STATEMENT_TIMEOUT_MS,
                 pool_names::BEHAVIORAL_COHORTS,
+                &config.pooler_statement_timeout_pools,
             );
             info!("Creating behavioral cohorts reader pool");
             Some(Arc::new(
@@ -374,23 +410,32 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    #[test]
-    fn test_build_pool_config_sets_pool_name_and_timeout() {
+    #[rstest::rstest]
+    #[case::binary_sets_timeout(5000, "", Some(5000))]
+    #[case::zero_timeout(0, "", None)]
+    #[case::pooler_sets_timeout(5000, "persons_reader", None)]
+    #[case::pooler_sets_another_pool(5000, "persons_writer,behavioral_cohorts", Some(5000))]
+    fn test_build_pool_config_statement_timeout(
+        #[case] statement_timeout_ms: u64,
+        #[case] pooler_timeout_pools: &str,
+        #[case] expected: Option<u64>,
+    ) {
         let base = PoolConfig::default();
-        let config = DatabasePools::build_pool_config(&base, 3, None, 5000, "persons_reader");
+        let config = DatabasePools::build_pool_config(
+            &base,
+            3,
+            None,
+            statement_timeout_ms,
+            pool_names::PERSONS_READER,
+            &pooler_timeout_pools.parse().unwrap(),
+        );
 
         assert_eq!(config.min_connections, 3);
-        assert_eq!(config.statement_timeout_ms, Some(5000));
-        assert_eq!(config.pool_name, Some("persons_reader".to_string()));
-    }
-
-    #[test]
-    fn test_build_pool_config_zero_timeout_is_none() {
-        let base = PoolConfig::default();
-        let config = DatabasePools::build_pool_config(&base, 0, None, 0, "non_persons_writer");
-
-        assert_eq!(config.statement_timeout_ms, None);
-        assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
+        assert_eq!(config.statement_timeout_ms, expected);
+        assert_eq!(
+            config.pool_name,
+            Some(pool_names::PERSONS_READER.to_string())
+        );
     }
 
     #[rstest::rstest]
@@ -404,6 +449,21 @@ mod tests {
     )]
     #[case::acquire(
         &[("ACQUIRE_TIMEOUT_SECS", "4")],
+        &[
+            (pool_names::NON_PERSONS_READER, 2000),
+            (pool_names::PERSONS_READER, 1000),
+            (pool_names::PERSONS_WRITER, 2000),
+            (pool_names::NON_PERSONS_WRITER, 2000),
+        ]
+    )]
+    #[case::pooler_sets_timeouts(
+        &[
+            ("ACQUIRE_TIMEOUT_SECS", "4"),
+            (
+                "POOLER_STATEMENT_TIMEOUT_POOLS",
+                "non_persons_reader,persons_reader,persons_writer,non_persons_writer",
+            ),
+        ],
         &[
             (pool_names::NON_PERSONS_READER, 2000),
             (pool_names::PERSONS_READER, 1000),

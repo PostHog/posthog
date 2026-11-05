@@ -150,7 +150,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Push               | `POST /api/users/@me/push_tokens/`                                                                                               | unavailable on web and Expo Go                                                            |
 
 Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md),
-[AUTH.md](AUTH.md), [PUSH.md](PUSH.md).
+[PUSH.md](PUSH.md).
 
 ## Hook surface
 
@@ -195,6 +195,28 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
   started on this device, pending answers and the footer notice.
 - `usePushStore` (`src/features/notifications/pushStore.ts`, persisted): permission state and
   the registered token.
+
+## Offline read cache
+
+`src/features/offlineCache.ts` scopes persistence to the verified account and project.
+`src/api/readCache.ts` restores and tracks eligible TanStack queries.
+`src/api/readCacheStore.ts` enforces limits and stores each entry through `src/lib/secureStorage.ts`.
+Native builds use SecureStore; the web preview uses memory.
+
+The allowlist covers aggregate Views and the first 20 Inbox rows, including signal counts.
+It excludes report bodies, transcripts, actor rows, searches, SQL results, and mutations.
+Inbox snapshots use a separate read-only query.
+
+- **Limits:** 24-hour TTL, 24 entries per project, 32 KiB per entry, 128 KiB per project, and eight projects per account.
+  Size limits measure UTF-8 JSON.
+- **Freshness:** Preserve successful capture times across failed refreshes, metadata updates, and pagination.
+  Query garbage collection leaves disk entries intact.
+- **Restoration:** Require the matching host, user, and project. Keep newer live data.
+  Retry failed reads before replacement saves resume.
+- **Access:** Evict denied data from its original project, including late responses after a project switch.
+  Missing Views scopes purge Views across the account. Sign-out clears the account cache.
+- **Storage:** Write only changed entries. Serialize operations per key and journal unfinished chunks until cleanup succeeds.
+  The adapter is shared with chat drafts; cache eviction preserves drafts.
 
 ## Module boundaries
 

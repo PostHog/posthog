@@ -7,7 +7,7 @@ returns DTO-shaped responses. No model imports.
 
 import time
 from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -23,6 +23,8 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.models.scoping import team_scope
@@ -38,6 +40,8 @@ from products.wizard.backend.facade.enums import WizardSessionRunPhase
 from products.wizard.backend.facade.errors import WizardSessionOwnershipError
 from products.wizard.backend.presentation.sessions import config as session_config
 from products.wizard.backend.presentation.sessions.serializers import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     UpsertWizardSessionRequestSerializer,
     WizardSessionListQuerySerializer,
     WizardSessionLookupQuerySerializer,
@@ -112,12 +116,30 @@ def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
     )
 
 
+class WizardSessionPagination(FacadeLimitOffsetPagination):
+    """Pages with the limit and offset that `WizardSessionListQuerySerializer` validated.
+
+    The base class parses the raw query params again, which turns an accepted value such as
+    `limit=1.0` into the default limit.
+    """
+
+    default_limit = DEFAULT_LIST_LIMIT
+    max_limit = MAX_LIST_LIMIT
+
+    def get_limit(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["limit"]
+
+    def get_offset(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["offset"]
+
+
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
     scope_object_read_actions = ["list", "retrieve", "stream", "latest"]
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
+    pagination_class = WizardSessionPagination
     # Negative lookahead so a session_id of `stream` or `latest` can't collide
     # with the `@action(url_path=...)` detail-vs-action routes.
     lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
@@ -139,30 +161,26 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         _log_request_auth(request, action=getattr(self, "action", "<unknown>"), team_id=team_id)
         super().check_permissions(request)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=WizardSessionListQuerySerializer,
         description=(
             "List wizard sessions for the project, ordered by started_at desc. "
             "This should only be called by the PostHog Wizard. "
             "Optional filters: ?workflow_id=<id> and ?skill_id=<id>."
         ),
-        parameters=[WizardSessionListQuerySerializer],
         responses={200: WizardSessionSerializer(many=True)},
     )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # GET /projects/:projectId/wizard/sessions
-        query = WizardSessionListQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        sessions = wizard_facade.list_for_team(
-            self.team_id,
-            workflow_id=query.validated_data.get("workflow_id"),
-            skill_id=query.validated_data.get("skill_id") or None,
-            offset=query.validated_data["offset"],
-            limit=query.validated_data["limit"],
+        workflow_id = request.validated_query_data.get("workflow_id")
+        skill_id = request.validated_query_data.get("skill_id") or None
+        return facade_page_response(
+            self,
+            lambda page: wizard_facade.list_for_team(
+                self.team_id, workflow_id=workflow_id, skill_id=skill_id, page=page
+            ),
+            serializer_class=WizardSessionSerializer,
         )
-        page = self.paginate_queryset(sessions)
-        if page is not None:
-            return self.get_paginated_response(WizardSessionSerializer(page, many=True).data)
-        return Response(WizardSessionSerializer(sessions, many=True).data)
 
     @extend_schema(
         description="Retrieve a single wizard session by its session_id.",

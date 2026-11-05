@@ -1,8 +1,8 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus } from '~/types'
 
