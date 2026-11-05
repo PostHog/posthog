@@ -62,8 +62,13 @@ export interface AccessKey {
 
 const KEY_CHECK_TIMEOUT_MS = 30_000
 
-// If hog can't read the scope list, the login works with no scopes instead of failing
-const KeyScopes = z.object({ scopes: z.array(z.string()).catch([]) })
+// If hog doesn't recognize a scope, it drops it instead of failing the login
+const KeyScopes = z.object({
+    scopes: z
+        .array(z.unknown())
+        .transform((scopes) => scopes.filter((scope) => typeof scope === 'string'))
+        .catch([]),
+})
 
 export class PersonalAPIKey implements AccessKey {
     readonly host: Host

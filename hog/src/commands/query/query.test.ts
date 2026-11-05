@@ -154,6 +154,12 @@ describe('hog query', () => {
             },
         ],
         [
+            'a field of another type keeps the rest of the error',
+            400,
+            { type: 'validation_error', code: null, detail: 'Unable to resolve field: nope' },
+            { message: 'Unable to resolve field: nope', hint: expect.stringContaining('hog query check') },
+        ],
+        [
             'a 403 names the scope the command needs',
             403,
             { type: 'authentication_error', code: 'permission_denied', detail: 'No access' },
