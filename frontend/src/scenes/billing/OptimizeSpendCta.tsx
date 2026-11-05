@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { wizardSpendAuditLogic } from 'products/wizard/frontend/views/spend-audit/wizardSpendAuditLogic'
@@ -46,12 +46,12 @@ function OptimizeSpendCtaForProject({ projectId, userId }: { projectId: string; 
 }
 
 export function OptimizeSpendCta(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { user } = useValues(userLogic)
 
-    if (!currentTeam || !user) {
+    if (!currentProjectId || !user) {
         return null
     }
 
-    return <OptimizeSpendCtaForProject projectId={String(currentTeam.id)} userId={user.id} />
+    return <OptimizeSpendCtaForProject projectId={String(currentProjectId)} userId={user.id} />
 }
