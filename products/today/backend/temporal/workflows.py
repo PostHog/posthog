@@ -34,7 +34,8 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
+        temporalio.workflow.deprecate_patch(PINNED_NUMBERS_PATCH)
+        if inputs.pins:
             results, pinned = await asyncio.gather(sources, _resolve_pins(inputs))
         else:
             results, pinned = await sources, ResolvePinsResult(found="[]")
