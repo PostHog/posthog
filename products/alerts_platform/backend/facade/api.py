@@ -34,8 +34,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
     delivery_holds,
@@ -43,6 +44,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    verdict_changes,
 )
 
 
@@ -84,6 +86,48 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
+def source_suppressed_holds_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose held delivery its source released
+    with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
+    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+
+
+def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
+    """Records one follow-up about a firing that already went out, and returns the delivery to start
+    with `start_deliveries`, or None when there is nothing to send.
+
+    Writes only the follow-up's history row, so it leaves state, schedule and holds alone. A second
+    call for the same firing starts the same delivery, whose id and threads send it once. Raises
+    `VerdictChangeNotRecorded` when the row could not be written, which a retry can recover.
+    """
+    return verdict_changes.record_verdict_change(change, now=now)
+
+
+def delivery_held_back(address: HeldDeliveryAddress) -> bool:
+    """Whether an evaluation's delivery is held and not released with a send, so it has not gone out."""
+    return delivery_holds.blocks_delivery(address.team_id, address.configuration_id, address.evaluation_key)
+
+
+def record_verdict_changed(
+    address: HeldDeliveryAddress, *, episode_started_at: datetime | None, now: datetime
+) -> AlertDeliveryRequest | None:
+    """Announces that a source's later verdict contradicts the one a delivered firing carried, in
+    that firing's thread. Returns the request the caller starts, or None when nothing is to be sent.
+
+    Records nothing and returns None until the source can word a follow-up, which
+    `record_verdict_change` then records and delivers.
+    """
+    return None
+
+
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's held delivery, so a source can word the message that the release sent.
+    None when the evaluation was never held or is still held."""
+    return delivery_holds.hold_released_by(address)
+
+
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     """The minute a configuration is due for."""
     return platform_lifecycle.slot_of(next_check_at, cutoff)
@@ -94,12 +138,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
+    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
+    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -124,9 +170,9 @@ def give_back_ownership(
     )
 
 
-def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
     """Clears a broken alert the platform owns. Returns the failure count it cleared, or None when not broken."""
-    return platform_lifecycle.reset_broken(team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at)
+    return platform_lifecycle.reset_broken(team_id=team_id, public_id=public_id, at=at)
 
 
 def disable_configurations(
@@ -145,15 +191,17 @@ def list_configurations(
     limit: int,
     offset: int,
     legacy_configuration_id: UUID | None = None,
+    configuration_ids: Collection[UUID] | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
         limit=limit,
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
+        configuration_ids=configuration_ids,
     )
 
 
@@ -169,23 +217,21 @@ def get_configuration(
     )
 
 
-def runtime_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID]
-) -> dict[UUID, PlatformAlertRuntime]:
-    """The runtime state of each named alert the platform owns, keyed by the source's id."""
-    return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, PlatformAlertRuntime]:
+    """The runtime state of each named alert the platform owns, keyed by its public id."""
+    return platform_reads.runtime_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
-def check_page_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, since: datetime, until: datetime, limit: int, offset: int
+def check_page_by_public_id(
+    *, team_id: int, public_id: UUID, since: datetime, until: datetime, limit: int, offset: int
 ) -> PlatformCheckPage | None:
     """A page of one owned alert's checks in a window, newest first, or None when the platform does not own it.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.check_page_by_legacy_id(
+    return platform_reads.check_page_by_public_id(
         team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
+        public_id=public_id,
         since=since,
         until=until,
         limit=limit,
@@ -193,61 +239,55 @@ def check_page_by_legacy_id(
     )
 
 
-def checks_with_detail_by_legacy_id(
+def checks_with_detail_by_public_id(
     *,
     team_id: int,
-    legacy_configuration_ids: Collection[UUID],
+    public_ids: Collection[UUID],
     detail_paths: Sequence[Sequence[str]],
     since: datetime,
     limit: int,
 ) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
     """Each named owned alert's newest `limit` checks since `since` whose source detail holds
-    every one of `detail_paths`, newest first, keyed by the source's id.
+    every one of `detail_paths`, newest first, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.checks_with_detail_by_legacy_id(
+    return platform_reads.checks_with_detail_by_public_id(
         team_id=team_id,
-        legacy_configuration_ids=legacy_configuration_ids,
+        public_ids=public_ids,
         detail_paths=detail_paths,
         since=since,
         limit=limit,
     )
 
 
-def history_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
+def history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformAlertHistory]:
-    """The check history in a window of each named alert the platform owns, keyed by the source's id.
+    """The check history in a window of each named alert the platform owns, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.history_by_legacy_id(
-        team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
-    )
+    return platform_reads.history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
 
 
-def last_check_by_legacy_id(
-    *, team_id: int, legacy_configuration_ids: Collection[UUID]
-) -> dict[UUID, PlatformLastCheck]:
-    """The newest check of each named alert the platform owns, keyed by the source's id.
+def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by its public id.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+    return platform_reads.last_check_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
-def notable_checks_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, since: datetime, limit: int
+def notable_checks_by_public_id(
+    *, team_id: int, public_id: UUID, since: datetime, limit: int
 ) -> PlatformCheckEventPage | None:
     """The newest `limit` checks since `since` that moved a named alert's state or failed, with
     their total, or None when the platform does not own the alert.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.notable_checks_by_legacy_id(
-        team_id=team_id, legacy_configuration_id=legacy_configuration_id, since=since, limit=limit
-    )
+    return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
 
 
 def update_configuration(
@@ -311,8 +351,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
-    """Applies an edit a source made to its own row onto the copy the platform owns.
+    """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
+    changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
+    next due at the cadence's `next_check_at`.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -322,6 +366,8 @@ def update_owned_copy(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
     )
 
 
@@ -336,8 +382,23 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+    """Deletes the copy of a source alert with the source row, in its transaction or after it
+    commits. With `owner`, only a copy that stack owns."""
+    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+) -> int:
+    """Deletes the shadow copies of `source_kind` whose source row is gone, and returns the count.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_writes.delete_orphaned_shadow_copies(
+        source_kind=source_kind, existing_source_ids=existing_source_ids, dry_run=dry_run
+    )
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
@@ -357,6 +418,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
+    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:

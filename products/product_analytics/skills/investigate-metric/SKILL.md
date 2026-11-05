@@ -59,7 +59,12 @@ Read `query.kind` from the source the user pointed at:
 - Saved insight (URL, `short_id`): `posthog:insight-get` → `query.kind`. Use
   `posthog:insight-query` if you also need the numbers.
 - A query you already ran or the user pasted: read `kind` directly.
-- Nothing pointed at: ask for the URL or short_id. Don't guess.
+- A metric the user only names, such as "signups", or shows in a screenshot: find its event
+  with `posthog:read-data-schema` and run it as one series over time with
+  `posthog:query-trends`. That query is your `TrendsQuery`.
+  When `query-trends` cannot express the metric, such as a warehouse-only metric or a custom
+  SQL join, run it with `posthog:execute-sql` and treat it as a `HogQLQuery`.
+- Nothing pointed at, or several events could be the metric: ask which one. Don't guess.
 
 | kind              | Playbook                                                      |
 | ----------------- | ------------------------------------------------------------- |
@@ -86,19 +91,18 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with a chart explanation from `posthog:explain-chart`.
+When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), or named a metric you ran as one, the investigation ends with a chart explanation from `posthog:explain-chart`.
 `posthog:explain-chart` exists only where chart explanations are enabled, so check for it now and read its schema.
 Where PostHog tools run through `exec`, it is not in your own tool list: run `info explain-chart` before you decide it is missing.
 When it does not exist, the findings go in a written report.
 The chart explanation is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
-For anything else, such as a metric you queried on your own, the findings go in a written report.
+For anything else, such as a metric that only SQL can express, the findings go in a written report.
 
 When it is a chart explanation:
 
 - Add "Show the chart explanation (Step 5)" as the last item of your plan or to-do list.
-- Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
-  The chart explanation draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
-  Use SQL for the findings that a `TrendsQuery` cannot express, and pass its numbers as the evidence's `chart` so they draw too.
+- Keep the query behind each finding. The chart explanation runs it again and draws the result beside the finding.
+  Prefer an insight query, such as a `TrendsQuery` with a breakdown or a property filter, and use SQL only for what an insight query cannot express.
 
 ## Step 2 — Common opening moves
 
@@ -146,7 +150,7 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-**Before you write your answer, call `posthog:explain-chart` when the user gave you a trends insight over time.**
+**Before you write your answer, call `posthog:explain-chart` when the investigation has a `TrendsQuery` over time.**
 Do this after a long investigation too, and when most of your evidence is SQL.
 For anything else, use the written report.
 
@@ -160,9 +164,13 @@ Map the investigation onto it:
   of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
-  chart explanation draws it as a chart, while any other query only becomes a link.
-  For a finding from SQL, also pass `chart` with the numbers from its result: `line` over time or `bar` per label, the `labels`, and one `series` per line.
+  for a commit or a deploy. The chart explanation runs each query and draws it: an insight
+  query with its insight chart, and a `HogQLQuery` from its rows. Shape the SQL for the chart,
+  with the x-axis column first, then optionally one text column to break down by, then the numbers.
+  Prefer a series over time to a before-and-after comparison, so the user sees when the change happened.
+- **Zoomed-in evidence** → when the metric moved suddenly, add one finding that zooms in on the change.
+  Use the insight's own query with a `dateRange` around the change, at the interval that shows it best, from `minute` to `day`.
+  Filter it to the segment the cause points at, such as the affected browser or region.
 - A **headline** of one sentence with no numbers sums up the whole chart.
   Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the chart explanation highlights it.
   Do the same in each `cause`.

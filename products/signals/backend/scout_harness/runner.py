@@ -32,13 +32,17 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes,
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
+from products.signals.backend.activity_summary.search import searchable_config
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
@@ -77,7 +81,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_background_backoff,
     withheld_skills_for_team,
 )
-from products.signals.backend.scout_harness.tool_catalogue import scout_tool_access_enabled
+from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -177,12 +181,10 @@ def _get_trial_config(trial: TrialLaunch) -> SignalScoutConfig:
 
 
 def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None:
-    run = (
-        SignalScoutRun.objects.for_team(team_id)
-        .select_related("task_run")
-        .filter(task_run__task__origin_key=f"scout-trial:{trial.id}")
-        .first()
-    )
+    task_id = tasks_facade.get_task_id_by_idempotency_key(team_id, f"scout-trial:{trial.id}")
+    if task_id is None:
+        return None
+    run = SignalScoutRun.objects.for_team(team_id).select_related("task_run").filter(task_run__task_id=task_id).first()
     if run is None:
         return None
     return RunResult(
@@ -358,6 +360,16 @@ async def _arun_signals_scout(
                 "signals_scout: canonical skill sync failed; continuing with existing team skills",
                 extra={"team_id": team_id},
             )
+        # A product that created this scout for one of its objects may bring its text up to date first.
+        try:
+            await database_sync_to_async(refresh_source_scout, thread_sensitive=False)(
+                team.parent_team_id or team.id, skill_name
+            )
+        except Exception:
+            logger.exception(
+                "signals_scout: source scout refresh failed; continuing with the stored skill",
+                extra={"team_id": team_id, "skill_name": skill_name},
+            )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version, include_authors=True
     )
@@ -532,9 +544,16 @@ async def _arun_signals_scout(
     business_knowledge_maintained = await database_sync_to_async(
         _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
-    # Resolved here for the same reason, so every lifecycle event reports the same cadence.
+    # Resolved here for the same reason: it picks the reviewer-routing sections of the prompt. Teams in
+    # the `signals-research-reviewer-selection` trial get the evidence-only guidance, the rest the
+    # legacy routing text, so the trial measures the prompt change too. Fails closed to legacy.
+    strict_reviewer_selection = await database_sync_to_async(
+        team_research_reviewer_selection_enabled, thread_sensitive=False
+    )(team.id)
+    # Resolved here for the same reason, so every lifecycle event reports the same cadence. The
+    # backoff comes from the lane that runs this config's skill.
     backoff = (
-        await asyncio.to_thread(resolve_background_backoff)
+        await asyncio.to_thread(resolve_background_backoff, config.skill_name)
         if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
         else None
     )
@@ -551,6 +570,7 @@ async def _arun_signals_scout(
             user_id=user_id,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            strict_reviewer_selection=strict_reviewer_selection,
             background_backoff=backoff,
             model=model,
             runtime_adapter=runtime_adapter,
@@ -591,6 +611,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            strict_reviewer_selection=strict_reviewer_selection,
             background_backoff=backoff,
             run_id=run_id,
             task_run_id=task_run_id,
@@ -686,6 +707,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            strict_reviewer_selection=strict_reviewer_selection,
             background_backoff=backoff,
             run_id=run_id,
             task_run_id=failed_task_run_id,
@@ -756,6 +778,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            strict_reviewer_selection=strict_reviewer_selection,
             background_backoff=backoff,
             run_id=run_id,
             task_run_id=None,
@@ -842,6 +865,26 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
     """
     try:
         return bool(approved_metric_names_for_team(team, User.objects.get(id=user_id)))
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
+ACTIVITY_SUMMARY_SEARCH_TOOL = "activity-summary-search"
+
+
+def _activity_summary_search_available(team: Team, mcp_tool_allowlist: list[str] | None) -> bool:
+    """Whether the run's prompt should name `activity-summary-search` for reviewer routing.
+
+    True only when the team can search and the run holds the tool, so the prompt never names a tool
+    the run cannot call. A failed check is False: the mention is optional steering.
+    """
+    try:
+        if mcp_tool_allowlist is not None and ACTIVITY_SUMMARY_SEARCH_TOOL not in scout_held_mcp_tools(
+            mcp_tool_allowlist
+        ):
+            return False
+        return searchable_config(team) is not None
     except Exception as error:
         capture_exception(error)
         return False
@@ -988,6 +1031,7 @@ async def _spawn_and_run(
     user_id: int,
     github_guidance: bool,
     business_knowledge_maintained: bool,
+    strict_reviewer_selection: bool,
     model: str | None,
     background_backoff: BackgroundBackoff | None = None,
     runtime_adapter: str | None = None,
@@ -1013,6 +1057,7 @@ async def _spawn_and_run(
     # The config's `network_access` picks the sandbox env — and with it the egress policy the
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
     # env name so its unrestricted policy can't be reasserted onto the shared one.
+    github_optional = await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team.id)
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
         network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
@@ -1099,6 +1144,9 @@ async def _spawn_and_run(
     report_tags_in_use = await database_sync_to_async(_report_tags_in_use, thread_sensitive=False)(
         team, report_channel=report_channel
     )
+    activity_summary_search = report_channel and await database_sync_to_async(
+        _activity_summary_search_available, thread_sensitive=False
+    )(team, mcp_tool_allowlist)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1107,10 +1155,12 @@ async def _spawn_and_run(
         project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
+        activity_summary_search_available=activity_summary_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
         # them out of the exec-interface rule; empty renders nothing.
         mcp_server_names=mcp_server_names,
         business_knowledge_maintained=business_knowledge_maintained,
+        strict_reviewer_selection=strict_reviewer_selection,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
@@ -1158,7 +1208,9 @@ async def _spawn_and_run(
             runtime=runtime,
             experiment=experiment,
             github_guidance=github_guidance,
+            github_optional=github_optional,
             business_knowledge_maintained=business_knowledge_maintained,
+            strict_reviewer_selection=strict_reviewer_selection,
             background_backoff=background_backoff,
             repositories=repositories,
             triggered_by=triggered_by,
@@ -1181,6 +1233,7 @@ async def _spawn_and_run(
                 skill=skill,
                 github_guidance=github_guidance,
                 business_knowledge_maintained=business_knowledge_maintained,
+                strict_reviewer_selection=strict_reviewer_selection,
                 background_backoff=background_backoff,
                 run_id=run_id,
                 task_run_id=str(task_run_id),
@@ -1466,7 +1519,9 @@ def _create_run_row(
     runtime: str = "acp",
     experiment: FirstReportExperiment | None = None,
     github_guidance: bool = False,
+    github_optional: bool = False,
     business_knowledge_maintained: bool = False,
+    strict_reviewer_selection: bool = False,
     background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
@@ -1515,11 +1570,15 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    metadata["github_optional"] = github_optional
     # Whether the business-knowledge section rendered — a fifth composition fork, resolved per run
     # from the team's flag + a maintained knowledge base (`_business_knowledge_maintained_for_team`).
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
     # re-derived at read time, letting an eval or A/B compare only runs that got the same prompt.
     metadata["business_knowledge_maintained"] = business_knowledge_maintained
+    # Which reviewer-routing guidance the run got (evidence-only for the trial arm, legacy otherwise),
+    # stamped because the flag can change between runs.
+    metadata["strict_reviewer_selection"] = strict_reviewer_selection
     # Stamped only for background-managed scouts, because a person who edits the config takes it over
     # and deleting it nulls `scout_config`. Reports this run authors keep their background origin.
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
@@ -1786,6 +1845,7 @@ def _capture_run_started(
     skill: LoadedSkill,
     github_guidance: bool,
     business_knowledge_maintained: bool,
+    strict_reviewer_selection: bool,
     run_id: Any,
     background_backoff: BackgroundBackoff | None = None,
     task_run_id: str,
@@ -1823,6 +1883,7 @@ def _capture_run_started(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        strict_reviewer_selection=strict_reviewer_selection,
         background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,
@@ -1948,6 +2009,7 @@ def _attach_run_shape_props(
     skill: LoadedSkill,
     github_guidance: bool,
     business_knowledge_maintained: bool,
+    strict_reviewer_selection: bool,
     model: str | None,
     runtime_adapter: str | None,
     service_tier: str | None,
@@ -1978,6 +2040,7 @@ def _attach_run_shape_props(
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
     properties["business_knowledge_maintained"] = business_knowledge_maintained
+    properties["strict_reviewer_selection"] = strict_reviewer_selection
     properties["managed_by"] = config.managed_by
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND and config.background_band is not None:
         properties["background_band"] = config.background_band
@@ -2003,6 +2066,7 @@ def _capture_run_finished(
     skill: LoadedSkill,
     github_guidance: bool,
     business_knowledge_maintained: bool,
+    strict_reviewer_selection: bool,
     run_id: Any,
     background_backoff: BackgroundBackoff | None = None,
     task_run_id: str | None,
@@ -2057,6 +2121,7 @@ def _capture_run_finished(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        strict_reviewer_selection=strict_reviewer_selection,
         background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,

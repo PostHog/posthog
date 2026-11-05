@@ -1,8 +1,8 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -127,6 +127,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         # A deletion predicate must match rows regardless of retention; the events-retention floor would otherwise
         # narrow an events sub-query here and leave events older than the window un-deleted.
         apply_events_retention_floor=False,
+        rewrite_flag_calls_to_flag_evaluations=False,
     )
     try:
         sql = translate_hogql(
@@ -666,8 +667,8 @@ class DataDeletionRequest(UUIDModel):
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_team_id = instance.team_id
         return instance
 
@@ -1045,6 +1046,41 @@ def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
             "WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s AND is_deleted = 0",
             {"team_id": request.team_id, "request_id": str(request.pk)},
         )
+
+
+@frozen
+class AdhocEventDeletionBacklog:
+    """Event uuids queued in ``adhoc_events_deletion`` that the scheduled deletes job has not removed yet."""
+
+    total: int
+    for_team: int
+
+
+def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklog:
+    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_adhoc_backlog",
+    ):
+        result = sync_execute(
+            f"SELECT count(), countIf(team_id = %(team_id)s) FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+            "WHERE is_deleted = 0",
+            {"team_id": team_id},
+            team_id=team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    total, for_team = result[0] if result else (0, 0)
+    return AdhocEventDeletionBacklog(total=int(total), for_team=int(for_team))
 
 
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:

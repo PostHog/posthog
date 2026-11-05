@@ -28,7 +28,7 @@ Download the `toolbar-extension` artifact from the run to install that build wit
 
 After a rebuild, click the reload icon on the extension card, then close and open the side panel.
 
-### Firefox (128 or later)
+### Firefox (140 or later)
 
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on** and select `frontend/dist/toolbar-extension/firefox/manifest.json`, or the Firefox zip from the artifact.
@@ -53,6 +53,51 @@ The manifest also lists `content.css` and its fonts in `web_accessible_resources
 Both browsers let the user take site access back from an extension.
 When the extension can't reach the PostHog host, the panel asks for access to it.
 When it can't reach the site, the panel asks the user to reload the page and try again.
+
+## Data collection
+
+Firefox shows the extension's data collection at install, from `data_collection_permissions` in the Firefox manifest (`buildToolbarExtensionManifest` in `frontend/toolbar-config.mjs`).
+The Chrome Web Store asks for the same facts in the item's privacy tab.
+Update both when the extension starts to send new data.
+
+| Category                             | What the extension sends                                                                                                                       | Where                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `authenticationInfo` (required)      | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                            | The user's PostHog host   |
+| `browsingActivity` (required)        | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
+| `websiteContent` (required)          | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
+| `technicalAndInteraction` (optional) | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
+
+The panel sends usage events only when the user allows `technicalAndInteraction`.
+Firefox lets the user change this in the add-on's settings, and the panel applies the change right away.
+The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
+
+## Store listing images
+
+`store-listing/images/` holds the images of the Chrome Web Store listing: five 1280×800 screenshots, the 440×280 small promo tile and the 1400×560 marquee promo tile.
+They are 24-bit PNGs without alpha, which is what the store accepts.
+
+`store-listing/generate.mjs` makes them. Run it from `frontend/` after a build:
+
+```sh
+pnpm build:toolbar-extension
+node src/toolbar/extension/store-listing/generate.mjs [path/to/unpacked/extension]
+```
+
+The path defaults to `dist/toolbar-extension/chrome`. Point it at the unzipped release build to show exactly what the store item ships.
+
+Each screenshot shows a browser window with a website on the left and the side panel on the right:
+
+- The website comes from a capture of an invented site with the page tools running. The script downloads each capture from the `PostHog/pr-assets` repository and hides the old panel in it.
+- The panel is a fresh render of the built `panel.html` with a fake `browser` API, like `ExtensionPanel.stories.tsx`. `store-listing/panelStates.mjs` holds the state of each tool, and it matches what the capture shows.
+
+To change an image:
+
+- **Headline or caption:** edit `SCREENSHOTS` in `generate.mjs`.
+- **Panel UI:** rebuild the extension and run the script again. A change to the state shape of a tool also needs an update in `panelStates.mjs`.
+- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`.
+- **Website side:** take a new capture with the extension on the site, upload it with `hogli pr:upload-image`, and replace the `capture` URL. A capture must be 1681×864 points at 2x, with a 44-point browser bar on top and the panel in the right 401 points.
+
+Upload the new images to the store item by hand. The store doesn't take them from this folder.
 
 ## How the page tools work
 

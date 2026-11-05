@@ -5,10 +5,10 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { CommentType } from '~/types'
 
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
@@ -94,6 +94,7 @@ describe('playerFrameCommentOverlayLogic', () => {
         }).toDispatchActions([playerCommentModel.actionTypes.commentEdited, 'submitRecordingCommentSuccess'])
 
         expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(createSpy.mock.calls[0][0].content).toEqual('a comment')
         expect(createSpy.mock.calls[0][0].item_context).toMatchObject({
             milliseconds_into_recording: 0,
             time_in_recording: dayjs(recordingMetaJson.start_time).toISOString(),

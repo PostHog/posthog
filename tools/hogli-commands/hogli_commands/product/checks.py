@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -36,9 +37,11 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    unwatched_modules,
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
+from .watched_channels import unwatched_channel_issue
 from .wiring_interfaces import APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS, WiringVerdict
 
 # ---------------------------------------------------------------------------
@@ -59,15 +62,17 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
 
 
 def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
-    """Yield (path, depends_on) for every [[modules]] block."""
-    for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        path_match = re.search(r'path\s*=\s*"(.*?)"', block)
-        if not path_match:
+    """Yield (path, depends_on) for every [[modules]] block.
+
+    Reads the parsed TOML because a comment inside a depends_on list can name `[[interfaces]]`,
+    which ends a text match early and drops the rest of the list.
+    """
+    for module in tomllib.loads(tach_content).get("modules", []):
+        path = module.get("path")
+        if not path:
             continue
-        path = path_match.group(1)
-        deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
+        # tach accepts a dependency as a bare path or as a table such as {path = "...", deprecated = true}.
+        depends_on = [dep if isinstance(dep, str) else dep["path"] for dep in module.get("depends_on", [])]
         yield path, depends_on
 
 
@@ -109,7 +114,9 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
-         backend/facade/contracts.py (the Strict rung or above).
+         backend/facade/contracts.py (the Strict rung or above). A product
+         that also has a legacy-leak block is exempt: its facade block only
+         stops new reach-ins while the listed leaks drain.
       3. Names in alternation regexes must be sorted alphabetically.
 
     The inverse direction ("every Strict product must be listed") is not
@@ -149,6 +156,8 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 f"canonical facade alternation lists '{name}' but products/{name}/ does not exist — "
                 "remove the stale entry from tach.toml"
             )
+            continue
+        if has_legacy_interface_leaks(tach_content, f"products.{name}"):
             continue
         if not has_contracts_module(product_dir / "backend"):
             issues.append(
@@ -454,25 +463,18 @@ class ImportSurfaceCheck(ProductCheck):
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
 
-    A product that is not sealed yet holds the webhook_consumers surface alone: posthog/ingress/
-    imports that module by name and must not reach the product's internals through it, whether or
-    not the product has a contract.
+    The contracts name `products.*.backend.<surface>`, so they hold for every product whether or
+    not it has facade/contracts.py, and this check holds every surface for every product too.
     """
 
     label = "import surface"
 
     # (source subtree or module, allowed destination subtrees)
-    WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
-        WEBHOOK_CONSUMERS_SURFACE,
+        ("webhook_consumers", ("facade",)),
     )
-
-    def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """A product that is not sealed yet has no routes/presentation contract to hold, so
-        only its ingress entry point is checked."""
-        return self.SURFACES if ctx.has_facade_contracts else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
         root = ctx.backend_dir / source
@@ -484,7 +486,7 @@ class ImportSurfaceCheck(ProductCheck):
     def should_run(self, ctx: CheckContext) -> bool:
         if not super().should_run(ctx) or not ctx.backend_dir.is_dir():
             return False
-        return any(self._surface_files(ctx, source) for source, _ in self._surfaces(ctx))
+        return any(self._surface_files(ctx, source) for source, _ in self.SURFACES)
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -495,7 +497,7 @@ class ImportSurfaceCheck(ProductCheck):
         prefix = f"products.{ctx.name}.backend"
         ignored = ignored_import_edges()
         issues = []
-        for source, allowed in self._surfaces(ctx):
+        for source, allowed in self.SURFACES:
             allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
             for f in self._surface_files(ctx, source):
                 importer = self._module_name(ctx, f)
@@ -506,9 +508,9 @@ class ImportSurfaceCheck(ProductCheck):
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
-                        f"{'/'.join(allowed)}. If import-linter did not flag this, either the target sits "
-                        "under a directory without __init__.py, which grimp cannot see, or this product "
-                        "carries no contract yet"
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see. To defer the edge, add that "
+                        "__init__.py first: import-linter rejects an ignore_imports entry it cannot match"
                     )
         if issues:
             return CheckResult(
@@ -1281,7 +1283,9 @@ class OrphanedTestFilesCheck(ProductCheck):
         # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
-        "warehouse_sources": ("backend/temporal/",),
+        # backend/temporal/ is the Temporal segment above. sources/ holds the vendor plugins, which
+        # the "Warehouse sources checks and tests" job in ci-python.yml runs.
+        "warehouse_sources": ("backend/temporal/", "sources/"),
         "signals": ("backend/emission/",),
         # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
         # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
@@ -1353,6 +1357,33 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+class WatchedChannelsCheck(ProductCheck):
+    """Hold the modules that outside suites run without an import edge in the contract-check inputs.
+
+    watched_channels.py finds them: receivers on a sender the product does not own, and modules that
+    outside tests name by dotted path. Only a product with 'backend:contract-check' skips the suite,
+    so no other product runs this check.
+    """
+
+    label = "watched channels"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.isolation_status().has_contract_check_script
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        channels = ctx.isolation_status().channel_modules
+        unwatched = unwatched_modules(ctx.product_dir, {c.path for c in channels})
+        result = CheckResult(file=f"products/{ctx.name}/turbo.json")
+        result.issues = [
+            unwatched_channel_issue(path, [c for c in channels if c.path == path]) for path in sorted(unwatched)
+        ]
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1365,5 +1396,6 @@ CHECKS: list[ProductCheck] = [
     IsolationChainCheck(),
     FacadeShapeCheck(),
     WiringInterfaceCheck(),
+    WatchedChannelsCheck(),
     OrphanedTestFilesCheck(),
 ]

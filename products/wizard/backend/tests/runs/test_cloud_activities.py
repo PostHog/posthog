@@ -21,6 +21,8 @@ from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, Ca
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
+from posthog.models.github_integration_base import GitHubIntegrationError
+
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
     CreateWizardRunInput,
@@ -183,6 +185,7 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     worker_record = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
     assert worker_record.sandbox_id == "worker-id"
     assert worker_record.cleanup_status == "active"
+    assert worker_record.resource_usage is not None
     assert worker_record.resource_usage["cpu_cores"] == 2.0
 
     provision.reset_mock()
@@ -414,6 +417,71 @@ def test_execute_wizard_preserves_cancellation() -> None:
     assert error.value is cancellation
 
 
+@pytest.mark.parametrize(
+    "handoff_error, error_type, non_retryable, logged",
+    (
+        (
+            WizardWorkerExecutionError(
+                "publishing", 1, "GitHub signed commit failed with status code 502.", retryable=True
+            ),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            False,
+            {"stage": "publishing", "exit_code": 1},
+        ),
+        (
+            WizardWorkerExecutionError("publishing", 1, "Could not read staged file 'fake-wizard-api-key-for-test'."),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            True,
+            {"stage": "publishing", "exit_code": 1},
+        ),
+        (
+            WizardWorkerExecutionError("diff capture", 1, detail="fake-wizard-api-key-for-test"),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            True,
+            {"stage": "diff capture", "exit_code": 1},
+        ),
+        (
+            GitHubIntegrationError("fake-wizard-api-key-for-test", status_code=503),
+            "GitHubIntegrationError",
+            False,
+            {"stage": None, "status_code": 503},
+        ),
+    ),
+)
+def test_create_run_artifacts_retries_only_transient_failures_and_logs_the_step(
+    handoff_error: Exception, error_type: str, non_retryable: bool, logged: dict[str, object]
+) -> None:
+    workspace = PreparedGitRepositoryWorkspace(
+        team_id=7,
+        run_id=uuid4(),
+        sandbox_id="worker-id",
+        repository="posthog/posthog",
+        root_path="/tmp/workspace/repos/posthog/posthog",
+        github_integration_id=456,
+    )
+
+    with (
+        patch("products.wizard.backend.temporal.activities.handoff.wizard_facade.update_run_stage"),
+        patch(
+            "products.wizard.backend.temporal.activities.handoff.cloud_worker.create_git_repository_handoff",
+            side_effect=handoff_error,
+        ),
+        pytest.raises(ApplicationError) as error,
+        capture_logs() as logs,
+    ):
+        async_to_sync(_run_create_run_artifacts)(workspace)
+
+    assert error.value.type == error_type
+    assert error.value.non_retryable is non_retryable
+    assert error.value.message == "Wizard activity failed."
+    failure_logs = [log for log in logs if log["event"] == "wizard_handoff_failed"]
+    assert len(failure_logs) == 1
+    assert failure_logs[0]["log_level"] == "warning"
+    assert failure_logs[0]["retryable"] is not non_retryable
+    assert {key: failure_logs[0][key] for key in logged} == logged
+    assert "fake-wizard-api-key-for-test" not in str(logs)
+
+
 @pytest.mark.django_db(transaction=True)
 @patch("products.wizard.backend.logic.artifacts.service.object_storage.write")
 def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMock, team, user) -> None:
@@ -466,5 +534,6 @@ def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMo
     assert pull_request_artifact.number == pull_request.number
     assert wizard_facade.get_run(team.id, run.id).status == WizardRunStatus.COMPLETED
     worker = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
+    assert worker.resource_usage is not None
     assert worker.resource_usage["provider_cpu_usage_usec"] == 1_000_000
     assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 2_000_000

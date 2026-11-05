@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import PropertyDefinition
+from posthog.paging import PageRequest
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
@@ -514,7 +515,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         source = self._create(user_access_control=self._uac(allowed=True))
         with self.assertRaises(api.ResourceForbiddenError):
             api.list_custom_property_sync_runs(
-                self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=False)
+                self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
             )
 
     @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
@@ -587,9 +588,9 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             started_at=timezone.now() - age,
         )
 
-        views, _ = api.list_custom_property_sync_runs(
-            self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=True)
-        )
+        views = api.list_custom_property_sync_runs(
+            self.team.id, source.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
+        ).results
 
         assert views[0].status == expected_status
         run.refresh_from_db()
@@ -609,11 +610,15 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             started_at=timezone.now() - (api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1)),
         )
 
-        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=False))
+        api.list_custom_property_sources(
+            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=False)
+        )
         run.refresh_from_db()
         assert run.status == "running"
 
-        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=True))
+        api.list_custom_property_sources(
+            self.team.id, page=PageRequest(limit=10), user_access_control=self._uac(allowed=True)
+        )
         run.refresh_from_db()
         assert run.status == "failed"
 

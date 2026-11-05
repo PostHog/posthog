@@ -342,6 +342,25 @@ describe('Tool Filtering - API Scopes', () => {
         expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
     })
 
+    // The legacy fallback lets codegen accept `hog_flow:write` here, which would hide these tools from send-scoped keys.
+    it.each([
+        { scopes: ['transactional_email:write'], visible: true },
+        { scopes: ['hog_flow:write'], visible: true },
+        { scopes: ['transactional_email:read'], visible: false },
+    ])('making a template transactional needs the send scope: $scopes', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: { 'workflows-transactional-email-api': true },
+        })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of [
+            'workflows-make-email-template-transactional-prepare',
+            'workflows-make-email-template-transactional-execute',
+        ]) {
+            expect(names.includes(name)).toBe(visible)
+        }
+    })
+
     it.each([
         { scopes: ['billing:read'], visible: true },
         { scopes: [], visible: false },
@@ -1110,6 +1129,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scout-trials',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
@@ -1119,15 +1139,22 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
+            'marketing-analytics-recommendations',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
+            'workflows-email-from-code',
             'activity-summary',
+            'personal-inbox-ranking',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
+            'workflows-customerio-import',
+            'mcp-session-recording-console-logs',
+            'workflows-push-token-import-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1174,7 +1201,7 @@ describe('Tool Filtering - Feature Flags', () => {
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

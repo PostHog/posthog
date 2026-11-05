@@ -52,8 +52,25 @@ import type {
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
-/** What each result row represents: a trace (its root span), an individual span, or an operation aggregate. */
-export type TracingDisplayMode = TracingViewMode | 'operations'
+/** What each result row represents: a trace (its root span), an individual span, or an operation or endpoint aggregate. */
+export type TracingDisplayMode = TracingViewMode | 'operations' | 'endpoints'
+
+export type TracingResultsTab = 'traces' | 'operations' | 'endpoints'
+
+function resultsTabFromView(view: unknown, operationsEnabled: boolean, endpointsEnabled: boolean): TracingResultsTab {
+    if (operationsEnabled && view === 'operations') {
+        return 'operations'
+    }
+    if (endpointsEnabled && view === 'endpoints') {
+        return 'endpoints'
+    }
+    return 'traces'
+}
+
+/** The aggregate tables always cover the whole selected range, even while a comparison is active. */
+function aggregateFetchOptions(tab: TracingResultsTab): { fullRange: boolean; groupByEndpoint: boolean } {
+    return { fullRange: true, groupByEndpoint: tab === 'endpoints' }
+}
 
 const TRACING_SCENE_TABS = ['viewer', 'sql'] as const
 export type TracingSceneTab = (typeof TRACING_SCENE_TABS)[number]
@@ -130,9 +147,10 @@ export interface tracingSceneLogicValues {
     traceIdentity: TraceIdentity // tracingViewerLogic
     traceSessionId: string | null // tracingViewerLogic
     activeSceneTab: TracingSceneTab
-    activeTracingTab: 'operations' | 'traces'
+    activeTracingTab: TracingResultsTab
     breadcrumbs: Breadcrumb[]
     displayMode: TracingDisplayMode
+    endpointsViewEnabled: boolean
     operationsViewEnabled: boolean
     sceneTab: TracingSceneTab
     sceneTabsEnabled: boolean
@@ -154,11 +172,13 @@ export interface tracingSceneLogicActions {
         options?:
             | {
                   fullRange?: boolean
+                  groupByEndpoint?: boolean
               }
             | null
             | undefined
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null // tracingDataLogic
     fetchNextPage: () => {
         value: true
@@ -182,6 +202,9 @@ export interface tracingSceneLogicActions {
     loadTraceSpans: (args_0: { traceId: string; ts?: string | null }) => {
         traceId: string
         ts?: string | null
+    } // tracingDataLogic
+    refreshQuery: () => {
+        value: true
     } // tracingDataLogic
     runQuery: () => {
         value: true
@@ -284,8 +307,8 @@ export interface tracingSceneLogicActions {
     selectSceneTab: (tab: TracingSceneTab) => {
         tab: 'sql' | 'viewer'
     }
-    setActiveTracingTab: (tab: 'operations' | 'traces') => {
-        tab: 'operations' | 'traces'
+    setActiveTracingTab: (tab: TracingResultsTab) => {
+        tab: TracingResultsTab
     }
     setDisplayMode: (mode: TracingDisplayMode) => {
         mode: TracingDisplayMode
@@ -302,9 +325,11 @@ export interface tracingSceneLogicActions {
 export interface tracingSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         operationsViewEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        endpointsViewEnabled: (featureFlags: FeatureFlagsSet) => boolean
         displayMode: (
             operationsViewEnabled: boolean,
-            activeTracingTab: 'operations' | 'traces',
+            endpointsViewEnabled: boolean,
+            activeTracingTab: TracingResultsTab,
             filters: TracingFilters
         ) => TracingDisplayMode
         sceneTabsEnabled: (featureFlags: FeatureFlagsSet) => boolean
@@ -398,6 +423,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setVisibleRowRange',
                 'handleFilterChange',
                 'applyHeatmapBrush',
+                'refreshQuery',
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
@@ -429,7 +455,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
     actions({
         syncUrl: true,
-        setActiveTracingTab: (tab: 'traces' | 'operations') => ({ tab }),
+        setActiveTracingTab: (tab: TracingResultsTab) => ({ tab }),
         setDisplayMode: (mode: TracingDisplayMode) => ({ mode }),
         setSceneTab: (tab: TracingSceneTab) => ({ tab }),
         selectSceneTab: (tab: TracingSceneTab) => ({ tab }),
@@ -438,7 +464,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
     reducers({
         activeTracingTab: [
-            'traces' as 'traces' | 'operations',
+            'traces' as TracingResultsTab,
             {
                 setActiveTracingTab: (_, { tab }) => tab,
             },
@@ -466,16 +492,23 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW],
         ],
+        endpointsViewEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW],
+        ],
         // The one user-facing mode: what each result row represents. Spans two states —
-        // traces/spans is the viewMode filter, operations is the scene tab.
+        // traces/spans is the viewMode filter, operations/endpoints is the scene tab.
         displayMode: [
-            (s) => [s.operationsViewEnabled, s.activeTracingTab, s.filters],
+            (s) => [s.operationsViewEnabled, s.endpointsViewEnabled, s.activeTracingTab, s.filters],
             (
                 operationsViewEnabled: boolean,
-                activeTracingTab: 'operations' | 'traces',
+                endpointsViewEnabled: boolean,
+                activeTracingTab: TracingResultsTab,
                 filters: TracingFilters
-            ): TracingDisplayMode =>
-                operationsViewEnabled && activeTracingTab === 'operations' ? 'operations' : filters.viewMode,
+            ): TracingDisplayMode => {
+                const tab = resultsTabFromView(activeTracingTab, operationsViewEnabled, endpointsViewEnabled)
+                return tab === 'traces' ? filters.viewMode : tab
+            },
         ],
         sceneTabsEnabled: [
             (s) => [s.featureFlags],
@@ -525,8 +558,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // dispatched wins. The data logic mounts before this scene logic, so its listener runs
             // first and the full-range fetch here beats the windowed one deterministically —
             // otherwise the Operations table would divide by the narrow compare sub-window.
-            if (values.activeTracingTab === 'operations') {
-                actions.fetchAggregation({ fullRange: true })
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
             }
         },
         setFilters: () => {
@@ -535,8 +568,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // listener → runQuery, which fires a windowed fetchAggregation when a comparison is
             // active. Mirror handleFilterChange so the Operations tab keeps its full-range aggregate
             // instead of the narrow compare sub-window (same mount-order guarantee applies).
-            if (values.activeTracingTab === 'operations') {
-                actions.fetchAggregation({ fullRange: true })
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
             }
         },
         // Flags resolve asynchronously, so one that arrives after the Operations fetch would show
@@ -544,13 +577,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         // late-flag refetch in tracingDataLogic.
         setFeatureFlags: () => {
             if (
-                values.activeTracingTab === 'operations' &&
+                values.activeTracingTab !== 'traces' &&
                 values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP] &&
                 values.aggregation.current.length > 0 &&
                 values.aggregation.current[0].sessions == null &&
                 !values.aggregationLoading
             ) {
-                actions.fetchAggregation({ fullRange: true })
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
             }
             // Flags can arrive after the URL parse, so a tab=sql deep link waits here for the verdict.
             if (!values.sceneTabsEnabled && values.sceneTab !== DEFAULT_SCENE_TAB) {
@@ -558,9 +591,20 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 actions.syncUrl()
             }
         },
+        // The data logic refetches a windowed aggregate on these, so restore the tab's own query after it.
+        updateComparisonWindows: () => {
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
+            }
+        },
+        refreshQuery: () => {
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
+            }
+        },
         setActiveTracingTab: ({ tab }) => {
-            if (tab === 'operations') {
-                actions.fetchAggregation({ fullRange: true })
+            if (tab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(tab))
             } else if (values.compareActive) {
                 // Returning to the traces tab with a comparison active: the aggregation state
                 // holds the operations full-range data — refetch the windowed compare version.
@@ -571,9 +615,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         // URL write per interaction: setViewMode cascades its own syncUrl (via the data logic's
         // handleFilterChange), so this only writes directly when that cascade won't run.
         setDisplayMode: ({ mode }) => {
-            if (mode === 'operations') {
-                if (values.activeTracingTab !== 'operations') {
-                    actions.setActiveTracingTab('operations')
+            // pinned: analytics event name and property — renaming breaks dashboards
+            posthog.capture('tracing display mode changed', { mode })
+            if (mode === 'operations' || mode === 'endpoints') {
+                if (values.activeTracingTab !== mode) {
+                    actions.setActiveTracingTab(mode)
                 }
                 actions.syncUrl()
                 return
@@ -589,21 +635,26 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values }) => {
         // Feature flags can resolve AFTER the initial URL parse, and urlToAction only re-runs on
         // URL changes. Without this, a late-arriving flag leaves the tab and the URL disagreeing:
         // enabling it on a ?view=operations page keeps the tab stuck on traces, and disabling it
         // mid-session strands the tab on operations. Re-reconcile the tab against the current URL
-        // whenever the flag flips, then write the URL back through the flag-aware displayMode.
-        operationsViewEnabled: (enabled) => {
-            const shouldBeOperations = enabled && router.values.searchParams.view === 'operations'
-            if (shouldBeOperations === (values.activeTracingTab === 'operations')) {
+        // whenever a flag flips, then write the URL back through the flag-aware displayMode.
+        const reconcileTab = (): void => {
+            const tab = resultsTabFromView(
+                router.values.searchParams.view,
+                values.operationsViewEnabled,
+                values.endpointsViewEnabled
+            )
+            if (tab === values.activeTracingTab) {
                 return
             }
-            actions.setActiveTracingTab(shouldBeOperations ? 'operations' : 'traces')
+            actions.setActiveTracingTab(tab)
             actions.syncUrl()
-        },
-    })),
+        }
+        return { operationsViewEnabled: reconcileTab, endpointsViewEnabled: reconcileTab }
+    }),
 
     urlToAction(({ actions, values, cache }) => ({
         '/tracing': (_, searchParams) => {
@@ -693,19 +744,25 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
-            // `view` spans two states: 'operations' round-trips the scene tab, 'spans'/absent
-            // round-trips the viewMode filter. While the URL says operations the viewMode filter
+            // `view` spans two states: 'operations'/'endpoints' round-trips the scene tab, 'spans'/'traces'/absent
+            // round-trips the viewMode filter. While the URL names an aggregate tab the viewMode filter
             // is left untouched — it has no effect on that view and shouldn't be reset under it.
-            // The whole operations leg is flag-gated on BOTH the read side (here) and the write
+            // Each aggregate leg is flag-gated on BOTH the read side (here) and the write
             // side (buildUrl, via the flag-aware displayMode selector): gating only one of them
             // would make them fight over the tab state.
-            const operationsEnabled = values.operationsViewEnabled
-            const operationsFromUrl = operationsEnabled && searchParams.view === 'operations'
-            if (operationsEnabled && operationsFromUrl !== (values.activeTracingTab === 'operations')) {
-                actions.setActiveTracingTab(operationsFromUrl ? 'operations' : 'traces')
+            const tabFromUrl = resultsTabFromView(
+                searchParams.view,
+                values.operationsViewEnabled,
+                values.endpointsViewEnabled
+            )
+            if (tabFromUrl !== values.activeTracingTab) {
+                actions.setActiveTracingTab(tabFromUrl)
             }
-            if (!operationsFromUrl) {
-                const viewModeFromUrl = searchParams.view === 'spans' ? 'spans' : DEFAULT_VIEW_MODE
+            if (tabFromUrl === 'traces') {
+                const viewModeFromUrl: TracingViewMode =
+                    searchParams.view === 'spans' || searchParams.view === 'traces'
+                        ? searchParams.view
+                        : DEFAULT_VIEW_MODE
                 if (viewModeFromUrl !== values.filters.viewMode) {
                     filtersFromUrl.viewMode = viewModeFromUrl
                     hasChanges = true
@@ -800,7 +857,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (comparisonParam) {
                 searchParams.comparison = comparisonParam
             }
-            // displayMode already folds in the flag gate and resolves to viewMode off-operations.
+            // displayMode already folds in the flag gates and resolves to viewMode off the aggregate tabs.
             if (values.displayMode !== DEFAULT_VIEW_MODE) {
                 searchParams.view = values.displayMode
             }

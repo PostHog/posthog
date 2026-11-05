@@ -23,6 +23,7 @@ REPORT_METRICS_FLAG = "signals-report-metrics"
 REPORT_MONITORING_FLAG = "signals-report-monitoring"
 FIRST_REPORT_EMAIL_FLAG = "signals-first-report-email"
 RESEARCH_REVIEWER_SELECTION_FLAG = "signals-research-reviewer-selection"
+INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
 
 
 def _organization_flag_enabled(
@@ -95,3 +96,9 @@ def team_report_monitoring_enabled(team_id: int) -> bool:
 
 def team_research_reviewer_selection_enabled(team_id: int) -> bool:
     return _team_flag_enabled(RESEARCH_REVIEWER_SELECTION_FLAG, team_id)
+
+
+def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
+    return _organization_flag_enabled(
+        INBOX_CACHED_FILTERS_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
+    )

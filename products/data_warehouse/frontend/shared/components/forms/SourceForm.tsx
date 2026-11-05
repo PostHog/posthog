@@ -35,7 +35,6 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
-import { CDC_SOURCE_TYPES } from '../../cdc'
 import { CredentialAccountSelector } from './CredentialAccountSelector'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
@@ -1030,7 +1029,7 @@ export function SourceFormComponent({
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
+                !!sourceConfig.cdcEngine &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (

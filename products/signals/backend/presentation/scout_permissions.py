@@ -5,13 +5,15 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.permissions import get_authenticator_user_credential
+
+from products.signals.backend.facade.scout_access import CANONICAL_TEAM_ACCESS_DENIED_MESSAGE, has_canonical_team_access
 
 
 class ScoutCanonicalTeamAccessPermission(BasePermission):
     """Authorize requests against the project that owns the scout data."""
 
-    message = "You don't have access to the project that owns this data."
+    message = CANONICAL_TEAM_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         team_view = cast(TeamAndOrgViewSetMixin, view)
@@ -19,16 +21,6 @@ class ScoutCanonicalTeamAccessPermission(BasePermission):
             # Unreachable while `IsAuthenticated` runs ahead of this class, but deny rather than
             # allow, so this class can never be the reason an anonymous request gets through.
             return False
-        team = team_view.team
-        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
-            return True
-        authenticator = request.successful_authenticator
-        scoped_teams = None
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scoped_teams = authenticator.access_token.scoped_teams
-        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scoped_teams = authenticator.personal_api_key.scoped_teams
-        if scoped_teams and team.parent_team_id not in scoped_teams:
-            return False
-        level = team_view.user_permissions.team(team.parent_team).effective_membership_level
-        return level is not None
+        credential = get_authenticator_user_credential(request.successful_authenticator)
+        scoped_team_ids = credential.scoped_teams if credential is not None else None
+        return has_canonical_team_access(team_view.team, team_view.user_permissions, scoped_team_ids)

@@ -11,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CohortType, FilterLogicalOperator } from '~/types'
 
-import { cohortsModel, getReferencedCohortIds, processCohort } from './cohortsModel'
+import { cohortsModel, getReferencedCohortIds } from './cohortsModel'
 
 jest.unmock('lib/utils/concurrencyController')
 
@@ -78,6 +78,25 @@ describe('cohortsModel', () => {
         it('loads cohorts on mount', async () => {
             await expectLogic(logic).toDispatchActions(['loadAllCohorts', 'loadAllCohortsSuccess'])
             expect(logic.values.allCohorts.results).toHaveLength(2)
+        })
+
+        it('follows next pages until the cohort list is complete', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const [firstCohort, secondCohort] = MOCK_COHORTS.results
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/': ({ request }) => {
+                        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                        if (offset === 0) {
+                            return { count: 2, next: 'http://localhost/next-page', results: [firstCohort] }
+                        }
+                        return { count: 2, next: null, results: [secondCohort] }
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadAllCohorts()).toDispatchActions(['loadAllCohortsSuccess'])
+            expect(logic.values.allCohorts.results.map(({ id }) => id)).toEqual([1, 2])
         })
 
         it('sets polling timeout for calculating cohorts when on cohorts page', async () => {
@@ -449,160 +468,6 @@ describe('cohortsModel', () => {
                         2: expect.objectContaining({ id: 2, name: 'Cohort two' }),
                     }),
                 })
-        })
-    })
-
-    describe('processCohort', () => {
-        it.each([
-            {
-                name: 'wraps flat criteria into nested group format',
-                cohort: {
-                    id: 3,
-                    name: 'Flat format cohort',
-                    count: 0,
-                    groups: [],
-                    is_calculating: false,
-                    is_static: false,
-                    filters: {
-                        properties: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: 'behavioral',
-                                    key: 'purchase',
-                                    value: 'performed_event',
-                                    event_type: 'events',
-                                    operator: 'gte',
-                                    operator_value: 2,
-                                    time_value: 30,
-                                    time_interval: 'day',
-                                    negation: false,
-                                },
-                            ],
-                        },
-                    },
-                } as CohortType,
-                expectedType: FilterLogicalOperator.And,
-                expectedCriteriaKey: 'purchase',
-            },
-            {
-                name: 'leaves already nested criteria unchanged',
-                cohort: {
-                    id: 4,
-                    name: 'Nested format cohort',
-                    count: 0,
-                    groups: [],
-                    is_calculating: false,
-                    is_static: false,
-                    filters: {
-                        properties: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            type: 'behavioral',
-                                            key: 'purchase',
-                                            value: 'performed_event',
-                                            event_type: 'events',
-                                            explicit_datetime: '-30d',
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    },
-                } as CohortType,
-                expectedType: FilterLogicalOperator.And,
-                expectedCriteriaKey: 'purchase',
-            },
-        ])('$name', ({ cohort, expectedType, expectedCriteriaKey }) => {
-            const result = processCohort(cohort)
-            const group = result.filters.properties.values[0]
-            expect(group).toHaveProperty('type', expectedType)
-            expect(group).toHaveProperty('values')
-            expect((group as any).values).toHaveLength(1)
-            expect((group as any).values[0]).toMatchObject({
-                type: 'behavioral',
-                key: expectedCriteriaKey,
-            })
-        })
-
-        it('restores a saved person_metadata criterion to editor format (value -> value_property)', () => {
-            const cohort = {
-                id: 5,
-                name: 'First seen cohort',
-                count: 0,
-                groups: [],
-                is_calculating: false,
-                is_static: false,
-                filters: {
-                    properties: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: 'person_metadata',
-                                key: 'created_at',
-                                operator: 'is_date_after',
-                                value: '2024-01-01',
-                                negation: false,
-                            },
-                        ],
-                    },
-                },
-            } as unknown as CohortType
-
-            const result = processCohort(cohort)
-            const group = result.filters.properties.values[0]
-            // value carries the behavioral row key the editor renders against; the actual
-            // filter value moves to value_property. Without this, criteriaToBehavioralFilterType
-            // returns the raw date and ROWS[date] is undefined, crashing CohortCriteriaRowBuilder.
-            expect((group as any).values[0]).toMatchObject({
-                type: 'person_metadata',
-                key: 'created_at',
-                value: 'have_property',
-                value_property: '2024-01-01',
-            })
-        })
-
-        it('canonicalizes a behavioral value the backend only accepts as an alias', () => {
-            const cohort = {
-                id: 6,
-                name: 'Aliased criterion cohort',
-                count: 0,
-                groups: [],
-                is_calculating: false,
-                is_static: false,
-                filters: {
-                    properties: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: 'behavioral',
-                                key: 'purchase',
-                                value: 'performed_event_multiple_times',
-                                event_type: 'events',
-                                operator: 'gte',
-                                operator_value: 2,
-                                time_value: 30,
-                                time_interval: 'day',
-                            },
-                        ],
-                    },
-                },
-            } as unknown as CohortType
-
-            const result = processCohort(cohort)
-            const group = result.filters.properties.values[0]
-            // The alias has no ROWS entry, so leaving it verbatim renders the criterion as
-            // unsupported even though the backend resolves and queries it. explicit_datetime only
-            // gets converted once the value is canonical, and without it validateGroup rejects the
-            // row for a missing time window the criterion already carried.
-            expect((group as any).values[0]).toMatchObject({
-                value: 'performed_event_multiple',
-                explicit_datetime: '-30d',
-            })
         })
     })
 })

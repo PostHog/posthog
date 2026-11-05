@@ -21,8 +21,14 @@ from posthog.utils import absolute_uri
 from products.dashboards.backend.facade.api import dashboards_by_insight, live_tile_insight_ids, viewable_dashboard_ref
 from products.product_analytics.backend.facade.api import viewable_insights
 from products.product_analytics.backend.facade.contracts import ViewableInsight
-from products.signals.backend.anomaly_scores.config import MAX_LIMITS, covers_team, parse_config, read_payload
-from products.signals.backend.anomaly_scores.queue import active_insights
+from products.signals.backend.anomaly_scores.config import (
+    MAX_LIMITS,
+    AnomalyScoringConfig,
+    covers_team,
+    parse_config,
+    read_payload,
+)
+from products.signals.backend.anomaly_scores.queue import active_insights, turned_off_in_settings
 from products.signals.backend.anomaly_scores.read import (
     MAX_BUCKETS,
     FlaggedPoint,
@@ -47,6 +53,10 @@ URL_PADDING_BUCKETS = 7
 # The scorer writes at most this many series per insight. More come from events any member can capture.
 MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
+SCORING_TURNED_OFF_MESSAGE = (
+    "Anomaly scoring is turned off in this project's self-driving settings, so no insight is scored. "
+    "Scores written before it was turned off stay readable."
+)
 
 
 class AnomalyInterval(models.TextChoices):
@@ -197,9 +207,18 @@ def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters
     return insight_ids
 
 
-def _empty_message(*, scoring_enabled: bool, watched: int, scored_in_range: int) -> str:
-    if not scoring_enabled:
+def _scoring_off_message(config: AnomalyScoringConfig, team: Team) -> str | None:
+    """Why the tick does not score this team's insights, or None when it does."""
+    if not covers_team(config, team):
         return SCORING_DISABLED_MESSAGE
+    if turned_off_in_settings(team):
+        return SCORING_TURNED_OFF_MESSAGE
+    return None
+
+
+def _empty_message(*, off_message: str | None, watched: int, scored_in_range: int) -> str:
+    if off_message is not None:
+        return off_message
     if not scored_in_range:
         return f"No insight was scored in this range. Scoring checks {watched} active insights, a few at a time."
     return (
@@ -211,7 +230,7 @@ def _empty_message(*, scoring_enabled: bool, watched: int, scored_in_range: int)
 def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.datetime) -> AnomalySearchResult:
     """The anomaly rate of each series in the range, most anomalous first, by series or by insight."""
     config = parse_config(read_payload())
-    scoring_enabled = covers_team(config, team)
+    off_message = _scoring_off_message(config, team)
     requested = _requested_insight_ids(team, user, filters)
     intervals = (filters.interval,) if filters.interval is not None else config.intervals
     watched = {insight.insight_id for insight in active_insights([team.id], intervals, now, config.active_window_days)}
@@ -277,7 +296,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
 
     watched_count = len(watched & insights.keys())
     return AnomalySearchResult(
-        scoring_enabled=scoring_enabled,
+        scoring_enabled=off_message is None,
         watched_insights=watched_count,
         insights_scored_in_range=scored_in_range,
         series=series_rows,
@@ -285,7 +304,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         truncated=truncated or summaries.truncated,
         message=None
         if series_rows or insight_rows
-        else _empty_message(scoring_enabled=scoring_enabled, watched=watched_count, scored_in_range=scored_in_range),
+        else _empty_message(off_message=off_message, watched=watched_count, scored_in_range=scored_in_range),
     )
 
 
@@ -318,7 +337,7 @@ def insight_history(
     if not readable:
         return None
     insight = readable[0]
-    scoring_enabled = covers_team(parse_config(read_payload()), team)
+    off_message = _scoring_off_message(parse_config(read_payload()), team)
     summaries = series_summaries(
         team,
         date_from=filters.date_from,
@@ -371,9 +390,9 @@ def insight_history(
     newest = max(in_range, key=lambda summary: summary.newest_bucket, default=None)
     message = None
     if newest is None:
-        message = "No bucket of this insight was scored in this range." if scoring_enabled else SCORING_DISABLED_MESSAGE
+        message = off_message or "No bucket of this insight was scored in this range."
     return AnomalyInsightHistory(
-        scoring_enabled=scoring_enabled,
+        scoring_enabled=off_message is None,
         insight=insight,
         insight_url=insight_url(team, insight, _flagged_starts(ranked), newest.interval if newest else None),
         interval=newest.interval if newest else None,

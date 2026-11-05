@@ -14,6 +14,7 @@ import { MarkerSeverity, editor } from 'monaco-editor'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AnyDataNode,
     HogLanguage,
@@ -23,7 +24,6 @@ import {
     HogQLNotice,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../logic/featureFlagLogic'
 import { noticeLink } from './noticeLink'

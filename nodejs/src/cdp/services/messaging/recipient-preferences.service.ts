@@ -1,4 +1,5 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
@@ -23,13 +24,27 @@ export type RecipientSkipReason = 'suppressed' | 'opted_out'
 // is keyed on the step visit. The email queue and send retries run the same step visit again, so a
 // visit that already holds a slot passes. That run also moves the slot score to now, because the email
 // queue can delay the actual send by hours and the window must start when the email goes out.
+// A capped call returns the time in ms when the next slot frees up: the oldest slot that must leave
+// the window before the count drops below the cap. An allowed call returns 0.
 const FREQUENCY_CAP_SCRIPT = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
-if not redis.call('ZSCORE', KEYS[1], ARGV[4]) and redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
+if not redis.call('ZSCORE', KEYS[1], ARGV[4]) then
+    local count = redis.call('ZCARD', KEYS[1])
+    if count >= tonumber(ARGV[3]) then
+        local freeing = redis.call('ZRANGE', KEYS[1], count - tonumber(ARGV[3]), count - tonumber(ARGV[3]), 'WITHSCORES')
+        return tonumber(freeing[2]) + tonumber(ARGV[2])
+    end
+end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
 return 0
 `
+
+export type FrequencyCapCheck =
+    | { capped: false }
+    // nextSlotAt is when the person can get a marketing message again, in ms. holdHours is how long the
+    // team lets a capped message wait for that slot; null means skip it.
+    | { capped: true; nextSlotAt: number; holdHours: number | null }
 
 export class RecipientPreferencesService {
     constructor(
@@ -42,27 +57,31 @@ export class RecipientPreferencesService {
         }
     ) {}
 
-    /** Returns true when the person is at the cap. Otherwise records this send against the cap and returns false. */
-    public async isFrequencyCapped(
+    /** Reports whether the person is at the cap. When they are not, records this send against the cap. */
+    public async checkFrequencyCap(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
-    ): Promise<boolean> {
+    ): Promise<FrequencyCapCheck> {
         const messageAction = this.asMessageAction(action)
-        if (!this.frequencyCap || !messageAction || messageAction.config.message_category_type === 'transactional') {
-            return false
+        if (
+            !this.frequencyCap ||
+            !messageAction ||
+            messageAction.config.message_category_type === 'transactional' ||
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+        ) {
+            return { capped: false }
         }
         try {
-            const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
-                invocation.teamId
-            )
+            const { max_messages, window_days, hold_hours } =
+                await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(invocation.teamId)
             if (!max_messages || !window_days) {
-                return false
+                return { capped: false }
             }
             const personId = await this.cappedPersonId(invocation, messageAction, this.frequencyCap.persons)
             if (!personId) {
-                return false
+                return { capped: false }
             }
-            const capped = await this.frequencyCap.valkey.useClient(
+            const nextSlotAt = await this.frequencyCap.valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
@@ -75,12 +94,12 @@ export class RecipientPreferencesService {
                         workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
                     ) as Promise<number>
             )
-            return capped === 1
+            return nextSlotAt ? { capped: true, nextSlotAt, holdHours: hold_hours } : { capped: false }
         } catch (error) {
             // Fail open: a config or Valkey pool error must never block a send. failOpen above only
             // covers errors inside the Valkey callback.
             logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
-            return false
+            return { capped: false }
         }
     }
 
@@ -110,10 +129,9 @@ export class RecipientPreferencesService {
             return null
         }
 
-        // Suppression is mostly a deliverability signal, not a messaging preference: an address that can't
-        // receive mail can't receive it regardless of category. So we check it even for transactional
-        // messages, and before the transactional opt-out bypass below. Only spam complaints let
-        // transactional messages through.
+        // Suppression is mostly a deliverability signal, not a messaging preference. We check it even for
+        // transactional messages, and before the transactional opt-out bypass below. For those, only a hard
+        // bounce blocks the send, because then the address can't receive mail.
         if (await this.isRecipientSuppressed(invocation, action)) {
             return 'suppressed'
         }
@@ -138,7 +156,10 @@ export class RecipientPreferencesService {
 
         // Skip only when `to` is suppressed and no cc address can take its place. EmailService
         // removes the other suppressed addresses at send time, and the email still goes to the rest.
-        const emailInputs = invocation.state.globals.inputs?.email
+        const emailInputs = {
+            ...invocation.state.globals.inputs?.email,
+            ...acceptedSendEmailFields(invocation.state.send),
+        }
         try {
             const result = await removeSuppressedRecipients(
                 {

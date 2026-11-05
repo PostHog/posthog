@@ -258,10 +258,14 @@ export class PostgresPersonRepository
     async fetchPerson(
         teamId: number,
         distinctId: string,
-        options: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string } = {}
+        options: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string } = {},
+        tx?: TransactionClient
     ): Promise<InternalPerson | undefined> {
         if (options.forUpdate && options.useReadReplica) {
             throw new Error("can't enable both forUpdate and useReadReplica in db::fetchPerson")
+        }
+        if (tx && options.useReadReplica) {
+            throw new Error("can't read a transaction on the read replica in db::fetchPerson")
         }
 
         let queryString = `SELECT
@@ -294,7 +298,7 @@ export class PostgresPersonRepository
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
+            tx ?? (options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE),
             queryString,
             values,
             queryTag('fetchPerson', options.callerTag)
@@ -316,9 +320,10 @@ export class PostgresPersonRepository
      * Pass `tx` only from a path whose transaction is still usable. After a unique violation it
      * is not: Postgres aborts the transaction and rejects every later statement on it with
      * 25P02, and nothing here opens a savepoint (`postgres.ts` runs plain BEGIN/COMMIT/ROLLBACK).
-     * A caller recovering from that error must omit `tx` and read on a pool connection, the way
-     * the distinct-ID recovery in person-create-service already does. The holder was committed
-     * by another transaction, which is why we conflicted with it, so a pool connection sees it.
+     * A caller recovering from that error must omit `tx` and read on a pool connection. The holder
+     * was committed by another transaction, which is why we conflicted with it, so a pool
+     * connection sees it. A CreationConflict result never follows a unique violation, so the
+     * distinct-ID recovery in person-create-service reads on the still-usable transaction.
      */
     private async fetchPersonByUuid(
         teamId: number,
@@ -1068,6 +1073,10 @@ export class PostgresPersonRepository
             'isPersonLive'
         )
         return rows.length > 0
+    }
+
+    async readPerson(teamId: number, distinctId: string, tx?: TransactionClient): Promise<InternalPerson | undefined> {
+        return await this.fetchPerson(teamId, distinctId, { callerTag: 'ingestion/person-create-conflict' }, tx)
     }
 
     async readMergeRows(

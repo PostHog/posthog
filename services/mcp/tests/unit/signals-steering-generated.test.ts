@@ -4,6 +4,26 @@ import { GENERATED_TOOLS } from '@/tools/generated/signals'
 import type { Context } from '@/tools/types'
 
 describe('Self-driving steering tools', () => {
+    it('passes atomic source config key edits through without stripping source-specific keys', async () => {
+        const request = vi.fn().mockResolvedValue({ id: 'source-example', config: {} })
+        const context = {
+            api: { request },
+            stateManager: { getProjectId: async () => '42' },
+        } as unknown as Context
+        const tool = GENERATED_TOOLS['inbox-source-configs-partial-update']!()
+        const input = {
+            id: 'source-example',
+            config_set: { steering: 'Prioritize documentation tasks', hogql_filter: 'false', nested: { keep: true } },
+            config_remove: ['default_not_actionable'],
+        }
+        await tool.handler(context, tool.schema.parse(input))
+        expect(request).toHaveBeenCalledWith({
+            method: 'PATCH',
+            path: '/api/projects/42/signals/source_configs/source-example/',
+            body: { config_set: input.config_set, config_remove: input.config_remove },
+        })
+    })
+
     it.each(['inbox-steering-instructions-get', 'inbox-steering-instructions-update'])(
         '%s uses the current project and returns only steering fields',
         async (name) => {

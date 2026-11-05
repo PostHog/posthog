@@ -223,9 +223,9 @@ def test_overview_totals_compare_only_evaluations_with_results_in_both_periods()
 
     totals = overview_totals([steady, new, sentiment, paused], len(BUCKETS))
 
-    assert totals.graded == 130
-    assert totals.graded_comparison == contracts.PeriodComparison(current=100, previous=80)
-    assert totals.graded_trend == [80, 50, 0, 0]
+    assert totals.graded == 1130
+    assert totals.graded_comparison == contracts.PeriodComparison(current=1100, previous=1080)
+    assert totals.graded_trend == [1080, 50, 0, 0]
     assert totals.sentiment == contracts.OverviewSentiment(
         evaluation_id="eval-1", negative_share=25.0, previous_share=10.0
     )
@@ -233,7 +233,9 @@ def test_overview_totals_compare_only_evaluations_with_results_in_both_periods()
 
 
 def test_pass_rate_median_change_uses_the_same_evaluations_in_both_periods() -> None:
-    steady = _result(_meta(), [_bucket(BUCKETS[0], passed=80, failed=20), _bucket(None, passed=90, failed=10)])
+    steady = _result(
+        _meta(enabled=False), [_bucket(BUCKETS[0], passed=80, failed=20), _bucket(None, passed=90, failed=10)]
+    )
     new = _result(_meta(), [_bucket(BUCKETS[0], passed=40, failed=60)])
 
     overview = pass_rate_overview([steady, new], len(BUCKETS))

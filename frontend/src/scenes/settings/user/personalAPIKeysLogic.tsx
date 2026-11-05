@@ -7,6 +7,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -19,6 +20,7 @@ import {
     type ScopePickerGroup,
     type ScopeAccessLevel,
     type ScopePickerRow,
+    scopeRowWarning,
     clampScopeLevel,
     groupScopeRows,
     scopeMatchesSearch,
@@ -306,7 +308,7 @@ export interface personalAPIKeysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allowedScopes: (
             featureFlags: FeatureFlagsSet,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => APIScope[]
         allowedScopeKeys: (allowedScopes: APIScope[]) => Set<string>
         scopeRows: (
@@ -552,7 +554,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         label: scope.objectName,
                         info: scope.info,
                         value,
-                        warning: value === 'none' ? undefined : scope.warnings?.[value],
+                        warning: scopeRowWarning(scope, scope.key, value),
                         muted: Boolean(projectScoped),
                         disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }
@@ -758,8 +760,24 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
             }
         },
+        submitEditingKeyFailure: ({ error }) => {
+            // kea-forms swallows the rejected API call, so the server's message has to be copied to the form here
+            if (!(error instanceof ApiError)) {
+                return
+            }
+            if (error.attr && error.attr in values.editingKey) {
+                actions.setEditingKeyManualErrors({ [error.attr]: error.detail || error.message })
+            } else {
+                lemonToast.error(error.detail || 'Could not save the personal API key. Try again.')
+            }
+        },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
+            // kea-forms only drops a manual error on blur, and a stale one blocks a resubmit from the Enter key
+            if (key in values.editingKeyManualErrors) {
+                const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
+                actions.setEditingKeyManualErrors(remainingErrors)
+            }
             // When we select a preset, update the scopes
             if (key === 'preset' && value) {
                 const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === value)

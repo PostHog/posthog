@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use lifecycle::{ComponentOptions, LifecycleError, Manager};
+use lifecycle::{ComponentOptions, LifecycleError, Manager, PrestopAction};
 use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
@@ -1878,4 +1878,81 @@ async fn later_phase_graceful_window_starts_at_its_phase() {
         late_finished.load(Ordering::SeqCst),
         "phase-1 component was timed out against a window measured from shutdown start"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Pre-stop file
+// ---------------------------------------------------------------------------
+
+/// By default the pre-stop file starts shutdown, the same as SIGTERM.
+#[tokio::test]
+async fn prestop_file_starts_shutdown_by_default() {
+    let prestop_dir = tempfile::tempdir().unwrap();
+    let prestop_path = prestop_dir.path().join("shutdown");
+    std::fs::write(&prestop_path, "").unwrap();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_path(&prestop_path)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .build();
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let readiness = manager.readiness_handler();
+    let guard = manager.monitor_background();
+
+    let comp = ComponentA { handle };
+    tokio::spawn(async move {
+        comp.process().await;
+    });
+
+    tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("pre-stop file did not start shutdown")
+        .unwrap();
+    assert_eq!(readiness.check().await.as_u16(), 503);
+}
+
+/// Under `PrestopAction::Drain` the pre-stop file fails readiness, and components
+/// keep serving. With no signal, shutdown starts once the drain reaches `max`.
+#[tokio::test]
+async fn prestop_drain_serves_until_max() {
+    let prestop_dir = tempfile::tempdir().unwrap();
+    let prestop_path = prestop_dir.path().join("shutdown");
+    std::fs::write(&prestop_path, "").unwrap();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_path(&prestop_path)
+        .with_prestop_action(PrestopAction::Drain {
+            max: Duration::from_secs(1),
+        })
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .build();
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let readiness = manager.readiness_handler();
+    let guard = manager.monitor_background();
+
+    let comp = ComponentA {
+        handle: handle.clone(),
+    };
+    tokio::spawn(async move {
+        comp.process().await;
+    });
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while readiness.is_ready() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("pre-stop file did not start the drain");
+    assert!(
+        !handle.is_shutting_down(),
+        "a drain must not signal shutdown to components"
+    );
+
+    tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("the drain did not end at max")
+        .unwrap();
 }

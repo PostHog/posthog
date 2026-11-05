@@ -9,12 +9,13 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.logic import interview_recruitment
 from products.slack_app.backend.logic.interview_recruitment import BOOKING_URL
+from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
 from products.slack_app.backend.services.slack_user_info import cache_workspace_bot_user_id
 from products.slack_app.backend.services.turn_feedback import (
@@ -135,6 +136,24 @@ class TestTurnFeedback(TestCase):
         # stand-in like the session id.
         assert properties["$ai_trace_id"] is None
         assert self.mock_slack.return_value.client.views_open.called is asks_for_a_reason
+
+    @parameterized.expand(
+        [
+            ("cached_email_of_a_member", "member@example.com", True, True),
+            ("deactivated_member", "member@example.com", False, False),
+            ("email_of_no_member", "stranger@example.com", True, False),
+        ]
+    )
+    def test_an_unlinked_rater_is_attributed_by_cached_slack_email(self, _name, email, is_active, attributed):
+        OrganizationMembership.objects.create(organization=self.org, user=self.user)
+        self.user.is_active = is_active
+        self.user.save(update_fields=["is_active"])
+        SlackUserProfileCache.objects.create(integration=self.integration, slack_user_id="U_ALICE", email=email)
+
+        self._pick(self._thumb_value("positive"))
+
+        expected = self.user.distinct_id if attributed else str(self.team.uuid)
+        assert self.mock_analytics.capture.call_args.kwargs["distinct_id"] == expected
 
     def test_a_rating_names_the_turn_the_reply_answered(self):
         trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"

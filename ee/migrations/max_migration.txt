@@ -1,1 +1,1 @@
-0067_remove_scimrequestlog_identity_provider_config_and_more
+0068_drop_dashboardprivilege_table
