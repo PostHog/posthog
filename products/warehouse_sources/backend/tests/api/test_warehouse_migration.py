@@ -279,16 +279,28 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 200
         assert self._create(status_code=200, json={"code": "Success", "data": {}}).status_code == 429
 
-    def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(self) -> None:
+    @parameterized.expand([("never_started", False, "failed"), ("started_but_unacknowledged", True, "crawling")])
+    def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(
+        self, _name: str, crawl_started: bool, expected_status: str
+    ) -> None:
         migration = self._migration()
-        self.start_crawl.side_effect = RuntimeError("temporal is down")
+
+        def start(**kwargs: Any) -> None:
+            if crawl_started:
+                WarehouseMigration.objects.for_team(self.team.pk).filter(id=migration.id).update(
+                    status=WarehouseMigration.Status.CRAWLING
+                )
+            raise RuntimeError("temporal is down")
+
+        self.start_crawl.side_effect = start
 
         response = self.client.post(f"{self.url}{migration.id}/refresh/")
 
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "failed"
-        self.start_crawl.side_effect = None
-        assert self.client.post(f"{self.url}{migration.id}/refresh/").json()["status"] == "pending"
+        assert response.json()["status"] == expected_status
+        if not crawl_started:
+            self.start_crawl.side_effect = None
+            assert self.client.post(f"{self.url}{migration.id}/refresh/").json()["status"] == "pending"
 
     def test_another_teams_migration_or_a_malformed_id_is_not_found(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
