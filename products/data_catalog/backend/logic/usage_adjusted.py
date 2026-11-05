@@ -9,7 +9,7 @@ import json
 import asyncio
 import hashlib
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -340,12 +340,19 @@ async def judge_groups(
     groups: Sequence[CandidateGroup],
     briefs: dict[UUID, MetricBrief],
     heartbeat: Callable[[], None],
+    questions: Mapping[str, str] | None = None,
 ) -> list[JudgeVerdict]:
+    """Judge each group once. ``questions`` maps a trace id to its session question.
+
+    A group runs one SQL text, and the judge reads the question of its first run that has one.
+    """
     semaphore = asyncio.Semaphore(_JUDGE_CONCURRENCY)
+    known = questions or {}
 
     async def judge(group: CandidateGroup) -> JudgeVerdict:
+        question = next((known[run.trace_id] for run in group.occurrences if known.get(run.trace_id)), "")
         async with semaphore:
-            verdict = await judge_pair(client, briefs[group.metric_id], group.intent, group.sql)
+            verdict = await judge_pair(client, briefs[group.metric_id], group.intent, group.sql, question)
         heartbeat()
         return verdict
 

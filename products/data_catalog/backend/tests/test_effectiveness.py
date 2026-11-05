@@ -366,7 +366,8 @@ class _JudgeMessages:
     ) -> SimpleNamespace:
         prompt = messages[0]["content"]
         self.judged_sql.append(prompt)
-        relation = "different" if "page_views" in prompt else "serves"
+        asks_for_signups = "Session question: How many signups happen each week?" in prompt
+        relation = "serves" if asks_for_signups and "page_views" not in prompt else "different"
         reply = json.dumps({"reasoning": "It counts signups.", "relation": relation, "confidence": 0.9})
         return SimpleNamespace(content=[SimpleNamespace(type="text", text=reply)])
 

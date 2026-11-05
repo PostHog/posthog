@@ -642,7 +642,13 @@ async def measure_team(
         selection = select_for_judging(groups, _JUDGE_CALL_CAP)
         if selection.over_cap:
             logger.warning("data_catalog_effectiveness_judge_cap_reached", team_id=team_id, over_cap=selection.over_cap)
-        verdicts = await judge_groups(client, selection.groups, catalog.briefs, heartbeat)
+        verdicts = await judge_groups(
+            client,
+            selection.groups,
+            catalog.briefs,
+            heartbeat,
+            questions={session_id: member.question for session_id, member in analysis.items()},
+        )
 
     matches_by_session = _matches_from_verdicts(selection.groups, verdicts)
     metric_names = {metric_id: name for name, metric_id in catalog.metric_ids_by_name.items()}
