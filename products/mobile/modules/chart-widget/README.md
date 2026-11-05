@@ -305,6 +305,10 @@ The scheme comes from the package suffix (`.dev`, `.preview`, none), the same ta
 They let the widget say "In another project" after a project switch and name a pin that left the catalog.
 An Android snapshot also carries `inProgress`: the last bucket is still open, so the chart dashes its last segment and dims its last bar.
 A corrupt or restored keystore file is deleted and counts as signed out; the app writes the session again on its next token change or launch.
+Credential writes retry once and throw if storage remains unavailable or persistence fails on both attempts.
+The widget preferences and encrypted session copy are excluded from cloud backups and device transfers, alongside SecureStore.
+After a device restore, choose the widget pins again and open the app to synchronize its session and catalog.
+Catalog changes discard snapshots and errors for removed pins or changed insight, dashboard, host or project targets. Display-name changes keep the cache.
 
 ### Cadence
 
@@ -323,7 +327,7 @@ A corrupt or restored keystore file is deleted and counts as signed out; the app
 ### Layout and theme
 
 - Family from the launcher's portrait size: small when the width is under 250 dp or the height under 110 dp, large from 300 dp high, else medium.
-  A resize re-renders that widget (`onAppWidgetOptionsChanged`).
+  A resize re-renders that widget (`onAppWidgetOptionsChanged`), keeping the broadcast pending until rendering finishes.
 - Text is `TextView`s, so it follows the user's font size. The chart bitmap is sized for the room the text leaves, capped at 1.5 MB.
 - The chart is drawn twice, light and dark. `@integer/chart_widget_{light,dark}_visibility` (in `values` and `values-night`) shows the one that matches the launcher's night mode, so a theme change needs no redraw.
   Colors come from `res/values{,-night}/colors.xml`. From Android 12, runtime text colors use `RemoteViews.setColorInt` with both themes.

@@ -86,13 +86,15 @@ object ChartRenderer {
         }
     }
 
-    fun renderOne(context: Context, manager: AppWidgetManager, id: Int): Future<*> {
+    fun renderOne(context: Context, manager: AppWidgetManager, id: Int, onComplete: () -> Unit = {}): Future<*> {
         val app = context.applicationContext
         return renderExecutor.submit {
             try {
                 render(app, manager, id, inputs(app))
             } catch (e: Exception) {
                 Log.e(TAG, "Could not render chart widget $id", e)
+            } finally {
+                onComplete()
             }
         }
     }

@@ -73,11 +73,13 @@ object ChartStore {
         sessionGeneration += 1
         for (attempt in 0..1) {
             try {
-                securePrefs(context)?.edit()?.putString(KEY_CREDENTIALS, json)?.commit()
+                val store = checkNotNull(securePrefs(context)) { "Widget credential storage is unavailable" }
+                check(store.edit().putString(KEY_CREDENTIALS, json).commit()) { "Could not persist widget credentials" }
                 break
             } catch (e: Exception) {
                 Log.e(TAG, "Could not store the widget credentials (attempt ${attempt + 1})", e)
                 resetSecure(context)
+                if (attempt == 1) throw IllegalStateException("Could not store widget credentials", e)
             }
         }
         val next = credentials(context)
@@ -141,7 +143,7 @@ object ChartStore {
                 val pin = pins?.optJSONObject(index) ?: continue
                 val id = pin.optString("id")
                 val previous = old?.pin(id)
-                val changed = old?.host != next.optString("host").trimEnd('/') || old?.projectId != next.optLong("projectId") || previous == null || previous.insightId != pin.longOrNull("insightId") ||
+                val changed = old?.host != next.optString("host").trimEnd('/') || old?.projectId != next.optLong("projectId") || previous == null || previous.kind != pin.optString("kind", "insight") || previous.insightId != pin.longOrNull("insightId") ||
                     previous.shortId != pin.stringOrNull("shortId") || previous.dashboardId != pin.longOrNull("dashboardId") ||
                     previous.displayMode != pin.stringOrNull("displayMode")
                 if (changed) {

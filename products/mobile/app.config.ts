@@ -125,7 +125,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         plugins: [
             'expo-router',
-            'expo-secure-store',
+            ['expo-secure-store', { configureAndroidBackup: false }],
+            './plugins/withAndroidChartWidgetBackup',
             'expo-notifications',
             'expo-web-browser',
             [

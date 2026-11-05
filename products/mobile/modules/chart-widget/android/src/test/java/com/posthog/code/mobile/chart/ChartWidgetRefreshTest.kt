@@ -5,14 +5,17 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -23,7 +26,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowBroadcastPendingResult
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -175,6 +180,92 @@ class ChartWidgetRefreshTest {
         }
         assertEquals(newer, ChartStore.snapshot(context, "first"))
         assertEquals(snapshot("second"), ChartStore.snapshot(context, "second"))
+    }
+
+    @Test
+    fun catalogChangesDiscardOnlySnapshotsForChangedTargets() {
+        val original = JSONObject().put("host", "https://example.com").put("projectId", 1)
+            .put("pins", org.json.JSONArray().put(JSONObject()
+                .put("id", "first").put("kind", "dashboard").put("dashboardId", 10).put("insightId", 1).put("eligible", true)))
+        val replacements = listOf(
+            original.toString(),
+            JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("name", "Renamed") }.toString(),
+            JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("kind", "insight") }.toString(),
+            JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("insightId", 2) }.toString(),
+            JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("dashboardId", 11) }.toString(),
+            JSONObject(original.toString()).put("projectId", 2).toString(),
+            JSONObject(original.toString()).put("host", "https://other.example.com").toString(),
+            JSONObject(original.toString()).put("pins", org.json.JSONArray()).toString(),
+            null,
+        )
+        for ((index, replacement) in replacements.withIndex()) {
+            ChartStore.setCatalogJson(context, original.toString())
+            ChartStore.setSnapshot(context, snapshot())
+            ChartStore.setSnapshotError(context, "first", SnapshotError(2000L, ErrorKind.NETWORK))
+            ChartStore.setCatalogJson(context, replacement)
+            assertEquals("snapshot for case $index", index < 2, ChartStore.snapshot(context, "first") != null)
+            assertEquals("error for case $index", index < 2, ChartStore.snapshotError(context, "first") != null)
+        }
+    }
+
+    @Test
+    fun credentialWritesReportUnavailableStorageAndFailedCommits() {
+        for (unavailable in listOf(true, false)) {
+            val backing = context.getSharedPreferences("test-credentials", Context.MODE_PRIVATE)
+            val failing = object : SharedPreferences by backing {
+                override fun edit(): SharedPreferences.Editor = object : SharedPreferences.Editor by backing.edit() {
+                    override fun putString(key: String?, value: String?): SharedPreferences.Editor = this
+                    override fun commit(): Boolean = false
+                }
+            }
+            ReflectionHelpers.setStaticField(ChartStore::class.java, "secure", if (unavailable) null else failing)
+            val wrapper = object : ContextWrapper(context) {
+                override fun getApplicationContext(): Context = this
+                override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                    if (name == "chart_widget_secure") throw IllegalStateException("Storage unavailable")
+                    return super.getSharedPreferences(name, mode)
+                }
+            }
+            assertThrows(IllegalStateException::class.java) { ChartStore.setCredentials(wrapper, credentials("replacement")) }
+        }
+    }
+
+    @Test
+    fun resizeKeepsBroadcastPendingUntilTheWidgetIsUpdated() {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val wrapper = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                if (name == "chart_widget") {
+                    started.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+                return super.getSharedPreferences(name, mode)
+            }
+        }
+        val receiver = ChartWidgetProvider()
+        val pending = ReflectionHelpers.callStaticMethod<BroadcastReceiver.PendingResult>(
+            ShadowBroadcastPendingResult::class.java, "create",
+            ClassParameter.from(Int::class.javaPrimitiveType, 0),
+            ClassParameter.from(String::class.java, null),
+            ClassParameter.from(Bundle::class.java, null),
+            ClassParameter.from(Boolean::class.javaPrimitiveType, false),
+        )
+        ReflectionHelpers.setField(receiver, "mPendingResult", pending)
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS, Bundle())
+        try {
+            receiver.onReceive(wrapper, intent)
+            assertTrue(started.await(10, TimeUnit.SECONDS))
+            assertTrue(shadowOf(receiver).wentAsync())
+            assertFalse(shadowOf(pending).future.isDone)
+        } finally {
+            release.countDown()
+        }
+        shadowOf(pending).future.get(10, TimeUnit.SECONDS)
+        assertNotNull(shadowOf(AppWidgetManager.getInstance(context)).getViewFor(1))
     }
 
     @Test
