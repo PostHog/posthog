@@ -40,7 +40,7 @@ That function subscribes to the stores below, so auth and Views do not import th
 | Sign out, expired session (`addSessionEndTask`), signed-out launch, demo mode starts       | Clears the catalog, the credentials and every cached chart |
 
 Each write makes the OS reload every placed widget, so the app keeps the last JSON it wrote in memory and skips an identical write.
-A clear resets that memory, so the next sign in writes again even with the same token.
+A clear resets that memory, so the next sign in writes again even with the same token. Session-end cleanup retires the current token generation before clearing; queued and active work cannot republish it while an account replacement is pending. A committed sign-in starts a new generation and resumes sync.
 Writes happen only while the auth store and the stored session name the same host and user, so a sign in never pairs one account's token with another account's project.
 When the signed-in project has no catalog and no cached pin list, the sync reads the pin list itself, with the query key, fetcher (`readShortcuts` in `src/features/views/listReads.ts`) and lane that `usePins` uses.
 It does that once per project per session, only when the session has the Views scopes; a failure leaves the catalog for the next Views read.

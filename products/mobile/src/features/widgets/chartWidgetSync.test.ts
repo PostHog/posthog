@@ -3,9 +3,10 @@ import { waitFor } from '@testing-library/react-native'
 import { resetBudgets, trySpend } from '@/api/budget'
 import { ApiError, apiJson } from '@/api/client'
 import type { InsightApi, InsightBasicApi } from '@/api/insights'
+import { queryClient } from '@/api/queryClient'
 import type { PaginatedApi } from '@/api/reports'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
-import { installAuthProvider, useAuthStore } from '@/auth/authStore'
+import { addSessionEndTask, installAuthProvider, useAuthStore } from '@/auth/authStore'
 import {
     type SessionIdentity,
     type SessionTokens,
@@ -108,6 +109,7 @@ describe('chart widget sync', () => {
     let stop: (() => void) | null = null
 
     beforeAll(async () => {
+        queryClient.setQueryDefaults(['views'], { gcTime: Number.POSITIVE_INFINITY })
         await useDemoMode.persist.rehydrate()
     })
 
@@ -182,6 +184,94 @@ describe('chart widget sync', () => {
 
         await syncWidgetCatalog(client)
         expect(mockSetCredentials).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([USER.uuid, 'user-2'])('keeps an ended widget session retired while signing in %s', async (userUuid) => {
+        signIn(KEY)
+        const client = queryClient
+        client.clear()
+        const scope = { host: HOST, projectId: 2 }
+        client.setQueryData(viewsKeys.shortcuts(scope), {
+            count: 1,
+            next: null,
+            results: [shortcut('s-signups', 'sig1')],
+        })
+        client.setQueryData(
+            viewsKeys.insight(scope, 'sig1', null, '-'),
+            insightSnapshot(
+                {
+                    id: 123,
+                    short_id: 'sig1',
+                    name: 'Example',
+                    query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery' }, display: 'BoldNumber' },
+                    result: [[42]],
+                    columns: ['value'],
+                    types: [['value', 'UInt64']],
+                } as unknown as InsightApi,
+                undefined,
+                { readAt: Date.now(), serverNow: Date.now() }
+            )
+        )
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].snapshot.valueText).toBe('42')
+        let finishCleanup!: () => void
+        let reachedCleanup!: () => void
+        const cleanupStarted = new Promise<void>((resolve) => {
+            reachedCleanup = resolve
+        })
+        const removeCleanup = addSessionEndTask(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishCleanup = resolve
+                    reachedCleanup()
+                })
+        )
+        fetchMock.mockImplementation(async (url) =>
+            url.endsWith('/api/users/@me/')
+                ? json(200, {
+                      id: 2,
+                      uuid: userUuid,
+                      distinct_id: userUuid,
+                      email: 'person@example.com',
+                      first_name: 'Example',
+                      last_name: '',
+                      team: { id: 2, name: 'Example project' },
+                      organization: { id: 'org-1', name: 'Example org', teams: [{ id: 2, name: 'Example project' }] },
+                      organizations: [],
+                  })
+                : json(404, {})
+        )
+        const signingIn = useAuthStore.getState().signInWithPersonalApiKey(HOST, 'phx_example_replacement')
+        try {
+            await cleanupStarted
+            mockSetCredentials.mockClear()
+            mockSetCatalog.mockClear()
+            // The account commit is paused, so cleanup subscribers and a foreground sync still see the old auth state.
+            await syncWidgetCatalog(client)
+            syncWidgetCredentials('launch')
+            expect(mockSetCredentials).not.toHaveBeenCalled()
+            expect(mockSetCatalog).not.toHaveBeenCalled()
+            finishCleanup()
+            await signingIn
+            await syncWidgetCatalog(client)
+            expect(mockSetCredentials).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    userUuid,
+                    accessToken: 'phx_example_replacement',
+                    projectId: 2,
+                })
+            )
+            expect(mockSetCatalog).not.toHaveBeenCalled()
+        } finally {
+            finishCleanup()
+            await signingIn
+            removeCleanup()
+            stop?.()
+            stop = null
+            await client.cancelQueries()
+            client.clear()
+        }
     })
 
     it('clears the widget when demo mode starts and writes nothing while it lasts, even with a session', async () => {

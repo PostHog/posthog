@@ -62,6 +62,8 @@ let writtenCatalogProject: string | null = null
 let cleared = false
 // A catalog sync that started before a clear must not write the catalog of the session that ended.
 let clearEpoch = 0
+// Account replacement runs cleanup before publishing its new tokens. Retired sessions must not start another sync.
+let retiredGeneration: number | null = null
 let catalogController: AbortController | null = null
 let nextMetadataReadAt = 0
 let widgetState: WidgetState | null = null
@@ -79,6 +81,8 @@ function dataMode(): 'loading' | 'demo' | 'live' {
 function currentSession(): WidgetSession | null {
     const state = useAuthStore.getState()
     const owner = getSessionIdentity()
+    const generation = sessionGeneration()
+    if (generation === retiredGeneration) return null
     if (state.status !== 'signed_in' || !state.host || !state.user || state.projectId === null) {
         return null
     }
@@ -90,7 +94,7 @@ function currentSession(): WidgetSession | null {
     return {
         scope: { host: state.host.replace(/\/$/, ''), projectId: state.projectId },
         projectName: state.projectName ?? '',
-        generation: sessionGeneration(),
+        generation,
     }
 }
 
@@ -603,7 +607,10 @@ export function startChartWidgetSync(client: QueryClient): () => void {
         }
     })
     const stops = [
-        addSessionEndTask(clearWidgetState),
+        addSessionEndTask(() => {
+            retiredGeneration = sessionGeneration()
+            clearWidgetState()
+        }),
         () => foreground.remove(),
         useScopeErrorStore.subscribe(() => {
             catalogController?.abort()
