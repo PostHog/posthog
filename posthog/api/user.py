@@ -1618,7 +1618,6 @@ class UserViewSet(
         session_cache = SessionCache(request.session)
 
         # Reuse the pending secret, because the user can already have it in an authenticator app.
-        # two_factor_validate reads it through the same getter, so the returned secret is the one it checks.
         key = session_cache.get("django_two_factor-hex") or random_hex(20)
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
