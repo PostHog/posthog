@@ -2046,6 +2046,7 @@
                     from_asterisk: False
                     start: 7
                     type: {
+                      as_json: False
                       chain: [
                         "$exception_issue_id"
                       ]
@@ -2053,6 +2054,7 @@
                         name: "properties"
                         table_type: <recursion ...>
                       }
+                      joined_subquery_json_text: False
                     }
                   }
                   from_asterisk: False
@@ -3117,6 +3119,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -3124,6 +3127,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -8390,6 +8394,7 @@
                       from_asterisk: False
                       start: 7
                       type: {
+                        as_json: False
                         chain: [
                           "$exception_issue_id"
                         ]
@@ -8397,6 +8402,7 @@
                           name: "properties"
                           table_type: <recursion ...>
                         }
+                        joined_subquery_json_text: False
                       }
                     }
                     from_asterisk: False
@@ -9040,6 +9046,7 @@
                           from_asterisk: False
                           start: 7
                           type: {
+                            as_json: False
                             chain: [
                               "$exception_issue_id"
                             ]
@@ -9047,6 +9054,7 @@
                               name: "properties"
                               table_type: <recursion ...>
                             }
+                            joined_subquery_json_text: False
                           }
                         }
                         from_asterisk: False
@@ -10342,6 +10350,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -10349,6 +10358,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False
@@ -12039,6 +12049,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -12046,6 +12057,7 @@
                     name: "properties"
                     table_type: <recursion ...>
                   }
+                  joined_subquery_json_text: False
                 }
               }
               from_asterisk: False

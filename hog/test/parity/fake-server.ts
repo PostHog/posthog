@@ -1,10 +1,36 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
+
+import { readJson } from '@/testing'
 
 // A fake PostHog API plus object store that records every request. Parity tests run posthog-cli and
 // hog against it and compare the recordings. Server-side ids are derived from the request (UUIDv5),
 // so both CLIs see the same ids.
 
 export type Scenario = 'fresh' | 'post-only' | 'hash-mismatch' | 'release-mismatch' | 'check-403' | 'start-500-once'
+
+const ReleaseBody = z.looseObject({
+    hash_id: z.string(),
+    version: z.string(),
+    project: z.string(),
+    metadata: z.unknown().optional(),
+})
+const CheckUploadBody = z.looseObject({
+    symbol_sets: z.array(z.looseObject({ chunk_id: z.string(), content_hash: z.string() })),
+})
+const StartUploadBody = z.looseObject({
+    symbol_sets: z.array(
+        z.looseObject({
+            chunk_id: z.string(),
+            release_id: z.string().nullable(),
+            content_hash: z.string(),
+            content_length: z.number().optional(),
+        })
+    ),
+    force: z.boolean(),
+    skip_on_conflict: z.boolean(),
+})
+const FinishUploadBody = z.looseObject({ content_hashes: z.record(z.string(), z.string()) })
 
 export interface RecordedRequest {
     method: string
@@ -20,6 +46,8 @@ export interface FakeServer {
     url: string
     requests: RecordedRequest[]
     seed(entries: { chunkId: string; contentHash: string; releaseId?: string | null }[]): void
+    // Stored symbol sets that the download endpoints serve.
+    store(objects: StoredObject[]): void
     stop(): void
 }
 
@@ -31,6 +59,12 @@ function uuid5(name: string): string {
     hash[8] = (hash[8]! & 0x3f) | 0x80
     const hex = hash.subarray(0, 16).toString('hex')
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export interface StoredObject {
+    id: string
+    ref: string
+    data: Uint8Array
 }
 
 interface StoredSymbolSet {
@@ -45,6 +79,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     const requests: RecordedRequest[] = []
     const symbolSets = new Map<string, StoredSymbolSet>()
     const releases = new Map<string, unknown>()
+    const objects: StoredObject[] = []
     let startCalls = 0
 
     const json = (status: number, body: unknown): Response =>
@@ -55,7 +90,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     const server = Bun.serve({
         port: 0,
         hostname: '127.0.0.1',
-        async fetch(request) {
+        async fetch(request): Promise<Response> {
             const url = new URL(request.url)
             const headers: Record<string, string> = {}
             for (const name of RECORDED_HEADERS) {
@@ -76,6 +111,14 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 return response
             }
 
+            if (url.pathname.startsWith('/s3/get/')) {
+                const object = objects.find((candidate) => url.pathname === `/s3/get/${candidate.id}`)
+                return respond(
+                    object
+                        ? new Response(Buffer.from(object.data))
+                        : new Response('<Error>NoSuchKey</Error>', { status: 404 })
+                )
+            }
             if (url.pathname.startsWith('/s3/')) {
                 return respond(await storeObject(request, url, entry))
             }
@@ -96,12 +139,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 )
             }
             if (/^\/api\/projects\/\d+\/error_tracking\/releases$/.test(path) && request.method === 'POST') {
-                const parsed = JSON.parse(body) as {
-                    hash_id: string
-                    version: string
-                    project: string
-                    metadata?: unknown
-                }
+                const parsed = readJson(body, ReleaseBody)
                 const release = {
                     id: uuid5(`release:${parsed.hash_id}`),
                     hash_id: parsed.hash_id,
@@ -110,6 +148,19 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 }
                 releases.set(parsed.hash_id, release)
                 return respond(json(201, release))
+            }
+            if (/^\/api\/projects\/\d+\/error_tracking\/symbol_sets$/.test(path) && request.method === 'GET') {
+                const found = objects.filter((object) => object.ref === url.searchParams.get('ref'))
+                return respond(
+                    json(200, { results: found.slice(0, 1).map((object) => ({ id: object.id, ref: object.ref })) })
+                )
+            }
+            if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/symbol_sets\/([^/]+)\/download$/))) {
+                const id = match[1]
+                const object = objects.find((candidate) => candidate.id === id)
+                return respond(
+                    object ? json(200, { url: `${base}/s3/get/${object.id}` }) : json(404, { detail: 'Not found.' })
+                )
             }
             if (path.endsWith('/symbol_sets/bulk_check_upload')) {
                 if (scenario === 'check-403') {
@@ -122,7 +173,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                         })
                     )
                 }
-                const parsed = JSON.parse(body) as { symbol_sets: { chunk_id: string; content_hash: string }[] }
+                const parsed = readJson(body, CheckUploadBody)
                 const needed = parsed.symbol_sets
                     .filter((set) => symbolSets.get(set.chunk_id)?.hash !== set.content_hash)
                     .map((set) => set.chunk_id)
@@ -133,16 +184,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 if (scenario === 'start-500-once' && startCalls === 1) {
                     return respond(json(500, { detail: 'Server error.' }))
                 }
-                const parsed = JSON.parse(body) as {
-                    symbol_sets: {
-                        chunk_id: string
-                        release_id: string | null
-                        content_hash: string
-                        content_length?: number
-                    }[]
-                    force: boolean
-                    skip_on_conflict: boolean
-                }
+                const parsed = readJson(body, StartUploadBody)
                 // The stored copy has other content: an error unless the request says what to do.
                 if (scenario === 'hash-mismatch' && !parsed.force) {
                     if (!parsed.skip_on_conflict) {
@@ -184,7 +226,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                 return respond(json(201, { id_map: idMap }))
             }
             if (path.endsWith('/symbol_sets/bulk_finish_upload')) {
-                const parsed = JSON.parse(body) as { content_hashes: Record<string, string> }
+                const parsed = readJson(body, FinishUploadBody)
                 for (const [id, hash] of Object.entries(parsed.content_hashes)) {
                     for (const set of symbolSets.values()) {
                         if (set.id === id) {
@@ -209,6 +251,9 @@ export function startFakeServer(scenario: Scenario): FakeServer {
                     releaseId: entry.releaseId ?? null,
                 })
             }
+        },
+        store(stored) {
+            objects.push(...stored)
         },
         stop: () => server.stop(true),
     }

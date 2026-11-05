@@ -6,13 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import {
-    isMaterializePayload,
-    materializeSaving,
-    readSummary,
-    rebuiltSummary,
-    savingHighlight,
-} from '../suggestionCopy'
+import { isMaterializePayload, materializeHighlight, readSummary, rebuiltSummary } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
@@ -64,7 +58,7 @@ export function MaterializeSuggestionRow({
                     />
                 ),
             ].filter(Boolean)}
-            highlight={savingHighlight(materializeSaving(payload))}
+            highlight={materializeHighlight(payload)}
             actions={
                 <>
                     <LemonButton

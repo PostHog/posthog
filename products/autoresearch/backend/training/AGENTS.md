@@ -12,6 +12,7 @@ The other half is `../inference/`, which consumes what this package produces and
 - `runner.py`
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
+  `run_training()` lowers the requested iterations to the project's `max_iterations_per_run` (`../limits.py`), so scheduled and manual runs share one ceiling. The daily run cap is checked by its callers, inside the pipeline row lock.
   The task runs on the model and reasoning effort that `agent_run_config_for()` in `agent_model.py` resolves, and the run records the runtime adapter, model and effort in `agent_runtime_adapter`, `agent_model` and `agent_reasoning_effort`.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
   When the `autoresearch-report-notebook` flag is on for the launching user, the token also holds `REPORT_NOTEBOOK_MCP_SCOPES` and the brief adds two Finalize steps: before complete, the agent creates one report notebook and passes its `short_id` to complete. After complete, it adds the SQL and chart cells, because the run's model row (and so its `model_explanation`) exists only from then on. `report.md` stays required either way.
@@ -35,6 +36,12 @@ The other half is `../inference/`, which consumes what this package produces and
   The safety net. `handle_task_run_completed()` is called from the `TaskRun` `post_save` signal registered in `../apps.py`, and runs synchronously in the Temporal worker thread.
   If the agent recorded iterations but never called complete, this finalizes through the same promotion path. If it recorded nothing, the run is marked failed — which is what produces `"Agent recorded no iterations before the run ended."`
   `run_training()` writes the `autoresearch_training_run_id` marker into `TaskRun.state` when it creates the task, and tasks refuses a patch to it. The marker names a run; ownership is proved by the run's server-stamped `task_run_id`, so a `TaskRun` may only finalize the run whose `task_run_id` is its own id.
+- `stale.py`
+  The backstop for the safety net. `fail_stale_training_runs()` closes every `pending` or `running` run with a `task_run_id` that is older than `STALE_TRAINING_RUN_AFTER` (twice the Tasks `MAX_SANDBOX_TTL_SECONDS`, read through the tasks facade).
+  When the `TaskRun` is terminal (`missed_handoff`), it calls `handle_task_run_completed()`, so the run ends with the outcome the receiver would have given it. When the `TaskRun` is still live or no longer exists (`lost_driver`), it fails the run and cancels the `TaskRun` best-effort. A cancel failure only logs.
+  Every failure re-reads the run under its row lock and changes only an open run, so a run that completes at the same time keeps its outcome. Each closed run logs `autoresearch_stale_training_run_reaped` and increments `autoresearch_stale_training_runs_reaped_total`, both with the case.
+  A run with no `task_run_id` (an external run from `open_training_run()`, or a stub) is not reaped.
+  Coordinator discovery calls it for all teams. `activity_kickoff_training` and the facade's `start_training` call it for their pipeline before the live-run check.
 - `promotion.py`
   Champion selection. `complete_training_run()` is the single entry point, used both by the training-run `complete` API action and by `ingestion.py`.
   A challenger must beat the incumbent by `CHAMPION_PROMOTION_MARGIN` (0.005 holdout AUC) to be promoted — near-ties keep the incumbent rather than churning the champion on noise.
@@ -94,7 +101,7 @@ Two things routinely surprise people:
 ## Where the rest of the system meets this package
 
 - **Launched by** — the `train` API action in `../presentation/views/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
-- **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`.
+- **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`, or `stale.py` when neither ran.
 - **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time, for the champion and for a challenger that enters the shadow set. Shadow scoring loads that `model.pkl` the same way the champion's scoring does.
 - **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../presentation/views/views.py`. The sandbox agent has no other way to write.
 - **Labels and features** — `../dataset/labeling.py` builds the training population the bundle is fitted against.

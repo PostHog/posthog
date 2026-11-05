@@ -154,6 +154,17 @@ export function fatArches(source: Source, options: { fat64?: boolean } = {}): Fa
 // symbolic `Archive::parse(..).objects()`: throws where symbolic returns an error, and returns
 // one object per fat slice.
 export function openArchive(source: Source, options: { fat64?: boolean } = {}): NativeObject[] {
+    return archiveObjects(source, options).map((object) => {
+        if (object instanceof DwarfError) {
+            throw object
+        }
+        return object
+    })
+}
+
+// Like `openArchive`, but a fat slice that can't be parsed is a `DwarfError` in its place, as
+// symbolic's iterator yields it, so the other slices stay usable.
+export function archiveObjects(source: Source, options: { fat64?: boolean } = {}): (NativeObject | DwarfError)[] {
     const head = source.read(0, 8)
     if (head.length >= 4 && head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46) {
         return [new ElfObject(source)]
@@ -169,9 +180,16 @@ export function openArchive(source: Source, options: { fat64?: boolean } = {}): 
     if (arches) {
         return arches.map((arch) => {
             if (arch.offset + arch.size > source.size) {
-                throw new DwarfError('fat arch out of bounds')
+                return new DwarfError('fat arch out of bounds')
             }
-            return new MachObject(new SubSource(source, arch.offset, arch.size))
+            try {
+                return new MachObject(new SubSource(source, arch.offset, arch.size))
+            } catch (error) {
+                if (error instanceof DwarfError) {
+                    return error
+                }
+                throw error
+            }
         })
     }
     throw new DwarfError('unsupported object file format')

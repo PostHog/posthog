@@ -9,21 +9,29 @@
  */
 export interface OrganizationEventsRetentionApi {
     /**
-     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * The period, in months, that every project without its own period uses. Null while those projects use the default period.
      * @nullable
      */
     readonly organization_retention_months: number | null
-    /** The longest window the organization's plan allows, in months. */
+    /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+    readonly default_retention_months: number
+    /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+    readonly default_is_grandfathered: boolean
+    /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+    readonly retention_months_choices: readonly number[]
+    /** The longest period the organization's plan allows, in months. */
     readonly plan_retention_months: number
-    /** The shortest window an admin can set, in months. */
+    /** The shortest period an admin can set, in months. */
     readonly min_retention_months: number
-    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
     readonly max_retention_months: number
+    /** The date of the next monthly cleanup, in the timezone it runs in. */
+    readonly next_monthly_cleanup_on: string
 }
 
 export interface EventsRetentionUpdateApi {
     /**
-     * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+     * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
      * @minimum 1
      * @nullable
      */
@@ -236,33 +244,60 @@ export interface ElementValueApi {
 
 export interface EventsRetentionApi {
     /**
-     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * The period, in months, that every project without its own period uses. Null while those projects use the default period.
      * @nullable
      */
     readonly organization_retention_months: number | null
-    /** The longest window the organization's plan allows, in months. */
+    /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+    readonly default_retention_months: number
+    /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+    readonly default_is_grandfathered: boolean
+    /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+    readonly retention_months_choices: readonly number[]
+    /** The longest period the organization's plan allows, in months. */
     readonly plan_retention_months: number
-    /** The shortest window an admin can set, in months. */
+    /** The shortest period an admin can set, in months. */
     readonly min_retention_months: number
-    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
     readonly max_retention_months: number
+    /** The date of the next monthly cleanup, in the timezone it runs in. */
+    readonly next_monthly_cleanup_on: string
     /**
-     * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+     * How many months of events stay queryable, counted back from today. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retention_months: number | null
     /**
-     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retained_from: string | null
     /** Where the events retention policy is documented. */
     readonly docs_url: string
     /**
-     * The window, in months, set for this project. Null while the project uses the organization's window.
+     * The period, in months, set for this project. Null while the project uses the organization's period.
      * @nullable
      */
     readonly project_retention_months: number | null
+    /**
+     * The date of the next cleanup that deletes this project's events. Null while no deletion is scheduled.
+     * @nullable
+     */
+    readonly next_deletion_on: string | null
+    /**
+     * The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.
+     * @nullable
+     */
+    readonly next_deletion_before: string | null
+    /**
+     * The next cleanup every 3 months that deletes this project's events past its current period. Null while the project has none scheduled.
+     * @nullable
+     */
+    readonly scheduled_pass_on: string | null
+    /** The earliest cleanup every 3 months for a period that gets shorter today. */
+    readonly first_pass_on: string
+    /** Whether the cleanup deletes this project's events past the default period while no period is set. */
+    readonly default_period_deletes: boolean
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
@@ -4366,13 +4401,15 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4399,12 +4436,14 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -5458,6 +5497,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -5467,6 +5513,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -5597,6 +5644,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7032,13 +7080,15 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7113,12 +7163,14 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -7265,6 +7317,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
@@ -8187,6 +8241,7 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
     /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
     excludeFromTotal?: boolean | null
@@ -8229,6 +8284,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -8716,9 +8773,14 @@ export type _InsightQuerySchemaApi =
     | HogQueryApi
 
 export interface DashboardTileBasicApi {
+    /** ID of the dashboard tile. */
     readonly id: number
+    /** ID of the dashboard the tile sits on. */
     readonly dashboard_id: number
-    /** @nullable */
+    /**
+     * Whether the tile was removed from the dashboard.
+     * @nullable
+     */
     deleted?: boolean | null
 }
 
@@ -9100,6 +9162,268 @@ export interface PaginatedInsightListApi {
     /** @nullable */
     previous?: string | null
     results: InsightApi[]
+}
+
+/**
+ * * `time_series` - Time series
+ */
+export type ChartExplanationShapeEnumApi =
+    (typeof ChartExplanationShapeEnumApi)[keyof typeof ChartExplanationShapeEnumApi]
+
+export const ChartExplanationShapeEnumApi = {
+    TimeSeries: 'time_series',
+} as const
+
+export interface StorySeriesResultApi {
+    /**
+     * The series name.
+     * @maxLength 400
+     */
+    label?: string
+    /**
+     * One value per point. Saved for the followed series only.
+     * @maxItems 5000
+     */
+    data?: number[]
+    /**
+     * The date of each point, in the query's timezone. Saved for the followed series only.
+     * @maxItems 5000
+     */
+    days?: string[]
+}
+
+/**
+ * * `high` - High confidence
+ * * `medium` - Medium confidence
+ * * `low` - Low confidence
+ */
+export type StoryConfidenceEnumApi = (typeof StoryConfidenceEnumApi)[keyof typeof StoryConfidenceEnumApi]
+
+export const StoryConfidenceEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+/**
+ * * `query-trends` - Trends
+ * * `query-funnel` - Funnel
+ * * `query-retention` - Retention
+ * * `query-stickiness` - Stickiness
+ * * `query-paths` - Paths
+ * * `query-lifecycle` - Lifecycle
+ */
+export type StoryEvidenceQueryToolEnumApi =
+    (typeof StoryEvidenceQueryToolEnumApi)[keyof typeof StoryEvidenceQueryToolEnumApi]
+
+export const StoryEvidenceQueryToolEnumApi = {
+    QueryTrends: 'query-trends',
+    QueryFunnel: 'query-funnel',
+    QueryRetention: 'query-retention',
+    QueryStickiness: 'query-stickiness',
+    QueryPaths: 'query-paths',
+    QueryLifecycle: 'query-lifecycle',
+} as const
+
+/**
+ * * `line` - Line
+ * * `bar` - Bar
+ */
+export type StoryEvidenceChartTypeEnumApi =
+    (typeof StoryEvidenceChartTypeEnumApi)[keyof typeof StoryEvidenceChartTypeEnumApi]
+
+export const StoryEvidenceChartTypeEnumApi = {
+    Line: 'line',
+    Bar: 'bar',
+} as const
+
+export interface StoryEvidenceSeriesApi {
+    /** The breakdown value or column this line draws. */
+    name: string
+    /**
+     * One value per label. Null where the breakdown value has no row for that point.
+     * @maxItems 5000
+     */
+    values: (number | null)[]
+}
+
+export interface StoryEvidenceChartApi {
+    /** How the evidence chart draws its series.
+     *
+     * * `line` - Line
+     * * `bar` - Bar */
+    type: StoryEvidenceChartTypeEnumApi
+    /**
+     * The x-axis points.
+     * @maxItems 5000
+     */
+    labels: string[]
+    /**
+     * The axis label of each point, which leaves out a date that repeats.
+     * @maxItems 5000
+     */
+    ticks?: string[]
+    /** The lines or bars to draw. */
+    series: StoryEvidenceSeriesApi[]
+    /**
+     * The y-axis label, if any.
+     * @nullable
+     */
+    yAxisLabel: string | null
+}
+
+/**
+ * The query that shows the fact. The page links to it.
+ * @nullable
+ */
+export type StoryEvidenceApiQuery = { [key: string]: unknown } | null
+
+export interface StoryEvidenceApi {
+    /**
+     * One fact that supports the chapter, in one sentence.
+     * @maxLength 400
+     */
+    text: string
+    /**
+     * The query that shows the fact. The page links to it.
+     * @nullable
+     */
+    query?: StoryEvidenceApiQuery
+    /**
+     * The short id of a saved insight that shows the fact. The page links to it.
+     * @nullable
+     * @pattern ^[A-Za-z0-9]{8}$
+     */
+    insightShortId?: string | null
+    /**
+     * A link to the GitHub pull request or commit behind the fact. No other links are accepted.
+     * @maxLength 500
+     * @nullable
+     */
+    url?: string | null
+    /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
+     *
+     * * `query-trends` - Trends
+     * * `query-funnel` - Funnel
+     * * `query-retention` - Retention
+     * * `query-stickiness` - Stickiness
+     * * `query-paths` - Paths
+     * * `query-lifecycle` - Lifecycle */
+    queryTool?: StoryEvidenceQueryToolEnumApi | null
+    /** The fact drawn as a chart, from its SQL. */
+    chart?: StoryEvidenceChartApi | null
+}
+
+export interface StoryChapterApi {
+    /**
+     * The moment on the chart this chapter explains.
+     * @maxLength 80
+     */
+    title: string
+    /**
+     * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     * @items.minimum 0
+     */
+    range: number[] | null
+    /**
+     * What happened in this moment.
+     * @maxLength 400
+     * @nullable
+     */
+    summary: string | null
+    /**
+     * The likely cause of this moment.
+     * @maxLength 600
+     * @nullable
+     */
+    cause: string | null
+    /** How sure the investigation is of the cause.
+     *
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence */
+    confidence: StoryConfidenceEnumApi | null
+    /**
+     * Why the confidence is what it is.
+     * @maxLength 200
+     * @nullable
+     */
+    confidenceReason: string | null
+    /** The facts behind the cause. */
+    evidence: StoryEvidenceApi[]
+}
+
+/**
+ * The insight query the explanation follows.
+ */
+export type ExplainChartDataApiQuery = { [key: string]: unknown }
+
+export interface ExplainChartDataApi {
+    /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
+     *
+     * * `time_series` - Time series */
+    shape?: ChartExplanationShapeEnumApi
+    /** The insight query the explanation follows. */
+    query: ExplainChartDataApiQuery
+    /** Every series on the chart when it was explained. */
+    results: StorySeriesResultApi[]
+    /**
+     * The index in `results` the explanation follows.
+     * @minimum 0
+     */
+    seriesIndex: number
+    /**
+     * The insight's name.
+     * @maxLength 400
+     * @nullable
+     */
+    insightName: string | null
+    /** Whether the last point's period had not ended yet. */
+    lastPointInProgress: boolean
+    /**
+     * One sentence a person could read in place of the whole explanation.
+     * @maxLength 300
+     */
+    headline: string
+    /** The moments that stand out, in reading order. */
+    chapters: StoryChapterApi[]
+    /**
+     * Warnings the chart's query came back with.
+     * @maxItems 20
+     */
+    warnings?: unknown[]
+}
+
+export interface InsightExplanationCreateApi {
+    /** The chart explanation, as the insight page shows it. */
+    data: ExplainChartDataApi
+}
+
+export interface ChartExplanationAuthorApi {
+    /** The user's id. */
+    id: number
+    /** The user's first name. */
+    first_name: string
+    /** The user's last name. */
+    last_name: string
+    /** The user's email address. */
+    email: string
+}
+
+export interface ChartExplanationApi {
+    /** The chart explanation, as the insight page shows it. */
+    data: ExplainChartDataApi
+    /** Who saved the explanation, directly or through an agent. */
+    created_by: ChartExplanationAuthorApi | null
+    /** The explanation's id, which its link carries. */
+    id: string
+    /** The insight the explanation belongs to. */
+    insight_id: number
+    /** When the explanation was first saved. */
+    created_at: string
 }
 
 /**
@@ -9705,93 +10029,6 @@ export interface InsightDataChecksRequestApi {
     depth?: InsightDataChecksDepthEnumApi
 }
 
-export interface InsightExplainChapterFactsApi {
-    /**
-     * Identifier of the chapter. The response returns the chapter under the same one.
-     * @maxLength 64
-     */
-    id: string
-    /**
-     * What the chapter is about, for example 'A peak on October 2'.
-     * @maxLength 200
-     */
-    title: string
-    /**
-     * The computed facts of the chapter in one or two sentences, with their numbers and dates.
-     * @maxLength 600
-     */
-    summary: string
-    /**
-     * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
-     * @maxItems 6
-     * @items.maxLength 600
-     */
-    evidence?: string[]
-}
-
-export interface InsightExplainRequestApi {
-    /**
-     * Name of the series that the explanation follows.
-     * @maxLength 200
-     */
-    series_label: string
-    /**
-     * Name of the insight. Blank for an insight that has no name yet.
-     * @maxLength 400
-     */
-    insight_name?: string
-    /**
-     * The computed facts of the whole chart, such as its typical level, its range and how it ends.
-     * @maxLength 600
-     */
-    overview?: string
-    /**
-     * The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.
-     * @maxItems 8
-     */
-    chapters: InsightExplainChapterFactsApi[]
-}
-
-/**
- * * `outside_traffic` - Outside traffic
- * * `usage` - Usage
- * * `one_person` - One person
- * * `tracking` - Tracking
- * * `weekly_pattern` - Weekly pattern
- * * `unclear` - Unclear
- */
-export type ChartCauseEnumApi = (typeof ChartCauseEnumApi)[keyof typeof ChartCauseEnumApi]
-
-export const ChartCauseEnumApi = {
-    OutsideTraffic: 'outside_traffic',
-    Usage: 'usage',
-    OnePerson: 'one_person',
-    Tracking: 'tracking',
-    WeeklyPattern: 'weekly_pattern',
-    Unclear: 'unclear',
-} as const
-
-export interface InsightExplainChapterApi {
-    /** Identifier of the chapter, as it was sent. */
-    id: string
-    /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts.
-     *
-     * * `outside_traffic` - Outside traffic
-     * * `usage` - Usage
-     * * `one_person` - One person
-     * * `tracking` - Tracking
-     * * `weekly_pattern` - Weekly pattern
-     * * `unclear` - Unclear */
-    cause: ChartCauseEnumApi
-    /** How sure the model is of the cause, from 0 to 1. */
-    confidence: number
-}
-
-export interface InsightExplainApi {
-    /** The likely cause of each chapter the model answered, in the order they were sent. */
-    chapters: InsightExplainChapterApi[]
-}
-
 /**
  * Insight enriched with view-count and recent-viewer fields, used by the trending action.
  */
@@ -10339,17 +10576,6 @@ export type InsightsDataChecksCreateFormat =
     (typeof InsightsDataChecksCreateFormat)[keyof typeof InsightsDataChecksCreateFormat]
 
 export const InsightsDataChecksCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsExplainCreateParams = {
-    format?: InsightsExplainCreateFormat
-}
-
-export type InsightsExplainCreateFormat = (typeof InsightsExplainCreateFormat)[keyof typeof InsightsExplainCreateFormat]
-
-export const InsightsExplainCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

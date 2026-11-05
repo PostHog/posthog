@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
@@ -12,7 +11,6 @@ import {
     IconRefresh,
     IconRevert,
     IconSearch,
-    IconSparkles,
     IconTrash,
     IconX,
 } from '@posthog/icons'
@@ -42,18 +40,16 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { hasPageFilter } from 'scenes/session-recordings/utils'
-import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -62,6 +58,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { ReplayFiltersScannerEntryPoint } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerEntryPoint'
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
@@ -574,7 +571,6 @@ export const ReplayFiltersTab = ({
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
     // A scanner keeps less of the filter set than this panel does, so what it would actually watch
     // decides both the destination and whether the button is worth offering.
     const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
@@ -884,40 +880,7 @@ export const ReplayFiltersTab = ({
                             </LemonButton>
                         )}
                         <div className="flex gap-2 ml-auto">
-                            {scannerCrossSellEnabled && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSparkles className="text-ai" />}
-                                        data-attr="replay-save-filters-as-scanner"
-                                        tooltip={
-                                            scannerHandoff.narrowsSessions
-                                                ? 'Create a Replay vision scanner. It watches new session recordings that match these filters for you. The date range does not carry over, so it starts from now.'
-                                                : 'Create a Replay vision scanner. It watches every new session recording for you. Add a filter to watch only some of them. A date range and pinned sessions do not carry over.'
-                                        }
-                                        onClick={() => {
-                                            void addProductIntentForCrossSell({
-                                                from: ProductKey.SESSION_REPLAY,
-                                                to: ProductKey.REPLAY_VISION,
-                                                intent_context:
-                                                    ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
-                                            })
-                                            router.actions.push(
-                                                combineUrl(
-                                                    urls.replayVisionScannerConfigure('new'),
-                                                    scannerHandoff.searchParams
-                                                ).url
-                                            )
-                                        }}
-                                    >
-                                        Create scanner
-                                    </LemonButton>
-                                    {/* Grouped away from the buttons that act on the filters themselves:
-                                        this one leaves for another product. */}
-                                    <LemonDivider vertical className="mx-1 self-stretch" />
-                                </>
-                            )}
+                            <ReplayFiltersScannerEntryPoint handoff={scannerHandoff} />
                             {resetButton}
                             <LemonButton
                                 data-attr="filters-save-modal-open"

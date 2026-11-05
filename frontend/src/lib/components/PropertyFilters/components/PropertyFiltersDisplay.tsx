@@ -1,3 +1,5 @@
+import '../PropertyFilters.scss'
+
 import { AnyPropertyFilter } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'

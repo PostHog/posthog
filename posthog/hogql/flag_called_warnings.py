@@ -6,6 +6,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -21,6 +22,17 @@ FLAG_CALLED_ON_EVENTS_WARNING = (
 FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
     f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
     "of flag calls."
+)
+
+FLAG_CALLED_FROM_BOTH_TABLES_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
+    "of flag calls, and other events from events."
+)
+
+# While events still holds every flag call, the union reads only the recent ones from posthog.flag_evaluations.
+FLAG_CALLED_SPLIT_BY_AGE_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from the last 90 days from posthog.flag_evaluations. "
+    "It reads older ones and all other events from events."
 )
 
 
@@ -56,19 +68,10 @@ class _FlagCalledLiteralFinder(TraversingVisitor):
 
 
 def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    if not isinstance(expr, ast.Field):
+    field_type = event_field_type(expr)
+    if field_type is None:
         return False
-    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
-    field_type = expr.type
-    while isinstance(field_type, ast.FieldAliasType):
-        field_type = field_type.type
-    if not isinstance(field_type, ast.FieldType) or field_type.name != "event":
-        return False
-    table_type = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
+    table_type = unwrap_table_alias_type(field_type.table_type)
     return isinstance(table_type, ast.TableType) and isinstance(table_type.table, table_class)
 
 
@@ -78,6 +81,16 @@ def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
     if isinstance(expr, (ast.Tuple, ast.Array)):
         return [constant for sub in expr.exprs for constant in _flag_called_constants(sub)]
     return []
+
+
+def count_flag_calls_read_from_events(resolved: ast.AST) -> int:
+    """How many `$feature_flag_called` literals a resolved query compares to the events table's `event` column.
+
+    Unlike the warnings below, it counts a literal that a query builder made, which has no span.
+    """
+    finder = _FlagCalledLiteralFinder(EventsTable)
+    finder.visit(resolved)
+    return len(finder.literals)
 
 
 def flag_called_on_events_warnings(
@@ -113,3 +126,8 @@ def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[Liter
     finder = _FlagCalledLiteralFinder(FlagEvaluationsTable)
     finder.visit(prepared)
     return {LiteralSpan(start=literal.start, end=literal.end) for literal in finder.literals}
+
+
+def flag_called_spans_read_from_union(context: HogQLContext) -> set[LiteralSpan]:
+    """The spans of the `$feature_flag_called` literals whose scan reads `events` and `flag_evaluations` together."""
+    return {LiteralSpan(start=start, end=end) for start, end in context.flag_called_union_spans}

@@ -3,7 +3,6 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 
-import { Node } from '~/queries/schema/schema-general'
 import {
     isEventsNode,
     isFunnelsQuery,
@@ -11,7 +10,8 @@ import {
     isInsightQueryWithSeries,
     isInsightVizNode,
     isRetentionQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node } from '~/queries/schema/schema-general'
 import {
     ActionType,
     AnyCohortCriteriaType,

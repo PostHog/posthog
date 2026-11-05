@@ -3,11 +3,12 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckValues, not_applicable
 
 # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 EXPERIMENT_PAUSED = "experiment_paused"
@@ -26,21 +27,31 @@ def reads_exposed_without_test_account_filter(ctx: HealthContext) -> bool:
     return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode == CALLS_NOT_COUNTED
 
 
+def zero_exposures_values(ctx: HealthContext) -> CheckValues:
+    exposures = ctx.exposures
+    if exposures is None:
+        return {}
+    hours = exposures.hours_since_launch
+    return {
+        ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
+        ExperimentHealthValueKey.SINCE_LAUNCH_HOURS: None if hours is None else round(hours, 1),
+    }
+
+
 def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
     if exposures is None or exposures.hours_since_launch is None or not ctx.is_launched:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
-    if sum(exposures.total_exposures.values()) > 0:
+    if exposures.total > 0:
         return None
     # Criteria that no event can match leave nobody exposed, and the exposure criteria check names that cause. This
     # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
     if isinstance(exposure_criteria_cannot_match(ctx), ExperimentHealthFinding):
         return not_applicable("The exposure criteria check reports why no users are exposed")
     evidence: dict[str, int | str] = {"hours_since_launch": int(exposures.hours_since_launch)}
-    # A group experiment counts groups, by the rule the exposure query uses.
-    unit = "group" if exposures.counts_groups else "user"
+    unit = exposures.unit
     # The cause reads the flag besides the cached exposure answer. The page recomputes that answer on each load while it
     # holds fewer than 50 exposures, so the cause is as fresh as the zero.
     flag = ctx.flag

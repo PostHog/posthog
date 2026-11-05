@@ -27,7 +27,6 @@ import requests
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     get_nonsensitive_and_sensitive_field_names,
 )

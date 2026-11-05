@@ -8,11 +8,14 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import partial
 from ipaddress import ip_address, ip_network
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
+from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -26,8 +29,10 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.functional import SimpleLazyObject
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
@@ -53,6 +58,7 @@ from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_mat
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
+    ACTIVITY_LOG_INTENT_HEADER,
     ActivityCredential,
     activity_storage,
     client_from_header,
@@ -65,12 +71,13 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.mcp_intents import buffer_mcp_intent
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -351,6 +358,9 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
+        # Admin pages authenticate by session only, so a personal API key never stands in for their CSRF token.
+        if request.path.startswith("/admin/"):
+            return result
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
             return self._accept(request)
@@ -440,6 +450,10 @@ class AutoProjectMiddleware:
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
+            else:
+                target_team_id = self.get_target_team_id(request)
+                if target_team_id is not None:
+                    self.switch_to_team_id_if_needed_and_allowed(request, target_team_id)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -464,17 +478,29 @@ class AutoProjectMiddleware:
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                if action_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
+
+    def get_target_team_id(self, request: HttpRequest) -> Optional[int]:
+        """The team owning the object a legacy app path names, for objects read through a product facade."""
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
+            # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
+            return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        return None
+
+    def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and current_team.pk != target_team_id:
+            target_team = Team.objects.filter(pk=target_team_id).first()
+            if target_team is not None:
+                self.switch_team_if_allowed(target_team, request)
 
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
@@ -560,8 +586,6 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        route = resolve(request.path)
-        route_id = f"{route.route} ({route.func.__name__})"
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
@@ -576,7 +600,6 @@ class CHQueries:
             user_id=user.pk,
             kind="request",
             id=request.path,
-            route_id=route.route,
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
@@ -596,15 +619,15 @@ class CHQueries:
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
 
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
                     "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
+                    tags={"id": f"{route.route} ({route.func.__name__})", "status_code": response.status_code},
                 )
 
             return response
         finally:
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
@@ -618,6 +641,16 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
             reset_query_tags()
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[Any, ...],
+        view_kwargs: dict[str, Any],
+    ) -> None:
+        if request.resolver_match is not None:
+            tag_queries(route_id=request.resolver_match.route)
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
@@ -1186,6 +1219,34 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+def _get_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_cached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+    return getattr(request, "_cached_user")  # noqa: B009
+
+
+async def _aget_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_acached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+    return getattr(request, "_acached_user")  # noqa: B009
+
+
+class AuthenticationMiddleware(DjangoAuthenticationMiddleware):
+    """Load the session user with its current organization in one query.
+
+    The 2FA and verified-domain checks in `SessionAuthentication` read `user.organization` on every
+    session request, so a separate lazy load costs one query each time.
+    """
+
+    def process_request(self, request: HttpRequest) -> None:
+        super().process_request(request)
+        # The attribute names match Django's middleware, because AdminImpersonationMiddleware writes `_cached_user`.
+        setattr(request, "user", SimpleLazyObject(lambda: _get_session_user(request)))  # noqa: B010
+        setattr(request, "auser", partial(_aget_session_user, request))  # noqa: B010
+
+
 class AdminImpersonationMiddleware:
     """
     During impersonation, allow the original (staff) user to keep using the admin panel.
@@ -1416,6 +1477,63 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     return session_activity_credential(request, get_original_user_id_from_session(request))
 
 
+# Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
+_MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
+
+
+def _resolved_team_id(response: HttpResponse) -> int | None:
+    """The team that a DRF view resolved for the request, read without a query.
+
+    Reads only the cached values, because a view that never resolved a team has no team to report.
+    """
+    renderer_context = getattr(response, "renderer_context", None) or {}
+    cached = getattr(renderer_context.get("view"), "__dict__", {})
+    team = cached.get("team")
+    if isinstance(team, Team):
+        return team.id
+    team_id = cached.get("team_id")
+    return team_id if isinstance(team_id, int) else None
+
+
+def _buffer_mcp_intent(request: HttpRequest, response: HttpResponse) -> None:
+    """Keep the intent of an MCP read for the activity summary, which sees only the calls that write.
+
+    Runs after the view, because bearer authentication sets the user inside it. The buffer is
+    optional context, so a failure here must not fail the request.
+    """
+    if not settings.ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED:
+        return
+    try:
+        if request.headers.get(ACTIVITY_LOG_CLIENT_HEADER, "").strip().lower() != "mcp" or response.status_code >= 400:
+            return
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()
+        if not intent:
+            return
+        credential = activity_storage.get_credential()
+        if (
+            credential is None
+            or credential.type not in _MCP_INTENT_CREDENTIAL_TYPES
+            or credential.impersonated_by_id is not None
+            or activity_storage.get_agent_task_id() is not None
+        ):
+            return
+        user = activity_storage.get_user()
+        team_id = _resolved_team_id(response)
+        if user is None or team_id is None:
+            return
+        resolver_match = request.resolver_match
+        buffer_mcp_intent(
+            team_id=team_id,
+            user_id=user.pk,
+            session_id=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+            or sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id")),
+            route_name=resolver_match.view_name if resolver_match else None,
+            intent=intent,
+        )
+    except Exception:
+        logger.warning("activity_summary.mcp_intent_buffer_failed", exc_info=True)
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -1446,6 +1564,7 @@ class ActivityLoggingMiddleware:
 
         try:
             response = self.get_response(request)
+            _buffer_mcp_intent(request, response)
         finally:
             # Clean up activity storage after request
             activity_storage.clear_all()
@@ -1507,6 +1626,11 @@ class SocialAuthExceptionMiddleware:
         if isinstance(exception, ValidationError):
             error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
             return redirect(sso_failure_redirect_url(request, error_code))
+
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
 

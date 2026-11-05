@@ -451,10 +451,24 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -791,6 +805,18 @@ class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Theme and group summaries aggregate a window of observation history per call, and scouts call them on a
+# schedule, so they get their own team bucket and never use up the highlight feed's.
+class ReplayVisionClustersBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionClustersSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_sustained"
+    rate = "600/hour"
+
+
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
 class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
@@ -992,17 +1018,6 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     rate = "500/day"
 
 
-class InsightExplainBurstThrottle(PersonalApiKeyOrUserRateThrottle):
-    # A decision model call costs a small fraction of a summarization call, so it gets its own, higher limits.
-    scope = "insight_explain_burst"
-    rate = "120/minute"
-
-
-class InsightExplainDailyThrottle(PersonalApiKeyOrUserRateThrottle):
-    scope = "insight_explain_daily"
-    rate = "5000/day"
-
-
 class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):
     """`estimate` runs a synchronous ClickHouse count, so a caller could otherwise saturate the
     query pool by resubmitting wide windows. Its own bucket keeps the call the UI makes on every
@@ -1101,12 +1116,19 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
-class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+class LLMPromptFetchRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
     # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
     # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
-    # feature_flag_remote_config throttle.
+    # feature_flag_remote_config throttle. Project secret keys get the same budget per key.
     scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
+class LLMPromptFetchProjectSecretApiKeyTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # One budget for all of a project's secret keys together, the same size as the per-key
+    # budget, so creating more keys does not raise a project's total.
+    scope = "llm_prompt_fetch_psak_team"
     rate = "600/minute"
 
 
@@ -1463,7 +1485,21 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class WidgetUserBurstThrottle(SimpleRateThrottle):
+class _CountedWidgetThrottle(SimpleRateThrottle):
+    """Each widget view has a bucket per widget session (or client IP) and a bucket per widget token, and a 429
+    response does not say which one is empty. The counter records the scope so that dashboards can tell them apart."""
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            # WidgetAuthentication returns the team as request.auth, because widget requests have no user
+            team_id = getattr(request.auth, "id", None)
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return allowed
+
+
+class WidgetUserBurstThrottle(_CountedWidgetThrottle):
     """Rate limit per widget_session_id or IP for POST/GET requests."""
 
     scope = "widget_user_burst"
@@ -1479,7 +1515,7 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class _WidgetTeamTokenThrottle(SimpleRateThrottle):
+class _WidgetTeamTokenThrottle(_CountedWidgetThrottle):
     rate = "3600/hour"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:

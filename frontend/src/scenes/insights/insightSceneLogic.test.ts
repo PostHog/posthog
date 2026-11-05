@@ -19,10 +19,13 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { examples } from '~/queries/examples'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope, CohortType, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
+
+// The logic preloads the chart renderers on mount. No test here draws one, and loading them takes seconds.
+jest.mock('~/queries/Query/queryNodeRenderers')
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId

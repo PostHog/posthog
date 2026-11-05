@@ -7,7 +7,7 @@ from uuid import uuid4
 import unittest
 import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -42,7 +42,8 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
@@ -59,6 +60,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -388,7 +390,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
 
     def test_filter_by_event_resolves_actions(self) -> None:
-        action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
+        action = create_action(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -547,7 +549,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
         # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
-        self.assertEqual(len(five_rows.captured_queries), 15)
+        self.assertEqual(len(five_rows.captured_queries), 14)
 
     def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated_experiment(0)
@@ -564,7 +566,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
         # experiment settings, whatever the number of saved metrics.
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -573,7 +575,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertTrue(all(fingerprints))
 
     def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
-        action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
+        action = create_action(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
         flag = FeatureFlag.objects.create(team=self.team, key=f"action-metric-flag-{index}", created_by=self.user)
         experiment = Experiment.objects.create(
             team=self.team,
@@ -847,7 +849,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
-        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
+        self.assertEqual(health["findings"][0]["check"], "flag_state")
+        self.assertEqual(
+            {key: health["checks"][0][key] for key in ("key", "status", "values", "rule")},
+            {
+                "key": "flag_state",
+                "status": "finding",
+                "values": {
+                    "flag_active": False,
+                    "flag_deleted": False,
+                    "flag_rolled_out": True,
+                    "shipped_variant": None,
+                },
+                "rule": None,
+            },
+        )
 
     @parameterized.expand(
         [
@@ -1268,8 +1284,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Action-name refresh lives on the detail response — the list endpoint no longer
         # returns metrics (see ExperimentBasicSerializer).
         experiment, action = self._create_experiment_with_action_metrics(0)
-        action.name = "Renamed action"
-        action.save()
+        update_action(action, name="Renamed action")
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1836,7 +1851,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         the saved query with the link overrides applied, the same dict the daily workflow files its rows
         under, or the chart reads an empty series for an override-configured saved metric."""
         breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
-        action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
         source = (
             {"kind": "ActionsNode", "id": action.id, "name": action.name}
             if rename_action
@@ -1850,7 +1865,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
         if rename_action:
-            Action.objects.filter(pk=action.pk).update(name="Current name")
+            update_action(action, name="Current name")
         metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3897,7 +3912,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -4399,7 +4414,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
-        action = Action.objects.create(
+        action = create_action(
             name="Test Action",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
@@ -5641,6 +5656,80 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         for metric in updated_metrics:
             metric_type = metric["metric_type"]
             self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
+
+    @parameterized.expand([("stale_client_fingerprint", "&fingerprint=" + "0" * 64), ("no_client_fingerprint", "")])
+    def test_timeseries_results_reads_the_key_of_the_current_settings(self, _name: str, fingerprint_param: str) -> None:
+        start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="chart-key-flag")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Chart key",
+            start_date=start,
+            end_date=start + timedelta(hours=12),
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "m1"}],
+        )
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=calculation_config.calculation_key(),
+            query_from=start,
+            query_to=start + timedelta(days=1),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"variant_results": []},
+            completed_at=start + timedelta(days=1),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/timeseries_results/?metric_uuid=m1"
+            f"{fingerprint_param}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+
+    @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
+    def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(
+        self, _name: str, extra_body: dict
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="backfill-key-flag")
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "m1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Backfill key",
+            start_date=timezone.now() - timedelta(days=2),
+            metrics=[metric],
+        )
+        posted_metric = (
+            {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
+        )
+
+        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow = AsyncMock()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
+                {"metric": posted_metric, **extra_body},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        request = ExperimentTimeseriesRecalculation.objects.get(id=response.json()["id"])
+        assert (request.fingerprint, request.metric["source"]["event"]) == (
+            calculation_config.calculation_key(),
+            "$pageview",
+        )
 
     def test_creating_draft_experiment_sets_status_draft(self):
         response = self.client.post(
@@ -7617,7 +7706,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             name="cohort_X",
         )
 
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[

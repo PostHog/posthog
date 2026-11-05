@@ -129,6 +129,8 @@ frontend/.unminified-chunks/
 frontend/.stable-chunks-rewritten/
 frontend/dist-report/
 frontend/eager-graph-report*.json
+frontend/layer-report*.json
+frontend/layer-graph.html
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
@@ -157,6 +159,9 @@ posthog/management/commands/clear_demo_data.py
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/plans/
+
+# Ignore Conductor local settings
+.conductor/settings.local.toml
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -220,6 +225,12 @@ posthog/hogql/scripts/.local/
 # RocksDB state store created at runtime by cohort-stream-processor
 rust/cohort-store/
 rust/cohort-stream-processor/cohort-store/
+
+# Build output of Rust node addons. Each addon also ignores its own output.
+# This root rule keeps a local leftover ignored after an addon is deleted
+# together with its .gitignore, so `git add -A` cannot commit it.
+rust/**/*.node
+rust/**/dist/
 
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem

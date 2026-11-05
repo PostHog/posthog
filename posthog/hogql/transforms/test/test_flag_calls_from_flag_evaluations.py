@@ -3,18 +3,25 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
+from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.models import StringDatabaseField, Table, TableNode
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
-    FLAG_EVALUATIONS_COMPLETE_DAYS,
     EventsScan,
     can_read_flag_evaluations,
     filter_conjuncts,
+    swap_flag_calls,
 )
 
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
@@ -26,6 +33,7 @@ IN_COVERAGE = COVERAGE_START + timedelta(days=30)
 FLAG_CALLED = "event = '$feature_flag_called'"
 FLAG_KEY = "properties.$feature_flag = 'my-flag'"
 BOUND = "timestamp >= now() - INTERVAL 7 DAY"
+UNQUALIFIED = f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"
 OR_OF_AND_BRANCHES = (
     "((properties.$feature_flag = 'a' AND distinct_id = 'x') OR (properties.$feature_flag = 'b' AND distinct_id = 'y'))"
 )
@@ -52,6 +60,16 @@ def _where(*conjuncts: str) -> str:
     return f"SELECT count() FROM events WHERE {' AND '.join(conjuncts)}"
 
 
+def _on_posthog_events(where: str, select: str = "count()") -> str:
+    return f"SELECT {select} FROM posthog.events WHERE {where}"
+
+
+POSTHOG_EVENTS_QUALIFIED = (
+    "posthog.events.event = '$feature_flag_called' AND posthog.events.properties.$feature_flag = 'my-flag' "
+    "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY"
+)
+
+
 def _bounded_by(lower_bound: str) -> str:
     return _where(FLAG_CALLED, FLAG_KEY, f"timestamp >= {lower_bound}")
 
@@ -71,6 +89,10 @@ def _self_joined(where: str) -> str:
     return f"SELECT count() FROM events AS e JOIN events AS f ON e.uuid = f.uuid WHERE {where}"
 
 
+def _beside(join: str) -> str:
+    return f"SELECT count() FROM events AS e {join} WHERE {UNQUALIFIED}"
+
+
 @time_machine.travel(NOW, tick=False)
 class TestCanReadFlagEvaluations(SimpleTestCase):
     def _can_read(
@@ -80,11 +102,16 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         timezone: str = "UTC",
         *,
         only_in_flag_evaluations: bool = False,
+        database: Database | None = None,
     ) -> bool:
         select = parse_select(query, placeholders=placeholders)
         assert isinstance(select, ast.SelectQuery)
         return can_read_flag_evaluations(
-            select, datetime.now(UTC), ZoneInfo(timezone), only_in_flag_evaluations=only_in_flag_evaluations
+            select,
+            datetime.now(UTC),
+            ZoneInfo(timezone),
+            only_in_flag_evaluations=only_in_flag_evaluations,
+            database=database,
         )
 
     @parameterized.expand(
@@ -96,7 +123,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     def test_flag_keys_cover_every_branch_of_an_or(self, _name: str, query: str):
         select = parse_select(query)
         assert isinstance(select, ast.SelectQuery)
-        scan = EventsScan.of(select, lambda: True)
+        scan = EventsScan.of(select, lambda: True, frozenset())
         assert scan is not None
         assert scan.flag_keys(filter_conjuncts(select)) == ["a", "b"]
 
@@ -154,6 +181,52 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                     "e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' "
                     "AND e.timestamp >= now() - INTERVAL 7 DAY"
                 ),
+            ),
+            (
+                "unqualified_event_with_a_join",
+                _joined(
+                    f"{FLAG_CALLED} AND e.properties.$feature_flag = 'my-flag' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                ),
+            ),
+            (
+                "unqualified_bound_with_a_join",
+                _joined(f"e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' AND {BOUND}"),
+            ),
+            (
+                "unqualified_event_beside_a_table_aliased_event",
+                "SELECT count() FROM events AS e JOIN persons AS event ON e.person_id = event.id "
+                "WHERE event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' "
+                "AND e.timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "unqualified_reads_beside_a_joined_subquery",
+                _beside(
+                    "INNER JOIN (SELECT person_id AS cohort_person_id, 1 AS value FROM raw_cohort_people) AS cohort_join "
+                    "ON e.person_id = cohort_join.cohort_person_id"
+                ),
+            ),
+            (
+                "unqualified_reads_beside_a_joined_union",
+                _beside(
+                    "LEFT JOIN (SELECT person_id AS cohort_person_id, 1 AS matched FROM static_cohort_people "
+                    "UNION ALL SELECT person_id AS cohort_person_id, 1 AS matched FROM raw_cohort_people) AS __in_cohort "
+                    "ON __in_cohort.cohort_person_id = e.person_id"
+                ),
+            ),
+            (
+                "unqualified_reads_beside_a_joined_cte",
+                "WITH actors AS (SELECT person_id AS actor_id, min(timestamp) AS t_0 FROM events GROUP BY actor_id) "
+                + _beside("INNER JOIN actors ON e.person_id = actors.actor_id"),
+            ),
+            (
+                "unqualified_reads_beside_an_array_join",
+                f"SELECT n FROM events ARRAY JOIN [1, 2] AS n WHERE {UNQUALIFIED}",
+            ),
+            (
+                "alias_that_reads_the_scan_beside_a_subquery_with_an_event_column",
+                "SELECT e.event AS event, count() FROM events AS e "
+                "JOIN (SELECT distinct_id, event FROM events) AS calls ON e.distinct_id = calls.distinct_id "
+                f"WHERE {UNQUALIFIED} GROUP BY event",
             ),
             ("flag_key_array_access", _where(FLAG_CALLED, "properties['$feature_flag'] = 'my-flag'", BOUND)),
             (
@@ -216,6 +289,25 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ),
             # The printer drops SAMPLE 1. The trends query builders set it on every events read.
             ("sample_of_one", f"SELECT count() FROM events SAMPLE 1 WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
+            ("posthog_events", _on_posthog_events(f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}")),
+            ("posthog_events_qualified_without_an_alias", _on_posthog_events(POSTHOG_EVENTS_QUALIFIED)),
+            (
+                "posthog_events_as_one_quoted_name",
+                f"SELECT count() FROM `posthog.events` WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}",
+            ),
+            (
+                "posthog_events_qualified_by_its_scope_name",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "posthog__events.")),
+            ),
+            (
+                "posthog_events_qualified_by_one_quoted_name",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`.")),
+            ),
+            (
+                "posthog_events_qualifier_with_a_join",
+                "SELECT count() FROM posthog.events JOIN persons AS p ON posthog.events.person_id = p.id "
+                f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
             (
                 "alias_that_renames_its_own_column",
                 f"SELECT e.timestamp AS timestamp FROM events e WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}",
@@ -254,10 +346,22 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _where(FLAG_KEY, BOUND, f"uuid IN (SELECT uuid FROM events WHERE {FLAG_CALLED})"),
             ),
             (
-                "unqualified_event_with_a_join",
-                _joined(
-                    f"{FLAG_CALLED} AND e.properties.$feature_flag = 'my-flag' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                "flag_key_under_a_cte_named_properties",
+                "WITH properties AS (SELECT 'my-flag' AS `$feature_flag`) " + _where(FLAG_CALLED, FLAG_KEY, BOUND),
+            ),
+            (
+                "flag_key_beside_a_table_named_properties",
+                _beside("JOIN properties ON e.distinct_id = properties.distinct_id"),
+            ),
+            (
+                "flag_key_beside_a_subquery_named_properties",
+                _beside(
+                    "JOIN (SELECT person_id AS id FROM raw_cohort_people) AS properties ON e.person_id = properties.id"
                 ),
+            ),
+            (
+                "array_join_alias_that_shadows_event",
+                f"SELECT count() FROM events ARRAY JOIN ['$feature_flag_called'] AS event WHERE {UNQUALIFIED}",
             ),
             (
                 "pin_on_a_joined_alias",
@@ -276,10 +380,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ("not_between", _where(FLAG_CALLED, FLAG_KEY, "timestamp NOT BETWEEN now() - INTERVAL 7 DAY AND now()")),
             ("bound_inside_an_or", _where(FLAG_CALLED, FLAG_KEY, f"({BOUND} OR distinct_id = 'd')")),
             ("bound_on_another_column", _where(FLAG_CALLED, FLAG_KEY, "created_at >= now() - INTERVAL 7 DAY")),
-            (
-                "unqualified_bound_with_a_join",
-                _joined(f"e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' AND {BOUND}"),
-            ),
             (
                 "bound_on_a_joined_alias",
                 _self_joined(
@@ -346,10 +446,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ),
             ("pin_on_another_property", _where(FLAG_CALLED, "properties.$feature_flag_response = 'my-flag'", BOUND)),
             (
-                "unqualified_flag_key_with_a_join",
-                _joined(f"e.event = '$feature_flag_called' AND {FLAG_KEY} AND e.timestamp >= now() - INTERVAL 7 DAY"),
-            ),
-            (
                 "flag_key_on_a_joined_alias",
                 _self_joined(
                     "e.event = '$feature_flag_called' AND f.properties.$feature_flag = 'my-flag' "
@@ -393,6 +489,35 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 "SELECT * FROM events ARRAY JOIN [1] AS n WHERE events.event = '$feature_flag_called' "
                 "AND events.properties.$feature_flag = 'my-flag' AND events.timestamp >= now() - INTERVAL 7 DAY",
             ),
+            (
+                "posthog_events_qualifier_that_a_select_alias_shadows",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED, select="properties AS posthog"),
+            ),
+            (
+                "posthog_events_quoted_qualifier_that_a_select_alias_shadows",
+                _on_posthog_events(
+                    POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`."),
+                    select="properties AS `posthog.events`",
+                ),
+            ),
+            (
+                "posthog_events_qualifier_that_a_cte_shadows",
+                f"WITH posthog AS (SELECT 1) {_on_posthog_events(POSTHOG_EVENTS_QUALIFIED)}",
+            ),
+            (
+                "posthog_events_qualifier_that_a_join_alias_shadows",
+                "SELECT count() FROM posthog.events JOIN persons AS posthog ON posthog.events.person_id = posthog.id "
+                f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
+            (
+                "posthog_events_qualifier_under_another_alias",
+                f"SELECT count() FROM posthog.events AS e WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
+            (
+                "posthog_events_read_from_a_cte_of_that_name",
+                "WITH `posthog.events` AS (SELECT event, properties, timestamp FROM posthog.flag_evaluations) "
+                + _on_posthog_events(f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
+            ),
             ("bound_near_year_one", _bounded_by("'0001-01-01'")),
             ("interval_past_datetime_range", _bounded_by("now() - INTERVAL 999999999 YEAR")),
             # Each level used to evaluate its value twice, so 40 levels took 2^40 steps.
@@ -406,6 +531,42 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     @pytest.mark.timeout(5, func_only=True)
     def test_refuses_a_query_that_breaks_a_condition(self, _name: str, query: str):
         assert self._can_read(query) is False
+
+    @parameterized.expand(
+        [
+            ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
+            ("regular_table_spelled_the_same", "properties", "properties", False, False),
+            ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+            (
+                "case_folding_table_with_an_alias_that_respells_it",
+                "properties",
+                "properties AS Properties",
+                True,
+                False,
+            ),
+            ("case_folding_table_with_another_alias", "orders", "orders AS Properties", True, True),
+        ]
+    )
+    def test_joined_table_shadows_a_column_in_another_case_only_when_it_folds_case(
+        self, _name: str, registered: str, spelled: str, folds_case: bool, expected: bool
+    ):
+        fields = {"distinct_id": StringDatabaseField(name="distinct_id")}
+        table: Table = (
+            DirectTrinoTable(
+                name=registered,
+                fields=fields,
+                external_data_source_id="source-id",
+                trino_catalog="c",
+                trino_schema="s",
+                trino_table_name=registered,
+            )
+            if folds_case
+            else Table(fields=fields)
+        )
+        database = Database(include_posthog_tables=False)
+        database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled.split()[-1]}.distinct_id")
+        assert self._can_read(query, database=database) is expected
 
     @parameterized.expand(
         [
@@ -488,3 +649,46 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     ):
         with time_machine.travel(now, tick=False):
             assert self._can_read(_bounded_by(bound), timezone=timezone) is False
+
+
+class TestSwapFlagCallsBesideJoinedTable(BaseTest):
+    @parameterized.expand(
+        [
+            ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
+            ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+        ]
+    )
+    def test_swaps_the_scan_unless_a_folding_table_shadows_the_flag_key(
+        self, _name: str, registered: str, spelled: str, folds_case: bool, expected: bool
+    ):
+        fields = {
+            "distinct_id": StringDatabaseField(name="distinct_id"),
+            "$feature_flag": StringDatabaseField(name="$feature_flag"),
+        }
+        table: Table = (
+            DirectTrinoTable(
+                name=registered,
+                fields=fields,
+                external_data_source_id="source-id",
+                trino_catalog="c",
+                trino_schema="s",
+                trino_table_name=registered,
+            )
+            if folds_case
+            else Table(fields=fields)
+        )
+        database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
+        database._read_flag_calls_from_flag_evaluations = True
+        database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
+        context = HogQLContext(
+            team_id=self.team.pk, database=database, enable_select_queries=True, use_new_events_schema=False
+        )
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled}.distinct_id")
+
+        swap = swap_flag_calls(
+            parse_select(query),
+            context,
+            lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+        )
+
+        assert ("flag_evaluations" in swap.source.to_hogql()) is expected

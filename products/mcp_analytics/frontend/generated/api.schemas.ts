@@ -500,6 +500,16 @@ export interface MCPSessionApi {
 }
 
 export interface PaginatedMCPSessionListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPSessionApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -533,6 +543,16 @@ export interface MCPToolCallApi {
 }
 
 export interface PaginatedMCPToolCallListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPToolCallApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -639,6 +659,7 @@ export interface MCPIntentDigestApi {
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -657,6 +678,7 @@ export type McpAnalyticsIntentClustersRetrieveParams = {
 export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -750,4 +772,8 @@ export type McpAnalyticsSessionsActivityOverviewParams = {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string
+    /**
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
+     */
+    refresh?: boolean
 }

@@ -37,6 +37,7 @@ import {
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
@@ -49,7 +50,6 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
@@ -60,7 +60,6 @@ import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logic
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -148,7 +147,7 @@ export const QueryDatabase = ({
         searchText,
         joinsByFieldName,
         editingDraftId,
-        displayedTreeData,
+        visibleTreeData,
         expandedItemIds,
         connectionId,
         activeDraggedViewId,
@@ -416,8 +415,8 @@ export const QueryDatabase = ({
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
-    }, [extraTreeSections, displayedTreeData, searchText])
+        return getQueryDatabaseTreeData(visibleTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, visibleTreeData, searchText])
 
     const tree = (
         <LemonTree
@@ -462,6 +461,9 @@ export const QueryDatabase = ({
                 setEditingDraft('')
             }}
             onItemClick={(item) => {
+                if (item?.record?.type === 'show-all-tables') {
+                    posthog.capture('sql-editor-show-all-tables-clicked')
+                }
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
@@ -1247,11 +1249,10 @@ export const QueryDatabase = ({
                     return null
                 }
 
-                // External source folders get an actions menu: edit the source and add a new one of this type
-                if (
-                    item.record?.type === 'source-folder' &&
-                    Object.values(ExternalDataSourceTypeEnumApi).includes(item.record?.sourceType)
-                ) {
+                // External source folders get an actions menu: edit the source and add a new one of this type.
+                // Only a folder of external data source tables carries `sources`; a schema folder of a
+                // direct connection does not.
+                if (item.record?.type === 'source-folder' && (item.record?.sources?.length ?? 0) > 0) {
                     const sourceType = item.record?.sourceType
                     const sources: { id: string; label: string }[] = item.record?.sources ?? []
                     return (
