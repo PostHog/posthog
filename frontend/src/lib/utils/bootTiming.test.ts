@@ -3,6 +3,7 @@ import type posthogType from 'posthog-js'
 import type {
     createSceneRenderedMark as createSceneRenderedMarkType,
     markBootPhase as markBootPhaseType,
+    onFirstSceneRendered as onFirstSceneRenderedType,
 } from './bootTiming'
 
 describe('bootTiming', () => {
@@ -12,6 +13,7 @@ describe('bootTiming', () => {
 
     let markBootPhase: typeof markBootPhaseType
     let createSceneRenderedMark: typeof createSceneRenderedMarkType
+    let onFirstSceneRendered: typeof onFirstSceneRenderedType
     let capture: jest.SpyInstance
     let getDistinctId: jest.SpyInstance
     let now: number
@@ -22,7 +24,7 @@ describe('bootTiming', () => {
         jest.resetModules()
         now = 0
         nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now)
-        ;({ markBootPhase, createSceneRenderedMark } = require('./bootTiming'))
+        ;({ markBootPhase, createSceneRenderedMark, onFirstSceneRendered } = require('./bootTiming'))
         const posthog: typeof posthogType = require('posthog-js').default
         capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         getDistinctId = jest.spyOn(posthog, 'get_distinct_id').mockReturnValue(IN_SAMPLE_ID)
@@ -138,19 +140,31 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { distinctId: IN_SAMPLE_ID, sends: true },
-        { distinctId: OUT_OF_SAMPLE_ID, sends: false },
+        { distinctId: IN_SAMPLE_ID, variant: undefined, sampleRate: 0.05 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: undefined, sampleRate: null },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
-        { distinctId: '', sends: false },
-        { distinctId: undefined, sends: false },
-    ])('samples on distinct ID $distinctId (sends: $sends)', async ({ distinctId, sends }) => {
-        getDistinctId.mockReturnValue(distinctId)
-        markAt(50, 'entry')
-        markAt(900, 'scene_rendered')
-        await flushSend()
+        { distinctId: '', variant: undefined, sampleRate: null },
+        { distinctId: undefined, variant: undefined, sampleRate: null },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'control', sampleRate: 1 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'test', sampleRate: 1 },
+    ])(
+        'samples on distinct ID $distinctId in variant $variant (sample rate: $sampleRate)',
+        async ({ distinctId, variant, sampleRate }) => {
+            getDistinctId.mockReturnValue(distinctId)
+            markAt(50, 'entry', { deferred_app_context_variant: variant })
+            markAt(900, 'scene_rendered')
+            await flushSend()
 
-        expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
-    })
+            if (sampleRate === null) {
+                expect(capture).not.toHaveBeenCalled()
+            } else {
+                expect(capture).toHaveBeenCalledWith(
+                    'app boot timing',
+                    expect.objectContaining({ sample_rate: sampleRate })
+                )
+            }
+        }
+    )
 
     it.each([
         {
@@ -262,6 +276,28 @@ describe('bootTiming', () => {
         await flushSend()
 
         expect(capture).toHaveBeenCalledWith('app boot timing', expect.objectContaining({ page_was_hidden: true }))
+    })
+
+    it.each([
+        { name: 'at once when the scene has already rendered', events: ['entry', 'render', 'listen'], calls: 1 },
+        { name: 'on the first scene render', events: ['entry', 'listen', 'render', 'render'], calls: 1 },
+        { name: 'at once when boot timing does not run', events: ['listen'], calls: 1 },
+        { name: 'never after the listener is removed', events: ['entry', 'listen', 'remove', 'render'], calls: 0 },
+    ])('onFirstSceneRendered calls the listener $name', ({ events, calls }) => {
+        const listener = jest.fn()
+        let remove = (): void => {}
+        for (const event of events) {
+            if (event === 'entry') {
+                markAt(50, 'entry')
+            } else if (event === 'render') {
+                markAt(900, 'scene_rendered')
+            } else if (event === 'listen') {
+                remove = onFirstSceneRendered(listener)
+            } else {
+                remove()
+            }
+        }
+        expect(listener).toHaveBeenCalledTimes(calls)
     })
 
     it.each([

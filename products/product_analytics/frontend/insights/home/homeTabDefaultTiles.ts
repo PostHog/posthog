@@ -558,12 +558,12 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
                 },
             },
             w: 3,
-            h: 3,
+            h: 2,
         }
     })
     const rows: HomeTabDashboardTile[][] = [
         statTiles,
-        [chartTile('daily_active_users', 12, 5)],
+        [chartTile('daily_active_users', 12, 3)],
         [chartTile('top_pages', 6, 5), chartTile('top_screens', 6, 5)],
         [chartTile('top_events', 6, 5), chartTile('retention', 6, 5)],
         [chartTile('users_by_country', 8, 6), chartTile('sessions_by_device', 4, 6)],

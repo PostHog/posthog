@@ -7,7 +7,7 @@ import { ExplainChart, type ExplainChartData } from '../components/ExplainChart'
 
 function ExplainChartApp(): JSX.Element {
     return (
-        <AppWrapper<ExplainChartData> appName="PostHog Chart Walkthrough">
+        <AppWrapper<ExplainChartData> appName="PostHog Chart Explanation">
             {({ data, openLink, app }) => <ExplainChart data={data!} openLink={openLink} app={app} />}
         </AppWrapper>
     )

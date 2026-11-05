@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
     _slack_retry_after_seconds,
+    find_project_slack_integration,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -213,6 +214,27 @@ class TestScoutSlackDelivery(BaseTest):
             tags=["checkout", "regression"],
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
+
+    @parameterized.expand(
+        [
+            ("same_environment", "same", True),
+            ("sibling_environment", "sibling", True),
+            ("other_project", "other", False),
+        ]
+    )
+    def test_find_project_slack_integration_scope(self, _name: str, owner: str, expected_found: bool) -> None:
+        teams = {
+            "same": self.team,
+            "sibling": Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Sibling"
+            ),
+            "other": Team.objects.create(organization=self.organization, name="Other project"),
+        }
+        integration = Integration.objects.create(team=teams[owner], kind=Integration.IntegrationKind.SLACK)
+
+        found = find_project_slack_integration(integration_id=integration.id, project_id=self.team.project_id)
+
+        assert (found.id if found else None) == (integration.id if expected_found else None)
 
     def test_posts_safe_markdown_but_does_not_invite_followup_for_child_environment(self) -> None:
         emission = self._make_emission(

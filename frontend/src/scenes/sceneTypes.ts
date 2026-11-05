@@ -30,7 +30,9 @@ export enum Scene {
     BillingSection = 'BillingSection',
     BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
+    WorkloadTrustPolicyRequest = 'WorkloadTrustPolicyRequest',
     CLIAuthorize = 'CLIAuthorize',
+    OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
@@ -209,6 +211,7 @@ export enum Scene {
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WarehouseDestinations = 'WarehouseDestinations',
+    WarehouseDestinationConnect = 'WarehouseDestinationConnect',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
@@ -422,7 +425,8 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
-    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.MarketingAnalytics]: AccessControlResourceType.MarketingAnalytics,
+    [Scene.MarketingAnalyticsSettings]: AccessControlResourceType.MarketingAnalytics,
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,

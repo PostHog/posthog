@@ -35,6 +35,7 @@ const quota: VisionQuotaApi = {
     exhausted: false,
     projected_monthly_credits: 5_200,
     scanners_monthly_credits: 5_200,
+    scanners_period_credits: 3_467,
     backfills_committed_credits: 0,
     free_monthly_credits: 2_500,
     credits_settled: 2_400,
@@ -60,7 +61,12 @@ export const OnTrack: Story = {
 
 export const HitsTheLimit: Story = {
     args: {
-        quota: { ...quota, scanners_monthly_credits: 16_000, projected_monthly_credits: 16_000 },
+        quota: {
+            ...quota,
+            scanners_monthly_credits: 16_000,
+            scanners_period_credits: 10_667,
+            projected_monthly_credits: 16_000,
+        },
         dailyCredits,
         projectedTotal: 10_000,
         capReachDate: dayjs.utc('2026-05-26T12:00:00Z'),

@@ -10,11 +10,22 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
+from posthog.integrations import IntegrationReference
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import SharedCredentialsEdit, UnreadableSourceInputsError
+from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    assign_credentials_reference,
+    preload_connection_fields,
+    read_connection_fields,
+    read_connection_fields_many,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
@@ -22,6 +33,8 @@ if TYPE_CHECKING:
     )
 
 DEFAULT_EXTRA_UPDATE_FIELDS: tuple[str, ...] = ("updated_at",)
+# The model fields that `assign` stages. A caller that saves with `update_fields` after `assign` lists them all.
+INPUTS_UPDATE_FIELDS: tuple[str, ...] = ("job_inputs", "credentials_integration_id")
 
 
 class SourceInputsStore:
@@ -29,9 +42,11 @@ class SourceInputsStore:
     def load(source: ExternalDataSource) -> dict[str, Any]:
         """All inputs of the source: connection fields, sync settings and runtime state.
 
-        The result is a new dict, so a change to it has no effect until a write method saves it.
+        The result is a new dict, so a change to it has no effect until a write method saves it. With the
+        read flag on, the connection fields come from the credentials row of the source and the OAuth pointer
+        from its reference column, so the model field can hold other values.
         """
-        return _decode(source.job_inputs)
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -41,13 +56,39 @@ class SourceInputsStore:
         A source whose inputs do not decode is left out, so one bad row does not fail a whole list.
         A caller that needs that source calls `load` and handles the error.
         """
+        sources = list(sources)
         loaded: dict[UUID, dict[str, Any]] = {}
         for source in sources:
             try:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        return loaded
+        return read_connection_fields_many(sources, loaded)
+
+    @staticmethod
+    def preload(sources: Iterable[ExternalDataSource]) -> None:
+        """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
+        instances add no query. Use it before a loop that calls `load` once per table of a source."""
+        preload_connection_fields(sources)
+
+    @staticmethod
+    def load_stored(source: ExternalDataSource) -> dict[str, Any]:
+        """The decoded `job_inputs` as stored, never merged with the credentials row.
+
+        Only a tool that copies or checks the stored data should use it, such as the backfill. Raises
+        `UnreadableSourceInputsError` like `load`.
+        """
+        return _decode(source.job_inputs)
+
+    @staticmethod
+    def write_credentials_reference(source: ExternalDataSource, reference: IntegrationReference | None) -> None:
+        """Point the source at a credentials row, and change nothing else.
+
+        Only a tool that links existing sources to their rows should use it, such as the backfill. It never
+        copies fields to the row, never changes `job_inputs`, and does not change `updated_at`.
+        """
+        source.credentials_integration_id = None if reference is None else str(reference)
+        source.save(update_fields=["credentials_integration_id"])
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
@@ -75,13 +116,27 @@ class SourceInputsStore:
         return isinstance(source.job_inputs, str)
 
     @staticmethod
-    def assign(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
-        """Stage all inputs on the source without a database write. The caller must save the model.
+    def assign(
+        source: ExternalDataSource,
+        inputs: Mapping[str, Any],
+        *,
+        shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+        credentials_reference: IntegrationReference | None = None,
+    ) -> None:
+        """Stage all inputs on the source without a database write. The caller must save the model, with
+        every field in `INPUTS_UPDATE_FIELDS`.
 
         Use it when the caller saves the model for other reasons too, for example a DRF serializer
-        update, so that the source row gets one write.
+        update, so that the source row gets one write. The write also sets the source's
+        `credentials_integration_id` column: behind the dual-write flag, the in-use OAuth pointer or the
+        credentials row that now holds the typed-in connection fields. See `assign_credentials_reference`.
+        ``credentials_reference`` is a row that an API edit picked. ``shared_credentials`` decides what an
+        edit of a row that other objects use does.
         """
-        source.job_inputs = dict(inputs)
+        assign_credentials_reference(
+            source, inputs, shared_credentials=shared_credentials, reference=credentials_reference
+        )
+        _stage(source, inputs)
 
     @staticmethod
     def save(
@@ -90,17 +145,41 @@ class SourceInputsStore:
         *,
         extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
     ) -> None:
-        """Replace all inputs of the source and save them."""
-        SourceInputsStore.assign(source, inputs)
-        source.save(update_fields=["job_inputs", *extra_update_fields])
+        """Replace all inputs of the source and save them.
+
+        The same write saves `credentials_integration_id`, which `assign` and `WarehouseSourceCredentialsStore`
+        set on the source. So the source points at its credentials row only together with its inputs. A caller
+        that holds the source for a long time must not use it: its copy of the column can be older than the
+        row. See `update_oauth_inputs`.
+        """
+        # One transaction, so a failed save also undoes the copy to the credentials row.
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(update_fields=[*INPUTS_UPDATE_FIELDS, *extra_update_fields])
 
     @staticmethod
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:
-        """Create a source with these inputs in one insert. ``fields`` are the other model fields."""
+        """Create a source with these inputs in one insert. ``fields`` are the other model fields.
+
+        The credentials row is created before the insert, so the insert saves the reference to it. Both
+        writes are in one transaction, so a failed insert leaves no row.
+        """
         source = ExternalDataSource(**fields)
-        SourceInputsStore.assign(source, inputs)
-        source.save(force_insert=True)
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(force_insert=True)
         return source
+
+    @staticmethod
+    def discard_created(source: ExternalDataSource) -> None:
+        """Delete a source that `create` made when a later step of the same create fails.
+
+        One transaction deletes the source and its credentials row. The row stays when another object
+        uses it. Do not use this for a source that was in use: the store keeps the credentials rows of those.
+        """
+        with transaction.atomic():
+            source.delete()
+            WarehouseSourceCredentialsStore.discard(source)
 
     @staticmethod
     def update_runtime(
@@ -123,7 +202,32 @@ class SourceInputsStore:
         inputs.update(updates)
         for key in remove:
             inputs.pop(key, None)
-        SourceInputsStore.save(source, inputs, extra_update_fields=extra_update_fields)
+        _stage(source, inputs)
+        # A runtime write never changes the credentials, so it leaves the reference column alone. A sync
+        # holds its source for a long time, and its copy of the column can be older than the row.
+        source.save(update_fields=["job_inputs", *extra_update_fields])
+        return inputs
+
+    @staticmethod
+    def update_oauth_inputs(
+        source: ExternalDataSource,
+        updates: Mapping[str, Any],
+        *,
+        extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
+    ) -> dict[str, Any]:
+        """Set keys of a source without typed-in credentials and save only `job_inputs`. Returns all inputs.
+
+        For a sync that refreshes a token that an OAuth source keeps in its inputs. The write never changes
+        the reference column: the sync holds its source for a long time, and its copy of the column can be
+        older than the row. Raises ValueError for a source with typed-in credentials, because its
+        credentials row must get each change.
+        """
+        if has_typed_in_credentials(str(source.source_type)):
+            raise ValueError(f"A {source.source_type} source has typed-in credentials. Use `save`.")
+        inputs = _decode(source.job_inputs)
+        inputs.update(updates)
+        _stage(source, inputs)
+        source.save(update_fields=["job_inputs", *extra_update_fields])
         return inputs
 
     @staticmethod
@@ -140,6 +244,10 @@ class SourceInputsStore:
         await database_sync_to_async_pool(SourceInputsStore.save)(
             source, inputs, extra_update_fields=extra_update_fields
         )
+
+
+def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+    source.job_inputs = dict(inputs)
 
 
 def _decode(raw: Any) -> dict[str, Any]:
@@ -166,7 +274,7 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
         split_job_inputs,
     )
 
-    return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+    return split_job_inputs(source_key(source_type), inputs)
 
 
 def _has_runtime_prefix(key: str) -> bool:
@@ -183,7 +291,7 @@ def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
         return
     try:
         split = _split(source_type, dict.fromkeys(keys))
-        non_runtime = sorted({*split.connection, *split.settings})
+        non_runtime = sorted({*split.connection, *split.references, *split.selectors, *split.settings})
     except ValueError:
         non_runtime = sorted(key for key in keys if not _has_runtime_prefix(key))
     if non_runtime:

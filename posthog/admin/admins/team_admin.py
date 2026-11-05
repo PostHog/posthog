@@ -30,9 +30,10 @@ from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
-from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
@@ -204,9 +205,13 @@ class TeamAdmin(admin.ModelAdmin):
     inlines = [
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
-        TeamExperimentsConfigInline,
         TeamEventsRetentionConfigInline,
     ]
+
+    def get_inlines(self, request, obj=None):
+        # Inlines other apps registered for Team, so a product can show a panel on
+        # this page without core importing it. See posthog.admin.inline_registry.
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Team)]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -403,7 +408,7 @@ class TeamAdmin(admin.ModelAdmin):
             return "-"
         client = get_personhog_client()
         if client is None:
-            return format_html("<em>personhog client not configured</em>")
+            return mark_safe("<em>personhog client not configured</em>")
         try:
             resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
             mappings_raw = sorted(
@@ -412,7 +417,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
         except Exception as exc:
             logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
-            return format_html(
+            return mark_safe(
                 '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
                 'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
                 "Failed to fetch group type mappings from personhog</p>",
@@ -637,11 +642,10 @@ class TeamAdmin(admin.ModelAdmin):
     def api_token_display(self, team: Team):
         if not team.pk:
             return "-"
-        set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
         return format_html(
-            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            "<span>{}</span> &nbsp; {}",
             team.api_token,
-            set_url,
+            MovedToConsole.team_action(team, "api-token", "Set API token"),
         )
 
     @admin.display(description="Delete recordings")
@@ -675,8 +679,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/remote_config_cache_actions.html",
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
-                    "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
-                    "team_name": team.name,
+                    "rebuild_moved": MovedToConsole.team_action(team, "remote-config", "Rebuild cache"),
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
             )
@@ -938,26 +941,13 @@ class TeamAdmin(admin.ModelAdmin):
                 state.suspended_at.isoformat(),
                 state.suspension_reason or "no reason recorded",
             )
-        return format_html("<em>Sending enabled</em>")
+        return mark_safe("<em>Sending enabled</em>")
 
     @admin.display(description="Email sending actions")
     def email_sending_suspension_actions(self, team: Team):
         if not team.pk:
             return "-"
-        state = get_email_sending_state(team.pk)
-        is_suspended = bool(state and state.suspended_at)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/email_sending_suspension_actions.html",
-                {
-                    "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
-                    "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
-                    "team_name": team.name,
-                    "is_suspended": is_suspended,
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "email-sending", "Suspending and re-enabling email sending")
 
     @admin.display(description="Email sending tier")
     def email_sending_tier_state(self, team: Team) -> str:
@@ -1231,20 +1221,7 @@ class TeamAdmin(admin.ModelAdmin):
     def ai_gateway_actions(self, team: Team):
         if not team.pk:
             return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/ai_gateway_actions.html",
-                {
-                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
-                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
-                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
-                    "team_name": team.name,
-                    "is_enabled": team.llm_gateway_enabled_at is not None,
-                    "is_revoked": team.llm_gateway_revoked_at is not None,
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "ai-gateway", "Enabling and revoking access")
 
     @admin.display(description="Admit state")
     def admit_state(self, team: Team):
@@ -1260,7 +1237,7 @@ class TeamAdmin(admin.ModelAdmin):
                 '<span style="color:green"><strong>Enrolled</strong></span> since {}',
                 team.llm_gateway_enabled_at.isoformat(),
             )
-        return format_html("<em>Not enrolled</em>")
+        return mark_safe("<em>Not enrolled</em>")
 
     @admin.display(description="Wallet (AI gateway credits)")
     def ai_gateway_wallet(self, team: Team):
@@ -1275,7 +1252,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/ai_gateway_wallet_actions.html",
                 {
                     "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
-                    "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+                    "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
                 },
             )
         )
@@ -1292,7 +1269,7 @@ class TeamAdmin(admin.ModelAdmin):
             .order_by("-created_at")[:20]
         )
         if not entries:
-            return format_html("<em>(no top-ups recorded)</em>")
+            return mark_safe("<em>(no top-ups recorded)</em>")
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
@@ -1343,9 +1320,9 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
         if source == "absent":
-            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+            return mark_safe("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
         if source == "redis_negative":
-            return format_html(
+            return mark_safe(
                 "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
                 "until the entry expires, default 24h)</em>"
             )

@@ -17,6 +17,8 @@ if TYPE_CHECKING:
         EvaluationAnnouncement,
         LegacyEventEmission,
         MessageImage,
+        MessageLink,
+        SlackMessageContent,
     )
 
 
@@ -38,3 +40,19 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
     )
 
     return platform_alert_legacy_events.insight_chart_image(team_id=team_id, transition=transition)
+
+
+def render_insight_slack_message(
+    *,
+    team_id: int,
+    transition: AnnouncedTransition,
+    alert_name: str,
+    alert_url: str,
+    project: MessageLink | None,
+    image: MessageImage | None,
+) -> SlackMessageContent | None:
+    from products.alerts.backend import platform_alert_slack  # noqa: PLC0415 - keeps alert models off the startup path
+
+    return platform_alert_slack.render_insight_slack_message(
+        team_id=team_id, transition=transition, alert_name=alert_name, alert_url=alert_url, project=project, image=image
+    )

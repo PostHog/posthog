@@ -186,7 +186,6 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                     "reasoning": "r",
                     "confidence": 0.9,
                     "reasoning_segments": [{"text": "r", "t": 12}] * 200,
-                    "notability_reason": "n" * 2000,
                 },
                 {"confidence": 0.9, "verdict": "yes", "reasoning": "r"},
                 [],

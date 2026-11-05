@@ -164,7 +164,7 @@ def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnaly
     canonical_team_id = ctx.team.parent_team_id or ctx.team.id
     progress, _ = WebAnalyticsAchievementProgress.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
-        user_id=user_id,
+        user_id=user_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
         track_key=str(track.key),
         defaults={"current_stage": 0, "progress_value": 0, "state": {}},
     )

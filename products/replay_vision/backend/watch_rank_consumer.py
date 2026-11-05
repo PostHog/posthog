@@ -1,4 +1,4 @@
-"""Ranks observations for What to watch from the embedding worker's results topic.
+"""Ranks observations for the highlight feed from the embedding worker's results topic.
 
 The scan emits each observation's text to the embedding worker over Kafka. The worker publishes every
 embedded document to the results topic, and this consumer ranks the Replay Vision ones from their
@@ -14,14 +14,14 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import InterfaceError, OperationalError, close_old_connections, connection, transaction
 from django.utils import timezone
 
 import orjson
 import structlog
 from asgiref.sync import sync_to_async
 from confluent_kafka import Consumer, KafkaException, Message, TopicPartition
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.kafka_client import helper
 from posthog.kafka_client.client import _build_sasl_config, _KafkaSecurityProtocol
@@ -34,8 +34,9 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
-from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_semantics import SemanticAssignment, assign_semantics
 from products.replay_vision.backend.watch_themes import name_theme
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +50,11 @@ _BATCH_BUDGET_S = 240.0
 _MAX_POLL_INTERVAL_S = 360.0
 # How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
+# Any other error is unlikely to clear by waiting, and every partition waits behind it, so it gives up sooner.
+_ERROR_RETRY_WINDOW_S = 60.0
+# Long enough for a naming call that waits behind ranking on the shared database thread, short enough that a hung
+# model call frees its slot.
+_NAMING_TIMEOUT_S = 120.0
 _NAMING_DRAIN_S = 20.0
 # A due theme left unnamed while this many are in flight is named when its next member arrives.
 _MAX_NAMING_TASKS = 8
@@ -59,8 +65,22 @@ Outcome = Literal["skipped", "ranked", "already_ranked", "missing", "failed", "d
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
-    "Embedding results the What to watch rank consumer read, by outcome.",
+    "Embedding results the highlight feed rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
     labelnames=["outcome"],
+)
+BATCH_DURATION = Histogram(
+    "replay_vision_watch_rank_consumer_batch_duration_seconds",
+    "Time the highlight feed rank consumer spent on one non-empty batch.",
+    buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 240, 300),
+)
+THEME_NAMING_TOTAL = Counter(
+    "replay_vision_watch_rank_consumer_theme_naming_total",
+    "Theme naming outcomes of the highlight feed rank consumer, including names dropped while every slot was busy.",
+    labelnames=["outcome"],
+)
+NAMING_IN_FLIGHT = Gauge(
+    "replay_vision_watch_rank_consumer_naming_in_flight",
+    "Theme naming calls the highlight feed rank consumer has in flight.",
 )
 
 # The worker writes compact JSON, and a quote inside a string value is escaped, so this marks our results.
@@ -102,6 +122,26 @@ def parse_rank_request(value: bytes | None) -> RankRequest | None:
     return RankRequest(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
 
 
+def _assign_with_timeouts(
+    *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
+) -> SemanticAssignment | None:
+    """Assign under transaction-local timeouts, which survive transaction pooling where a session setting would not."""
+    try:
+        with transaction.atomic():
+            # A slow statement or a long wait on the scanner's lock fails and retries instead of hanging.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('lock_timeout', '30s', true), set_config('statement_timeout', '60s', true)"
+                )
+            return assign_semantics(
+                team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector, now=now
+            )
+    except Exception:
+        # The commit happens here, outside the assignment's own guard, so a failed one must still drop the cache.
+        feed_group_cache.forget(scanner_id)
+        raise
+
+
 class BatchConsumer(Protocol):
     def store_offsets(self, *, message: Message) -> None: ...
 
@@ -116,6 +156,7 @@ class WatchRankConsumer:
         self._first_failed_at: dict[str, float] = {}
         # Naming calls run beside the loop, so a slow model call never holds up ranking. Kept to stop collection.
         self._naming: set[asyncio.Task[Any]] = set()
+        NAMING_IN_FLIGHT.set_function(lambda: len(self._naming))
 
     async def _wait(self, seconds: float) -> bool:
         """Sleep, unless shutdown comes first. True when the full time passed."""
@@ -140,15 +181,19 @@ class WatchRankConsumer:
                     await self._semantics(request)
                 self._first_failed_at.pop(request.observation_id, None)
                 return outcome
-            except Exception:
+            except Exception as error:
                 logger.exception(
                     "replay_vision.watch_rank_consumer.rank_failed",
                     team_id=request.team_id,
                     observation_id=request.observation_id,
                 )
+                # A lock or statement timeout is an OperationalError, so it waits out the database like an outage.
+                window = (
+                    _RETRY_WINDOW_S if isinstance(error, OperationalError | InterfaceError) else _ERROR_RETRY_WINDOW_S
+                )
             self._liveness.record_heartbeat()
             now = time.monotonic()
-            give_up_at = self._first_failed_at.setdefault(request.observation_id, now) + _RETRY_WINDOW_S
+            give_up_at = self._first_failed_at.setdefault(request.observation_id, now) + window
             if now + backoff > give_up_at:
                 # The backfill command can write a rank this gave up on.
                 self._first_failed_at.pop(request.observation_id, None)
@@ -162,7 +207,7 @@ class WatchRankConsumer:
     async def _semantics(self, request: RankRequest) -> None:
         """Put a ranked observation in a feed group and a theme, and name the theme in the background once it is due."""
         now = timezone.now()
-        assignment = await sync_to_async(assign_semantics)(
+        assignment = await sync_to_async(_assign_with_timeouts)(
             team_id=request.team_id,
             scanner_id=request.scanner_id,
             observation_id=request.observation_id,
@@ -172,6 +217,7 @@ class WatchRankConsumer:
         if assignment is None or assignment.theme is None or not assignment.theme.name_due:
             return
         if len(self._naming) >= _MAX_NAMING_TASKS:
+            THEME_NAMING_TOTAL.labels(outcome="dropped").inc()
             return
         task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
         self._naming.add(task)
@@ -180,10 +226,16 @@ class WatchRankConsumer:
     @staticmethod
     async def _name(team_id: int, theme_id: uuid.UUID, now: datetime) -> None:
         try:
-            await name_theme(team_id, theme_id, now)
+            name = await asyncio.wait_for(name_theme(team_id, theme_id, now), timeout=_NAMING_TIMEOUT_S)
+        except TimeoutError:
+            THEME_NAMING_TOTAL.labels(outcome="timeout").inc()
+            logger.warning("replay_vision.watch_rank_consumer.theme_naming_timed_out", team_id=team_id)
         except Exception:
+            THEME_NAMING_TOTAL.labels(outcome="failed").inc()
             # A theme that missed its name is named again when it next doubles.
             logger.exception("replay_vision.watch_rank_consumer.theme_naming_failed", team_id=team_id)
+        else:
+            THEME_NAMING_TOTAL.labels(outcome="named" if name else "unnamed").inc()
 
     async def process_batch(self, consumer: BatchConsumer, messages: Sequence[Message]) -> None:
         batch_deadline = time.monotonic() + _BATCH_BUDGET_S
@@ -195,12 +247,12 @@ class WatchRankConsumer:
                 continue
             outcome = await self.handle(message.value(), batch_deadline)
             self._liveness.record_heartbeat()
+            MESSAGES_TOTAL.labels(outcome=outcome).inc()
             if outcome == "interrupted":
                 return
             if outcome == "deferred":
                 self._rewind(consumer, messages[index:])
                 return
-            MESSAGES_TOTAL.labels(outcome=outcome).inc()
             try:
                 consumer.store_offsets(message=message)
             except KafkaException:
@@ -262,7 +314,10 @@ class WatchRankConsumer:
             while not self._stop.is_set():
                 self._liveness.record_heartbeat()
                 messages = await asyncio.to_thread(consumer.consume, _BATCH_SIZE, _POLL_TIMEOUT_S)
-                await self.process_batch(consumer, messages)
+                if not messages:
+                    continue
+                with BATCH_DURATION.time():
+                    await self.process_batch(consumer, messages)
         finally:
             consumer.close()
             # A theme claimed for naming stays unnamed until it doubles, so in-flight names get a moment to finish.

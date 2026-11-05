@@ -7,19 +7,20 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     FIX_CI_REQUEST,
     inboxTaskKickoffLogic,
     MERGE_PR_REQUEST,
-    REPORT_AI_PANEL,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
 } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -193,21 +194,52 @@ describe('DiscussReportButton', () => {
         )
     })
 
+    it('submits the edited check suggestion with the metric replacement intent', async () => {
+        const user = userEvent.setup()
+        const report = makeReport([SUGGESTION])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        })
+        await expectLogic(inboxTaskKickoffLogic, () =>
+            inboxTaskKickoffLogic.actions.openReportCheckMetricSuggestion(report, {
+                id: 'checkout-check',
+                title: 'Checkout errors stay low',
+            } as SignalReportCheckApi)
+        ).toFinishAllListeners()
+        const initialDraft = inboxTaskKickoffLogic.values.reportDiscussionDraft
+        render(<ReportDiscussionComposer report={report} reportUrl="https://app/report-1" />)
+
+        expect(screen.getByTestId('max-chat-input')).toHaveValue(initialDraft)
+        expect(screen.queryByText(SUGGESTION)).not.toBeInTheDocument()
+        fireEvent.change(screen.getByTestId('max-chat-input'), {
+            target: { value: `${initialDraft}Measure the failed checkout rate over seven days.` },
+        })
+        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            report,
+            'https://app/report-1',
+            `${initialDraft}Measure the failed checkout rate over seven days.`,
+            undefined,
+            'check_metrics'
+        )
+    })
+
     it('keeps the report context attached', async () => {
         attachedContextLogic.actions.registerContext('report', [
             {
-                type: 'signal_report',
+                type: 'inbox_report',
                 key: 'report-1',
-                label: 'Report: Exceptions spiked',
+                label: 'Self-driving Inbox Report',
                 dismissible: false,
             },
         ])
         const user = await openPanel(makeReport())
 
-        await user.click(screen.getByText('Report: Exceptions spiked'))
+        await user.click(screen.getByText('Self-driving Inbox Report'))
 
         expect(attachedContextLogic.values.contextItems).toEqual([
-            expect.objectContaining({ type: 'signal_report', key: 'report-1' }),
+            expect.objectContaining({ type: 'inbox_report', key: 'report-1' }),
         ])
     })
 

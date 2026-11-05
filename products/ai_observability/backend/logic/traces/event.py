@@ -6,8 +6,6 @@ from ...facade.contracts import TraceNodeKind
 from .trace_queries import TraceEventRow
 from .usage import Usage
 
-ANNOTATION_EVENTS = frozenset({"$ai_feedback", "$ai_metric"})
-
 
 def kind_of_event(event_name: str) -> TraceNodeKind:
     match event_name:
@@ -45,10 +43,6 @@ class TraceEvent:
     @property
     def is_trace_event(self) -> bool:
         return self.row.event == "$ai_trace"
-
-    @property
-    def is_annotation(self) -> bool:
-        return self.row.event in ANNOTATION_EVENTS
 
     @property
     def has_error(self) -> bool:

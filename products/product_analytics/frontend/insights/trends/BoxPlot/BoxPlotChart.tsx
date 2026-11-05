@@ -7,7 +7,7 @@ import type { BoxPlotClickData, BoxPlotConfig, BoxPlotSeries } from '@posthog/qu
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'

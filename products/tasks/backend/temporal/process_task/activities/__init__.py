@@ -5,11 +5,6 @@ from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
-from .get_sandbox_for_repository import (
-    GetSandboxForRepositoryInput,
-    GetSandboxForRepositoryOutput,
-    get_sandbox_for_repository,
-)
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .materialize_context_layer import (
     MaterializeContextLayerInput,
@@ -24,6 +19,7 @@ from .provision_sandbox import (
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -89,7 +85,6 @@ __all__ = [
     "EmitProgressInput",
     "ExecuteTaskInput",
     "ExecuteTaskOutput",
-    "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
     "CheckoutBranchInSandboxOutput",
@@ -141,7 +136,6 @@ __all__ = [
     "send_permission_denial_guidance",
     "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
-    "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
     "restore_sandbox_connection_state",

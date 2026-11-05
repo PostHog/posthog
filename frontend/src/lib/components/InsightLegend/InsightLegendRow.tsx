@@ -6,8 +6,8 @@ import { captureLegendMenuAction } from 'lib/components/ChartLegendSeriesMenu/ca
 import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/ChartLegendSeriesMenu'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
@@ -44,6 +44,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         legendSeriesIsolationMenuEligible,
         getIsOnlyVisibleSeriesInLegend,
         querySource,
+        actionNames,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleOtherSeriesHidden, toggleAllResultsHidden } = useActions(
         trendsDataLogic(insightProps)
@@ -100,7 +101,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                         <InsightLabel
                             key={item.id}
                             seriesColor={mainColor}
-                            series={getResultSeries(querySource, item)}
+                            series={getResultSeries(querySource, item, actionNames)}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={!isSingleSeriesDefinition}
                             breakdownValue={formattedBreakdownValue}

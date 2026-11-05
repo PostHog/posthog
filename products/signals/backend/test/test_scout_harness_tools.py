@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -24,6 +25,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
@@ -1964,6 +1966,11 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
+    @pytest.fixture(autouse=True)
+    def mock_target_dns(self) -> Iterator[None]:
+        with mock_anti_ssrf_dns_lookup():
+            yield
+
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload

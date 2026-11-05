@@ -4,6 +4,8 @@ Constants and tunables for business_knowledge.
 
 import datetime
 
+import httpx
+
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
@@ -191,6 +193,7 @@ BK_RRF_SCORE_FLOOR = 0.015
 BK_RERANK_MODEL = "claude-haiku-4-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
+BK_RERANK_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
@@ -249,3 +252,40 @@ BK_MCP_SCOPE = "business_knowledge:read"
 # It reads the project to find its organization, and the business knowledge tools sit behind a flag
 # targeted by organization, so without project:read the search tool is hidden.
 BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]
+
+DOCS_SEARCH_TOOL = "docs-search"
+# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
+# injected instructions, so hide anything that reads the asker's own data.
+BK_HIDDEN_TOOLS = (
+    DOCS_SEARCH_TOOL,
+    "user-get",
+    "user-home-settings-get",
+    "llma-personal-spend",
+    "reminder-get",
+    "reminders-list",
+    "project-get",
+    "mcp-connections-list",
+    "mcp-connection-tools-list",
+    "tasks-list",
+    "tasks-retrieve",
+    "tasks-runs-list",
+    "tasks-runs-retrieve",
+    "tasks-runs-session-logs-retrieve",
+    "tasks-artifacts-list",
+    "tasks-config-list",
+    "tasks-me-config-list",
+    "tasks-models-retrieve",
+    "channel-list",
+    "channel-retrieve",
+    "channel-instructions-retrieve",
+    "inbox-reports-list",
+    "inbox-reports-retrieve",
+    "inbox-report-artefacts-list",
+    "inbox-report-artefacts-retrieve",
+    "inbox-report-checks-list",
+    "inbox-report-checks-retrieve",
+    "inbox-source-configs-list",
+    "inbox-source-configs-retrieve",
+    "task-context-wiki-channel-resolve",
+    "task-context-wiki-page-retrieve",
+)

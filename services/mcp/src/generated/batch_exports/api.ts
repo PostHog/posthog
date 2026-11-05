@@ -16,8 +16,10 @@ export const BatchExportsListParams = () => zod.object({
         ),
 })
 
+export const batchExportsListQueryLimitMax = 1000
+
 export const BatchExportsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(batchExportsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -595,6 +597,12 @@ export const BatchExportsCreateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1338,6 +1346,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1812,6 +1826,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -2114,6 +2134,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                 materializationMode: zod
                     .union([zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']), zod.null()])
                     .optional(),
+                materializeRepeatedCTEs: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                    ),
                 materializedColumnsOptimizationMode: zod
                     .union([zod.enum(['disabled', 'optimized']), zod.null()])
                     .optional(),

@@ -1,0 +1,56 @@
+name: Update AI Costs Stale Alert
+
+on:
+    workflow_dispatch:
+    schedule:
+        - cron: '20 * * * 1-5'
+
+permissions:
+    actions: read
+    contents: read
+    pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+env:
+    SLACK_CHANNEL: 'C0CB80UM50Q'
+
+jobs:
+    alert-stale-pr:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        steps:
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts/update-ai-costs-stale-alert.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Check the open LLM cost PR
+              id: check
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/github-script@v8.0.0
+              with:
+                  script: |
+                      const checkStaleCostPr = require('./.github/scripts/update-ai-costs-stale-alert.js')
+                      await checkStaleCostPr(
+                          { github, context, core },
+                          { supportHeroGroup: 'S0CDU0BNFJ4', aiObservabilityGroup: 'S097J2WH3QX' }
+                      )
+
+            - name: Post to Slack
+              if: steps.check.outputs.text != ''
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: slackapi/slack-github-action@v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: "${{ steps.check.outputs.text }}"

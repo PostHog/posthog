@@ -18,6 +18,7 @@ import {
 import type { MessageTemplateContentApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { NEW_TEMPLATE } from '../../TemplateLibrary/constants'
+import { omitNullDesign } from '../../TemplateLibrary/omitNullDesign'
 import { cleanVariableName, transactionalEditorGlobals, variablesInEmail } from './emailVariables'
 
 export type TransactionalEmailWizardStep = 'name' | 'sender' | 'content' | 'send'
@@ -258,7 +259,10 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
                     name: name.trim(),
                     description,
                     sensitive,
-                    content: { templating: 'liquid', email } as unknown as MessageTemplateContentApi,
+                    content: {
+                        templating: 'liquid',
+                        email: omitNullDesign(email),
+                    } as unknown as MessageTemplateContentApi,
                 })
                 templateId = template.id
             } catch (error: any) {

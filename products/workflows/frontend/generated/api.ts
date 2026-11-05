@@ -26,6 +26,8 @@ import type {
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
+    EventWorkflowsBuildRequestApi,
+    EventWorkflowsBuildResponseApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
@@ -78,9 +80,17 @@ import type {
     PatchedWorkflowSendingRulesApi,
     PeopleImportApi,
     PeopleImportCreateApi,
+    PushTokenImportApi,
+    PushTokenImportCreateApi,
+    PushTokenImportLatestApi,
+    PushTokenImportsLatestRetrieveParams,
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowImportRecordApi,
+    WorkflowImportRequestApi,
+    WorkflowImportResponseApi,
+    WorkflowImportsForWorkflowRetrieveParams,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
@@ -1510,6 +1520,121 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getPushTokenImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/push_token_imports/`
+}
+
+/**
+ * Reads the file and imports its devices into the push channel in the background. Poll the import to follow its progress.
+ * @summary Import a CSV file of push device tokens
+ */
+export const pushTokenImportsCreate = async (
+    projectId: string,
+    pushTokenImportCreateApi: PushTokenImportCreateApi,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    const formData = new FormData()
+    formData.append(`integration_id`, pushTokenImportCreateApi.integration_id.toString())
+    formData.append(`device_token_file`, pushTokenImportCreateApi.device_token_file)
+    if (pushTokenImportCreateApi.create_missing_persons !== undefined) {
+        formData.append(`create_missing_persons`, pushTokenImportCreateApi.create_missing_persons.toString())
+    }
+
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getPushTokenImportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/`
+}
+
+/**
+ * @summary Read a push token import
+ */
+export const pushTokenImportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPushTokenImportsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/cancel/`
+}
+
+/**
+ * @summary Stop a running push token import
+ */
+export const pushTokenImportsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPushTokenImportsImportUnknownPersonsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/import_unknown_persons/`
+}
+
+/**
+ * Starts a new import of the devices whose distinct ID had no person, creating those persons.
+ * @summary Import the devices of unknown people with new persons
+ */
+export const pushTokenImportsImportUnknownPersonsCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsImportUnknownPersonsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPushTokenImportsLatestRetrieveUrl = (
+    projectId: string,
+    params: PushTokenImportsLatestRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/push_token_imports/latest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/push_token_imports/latest/`
+}
+
+/**
+ * @summary Read the newest push token import of a channel
+ */
+export const pushTokenImportsLatestRetrieve = async (
+    projectId: string,
+    params: PushTokenImportsLatestRetrieveParams,
+    options?: RequestInit
+): Promise<PushTokenImportLatestApi> => {
+    return apiMutator<PushTokenImportLatestApi>(getPushTokenImportsLatestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/build/`
 }
@@ -1527,6 +1652,27 @@ export const workflowDataSuggestionsBuild = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsBuildForEventsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build_for_events/`
+}
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
+ */
+export const workflowDataSuggestionsBuildForEvents = async (
+    projectId: string,
+    eventWorkflowsBuildRequestApi: EventWorkflowsBuildRequestApi,
+    options?: RequestInit
+): Promise<EventWorkflowsBuildResponseApi> => {
+    return apiMutator<EventWorkflowsBuildResponseApi>(getWorkflowDataSuggestionsBuildForEventsUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventWorkflowsBuildRequestApi),
     })
 }
 
@@ -1585,6 +1731,60 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_imports/`
+}
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const workflowImportsCreate = async (
+    projectId: string,
+    workflowImportRequestApi: WorkflowImportRequestApi,
+    options?: RequestInit
+): Promise<WorkflowImportResponseApi> => {
+    return apiMutator<WorkflowImportResponseApi>(getWorkflowImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowImportRequestApi),
+    })
+}
+
+export const getWorkflowImportsForWorkflowRetrieveUrl = (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_imports/for_workflow/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_imports/for_workflow/`
+}
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const workflowImportsForWorkflowRetrieve = async (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowImportRecordApi | void> => {
+    return apiMutator<WorkflowImportRecordApi | void>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1687,7 +1887,8 @@ export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batc
  * terminal status, returns 200 without re-writing — the resolver retries
  * this call via cyclotron retry semantics, so safe repeats are required.
  *
- * Accepts: { status: "completed" | "failed" }
+ * Accepts: { status: "completed" | "failed" }. A completed run can later move to
+ * failed or partially_failed, once its child runs show errored sends.
  */
 export const internalHogFlowsBatchJobsStatusUpdate = async (
     teamId: string,

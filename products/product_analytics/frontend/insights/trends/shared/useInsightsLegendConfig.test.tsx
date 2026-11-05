@@ -53,13 +53,13 @@ function setup({
 
 const SERIES: InsightModel['result'] = [
     {
-        action: { id: '$pageview', type: 'events', order: 0, name: '$pageview' },
+        order: 0,
         label: '$pageview',
         data: [1],
         days: [],
     },
     {
-        action: { id: '$autocapture', type: 'events', order: 1, name: '$autocapture' },
+        order: 1,
         label: '$autocapture',
         data: [2],
         days: [],

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-# Keep the agent polling budget below the activity timeout so teardown can finish.
-DEFAULT_MAX_RUNTIME_S = 20 * 60
+from products.signals.backend.constants import DEFAULT_MAX_RUNTIME_S
+
 TRIGGERED_BY_ONBOARDING = "onboarding"
 
 # Task teardown can wait up to 15 minutes for spend settlement after the agent stops.
@@ -180,6 +180,7 @@ TRIGGERED_BY_WORKFLOW = "workflow"
 # nothing about it, so it must not stamp `last_run_at` and its failures must not size a breaker
 # threshold derived from that cadence.
 TRIGGERED_BY_CHECK = "check"
+TRIGGERED_BY_MONITORING = "monitoring"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in

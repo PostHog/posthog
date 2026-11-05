@@ -104,13 +104,14 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
-from products.signals.backend.scout_harness.tools.report_author import ReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
     ExistingScoutReport,
     InvalidScoutReportError,
+    ReviewerClearNeedsReason,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     append_report_evidence,
@@ -154,6 +155,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
@@ -1225,6 +1227,14 @@ def _owner_identities(team: Team, skill_name: str) -> ReviewerIdentitySet:
     )
 
 
+def _emit_reviewer_outcome(suggested_reviewers: list[ReviewerInput] | None) -> str:
+    """How the scout answered the reviewer field on emit, for reviewer telemetry. Emit takes no
+    explicit outcome, so an omitted field and an explicit empty list are kept apart."""
+    if suggested_reviewers is None:
+        return "omitted"
+    return "selected" if suggested_reviewers else "empty"
+
+
 def _build_suggested_reviewers(
     team: Team,
     reviewers: list[ReviewerInput] | None,
@@ -1342,14 +1352,16 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     return SuggestedReviewers(root=entries)
 
 
-def _reviewer_reasons(reviewers: SuggestedReviewers | None) -> list[str]:
+def _reviewer_reasons(reviewers: SuggestedReviewers | None, proposal: ReviewerProposal | None = None) -> list[str]:
     """The scout-authored `reason` strings from resolved reviewer picks, for the safety judge.
 
     Reasons persist in the suggested-reviewers artefact, which action-capable report agents read as
-    part of the work log — so they go in front of the judge like a note or a suggested prompt does."""
-    if reviewers is None:
-        return []
-    return [entry.reason for entry in reviewers.root if entry.reason]
+    part of the work log — so they go in front of the judge like a note or a suggested prompt does.
+    A `no_suitable_owner` reason lands in the work log note too, so it goes in front of the judge as well."""
+    reasons = [entry.reason for entry in reviewers.root if entry.reason] if reviewers is not None else []
+    if proposal is not None and proposal.outcome_reason:
+        reasons.append(proposal.outcome_reason)
+    return reasons
 
 
 def _link_reasons(links: Sequence[ReportLink]) -> list[str]:
@@ -1473,6 +1485,28 @@ def _settled_repository(report_id: str) -> str | None:
     return selection.repository if selection is not None else None
 
 
+def _with_scout_research_context(
+    team: Team, run: SignalScoutRun | None, selection: RepoSelectionResult | None
+) -> RepoSelectionResult | None:
+    metadata = (run.metadata or {}) if run is not None else {}
+    if run is None or not metadata.get("github_optional"):
+        return selection
+    task_run = tasks_facade.get_task_run(run.task_run_id, team_id=team.id)
+    state = task_run.state if task_run else {}
+    if not metadata.get("repositories") and "github_read_access_available" not in state:
+        return selection
+    code_available = bool(metadata.get("repositories") or state.get("github_read_access_available"))
+    if selection is None:
+        selection = RepoSelectionResult(
+            repository=None, reason="The scout did not select a repository.", autostart_eligible=False
+        )
+    selection.research_context = ReportResearchContext(
+        mode="code" if code_available else "data_only",
+        repository_status="available" if code_available else "github_unavailable",
+    )
+    return selection
+
+
 async def _resolve_report_repository(
     *,
     team_id: int,
@@ -1499,9 +1533,9 @@ async def _resolve_report_repository(
     one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
-        return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
+        return RepoSelectionResult(repository=None, reason="No repository selected, so this report has no draft PR.")
     if repository is not None:
-        return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+        return RepoSelectionResult(repository=repository, reason="Repository named in the report.")
 
     if not wants_full_selection:
         connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
@@ -1662,9 +1696,12 @@ _REPORT_EVENT_SOURCE = "signals_scout_report"
 # `source_disabled`) or fail-closed because its dispatch-time config is gone (`scout_config_missing`,
 # from a deleted/nulled `SignalScoutConfig`). See `_preflight_emit_gates`. An inactive scout must produce
 # no side effects, so its attempt is still recorded on the internal stream but is NOT fanned out as a
-# customer-facing, automation-driving event. Other gate-skips that represent a real, customer-controlled
+# customer-facing, automation-driving event. A member's capped create (`user_daily_report_limit`) is
+# refused the same way, since nothing was filed. Other gate-skips that represent a real, customer-controlled
 # condition (e.g. `ai_processing_not_approved`) still forward the raw event.
-_INACTIVE_SKIP_REASONS = frozenset({"scout_emit_disabled", "source_disabled", "scout_config_missing"})
+_INACTIVE_SKIP_REASONS = frozenset(
+    {"scout_emit_disabled", "source_disabled", "scout_config_missing", USER_REPORT_DAILY_LIMIT_REASON}
+)
 
 
 @dataclass
@@ -2213,11 +2250,16 @@ async def emit_report(
             summary=summary,
             evidence=evidence,
             wants_full_selection=trial_store is None
+            and author.user_id is None
             and _wants_repo_selection(repository, priority_assessment, reviewers),
         )
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
+            team, run, repo_selection
+        )
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2271,6 +2313,9 @@ async def emit_report(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            created_by_id=author.user_id,
+            proposed_reviewer_count=len(suggested_reviewers or []),
+            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # The retry arrived while this call was still judging, so both reached the insert. The winner's
@@ -2410,11 +2455,14 @@ def emit_report_sync(
             summary=summary,
             evidence=evidence,
             wants_full_selection=trial_store is None
+            and author.user_id is None
             and _wants_repo_selection(repository, priority_assessment, reviewers),
         )
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = _with_scout_research_context(team, run, repo_selection)
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2466,6 +2514,9 @@ def emit_report_sync(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            created_by_id=author.user_id,
+            proposed_reviewer_count=len(suggested_reviewers or []),
+            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
@@ -2628,7 +2679,7 @@ def _do_edit_report(
                 if reviewers is not None
                 else False
             )
-        except StaleReviewerProposal as error:
+        except (StaleReviewerProposal, ReviewerClearNeedsReason) as error:
             reviewers_set = False
             reviewer_warnings = (EditReportWarning(field="suggested_reviewers", message=str(error)),)
         # The other routing fix: a report that surfaced against the wrong codebase is repointed in
@@ -3174,7 +3225,7 @@ async def edit_report(
             charts=built_charts or (),
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
-            reviewer_reasons=_reviewer_reasons(built_reviewers),
+            reviewer_reasons=_reviewer_reasons(built_reviewers, reviewer_proposal),
             link_reasons=_link_reasons(built_links),
             decision_explanations=_decision_explanations(built_actionability, built_priority),
             tags=built_tags or (),
@@ -3305,7 +3356,7 @@ def edit_report_sync(
             charts=built_charts or (),
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
-            reviewer_reasons=_reviewer_reasons(built_reviewers),
+            reviewer_reasons=_reviewer_reasons(built_reviewers, reviewer_proposal),
             link_reasons=_link_reasons(built_links),
             decision_explanations=_decision_explanations(built_actionability, built_priority),
             tags=built_tags or (),

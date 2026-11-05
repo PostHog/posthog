@@ -5,6 +5,7 @@ mod breaker;
 pub mod completion;
 mod deliver;
 mod execute;
+mod newest_day;
 pub mod observe;
 mod orchestrator;
 mod person_execute;

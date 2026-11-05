@@ -6,7 +6,7 @@ region's report vectors exist only in its own ClickHouse. So this region builds 
 same `project_vectors()` the training region uses:
 
     report vectors   this region's ClickHouse, through `report_embeddings_table`
-    UI engagement    the training region's `inbox_engagement_export` in this region's object store
+    engagement       the training region's `inbox_engagement_export` in this region's object store
 
 The output lands in this region's object store at `serving_project_vectors_key`, which the served
 manifest can name.
@@ -46,8 +46,11 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     tag_dagster_queries,
 )
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    CONTEXT_KINDS,
+    ENGAGEMENT_EXPORT_COLUMNS,
     LABEL_COLUMNS,
     PROJECT_VECTORS_SCHEMA_VERSION,
+    VECTOR_KINDS,
     project_vectors,
     teams_with_history,
 )
@@ -60,10 +63,26 @@ ENGAGEMENT_EXPORT_MAX_AGE_DAYS = 2
 
 
 @frozen
+class _ExportShape:
+    columns: tuple[str, ...]
+    kinds: tuple[str, ...]
+
+
+# The two regions deploy apart, so this reader also takes the version before the current one. A v1
+# export has no `first_fixed_at`, so its day has no `fixed` rows.
+_EXPORT_SHAPES: dict[str, _ExportShape] = {
+    "1": _ExportShape(columns=LABEL_COLUMNS, kinds=VECTOR_KINDS),
+    str(ENGAGEMENT_EXPORT_SCHEMA_VERSION): _ExportShape(columns=ENGAGEMENT_EXPORT_COLUMNS, kinds=CONTEXT_KINDS),
+}
+
+
+@frozen
 class EngagementExport:
     export_date: str
     age_days: int
     labels: pa.Table
+    # The project vector kinds the labels can build.
+    kinds: tuple[str, ...]
 
 
 def read_engagement_export(
@@ -81,16 +100,17 @@ def read_engagement_export(
         if head is None:
             continue
         schema_version = head.get("Metadata", {}).get(SCHEMA_VERSION_METADATA_KEY)
-        if schema_version != str(ENGAGEMENT_EXPORT_SCHEMA_VERSION):
+        shape = _EXPORT_SHAPES.get(schema_version or "")
+        if shape is None:
             raise dagster.Failure(
                 f"engagement export {key} has schema version {schema_version}, "
-                f"this reader knows {ENGAGEMENT_EXPORT_SCHEMA_VERSION}"
+                f"this reader knows {sorted(_EXPORT_SHAPES)}"
             )
         body = storage.read_bytes(bucket, key)
         if body is None:
             continue
-        labels = pq.read_table(pa.BufferReader(body), columns=list(LABEL_COLUMNS))
-        return EngagementExport(export_date=export_date, age_days=age_days, labels=labels)
+        labels = pq.read_table(pa.BufferReader(body), columns=list(shape.columns))
+        return EngagementExport(export_date=export_date, age_days=age_days, labels=labels, kinds=shape.kinds)
     return None
 
 
@@ -120,7 +140,7 @@ def inbox_mirror_project_vectors(context: dagster.AssetExecutionContext) -> None
     consent_team_ids = training_consent_team_ids()
     embeddings = report_embeddings_table(partition_key, EMBEDDING_RENDERING_TITLE_SUMMARY, consent_team_ids)
     embedding_rows = embeddings.num_rows
-    table = project_vectors(export.labels, embeddings, snapshot_end)
+    table = project_vectors(export.labels, embeddings, snapshot_end, export.kinds)
     del embeddings
 
     buffer = io.BytesIO()
@@ -146,7 +166,7 @@ def inbox_mirror_project_vectors(context: dagster.AssetExecutionContext) -> None
             "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
             **{
                 f"teams_with_{kind}_history": dagster.MetadataValue.int(count)
-                for kind, count in teams_with_history(table).items()
+                for kind, count in teams_with_history(table, export.kinds).items()
             },
             "embedding_rows": dagster.MetadataValue.int(embedding_rows),
             "engagement_rows": dagster.MetadataValue.int(export.labels.num_rows),

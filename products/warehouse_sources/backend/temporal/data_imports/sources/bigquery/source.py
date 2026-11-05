@@ -251,6 +251,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "google-cloud-service-account"
+
     def get_retryable_errors(self) -> set[str]:
         # The client-side limits on a query job and on the wait for one page of rows. BigQuery was
         # reachable and then gave no result in time, so a later attempt can succeed.

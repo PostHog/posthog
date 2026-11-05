@@ -11,10 +11,10 @@ Field names stay camelCase because they cross the wire to the frontend unchanged
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import CDCEngine, SourceKey, source_key
 
 __all__ = [
     "DataWarehouseSourceCategory",
@@ -66,6 +66,22 @@ SyncSettingFlag = Annotated[
         description=(
             "Marks a top-level field as a sync setting (what or how much to import) instead of a"
             " connection field (what is needed to authenticate or reach the vendor)."
+        ),
+    ),
+]
+
+
+# Server-side storage metadata, like `SyncSettingFlag`. A selector is an account chosen after the
+# user authenticates (an ad account, a property, a site). Several sources can share one OAuth
+# integration row, so the choice belongs to the source and not to the row. `oauth-account-select`
+# and `credential-account-select` fields are selectors without the flag.
+AccountSelectorFlag = Annotated[
+    SkipJsonSchema[bool],
+    Field(
+        exclude=True,
+        description=(
+            "Marks a top-level field as an account selector: the account, property or site that the"
+            " user chooses after authenticating. It stays with the source, not with the credentials."
         ),
     ),
 ]
@@ -220,6 +236,7 @@ class SourceFieldInputConfig(BaseModel):
             " must explicitly classify every field."
         ),
     )
+    account_selector: AccountSelectorFlag = False
     sync_setting: SyncSettingFlag = False
     # Spelled out as a `Literal` of the enum members because pydantic infers a
     # discriminated union only from `Literal` discriminator fields. The stored value is
@@ -271,6 +288,7 @@ class SourceFieldSelectConfig(BaseModel):
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool
+    account_selector: AccountSelectorFlag = False
     sync_setting: SyncSettingFlag = False
     type: Literal["select"] = "select"
 
@@ -282,6 +300,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
     fields: list["SourceFieldConfig"]
     label: str
     name: str
+    account_selector: AccountSelectorFlag = False
     sync_setting: SyncSettingFlag = False
     type: Literal["switch-group"] = "switch-group"
 
@@ -308,13 +327,13 @@ SourceFieldSelectConfig.model_rebuild()
 SourceFieldSwitchGroupConfig.model_rebuild()
 
 
-# Pydantic publishes an enum as its own schema component, which would put a second copy
-# of the source type list next to the one the DRF serializers already publish. Emitting
-# the values inline instead lets drf-spectacular's enum post-processing match them by
-# hash and point both at the single `ExternalDataSourceTypeEnum` component.
-InlinedExternalDataSourceType = Annotated[
-    ExternalDataSourceType,
-    WithJsonSchema({"type": "string", "enum": ExternalDataSourceType.values}),
+# A plain string in the schema, not an enum: a plugin source names itself with a key that has no
+# `ExternalDataSourceType` member, and the generated API clients must not change when a vendor is added.
+# The validator still hands core keys back as their enum member.
+SourceConfigName = Annotated[
+    SourceKey,
+    AfterValidator(source_key),
+    WithJsonSchema({"type": "string"}),
 ]
 
 
@@ -355,7 +374,7 @@ class SourceConfig(BaseModel):
         ),
     )
     label: str | None = None
-    name: InlinedExternalDataSourceType
+    name: SourceConfigName
     permissionsCaption: str | None = None
     releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
@@ -423,6 +442,13 @@ class SourceConfigResponse(SourceConfig):
         description="Vendor API docs or changelog URL, or null when the vendor publishes none.",
     )
     deprecatedVersions: list[SourceVersionDeprecation]
+    cdcEngine: CDCEngine | None = Field(
+        default=None,
+        description=(
+            "Change data capture engine, which picks the CDC setup form and status panel. Null when"
+            " the source has no CDC."
+        ),
+    )
     tables: list[SourceDocumentedTable] | None = Field(
         default=None,
         description=(

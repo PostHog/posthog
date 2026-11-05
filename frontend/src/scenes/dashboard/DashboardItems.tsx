@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -18,6 +18,8 @@ import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { getDashboardAddTileOptions } from 'scenes/dashboard/dashboardAddTileOptions'
+import { DashboardEmptyGroupAddButton } from 'scenes/dashboard/DashboardEmptyGroupAddButton'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
@@ -40,6 +42,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
@@ -121,6 +124,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        renamingTileGroupKey,
         sizeKey,
         tileGroupSectionsEnabled,
         tileGroupSections,
@@ -128,7 +132,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
         activeTileGroupTab,
+        queryLoadQueue,
     } = useValues(dashboardLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
+    useMountedLogic(
+        biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
@@ -144,6 +157,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         copyGroupToDashboard,
         changeTileGroupDisplay,
+        renameTileGroup,
+        setRenamingTileGroupKey,
+        setAddTargetTileGroupKey,
+        openAddInsightModal,
+        openTextTileModal,
+        openImageTileModal,
+        openButtonTileModal,
+        setAddWidgetModalOpen,
+        removeTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -268,6 +290,31 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
+    const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
+    // A layout edit only stages tile moves, but a delete saves at once, so Cancel would bring tiles back to a lost group.
+    const getAddTileOptions =
+        canEditDashboard && isEditablePlacement && !layoutEditMode
+            ? (groupKey: string) =>
+                  getDashboardAddTileOptions({
+                      onAddInsight: openAddInsightModal,
+                      onAddText: openTextTileModal,
+                      onAddImage: openImageTileModal,
+                      onAddButton: openButtonTileModal,
+                      setAddWidgetModalOpen,
+                  }).map((option) => ({
+                      key: option.key,
+                      label: option.label,
+                      onClick: () => {
+                          setAddTargetTileGroupKey(groupKey)
+                          option.onClick()
+                      },
+                  }))
+            : undefined
+    const getEmptyGroupAddAction =
+        canEditDashboard && isEditablePlacement && !layoutEditMode
+            ? (groupKey: string) => <DashboardEmptyGroupAddButton groupKey={groupKey} />
+            : undefined
+    const onRemoveTileGroup = canEditDashboard && isEditablePlacement && !layoutEditMode ? removeTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -533,7 +580,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -588,14 +635,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -660,7 +700,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
-                    resultMenuEnabled={placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode}
+                    resultMenuEnabled={canCrossFilter}
+                    biDashboardTileId={canCrossFilter ? tile.id : undefined}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.
@@ -840,10 +881,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            onRenameTileGroup={onRenameTileGroup}
+            renamingTileGroupKey={renamingTileGroupKey}
+            onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
+            onRemoveTileGroup={onRemoveTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
             onChangeGroupDisplay={onChangeGroupDisplay}
+            getAddTileOptions={getAddTileOptions}
+            getEmptyGroupAddAction={getEmptyGroupAddAction}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -863,10 +910,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        onRenameGroup={onRenameTileGroup}
+                        renamingGroupKey={renamingTileGroupKey}
+                        onRenamingGroupKeyChange={setRenamingTileGroupKey}
+                        onRemoveGroup={onRemoveTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}
                         onChangeGroupDisplay={onChangeGroupDisplay}
+                        getAddTileOptions={getAddTileOptions}
+                        getEmptyGroupAddAction={getEmptyGroupAddAction}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>

@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-20261031-report-fixes",
+    "kind": "ota",
+    "runtimeVersion": "1.6.0",
+    "previousRelease": "native-160",
+    "notes": "Formula charts now appear in report summaries and details. Long verdicts scroll correctly on Android. Invalid inbox pages no longer enter the cache. Verify report charts, Android verdict scrolling, inbox refresh, and pagination."
+}
