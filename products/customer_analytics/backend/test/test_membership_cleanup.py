@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
@@ -11,7 +12,14 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, DistinctIdRow, GetDistinctIdRowsResponse
+from posthog.models.person_group_membership.sql import GROUP_KEY_EXPR
+from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
+    DistinctIdRow,
+    GetDistinctIdRowsResponse,
+    Group,
+    GroupsResponse,
+)
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
 from products.customer_analytics.backend.logic.membership_cleanup import (
@@ -69,10 +77,10 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             [(self.team.pk, distinct_id or self.key.distinct_id, person_id, deleted, version)],
         )
 
-    def create_group(self) -> None:
+    def create_group(self, group_key: str | None = None) -> None:
         sync_execute(
             "INSERT INTO groups (team_id, group_type_index, group_key, created_at, group_properties) VALUES",
-            [(self.team.pk, self.key.group_type_index, self.key.group_key, self.now, "{}")],
+            [(self.team.pk, self.key.group_type_index, group_key or self.key.group_key, self.now, "{}")],
         )
 
     def run_cleanup(self, *, dry_run: bool = False, allow_delete: bool = True) -> MembershipCleanupCounts:
@@ -200,6 +208,67 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert self.get_rows() == []
+
+    @parameterized.expand(
+        [("quotes", 'account "north"'), ("backslash", r"account\north"), ("newline", "account\nnorth")]
+    )
+    def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
+        # nosemgrep: clickhouse-fstring-param-audit -- GROUP_KEY_EXPR is a fixed ingestion expression.
+        stored_key = sync_execute(
+            f"SELECT {GROUP_KEY_EXPR} FROM (SELECT %(properties)s AS properties, 0 AS group_type_index)",
+            {"properties": json.dumps({"$group_0": group_key})},
+        )[0][0]
+        self.key = MembershipKey(group_type_index=0, group_key=stored_key, distinct_id=self.key.distinct_id)
+        self.create_membership()
+        self.create_mapping(self.create_person())
+        self.create_group(group_key)
+        self.run_cleanup()
+        with travel(self.now + timedelta(days=2), tick=False):
+            assert self.run_cleanup().deleted == 0
+        assert self.get_rows() == [(self.key.distinct_id,)]
+        assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([("live",), ("missing",), ("unavailable",)])
+    def test_primary_group_check_protects_membership(self, group_state: str) -> None:
+        self.key = MembershipKey(group_type_index=0, group_key=r"account \"north\"", distinct_id=self.key.distinct_id)
+        self.create_membership()
+        self.create_mapping(self.create_person())
+        self.run_cleanup()
+        candidates = MembershipCleanupCandidate.objects.for_team(self.team.pk)
+        before = list(candidates.values())
+        with (
+            travel(self.now + timedelta(days=2), tick=False),
+            patch("products.customer_analytics.backend.logic.membership.require_personhog_client") as get_client,
+        ):
+            lookup = get_client.return_value.get_groups
+            lookup.return_value = GroupsResponse(
+                groups=[
+                    Group(
+                        id=1,
+                        team_id=self.team.pk,
+                        group_type_index=self.key.group_type_index,
+                        group_key='account "north"',
+                    )
+                ]
+                if group_state == "live"
+                else []
+            )
+            if group_state == "unavailable":
+                lookup.side_effect = RuntimeError("group lookup unavailable")
+                with self.assertRaisesRegex(RuntimeError, "group lookup unavailable"):
+                    self.run_cleanup()
+                assert list(candidates.values()) == before
+            else:
+                result = self.run_cleanup()
+                assert result.deleted == (1 if group_state == "missing" else 0)
+                assert result.recovered == (1 if group_state == "live" else 0)
+                assert not candidates.exists()
+            request = lookup.call_args.args[0]
+            assert request.team_id == self.team.pk
+            assert request.group_identifiers[0].group_key == 'account "north"'
+            assert request.read_options.consistency == CONSISTENCY_LEVEL_STRONG
+            assert "group_properties" not in request.read_options.field_mask
+        assert self.get_rows() == ([] if group_state == "missing" else [(self.key.distinct_id,)])
 
     def test_team_discovery_resumes_after_last_processed_team(self) -> None:
         self.create_membership()

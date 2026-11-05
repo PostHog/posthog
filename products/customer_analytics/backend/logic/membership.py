@@ -6,6 +6,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.person.util import get_distinct_id_rows
+from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetGroupsRequest, GroupIdentifier, ReadOptions
 
 QUERY_TIMEOUT_SECONDS = 30
 
@@ -37,6 +39,41 @@ class MembershipKey:
 class MembershipExistence:
     persons: frozenset[str]
     groups: frozenset[tuple[int, str]]
+
+
+def _get_live_groups(team_id: int, keys: Sequence[MembershipKey]) -> frozenset[tuple[int, str]]:
+    # Membership keeps JSON escapes, but group identity storage uses decoded keys.
+    lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
+        (key.group_type_index, key.group_key): (key.group_type_index, json.loads(f'"{key.group_key}"')) for key in keys
+    }
+    groups = sync_execute(
+        """SELECT DISTINCT group_type_index, group_key FROM groups
+        WHERE team_id = %(team_id)s AND (group_type_index, group_key) IN %(groups)s""",
+        {"team_id": team_id, "groups": list(set(lookup_keys.values()))},
+        settings=QUERY_SETTINGS,
+        workload=Workload.OFFLINE,
+    )
+    live_groups = {(row[0], row[1]) for row in groups}
+    missing_groups = set(lookup_keys.values()) - live_groups
+    if missing_groups:
+        response = personhog_call(
+            "membership_get_groups",
+            lambda: require_personhog_client().get_groups(
+                GetGroupsRequest(
+                    team_id=team_id,
+                    group_identifiers=[
+                        GroupIdentifier(group_type_index=index, group_key=group_key)
+                        for index, group_key in missing_groups
+                    ],
+                    read_options=ReadOptions(
+                        consistency=CONSISTENCY_LEVEL_STRONG,
+                        field_mask=["id", "team_id", "group_type_index", "group_key"],
+                    ),
+                )
+            ),
+        )
+        live_groups.update((group.group_type_index, group.group_key) for group in response.groups if group.id)
+    return frozenset(stored_key for stored_key, lookup_key in lookup_keys.items() if lookup_key in live_groups)
 
 
 def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> MembershipExistence:
@@ -75,14 +112,7 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
             for row in get_distinct_id_rows(team_id, list(missing_distinct_ids), strong=True)
             if not row.is_deleted and row.HasField("person_is_deleted") and not row.person_is_deleted
         )
-    groups = sync_execute(
-        """SELECT DISTINCT group_type_index, group_key FROM groups
-        WHERE team_id = %(team_id)s AND (group_type_index, group_key) IN %(groups)s""",
-        {"team_id": team_id, "groups": list({(key.group_type_index, key.group_key) for key in keys})},
-        settings=QUERY_SETTINGS,
-        workload=Workload.OFFLINE,
-    )
     return MembershipExistence(
         persons=frozenset(live_distinct_ids),
-        groups=frozenset((row[0], row[1]) for row in groups),
+        groups=_get_live_groups(team_id, keys),
     )

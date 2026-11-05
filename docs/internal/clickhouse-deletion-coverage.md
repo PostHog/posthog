@@ -111,6 +111,9 @@ It stores distinct IDs and historical group associations, but no person properti
 Cleanup checks current distinct-ID mappings and live persons before it removes membership.
 Deleted mappings and deleted persons count as missing identities.
 When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner before cleanup.
+Cleanup decodes JSON escapes in membership group keys before identity lookups and keeps the stored keys for erasure.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence before cleanup.
+Group identity reads exclude properties.
 
 The `customer-analytics-membership-cleanup` Temporal schedule owns physical person and group cleanup.
 It does not change the existing person or group deletion processes.
