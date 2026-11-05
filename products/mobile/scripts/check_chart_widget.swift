@@ -586,6 +586,7 @@ struct CheckChartWidget {
             let expected = fixture["expected"] as! JSONObject
             let snapshot = try InsightParser.snapshot(response: response, pin: pin, now: now)
             check("format: \(name) round trip", try JSONDecoder().decode(ChartSnapshot.self, from: JSONEncoder().encode(snapshot)) == snapshot)
+            if let interval = expected["intervalLabel"] as? String { check("format: \(name) interval", snapshot.intervalLabel == interval) }
             check("format: \(name) display", snapshot.display == expected["display"] as? String)
             for (field, actual) in [("chartValueText", snapshot.chartValueText), ("axisLowText", snapshot.axisLowText), ("axisHighText", snapshot.axisHighText)] where expected[field] != nil {
                 check("format: \(name) \(field)", actual == expected[field] as? String)
@@ -600,6 +601,21 @@ struct CheckChartWidget {
             if let count = expected["seriesCount"] as? Int { check("format: \(name) series", snapshot.series.count == count) }
             if let value = expected["lastValue"] as? Double { check("format: \(name) last point", snapshot.series.first?.points.last?.value == value) }
         }
+        let start = ChartDates.parse("2026-01-01T00:00:00Z")!
+        let formatter = ISO8601DateFormatter()
+        let rows: [[Any]] = (0..<10_000).flatMap { index in
+            let at = formatter.string(from: start.addingTimeInterval(Double(index) * 3600))
+            return [[at, 1], [at, 2]]
+        }
+        let response: JSONObject = [
+            "query": ["kind": "DataVisualizationNode", "source": ["kind": "HogQLQuery"], "display": "ActionsLineGraphCumulative"],
+            "columns": ["at", "value"], "types": [["at", "DateTime"], ["value", "UInt64"]], "result": rows,
+        ]
+        let large = try InsightParser.snapshot(response: response, pin: pin, now: now)
+        check("large SQL: only the latest 60 points", large.series.first?.points.count == 60)
+        check("large SQL: cumulative includes earlier duplicate rows", large.series.first?.points.first?.value == 29_823
+              && large.series.first?.points.last?.value == 30_000)
+
     }
 
     static func require<T>(_ value: T?, _ name: String) throws -> T {

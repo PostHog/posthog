@@ -105,7 +105,7 @@ struct ChartSnapshot: Codable, Equatable, Sendable {
     let lastRefreshAt: String?
     var rangeLabel: String?
     /// The trends interval: "hour", "day", "week" or "month".
-    let intervalLabel: String
+    var intervalLabel: String
     /// Nil when the insight has no single number, such as two series.
     var valueText: String?
     /// The signed change that sets the pill's direction: percent, or points for a percentage insight.

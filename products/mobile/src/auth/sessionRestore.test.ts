@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store'
+import { AppState } from 'react-native'
 import { installAuthProvider, refreshAccessToken, useAuthStore } from './authStore'
 import { loadTokens, saveTokens, setSessionTokens } from './tokens'
 
@@ -40,6 +41,8 @@ describe('stored session identity', () => {
 
     test('restores the secure identity after a stalled refresh and allows a later refresh to recover', async () => {
         jest.useFakeTimers()
+        const previousState = AppState.currentState
+        AppState.currentState = 'active'
         try {
             let stalledSignal: AbortSignal | null | undefined
             let stall = true
@@ -70,7 +73,10 @@ describe('stored session identity', () => {
                     organizations: [],
                 })
             }) as unknown as typeof fetch
-            await saveTokens(tokens, { host, clientId: 'example-client', method: 'oauth', userUuid: 'current-user' })
+            await saveTokens(
+                { ...tokens, expiresAt: Date.now() + 10 * 60_000 },
+                { host, clientId: 'example-client', method: 'oauth', userUuid: 'current-user' }
+            )
             useAuthStore.setState({
                 status: 'loading',
                 signedIn: false,
@@ -116,6 +122,7 @@ describe('stored session identity', () => {
                 tokens: { accessToken: 'example-rotated-access' },
             })
         } finally {
+            AppState.currentState = previousState
             jest.useRealTimers()
         }
     })

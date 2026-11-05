@@ -19,6 +19,7 @@ describe('widget snapshots use the Views representation', () => {
         for (const field of ['chartValueText', 'axisLowText', 'axisHighText'] as const) {
             if (field in expected) expect(snapshot?.[field]).toBe(expected[field])
         }
+        if ('intervalLabel' in expected) expect(snapshot?.intervalLabel).toBe(expected.intervalLabel)
         if ('valueText' in expected) expect(snapshot?.valueText).toBe(expected.valueText)
         if ('firstRowValue' in expected) expect(snapshot?.rows[0]?.value).toBe(expected.firstRowValue)
         if (typeof expected.rowCount === 'number') expect(snapshot?.rows).toHaveLength(expected.rowCount)
@@ -51,4 +52,39 @@ test('number mode keeps a single-series category insight as a number', () => {
     )
     const snapshot = widgetSnapshot('example', source, 'number')
     expect(snapshot).toMatchObject({ display: 'number', valueText: '12', rows: [] })
+})
+
+test('formats only the compact rows retained by the widget', () => {
+    const at = Date.now()
+    const source = insightSnapshot(
+        {
+            id: 101,
+            short_id: 'table1',
+            name: 'Table',
+            query: {
+                kind: 'DataVisualizationNode',
+                source: { kind: 'HogQLQuery', query: 'select example' },
+                display: 'ActionsTable',
+            },
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'UInt64'],
+            ],
+            result: Array.from({ length: 50_000 }, (_, i) => [`Row ${i}`, i]),
+            last_refresh: null,
+            cache_target_age: null,
+            next_allowed_client_refresh: null,
+        } as InsightApi,
+        undefined,
+        { readAt: at, serverNow: at }
+    )
+    const row = source.sqlTable?.rows[12]
+    if (!row) throw new Error('Missing SQL row')
+    Object.defineProperty(row, 0, {
+        get: () => {
+            throw new Error('Formatted a discarded row')
+        },
+    })
+    expect(widgetSnapshot('example', source, 'row')?.rows).toHaveLength(12)
 })

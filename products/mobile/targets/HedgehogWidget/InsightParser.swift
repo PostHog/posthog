@@ -9,7 +9,9 @@ enum InsightParser {
     let kind = source["kind"] as? String
     if kind == "TrendsQuery" {
       var snapshot = try TrendsParser.snapshot(response: response, pinId: pin.id, now: now)
-      chartLabels(&snapshot) { TrendsParser.formatValue($0, TrendsParser.valueFormat(source: source)) }
+      chartLabels(&snapshot) {
+        TrendsParser.formatValue($0, TrendsParser.valueFormat(source: source))
+      }
       let display = TrendsParser.displayOf(query)
       if pin.displayMode == "number" && pin.number {
         snapshot.display = "number"
@@ -129,7 +131,9 @@ enum InsightParser {
 
   private static func chartLabels(_ snapshot: inout ChartSnapshot, format: (Double) -> String) {
     let current = snapshot.series.filter { !$0.previous }
-    let values = snapshot.series.filter { snapshot.chartKind != .bar || !$0.previous }.flatMap { $0.points.compactMap(\.value) }
+    let values = snapshot.series.filter { snapshot.chartKind != .bar || !$0.previous }.flatMap {
+      $0.points.compactMap(\.value)
+    }
     if current.count == 1, let value = current[0].points.last(where: { $0.value != nil })?.value {
       snapshot.chartValueText = format(value)
     }
@@ -191,7 +195,7 @@ enum InsightParser {
     return result == nil ? [] : [ChartRow(label: "Value", value: text(result))]
   }
 
-  private static func formatting(_ query: JSONObject, column: String, numberDisplay: Bool)
+  private static func formatting(_ query: JSONObject, column: String, display: String)
     -> JSONObject
   {
     let table = (query["tableSettings"] as? JSONObject)?["columns"] as? [JSONObject] ?? []
@@ -200,7 +204,11 @@ enum InsightParser {
       let settings = entries.first { $0["column"] as? String == column }?["settings"] as? JSONObject
       return settings?["formatting"] as? JSONObject
     }
-    return numberDisplay ? format(table) ?? [:] : format(axes) ?? format(table) ?? [:]
+    switch display {
+    case "number": return format(table) ?? [:]
+    case "table": return format(table) ?? format(axes) ?? [:]
+    default: return format(axes) ?? format(table) ?? [:]
+    }
   }
 
   private static func sqlText(_ cell: Any?, format: JSONObject) -> String {
@@ -248,6 +256,17 @@ enum InsightParser {
     return ChartDates.parse(at) == nil ? nil : at
   }
 
+  private static func sqlInterval(_ dates: [String]) -> String {
+    let times = Array(Set(dates.compactMap { ChartDates.parse($0)?.timeIntervalSince1970 }))
+      .sorted()
+    let gaps = zip(times, times.dropFirst()).map { $1 - $0 }.sorted()
+    guard !gaps.isEmpty else { return "day" }
+    let median = gaps[gaps.count / 2]
+    if median < 21 * 3600 { return "hour" }
+    if median < 6 * 86400 { return "day" }
+    return median < 28 * 86400 ? "week" : "month"
+  }
+
   private static func sql(response: JSONObject, query: JSONObject, snapshot: inout ChartSnapshot) {
     let rows = response["result"] as? [[Any]] ?? []
     let columns = response["columns"] as? [String] ?? []
@@ -256,9 +275,20 @@ enum InsightParser {
     func type(_ index: Int) -> String {
       index < types.count && types[index].count > 1 ? types[index][1] as? String ?? "" : ""
     }
-    func date(_ index: Int) -> Bool { type(index).contains("Date") }
+    func scalar(_ index: Int) -> String {
+      var value = type(index).trimmingCharacters(in: .whitespaces)
+      while value.hasPrefix("Nullable(") || value.hasPrefix("LowCardinality("),
+        value.hasSuffix(")"),
+        let open = value.firstIndex(of: "(")
+      {
+        value = String(value[value.index(after: open)...].dropLast()).trimmingCharacters(
+          in: .whitespaces)
+      }
+      return value
+    }
+    func date(_ index: Int) -> Bool { scalar(index).hasPrefix("Date") }
     func numeric(_ index: Int) -> Bool {
-      ["Int", "Float", "Decimal"].contains { type(index).contains($0) }
+      ["Int", "UInt", "Float", "Decimal"].contains { scalar(index).hasPrefix($0) }
     }
     let ySettings = settings["yAxis"] as? [JSONObject] ?? []
     let savedX = (settings["xAxis"] as? JSONObject)?["column"] as? String
@@ -284,7 +314,7 @@ enum InsightParser {
       snapshot.valueText = rows.first?.first.flatMap {
         $0 is NSNull
           ? nil
-          : sqlText($0, format: formatting(query, column: columns.first ?? "", numberDisplay: true))
+          : sqlText($0, format: formatting(query, column: columns.first ?? "", display: "number"))
       }
       snapshot.display = "number"
       return
@@ -294,54 +324,62 @@ enum InsightParser {
       "ActionsStackedBar", "ActionsUnstackedBar",
     ].contains(display)
     if overTime, let x, date(x), !y.isEmpty {
-      let valid = rows.compactMap { row -> [Any]? in
-        guard row.count > x, let at = sqlDate(row[x]) else { return nil }
-        var normalized = row
-        normalized[x] = at
-        return normalized
+      var dates = Set<String>()
+      var groups: [String] = []
+      var sums: [String: [Int: [String: Double]]] = [:]
+      for row in rows {
+        guard row.count > x, let at = sqlDate(row[x]) else { continue }
+        dates.insert(at)
+        let group = breakdown.map { $0 < row.count ? text(row[$0]) : "–" } ?? ""
+        if sums[group] == nil {
+          guard groups.count < 5 else { continue }
+          groups.append(group)
+          sums[group] = [:]
+        }
+        for column in y.prefix(5) {
+          guard column < row.count, let value = number(row[column]) else { continue }
+          sums[group, default: [:]][column, default: [:]][at, default: 0] += value
+        }
       }
-      let dates = Array(Set(valid.compactMap { $0[x] as? String })).sorted()
-      let groups =
-        breakdown.map { b in
-          valid.reduce(into: [String]()) { groups, row in
-            let group = b < row.count ? text(row[b]) : "None"
-            if !groups.contains(group) { groups.append(group) }
-          }
-        } ?? [""]
-      snapshot.series = y.flatMap { column in groups.map { (column, $0) } }.prefix(5).map {
+      let axis = dates.sorted()
+      snapshot.intervalLabel = sqlInterval(axis)
+      let visibleDates = axis.suffix(60)
+      snapshot.series = y.prefix(5).flatMap { column in groups.map { (column, $0) } }.prefix(5).map
+      {
         column, group -> ChartSeries in
-        var total = 0.0
+        let byDate = sums[group]?[column] ?? [:]
+        var total =
+          display == "ActionsLineGraphCumulative"
+          ? axis.dropLast(visibleDates.count).reduce(0.0) { $0 + (byDate[$1] ?? 0) } : 0.0
         return ChartSeries(
           label: group.isEmpty ? columns[column] : "\(columns[column]) · \(group)",
-          points: dates.map { at in
-            let matches = valid.filter { row in
-              row[x] as? String == at
-                && (breakdown.map { b in b < row.count && text(row[b]) == group } ?? true)
-            }.compactMap { column < $0.count ? number($0[column]) : nil }
-            var value: Double? = matches.isEmpty ? nil : matches.reduce(0, +)
+          points: visibleDates.map { at in
+            var value = byDate[at]
             if display == "ActionsLineGraphCumulative", let v = value {
               total += v
               value = total
             }
             return ChartPoint(at: at, value: value)
-          }.suffix(60).map { $0 }, previous: false)
+          }, previous: false)
       }
-      chartLabels(&snapshot) { sqlText($0, format: formatting(query, column: columns[y[0]], numberDisplay: false)) }
       snapshot.display = "chart"
       snapshot.chartKind =
         display.contains("Bar")
           || ((ySettings.first?["settings"] as? JSONObject)?["display"] as? JSONObject)?[
             "displayType"] as? String == "bar"
         ? .bar : .line
+      chartLabels(&snapshot) {
+        sqlText($0, format: formatting(query, column: columns[y[0]], display: "chart"))
+      }
       snapshot.rows = []
       return
     }
     snapshot.rows = rows.prefix(12).map { row in
       let label = x.flatMap { $0 < row.count ? text(row[$0]) : nil } ?? "Value"
-      let values = (y.isEmpty ? columns.indices.filter { $0 != x } : y).map { index in
+      let values = columns.indices.filter { $0 != x }.map { index in
         let cell = index < row.count ? row[index] : nil
         return numeric(index)
-          ? sqlText(cell, format: formatting(query, column: columns[index], numberDisplay: false))
+          ? sqlText(cell, format: formatting(query, column: columns[index], display: "table"))
           : text(cell)
       }
       return ChartRow(label: label, value: values.joined(separator: " · "))

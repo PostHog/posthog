@@ -125,11 +125,11 @@ object InsightParser {
         return if (value == null || value == JSONObject.NULL) emptyList() else listOf(SnapshotRow("Value", text(value)))
     }
 
-    private fun formatting(query: JSONObject, column: String, numberDisplay: Boolean = false): JSONObject {
+    private fun formatting(query: JSONObject, column: String, display: String = "chart"): JSONObject {
         val table = objects(query.optJSONObject("tableSettings")?.optJSONArray("columns"))
         val axes = objects(query.optJSONObject("chartSettings")?.optJSONArray("yAxis"))
         fun format(entries: List<JSONObject>): JSONObject? = entries.firstOrNull { it.optString("column") == column }?.optJSONObject("settings")?.optJSONObject("formatting")
-        return (if (numberDisplay) format(table) else format(axes) ?: format(table)) ?: JSONObject()
+        return (when (display) { "number" -> format(table); "table" -> format(table) ?: format(axes); else -> format(axes) ?: format(table) }) ?: JSONObject()
     }
 
     private fun sqlText(cell: Any?, format: JSONObject): String {
@@ -152,12 +152,31 @@ object InsightParser {
         return at.takeIf { DateText.parseInstant(it) != null }
     }
 
+    private fun sqlInterval(dates: List<String>): String {
+        val times = dates.mapNotNull { DateText.parseInstant(it) }.distinct().sorted()
+        val gaps = times.zipWithNext { a, b -> b - a }.sorted()
+        val median = gaps.getOrNull(gaps.size / 2) ?: return "day"
+        return when {
+            median < 21 * 3_600_000L -> "hour"
+            median < 6 * 86_400_000L -> "day"
+            median < 28 * 86_400_000L -> "week"
+            else -> "month"
+        }
+    }
+
     private fun sql(response: JSONObject, query: JSONObject, base: ChartSnapshot): ChartSnapshot {
         val rows = values(response.optJSONArray("result")).mapNotNull { it as? JSONArray }
         val columns = values(response.optJSONArray("columns")).map { it.toString() }
         val types = values(response.optJSONArray("types")).map { (it as? JSONArray)?.optString(1) ?: "" }
-        fun date(index: Int): Boolean = types.getOrNull(index)?.contains("Date") == true
-        fun numeric(index: Int): Boolean = listOf("Int", "Float", "Decimal").any { types.getOrNull(index)?.contains(it) == true }
+        fun scalar(index: Int): String {
+            var type = types.getOrNull(index)?.trim() ?: ""
+            while ((type.startsWith("Nullable(") || type.startsWith("LowCardinality(")) && type.endsWith(")")) {
+                type = type.substringAfter('(').dropLast(1).trim()
+            }
+            return type
+        }
+        fun date(index: Int): Boolean = scalar(index).startsWith("Date")
+        fun numeric(index: Int): Boolean = listOf("Int", "UInt", "Float", "Decimal").any { scalar(index).startsWith(it) }
         val settings = query.optJSONObject("chartSettings") ?: JSONObject()
         val savedX = settings.optJSONObject("xAxis")?.stringOrNull("column")
         val x = columns.indexOf(savedX).takeIf { it >= 0 } ?: columns.indices.firstOrNull(::date) ?: columns.indices.firstOrNull { !numeric(it) }
@@ -170,29 +189,42 @@ object InsightParser {
             x != null && date(x) && y.isNotEmpty() && rows.size > 1 -> "ActionsLineGraph"
             else -> "ActionsTable"
         }
-        if (display == "BoldNumber") return base.copy(display = "number", valueText = rows.firstOrNull()?.takeIf { !it.isNull(0) }?.let { sqlText(it.opt(0), formatting(query, columns.firstOrNull() ?: "", true)) })
+        if (display == "BoldNumber") return base.copy(display = "number", valueText = rows.firstOrNull()?.takeIf { !it.isNull(0) }?.let { sqlText(it.opt(0), formatting(query, columns.firstOrNull() ?: "", "number")) })
         val overTime = display in setOf("ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsAreaGraph", "ActionsBar", "ActionsStackedBar", "ActionsUnstackedBar")
         if (overTime && x != null && date(x) && y.isNotEmpty()) {
-            val valid = rows.mapNotNull { row -> sqlDate(row.opt(x))?.let { JSONArray(row.toString()).put(x, it) } }
-            val dates = valid.map { it.getString(x) }.distinct().sorted()
-            val groups = if (breakdown == null) listOf("") else valid.map { text(it.opt(breakdown)) }.distinct()
-            val series = y.asSequence().flatMap { column -> groups.asSequence().map { group ->
-                var total = 0.0
-                val points = dates.map { at ->
-                    val matches = valid.filter { it.optString(x) == at && (breakdown == null || text(it.opt(breakdown)) == group) }.mapNotNull { number(it.opt(column)) }
-                    var value = matches.takeIf { it.isNotEmpty() }?.sum()
+            val dates = sortedSetOf<String>()
+            val sums = linkedMapOf<String, MutableMap<Int, MutableMap<String, Double>>>()
+            for (row in rows) {
+                val at = sqlDate(row.opt(x)) ?: continue
+                dates.add(at)
+                val group = breakdown?.let { text(row.opt(it)) } ?: ""
+                if (!sums.containsKey(group) && sums.size >= 5) continue
+                val byColumn = sums.getOrPut(group) { mutableMapOf() }
+                for (column in y.take(5)) {
+                    val value = number(row.opt(column)) ?: continue
+                    val byDate = byColumn.getOrPut(column) { mutableMapOf() }
+                    byDate[at] = (byDate[at] ?: 0.0) + value
+                }
+            }
+            val axis = dates.toList()
+            val visibleDates = axis.takeLast(60)
+            val series = y.asSequence().flatMap { column -> sums.keys.asSequence().map { group ->
+                val byDate = sums[group]?.get(column).orEmpty()
+                var total = if (display == "ActionsLineGraphCumulative") axis.dropLast(visibleDates.size).sumOf { byDate[it] ?: 0.0 } else 0.0
+                val points = visibleDates.map { at ->
+                    var value = byDate[at]
                     if (display == "ActionsLineGraphCumulative" && value != null) { total += value; value = total }
                     SnapshotPoint(at, value ?: Double.NaN)
-                }.takeLast(60)
+                }
                 SnapshotSeries(if (group.isEmpty()) columns[column] else "${columns[column]} · $group", points, false)
             } }.take(5).toList()
-            val snapshot = base.copy(display = "chart", series = series, chartKind = if (display.contains("Bar") || objects(settings.optJSONArray("yAxis")).firstOrNull()?.optJSONObject("settings")?.optJSONObject("display")?.optString("displayType") == "bar") "bar" else "line")
+            val snapshot = base.copy(display = "chart", intervalLabel = sqlInterval(dates.toList()), series = series, chartKind = if (display.contains("Bar") || objects(settings.optJSONArray("yAxis")).firstOrNull()?.optJSONObject("settings")?.optJSONObject("display")?.optString("displayType") == "bar") "bar" else "line")
             return chartLabels(snapshot) { sqlText(it, formatting(query, columns[y[0]])) }
         }
         return base.copy(rows = rows.take(12).map { row ->
             val label = x?.let { text(row.opt(it)) } ?: "Value"
-            val indices = y.ifEmpty { columns.indices.filter { it != x } }
-            SnapshotRow(label, indices.joinToString(" · ") { if (numeric(it)) sqlText(row.opt(it), formatting(query, columns[it])) else text(row.opt(it)) })
+            val indices = columns.indices.filter { it != x }
+            SnapshotRow(label, indices.joinToString(" · ") { if (numeric(it)) sqlText(row.opt(it), formatting(query, columns[it], "table")) else text(row.opt(it)) })
         })
     }
 }

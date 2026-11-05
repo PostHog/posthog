@@ -45,20 +45,22 @@ export function widgetSnapshot(
     const rows: WidgetSnapshot['rows'] = []
     if (snapshot.funnel) {
         rows.push(
-            ...snapshot.funnel.steps.map((step) => ({ label: step.name, value: step.count.toLocaleString('en-US') }))
+            ...snapshot.funnel.steps
+                .slice(0, 12)
+                .map((step) => ({ label: step.name, value: step.count.toLocaleString('en-US') }))
         )
     } else if (snapshot.retention) {
-        for (const cohort of snapshot.retention.cohorts) {
+        for (const cohort of snapshot.retention.cohorts.slice(0, 12)) {
             rows.push({
                 label: cohort.date.slice(0, 10),
                 value: cohort.cells.map((cell) => `${Math.round(cell.percent)}%`).join(' · '),
             })
         }
     } else if (snapshot.ranking) {
-        rows.push(...snapshot.ranking.rows.map((row) => ({ label: row.label, value: format(row.value) })))
+        rows.push(...snapshot.ranking.rows.slice(0, 12).map((row) => ({ label: row.label, value: format(row.value) })))
     } else if (snapshot.sqlTable && display !== 'chart' && display !== 'number') {
         const { columns } = snapshot.sqlTable
-        for (const row of snapshot.sqlTable.rows) {
+        for (const row of snapshot.sqlTable.rows.slice(0, 12)) {
             rows.push({
                 label: String(row[0] ?? '–'),
                 value: row

@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { waitFor } from '@testing-library/react-native'
-import { ApiError } from '@/api/client'
+import { resetBudgets, trySpend } from '@/api/budget'
+import { ApiError, apiJson } from '@/api/client'
 import type { InsightApi, InsightBasicApi } from '@/api/insights'
 import type { PaginatedApi } from '@/api/reports'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
@@ -112,6 +113,7 @@ describe('chart widget sync', () => {
     beforeEach(() => {
         // A sync without a cached pin list prefetches it, so no test may reach the network.
         viewsQueue.reset()
+        resetBudgets()
         fetchMock.mockReset()
         fetchMock.mockResolvedValue(json(404, { detail: 'Not found.' }))
         globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -382,5 +384,40 @@ describe('chart widget sync', () => {
 
         expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').projectId).toBe(3)
         expect(fetchMock).not.toHaveBeenCalled()
+    })
+    it('paces background metadata and leaves capacity for a foreground read', async () => {
+        jest.useFakeTimers()
+        try {
+            signIn(KEY)
+            const client = testClient()
+            client.setQueryData(viewsKeys.shortcuts({ host: HOST, projectId: 2 }), {
+                count: 2,
+                next: null,
+                results: [shortcut('a', 'a'), shortcut('b', 'b')],
+            })
+            for (let i = 0; i < 29; i++) expect(trySpend('insights')).toBe(true)
+            fetchMock.mockImplementation(async () =>
+                json(200, {
+                    id: 123,
+                    short_id: 'a',
+                    query: { kind: 'TrendsQuery', series: [] },
+                    result: [],
+                })
+            )
+            stop = startChartWidgetSync(client)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+            await apiJson('/api/projects/2/insights/foreground/')
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(999)
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(1001)
+            expect(fetchMock).toHaveBeenCalledTimes(3)
+            await syncWidgetCatalog(client)
+        } finally {
+            stop?.()
+            await jest.advanceTimersByTimeAsync(0)
+            jest.useRealTimers()
+        }
     })
 })

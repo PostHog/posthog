@@ -65,9 +65,7 @@ export interface AuthState {
     signOut: () => Promise<void>
 }
 
-/** Refresh at launch when the access token has less than this left, so the first requests do not all 401. */
-const RESTORE_REFRESH_MARGIN_MS = 60_000
-/** Refresh on foreground when the access token has less than this left, so the home screen widget's copy stays valid. */
+/** Refresh at launch or on foreground when the access token has less than this left, so the home screen widget's copy stays valid. */
 const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 
 type SignOutTask = () => Promise<undefined | (() => void)>
@@ -316,7 +314,7 @@ export const useAuthStore = create<AuthState>()(
                         if (
                             tokens.kind === 'oauth' &&
                             tokens.expiresAt !== null &&
-                            tokens.expiresAt - Date.now() < RESTORE_REFRESH_MARGIN_MS
+                            tokens.expiresAt - Date.now() < FOREGROUND_REFRESH_MARGIN_MS
                         ) {
                             try {
                                 if ((await refreshAccessToken()) === null) {

@@ -1,5 +1,6 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
+import { backgroundReadDelay } from '@/api/budget'
 import { ApiError } from '@/api/client'
 import { type InsightBasicApi, readInsight as readInsightResponse } from '@/api/insights'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
@@ -16,6 +17,7 @@ import { featureAccessFor, useScopeErrorStore } from '@/features/views/useViewsA
 import { overrideKey, viewsKeys } from '@/features/views/viewsCache'
 import { abortError } from '@/lib/abort'
 import { track } from '@/lib/analytics'
+import { sleep } from '@/lib/sleep'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { pinsFromShortcuts } from '@/model/adapters/viewPins'
 import type { InsightSnapshot, PinView } from '@/model/views'
@@ -58,6 +60,7 @@ let cleared = false
 // A catalog sync that started before a clear must not write the catalog of the session that ended.
 let clearEpoch = 0
 let catalogController: AbortController | null = null
+let nextMetadataReadAt = 0
 // Keyed by `{host}|{project id}|{short_id}`: insights the server no longer returns, so a sync does not ask again.
 const missingInsights = new Set<string>()
 const prefetchedPinLists = new Set<string>()
@@ -120,6 +123,7 @@ export function clearWidgetState(): void {
     writtenCatalogProject = null
     clearEpoch += 1
     catalogController?.abort()
+    nextMetadataReadAt = 0
     prefetchedPinLists.clear()
     missingInsights.clear()
     if (!isAvailable()) {
@@ -231,10 +235,18 @@ async function readInsight(
     signal: AbortSignal
 ): Promise<WidgetPinInsight | null> {
     // `projectPath()` reads the project when the request starts, so the session must still be the one the pins are from.
-    const response = await listRead('insights', signal, () => {
+    const response = await listRead('insights', signal, async () => {
+        for (
+            let delay = Math.max(nextMetadataReadAt - Date.now(), backgroundReadDelay('insights'));
+            delay > 0;
+            delay = Math.max(nextMetadataReadAt - Date.now(), backgroundReadDelay('insights'))
+        ) {
+            await sleep(delay, signal)
+        }
         if (signal.aborted || !isCurrent()) {
             throw abortError()
         }
+        nextMetadataReadAt = Date.now() + 1000
         return readInsightResponse(
             { shortId, id: pin.display.insightId },
             {
@@ -283,7 +295,7 @@ async function pinMetadata(
             metadata.set(pin.shortcutId, cached)
         }
     }
-    // One at a time, so a first sync of many pins does not take a burst of the insights budget from the Views list.
+    // Pace catalog reads and reserve half the shared budget for foreground Views requests.
     for (const [pinId, { shortId, pin }] of unread) {
         try {
             metadata.set(pinId, await readInsight(client, scope, pin, shortId, isCurrent, signal))

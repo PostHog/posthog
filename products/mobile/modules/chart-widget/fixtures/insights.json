@@ -735,5 +735,99 @@
             "axisLowText": "$3.00",
             "axisHighText": "$5.00"
         }
+    },
+    {
+        "name": "SQL table keeps text columns and table formatting",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Example",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select example"
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "columns": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "number",
+                                    "prefix": "$"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "chartSettings": {
+                    "yAxis": [
+                        {
+                            "column": "count",
+                            "settings": {
+                                "formatting": {
+                                    "style": "percent"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "columns": ["plan", "count", "status"],
+            "types": [["plan", "String"], ["count", "UInt64"], ["status", "String"]],
+            "result": [["Starter", 12, "active"]],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "rows",
+            "rowCount": 1,
+            "firstRowValue": "$12 \u00b7 active"
+        }
+    },
+    {
+        "name": "SQL hourly bars ignore collection axes",
+        "response": {
+            "id": 101,
+            "short_id": "example1",
+            "name": "Example",
+            "derived_name": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select example"
+                },
+                "display": "ActionsBar"
+            },
+            "columns": ["dates", "at", "counts", "count"],
+            "types": [
+                ["dates", "Array(Date)"],
+                ["at", "Nullable(DateTime)"],
+                ["counts", "Array(UInt64)"],
+                ["count", "LowCardinality(Nullable(UInt64))"]
+            ],
+            "result": [
+                [["2026-11-02"], "2026-11-02 10:00:00", [9], 3],
+                [["2026-11-02"], "2026-11-02 11:00:00", [8], 5]
+            ],
+            "last_refresh": null,
+            "cache_target_age": null,
+            "next_allowed_client_refresh": null
+        },
+        "expected": {
+            "display": "chart",
+            "seriesCount": 1,
+            "firstAt": "2026-11-02 10:00:00",
+            "firstValue": 3,
+            "lastValue": 5,
+            "intervalLabel": "hour",
+            "axisLowText": "0",
+            "axisHighText": "5"
+        }
     }
 ]
