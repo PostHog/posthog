@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+import redis
 import structlog
 
 from posthog.clickhouse.client.connection import Workload
@@ -25,6 +26,8 @@ logger = structlog.get_logger(__name__)
 
 # Long past the time the first status row takes to reach the table, so a slow consumer still reads as queued.
 _ACCEPTED_SEND_TTL = timedelta(minutes=10)
+# The record is optional, so a stalled Redis must never hold up the send's reply or a status read for long.
+_ACCEPTED_SEND_REDIS_TIMEOUT_SECONDS = 0.5
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
 _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
@@ -51,6 +54,13 @@ def queued_at(message_id: UUID) -> datetime | None:
     return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
 
 
+def _accepted_send_redis() -> redis.Redis:
+    return get_client(
+        socket_timeout=_ACCEPTED_SEND_REDIS_TIMEOUT_SECONDS,
+        socket_connect_timeout=_ACCEPTED_SEND_REDIS_TIMEOUT_SECONDS,
+    )
+
+
 def _accepted_send_key(team_id: int, message_id: str) -> str:
     return f"messaging:transactional_email:accepted:{team_id}:{message_id}"
 
@@ -58,7 +68,7 @@ def _accepted_send_key(team_id: int, message_id: str) -> str:
 def record_accepted_send(team_id: int, message_id: str) -> None:
     """Remember that the pipeline queued this send, so its status reads as queued before the first row arrives."""
     try:
-        get_client().set(_accepted_send_key(team_id, message_id), 1, ex=_ACCEPTED_SEND_TTL)
+        _accepted_send_redis().set(_accepted_send_key(team_id, message_id), 1, ex=_ACCEPTED_SEND_TTL)
     except Exception:
         # The email is already queued, so a lost record only brings back the short 404 window.
         logger.warning("transactional_email_accepted_send_not_recorded", team_id=team_id, exc_info=True)
@@ -66,7 +76,7 @@ def record_accepted_send(team_id: int, message_id: str) -> None:
 
 def _was_accepted(team_id: int, message_id: UUID) -> bool:
     try:
-        return bool(get_client().exists(_accepted_send_key(team_id, str(message_id))))
+        return bool(_accepted_send_redis().exists(_accepted_send_key(team_id, str(message_id))))
     except Exception:
         logger.warning("transactional_email_accepted_send_not_read", team_id=team_id, exc_info=True)
         return False
