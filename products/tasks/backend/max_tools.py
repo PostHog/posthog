@@ -171,6 +171,14 @@ Use this tool when the user wants to:
                 report_id=admission_task.signal_report_source_id,
                 mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
             )
+            if trial_admission is None and admission_task.uses_self_driving_billing("background"):
+                tasks_facade.enforce_self_driving_pr_quota(
+                    self._team,
+                    report_id=str(admission_task.signal_report_source_id)
+                    if admission_task.signal_report_source_id
+                    else None,
+                    stage="task_tool",
+                )
 
             with transaction.atomic():
                 if trial_admission is not None:
