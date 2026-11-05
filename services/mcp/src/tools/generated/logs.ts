@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
 import hooks_logsAttributeValuesList from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsFacetValuesCreate from '@/tools/logs/redactCredentialsHooks'
+import hooks_logsImpact from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatterns from '@/tools/logs/redactCredentialsHooks'
 import hooks_logsPatternsDiff from '@/tools/logs/redactCredentialsHooks'
 import hooks_queryLogs from '@/tools/logs/redactCredentialsHooks'
@@ -730,19 +731,22 @@ const LogsImpactSchema = () => {
 const logsImpact = (): ToolBase<ReturnType<typeof LogsImpactSchema>, Schemas._LogsImpactResponse> => ({
     name: 'logs-impact',
     schema: LogsImpactSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsImpactSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
+    handler: withToolHooks(
+        hooks_logsImpact,
+        async (context: Context, params: z.infer<ReturnType<typeof LogsImpactSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._LogsImpactResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/impact/`,
+                body: await transformRequestBody(hooks_logsImpact, context, params, body),
+            })
+            return result
         }
-        const result = await context.api.request<Schemas._LogsImpactResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/impact/`,
-            body,
-        })
-        return result
-    },
+    ),
 })
 
 const LogsPatternsSchema = () => {
