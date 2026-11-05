@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any, TypedDict
-from zoneinfo import ZoneInfo
 
 from django.db.models import Min
 
@@ -23,6 +22,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import relative_date_parse
 
@@ -58,49 +58,56 @@ SurveyStats = TypedDict(
 )
 
 
+@frozen
+class StatsWindow:
+    date_from: datetime | None
+    date_to: datetime | None
+
+    def __post_init__(self) -> None:
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("date_from must be before date_to")
+
+
 # relative_date_parse reads any unmatched string as "now", so only hand it inputs that are relative dates.
 RELATIVE_DATE = re.compile(r"-?\d*(?P<unit>[hdwmqy])(?:Start|End)?")
 CALENDAR_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def _parse_date(value: str, timezone_info: ZoneInfo, *, is_end: bool) -> datetime:
+def _parse_date(value: str, team: Team, *, is_end: bool) -> datetime:
     """Follows insight date ranges: a start snaps to the start of its day, an end to the end of its day, except for hours."""
     if relative := RELATIVE_DATE.fullmatch(value):
-        parsed = relative_date_parse(value, timezone_info, always_truncate=not is_end)
+        parsed = relative_date_parse(
+            value, team.timezone_info, always_truncate=not is_end, team_week_start_day=team.week_start_day
+        )
         whole_days = relative["unit"] != "h"
     else:
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone_info)
+            parsed = parsed.replace(tzinfo=team.timezone_info)
         whole_days = CALENDAR_DAY.fullmatch(value) is not None
     if is_end and whole_days:
         parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
     return parsed.astimezone(UTC)
 
 
-def validate_and_parse_dates(
-    date_from: str | None, date_to: str | None, timezone_info: ZoneInfo
-) -> tuple[datetime | None, datetime | None]:
+def validate_and_parse_dates(date_from: str | None, date_to: str | None, team: Team) -> StatsWindow:
     """Parse ISO timestamps, calendar days or relative dates (`-7d`, `-24h`, `mStart`) to UTC datetimes.
 
-    Naive and relative inputs are read in `timezone_info`, the project's timezone.
+    Naive and relative inputs are read in the project's timezone, and weeks start on its week start day.
     Raises ``ValueError`` on parse failures and inverted ranges so callers in non-REST contexts
     (e.g. the dashboard widget) receive a standard Python exception. The REST viewset re-raises
     it as ``rest_framework.exceptions.ValidationError``.
     """
     try:
-        parsed_from = _parse_date(date_from, timezone_info, is_end=False) if date_from else None
-        parsed_to = _parse_date(date_to, timezone_info, is_end=True) if date_to else None
+        parsed_from = _parse_date(date_from, team, is_end=False) if date_from else None
+        parsed_to = _parse_date(date_to, team, is_end=True) if date_to else None
     except (ValueError, OverflowError) as exc:
         raise ValueError(
             "Invalid date format. Use an ISO 8601 timestamp with timezone (e.g. 2024-01-01T00:00:00Z) "
             "or a relative date such as -7d, -24h or -1m."
         ) from exc
 
-    if parsed_from and parsed_to and parsed_from > parsed_to:
-        raise ValueError("date_from must be before date_to")
-
-    return parsed_from, parsed_to
+    return StatsWindow(date_from=parsed_from, date_to=parsed_to)
 
 
 def _isoformat_utc_z(value: datetime | None) -> str | None:
@@ -225,7 +232,7 @@ def get_survey_stats(
     to the survey's own start/end window.
     """
     team = Team.objects.get(pk=team_id)
-    parsed_from, parsed_to = validate_and_parse_dates(date_from, date_to, team.timezone_info)
+    window = validate_and_parse_dates(date_from, date_to, team)
 
     # Bare events.person_id: no override join; merged persons count per pre-merge id.
     modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
@@ -235,8 +242,8 @@ def get_survey_stats(
         "sent": ast.Constant(value=SurveyEventName.SENT.value),
     }
     conditions: list[str] = []
-    effective_from = parsed_from
-    effective_to = parsed_to
+    effective_from = window.date_from
+    effective_to = window.date_to
 
     if survey_id:
         survey_dates = (
@@ -248,10 +255,10 @@ def get_survey_stats(
             survey_end = survey_dates["end_date"]
 
             if survey_start:
-                effective_from = max(filter(None, [parsed_from, survey_start]), default=survey_start)
+                effective_from = max(filter(None, [window.date_from, survey_start]), default=survey_start)
 
             if survey_end:
-                effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
+                effective_to = min(filter(None, [window.date_to, survey_end]), default=survey_end)
 
     date_conditions = ""
     if effective_from:

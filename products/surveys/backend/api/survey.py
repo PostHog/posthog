@@ -96,6 +96,7 @@ from products.surveys.backend.models import (
     ensure_question_ids,
 )
 from products.surveys.backend.responses import (
+    StatsWindow,
     SurveyRates,
     SurveyStats,
     build_choice_translation_map,
@@ -1139,7 +1140,8 @@ def _free_name_hint(name: str, project_id: int) -> str:
         Survey.objects.filter(team__project_id=project_id, name__startswith=name).values_list("name", flat=True)
     )
     free_name = next(candidate for n in itertools.count(2) if (candidate := f"{name} ({n})") not in taken)
-    if len(free_name) > Survey._meta.get_field("name").max_length:
+    max_length = Survey._meta.get_field("name").max_length
+    if max_length is not None and len(free_name) > max_length:
         return "Use a different name."
     return f'Use a different name, such as "{free_name}".'
 
@@ -2705,11 +2707,9 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         counts = get_survey_responses_count(team=self.team, exclude_archived=exclude_archived, survey_ids=survey_ids)
         return Response(counts)
 
-    def _validate_and_parse_dates(
-        self, date_from: str | None, date_to: str | None
-    ) -> tuple[datetime | None, datetime | None]:
+    def _validate_and_parse_dates(self, date_from: str | None, date_to: str | None) -> StatsWindow:
         try:
-            return validate_and_parse_dates(date_from, date_to, self.team.timezone_info)
+            return validate_and_parse_dates(date_from, date_to, self.team)
         except ValueError as exc:
             raise exceptions.ValidationError(str(exc)) from exc
 
@@ -2831,8 +2831,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         response_data["end_date"] = survey.end_date
 
         if include_per_question_stats:
-            from_ts, to_ts = self._validate_and_parse_dates(date_from, date_to)
-            per_question = fetch_per_question_stats(survey=survey, team=self.team, since=from_ts, until=to_ts)
+            window = self._validate_and_parse_dates(date_from, date_to)
+            per_question = fetch_per_question_stats(
+                survey=survey, team=self.team, since=window.date_from, until=window.date_to
+            )
             response_data["per_question_stats"] = [
                 {
                     "question_id": q.question_id,
