@@ -60,8 +60,14 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading, billing, isExternallyBilled, productAnalyticsFreePlan } =
-        useValues(billingLogic)
+    const {
+        unsubscribeError,
+        billingLoading,
+        billing,
+        isExternallyBilled,
+        productAnalyticsFreePlan,
+        productAnalyticsPaidPlan,
+    } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
@@ -86,6 +92,9 @@ export const UnsubscribeSurveyModal = ({
         productsToDeactivate === 'all_products' ||
         productsToDeactivate === ProductKey.PRODUCT_ANALYTICS ||
         isPlatformAndSupportAddon(product)
+    const productAnalyticsPlanAfterChange = isPlatformAndSupportAddon(product)
+        ? productAnalyticsPaidPlan
+        : productAnalyticsFreePlan
 
     const handleUnsubscribe = (): void => {
         if (surveyResponse['$survey_response_2'].includes('Not enough hedgehogs')) {
@@ -224,7 +233,7 @@ export const UnsubscribeSurveyModal = ({
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
                         {endsProductAnalyticsPlan && (
                             <GrandfatheredEventsRetentionNotice
-                                retentionMonths={longestEventsRetentionMonths([productAnalyticsFreePlan])}
+                                retentionMonths={longestEventsRetentionMonths([productAnalyticsPlanAfterChange])}
                             />
                         )}
 
