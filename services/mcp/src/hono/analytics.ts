@@ -342,6 +342,13 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
+// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'workflows-transactional-emails-list',
+    'workflows-transactional-email-get',
+])
+
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
@@ -352,6 +359,18 @@ function sendsEmailContent(toolName: string, input: unknown): boolean {
     // posthog-connection-call, or a command exec rejects, still carries the email body.
     const command = (input as { command?: unknown } | null | undefined)?.command
     return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+}
+
+function readsEmailRecipients(toolName: string, input: unknown): boolean {
+    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        [...EMAIL_RECIPIENT_TOOL_NAMES].some((name) => command.includes(name))
+    )
 }
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
@@ -374,6 +393,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    if (readsEmailRecipients(toolName, input)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

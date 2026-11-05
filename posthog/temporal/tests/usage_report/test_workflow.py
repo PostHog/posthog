@@ -48,6 +48,7 @@ from posthog.temporal.usage_report.types import (
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
     BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME,
+    LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     MCP_EVENT_COUNT_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
@@ -58,6 +59,7 @@ from posthog.temporal.usage_report.workflow import (
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
     _queries_for_business_knowledge_usage_patch,
+    _queries_for_local_evaluation_not_modified_patch,
     _queries_for_logs_distinct_patterns_patch,
     _queries_for_mcp_event_count_patch,
     _queries_for_replay_vision_spend_projection_patch,
@@ -68,6 +70,7 @@ from posthog.temporal.usage_report.workflow import (
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
     LEGACY_QUERY_NAMES,
+    PLAN_DEFERRED_COUNTERS,
     UsageCounter,
     UsageCounterMode,
     UsageCounterPlan,
@@ -90,6 +93,11 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
         ),
         ("business_knowledge_usage", _queries_for_business_knowledge_usage_patch, BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME),
+        (
+            "local_evaluation_not_modified",
+            _queries_for_local_evaluation_not_modified_patch,
+            LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
+        ),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(
@@ -471,6 +479,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
         assert plans[0].modes == {
             counter: expected_mode if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
             for counter in UsageCounter
+            if counter not in PLAN_DEFERRED_COUNTERS
         }
     assert aggregate_payloads[0].ctx.usage_counter_plan == (plans[0] if plans else None)
 
