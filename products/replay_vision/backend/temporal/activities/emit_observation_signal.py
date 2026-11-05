@@ -43,6 +43,8 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
         if observation is None:
             return []
         snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
+        # The scanner's `emits_signals` flag is the per-source authorization — there's no separate
+        # SignalSourceConfig to consult (the facade allows replay_vision/scanner_finding unconditionally).
         if not snapshot.emits_signals:
             return []
         # Observation-wide metadata, shared by every finding. `scanner_name`/`scanner_type` come from the
@@ -80,7 +82,7 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
             if signal.confidence < MIN_SIGNAL_CONFIDENCE:
                 continue
             try:
-                was_emitted = async_to_sync(emit_signal)(
+                async_to_sync(emit_signal)(
                     team=observation.team,
                     source_product=VISION_SIGNALS_SOURCE_PRODUCT,
                     source_type=VISION_SIGNALS_SOURCE_TYPE,
@@ -99,14 +101,13 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
                         "url": signal.url,
                     },
                 )
-                if was_emitted:
-                    emitted.append(
-                        EmittedSignal(
-                            problem_type=signal.problem_type,
-                            headline=signal.headline,
-                            confidence=signal.confidence,
-                        )
+                emitted.append(
+                    EmittedSignal(
+                        problem_type=signal.problem_type,
+                        headline=signal.headline,
+                        confidence=signal.confidence,
                     )
+                )
                 # Findings go out one network call at a time, so beat between them.
                 activity.heartbeat({"emitted": len(emitted), "index": index})
             except Exception:

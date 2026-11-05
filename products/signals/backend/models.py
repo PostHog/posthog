@@ -169,12 +169,7 @@ class SignalSourceConfig(UUIDModel):
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
-            return not cls.objects.filter(
-                team_id=team_id,
-                source_product=source_product,
-                source_type=source_type,
-                admin_disabled=True,
-            ).exists()
+            return True
 
         # Verification emits these internal signals without a source config. The team's authored
         # checks supply the opt-in; Monitoring requests also enforce their rollout gate.

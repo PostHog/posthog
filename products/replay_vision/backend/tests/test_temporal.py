@@ -4238,26 +4238,17 @@ class TestEmitObservationSignalActivity:
         assert "recording_start_time" not in extra
         assert "distinct_id" not in extra
 
-    @pytest.mark.parametrize("emission_results", [(True, True), (True, False), (False, True), (False, False)])
-    def test_emits_one_signal_per_finding_with_unique_source_ids(self, emission_results: tuple[bool, bool]) -> None:
+    def test_emits_one_signal_per_finding_with_unique_source_ids(self) -> None:
         scanner = _make_scanner(emits_signals=True)
         observation = _make_observation(scanner)
-        signals = [
-            self._signal(headline="First finding", url="/one"),
-            self._signal(headline="Second finding", url="/two"),
-            self._signal(confidence=0.2, url="/low"),
-        ]
+        signals = [self._signal(url="/one"), self._signal(url="/two"), self._signal(confidence=0.2, url="/low")]
 
         with (
-            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock, side_effect=emission_results) as mock_emit,
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
             patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
         ):
-            emitted = ActivityEnvironment().run(
-                emit_observation_signal_summaries_activity, self._inputs(observation, signals=signals)
-            )
-            assert [signal.headline for signal in emitted] == [
-                signal.headline for signal, accepted in zip(signals, emission_results) if accepted
-            ]
+            # Two emitted; the 0.2-confidence finding is below the floor and skipped.
+            assert _emitted_problem_types(self._inputs(observation, signals=signals)) == ["bug", "bug"]
 
         calls = mock_emit.await_args_list
         assert [c.kwargs["source_id"] for c in calls] == [
@@ -4306,6 +4297,7 @@ class TestEmitObservationSignalActivity:
         mock_emit.assert_awaited_once()
 
     def test_emits_without_any_source_config(self) -> None:
+        # Scanner findings are self-authorizing via the snapshot flag — no SignalSourceConfig is read or written.
         scanner = _make_scanner(emits_signals=True)
         observation = _make_observation(scanner)
 

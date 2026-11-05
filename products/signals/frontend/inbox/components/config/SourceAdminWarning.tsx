@@ -3,7 +3,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 
-import type { SignalSourceConfig, SignalSourceProduct } from '../../types'
+import { type SignalSourceConfig, SignalSourceProduct } from '../../types'
 
 export function SourceAdminWarning({
     sourceConfigs,
@@ -16,7 +16,7 @@ export function SourceAdminWarning({
 }): JSX.Element | null {
     const configs = sourceConfigs?.filter((config) => config.source_product === sourceProduct) ?? []
     const disabledConfigs = configs.filter((config) => config.admin_disabled)
-    if (disabledConfigs.length === 0) {
+    if (sourceProduct === SignalSourceProduct.ReplayVision || disabledConfigs.length === 0) {
         return null
     }
 

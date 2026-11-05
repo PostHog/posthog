@@ -839,10 +839,8 @@ class TestIsSourceEnabledGating(APIBaseTest):
     def test_pganalyze_disabled_when_no_config(self):
         assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False
 
-    @parameterized.expand([("no_row", None, True), ("admin_allowed", False, True), ("admin_disabled", True, False)])
-    def test_replay_vision_scanner_finding_is_self_authorizing(
-        self, _name: str, admin_disabled: bool | None, expected: bool
-    ) -> None:
+    @parameterized.expand([("no_row", None), ("admin_allowed", False), ("admin_disabled_ignored", True)])
+    def test_replay_vision_scanner_finding_is_self_authorizing(self, _name: str, admin_disabled: bool | None) -> None:
         if admin_disabled is not None:
             SignalSourceConfig.objects.create(
                 team=self.team,
@@ -850,7 +848,7 @@ class TestIsSourceEnabledGating(APIBaseTest):
                 source_type="scanner_finding",
                 admin_disabled=admin_disabled,
             )
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is expected
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
 
     @parameterized.expand(
         [
