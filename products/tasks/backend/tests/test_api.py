@@ -3852,6 +3852,86 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
+    @parameterized.expand(
+        [
+            ("refused_origin_without_repository", Task.OriginProduct.WORKFLOW, "github_integration", [], None, False),
+            (
+                "refused_origin_removing_its_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                ["posthog/posthog"],
+                [],
+                False,
+            ),
+            (
+                "refused_origin_adding_a_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                [],
+                ["posthog/posthog"],
+                True,
+            ),
+            (
+                "opted_in_origin_without_repository",
+                Task.OriginProduct.USER_CREATED,
+                "github_integration",
+                [],
+                None,
+                True,
+            ),
+            (
+                "refused_origin_personal_integration_only",
+                Task.OriginProduct.WORKFLOW,
+                "github_user_integration",
+                [],
+                None,
+                False,
+            ),
+            (
+                "opted_in_origin_personal_integration_only",
+                Task.OriginProduct.USER_CREATED,
+                "github_user_integration",
+                [],
+                None,
+                True,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=[])
+    def test_patch_attaches_github_only_where_create_would(
+        self,
+        _name: str,
+        origin_product: Task.OriginProduct,
+        patched_field: str,
+        repositories: list[str],
+        patched_repositories: list[str] | None,
+        attaches_github: bool,
+        _mock_repository_access: MagicMock,
+    ):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Task",
+            description="Task",
+            origin_product=origin_product,
+            repository=repositories[0] if repositories else None,
+            repositories=repositories,
+            github_integration=integration if repositories else None,
+        )
+        patched_id = (
+            _grant_user_github_access(self.user).id if patched_field == "github_user_integration" else integration.id
+        )
+        body: dict = {patched_field: str(patched_id)}
+        if patched_repositories is not None:
+            body["repositories"] = patched_repositories
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(getattr(task, f"{patched_field}_id"), patched_id if attaches_github else None)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -5106,6 +5186,47 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.github_integration_id, integration.id)
         self.assertIsNone(task.github_user_integration_id)
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (endpoint, available, is_creator)
+            for endpoint in ("runs", "run")
+            for available in ("user_integration", "team_integration_only", "existing_team_integration")
+            for is_creator in (True, False)
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoints_reject_user_authorship_for_refused_repo_less_task(
+        self, endpoint, available, is_creator, mock_workflow
+    ):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        creator = self.user if is_creator else self.create_organization_user("task-creator")
+        if available == "user_integration":
+            _grant_user_github_access(creator)
+        task = self.create_task(created_by=creator)
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.github_integration = integration if available == "existing_team_integration" else None
+        task.save(update_fields=["origin_product", "github_integration"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{endpoint}/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        self.assertFalse(task.runs.exists())
+        task.refresh_from_db()
+        self.assertEqual(
+            task.github_integration_id, integration.id if available == "existing_team_integration" else None
+        )
+        self.assertIsNone(task.github_user_integration_id)
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

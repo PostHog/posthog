@@ -22,6 +22,15 @@ jest.mock('react-native-reserved-regions', () => ({
     useReservedRegionsReady: () => true,
 }))
 
+// Use a deterministic 12-hour device preference, matching the en-US locale in Expo's mock.
+jest.mock('expo-localization', () => {
+    const localization = jest.requireActual<typeof import('expo-localization')>('expo-localization')
+    return {
+        ...localization,
+        getCalendars: jest.fn(() => [{ ...localization.getCalendars()[0], uses24hourClock: false }]),
+    }
+})
+
 jest.mock('expo-network', () => ({
     ...jest.requireActual<typeof import('expo-network')>('expo-network'),
     addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),

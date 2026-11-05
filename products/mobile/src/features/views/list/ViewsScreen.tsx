@@ -2,6 +2,7 @@ import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ViewInstance } from 'react-native'
 import { type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
+import { GestureDetector } from 'react-native-gesture-handler'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -50,8 +51,10 @@ import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
 import { PinCard } from './PinCard'
+import { PinDragOverlay, PinDragTile } from './PinDragOverlay'
 import { PinHint } from './PinHint'
 import { PinScrollAnchor, pinAnchorOffset } from './PinScrollAnchor'
+import { usePinDrag } from './usePinDrag'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { PinMenu, RowMenu } from './ViewsMenu'
@@ -150,6 +153,7 @@ function ViewsBody(): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
+    const focused = useIsFocused()
     const insets = useScreenInsets()
     const now = useNow()
     const context = useViewsContext()
@@ -251,6 +255,22 @@ function ViewsBody(): ReactElement {
         explicit: list.displayPrefs,
         enabled: !editing && !search.active,
     })
+    const drag = usePinDrag({
+        pins,
+        enabled: focused && !editing && !search.active && !text && !chooseTile,
+        scope: `${context.identity}|${context.dataScope}`,
+        width,
+        top: contentTop,
+        bottom: bottomOffset(insets, 120),
+        metrics: scrollMetrics,
+        scrollTo: (y) => listRef.current?.getScrollResponder()?.scrollTo({ y, animated: false }),
+        onStart: () => {
+            cancelAnchorRestore()
+            setMenu(null)
+            motion.onScroll()
+        },
+        onReorder: (ids) => actions.reorder(ids),
+    })
     const hintTargetId = hint.target?.shortcutId ?? null
     const { dismiss: dismissHint } = hint
 
@@ -275,6 +295,7 @@ function ViewsBody(): ReactElement {
         viewable.current.list(expanded)
         viewable.current.budget(expanded)
         scheduleAnchorRestore()
+        drag.measureAll()
     }).current
 
     // Row callbacks read the latest values through a ref, so they stay stable and memoized cards skip re-rendering.
@@ -675,15 +696,17 @@ function ViewsBody(): ReactElement {
                         >
                             {item.items.map((pin) => (
                                 <View key={pin.key} style={[{ flex: 1, minWidth: 0 }, !pin.last && styles.pinGap]}>
-                                    <PinCard
-                                        pin={pin.pin}
-                                        index={pin.index}
-                                        onOpen={openPin}
-                                        onMenu={openPinMenu}
-                                        onChooseTile={chooseTileFromCard}
-                                        onUnpin={unpinFromCard}
-                                        onPressTooltip={openPinPoint}
-                                    />
+                                    <PinDragTile id={pin.shortcutId} drag={drag}>
+                                        <PinCard
+                                            pin={pin.pin}
+                                            index={pin.index}
+                                            onOpen={openPin}
+                                            onMenu={openPinMenu}
+                                            onChooseTile={chooseTileFromCard}
+                                            onUnpin={unpinFromCard}
+                                            onPressTooltip={openPinPoint}
+                                        />
+                                    </PinDragTile>
                                 </View>
                             ))}
                         </View>
@@ -697,15 +720,17 @@ function ViewsBody(): ReactElement {
                             ref={(node) => setPinRow([item.shortcutId], node)}
                             onLayout={() => onPinLayout([item.shortcutId])}
                         >
-                            <PinCard
-                                pin={item.pin}
-                                index={item.index}
-                                onOpen={openPin}
-                                onMenu={openPinMenu}
-                                onChooseTile={chooseTileFromCard}
-                                onUnpin={unpinFromCard}
-                                onPressTooltip={openPinPoint}
-                            />
+                            <PinDragTile id={item.shortcutId} drag={drag}>
+                                <PinCard
+                                    pin={item.pin}
+                                    index={item.index}
+                                    onOpen={openPin}
+                                    onMenu={openPinMenu}
+                                    onChooseTile={chooseTileFromCard}
+                                    onUnpin={unpinFromCard}
+                                    onPressTooltip={openPinPoint}
+                                />
+                            </PinDragTile>
                         </View>
                     )
                 case 'pin-hint':
@@ -747,6 +772,7 @@ function ViewsBody(): ReactElement {
             }
         },
         [
+            drag,
             setPinRow,
             onPinLayout,
             openPin,
@@ -860,73 +886,80 @@ function ViewsBody(): ReactElement {
         )
     } else {
         body = (
-            <SectionList
-                ref={listRef}
-                sections={displaySections}
-                keyExtractor={keyOf}
-                renderItem={renderItem}
-                onScrollToIndexFailed={({ averageItemLength, index }) => {
-                    if (!pinAnchor.current.restoration.target) return
-                    pinAnchor.current.restoration.fail()
-                    listRef.current?.getScrollResponder()?.scrollTo({ y: averageItemLength * index, animated: false })
-                }}
-                onContentSizeChange={(_width, height) => {
-                    scrollMetrics.current.contentHeight = height
-                    scheduleAnchorRestore()
-                }}
-                onLayout={(event) => {
-                    scrollMetrics.current.viewportHeight = event.nativeEvent.layout.height
-                    scheduleAnchorRestore()
-                }}
-                onScrollBeginDrag={cancelAnchorRestore}
-                renderSectionHeader={renderSectionHeader}
-                stickySectionHeadersEnabled={false}
-                ListHeaderComponent={
-                    <View style={styles.search}>
-                        <SearchField
-                            value={text}
-                            onChangeText={setText}
-                            placeholder="Search views"
-                            testID="views-search"
-                        />
-                    </View>
-                }
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                onViewableItemsChanged={onViewableItemsChanged}
-                viewabilityConfig={list.viewabilityConfig}
-                onScroll={(event) => {
-                    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-                    scrollMetrics.current = {
-                        offset: contentOffset.y,
-                        contentHeight: contentSize.height,
-                        viewportHeight: layoutMeasurement.height,
+            <GestureDetector gesture={drag.gesture}>
+                <SectionList
+                    ref={listRef}
+                    scrollEnabled={!drag.dragged}
+                    sections={displaySections}
+                    keyExtractor={keyOf}
+                    renderItem={renderItem}
+                    onScrollToIndexFailed={({ averageItemLength, index }) => {
+                        if (!pinAnchor.current.restoration.target) return
+                        pinAnchor.current.restoration.fail()
+                        listRef.current
+                            ?.getScrollResponder()
+                            ?.scrollTo({ y: averageItemLength * index, animated: false })
+                    }}
+                    onContentSizeChange={(_width, height) => {
+                        scrollMetrics.current.contentHeight = height
+                        scheduleAnchorRestore()
+                    }}
+                    onLayout={(event) => {
+                        scrollMetrics.current.viewportHeight = event.nativeEvent.layout.height
+                        scheduleAnchorRestore()
+                    }}
+                    onScrollBeginDrag={cancelAnchorRestore}
+                    renderSectionHeader={renderSectionHeader}
+                    stickySectionHeadersEnabled={false}
+                    ListHeaderComponent={
+                        <View style={styles.search}>
+                            <SearchField
+                                value={text}
+                                onChangeText={setText}
+                                placeholder="Search views"
+                                testID="views-search"
+                            />
+                        </View>
                     }
-                    motion.onScroll()
-                    scheduleAnchorRestore()
-                }}
-                scrollEventThrottle={16}
-                initialNumToRender={INITIAL_VISIBLE_ROWS}
-                windowSize={5}
-                removeClippedSubviews={Platform.OS === 'android'}
-                contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refresh.pulling}
-                        onRefresh={refresh.onPull}
-                        tintColor={colors.tertiary}
-                        progressBackgroundColor={colors.surface}
-                        colors={[colors.tertiary]}
-                        progressViewOffset={contentTop}
-                    />
-                }
-            />
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={list.viewabilityConfig}
+                    onScroll={(event) => {
+                        const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+                        scrollMetrics.current = {
+                            offset: contentOffset.y,
+                            contentHeight: contentSize.height,
+                            viewportHeight: layoutMeasurement.height,
+                        }
+                        motion.onScroll()
+                        scheduleAnchorRestore()
+                    }}
+                    scrollEventThrottle={16}
+                    initialNumToRender={INITIAL_VISIBLE_ROWS}
+                    windowSize={5}
+                    removeClippedSubviews={Platform.OS === 'android' && !drag.dragged}
+                    contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
+                    refreshControl={
+                        <RefreshControl
+                            enabled={!drag.dragged}
+                            refreshing={refresh.pulling}
+                            onRefresh={refresh.onPull}
+                            tintColor={colors.tertiary}
+                            progressBackgroundColor={colors.surface}
+                            colors={[colors.tertiary]}
+                            progressViewOffset={contentTop}
+                        />
+                    }
+                />
+            </GestureDetector>
         )
     }
 
     return (
-        <View style={styles.fill}>
+        <View ref={drag.root} collapsable={false} onLayout={drag.measureAll} style={styles.fill}>
             {body}
+            <PinDragOverlay drag={drag} />
             {menu?.kind === 'pin' && menuPin ? (
                 <PinMenuFor
                     pin={menuPin}
