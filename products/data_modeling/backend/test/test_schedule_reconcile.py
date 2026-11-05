@@ -34,6 +34,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
     OrganizationReconcileError,
     PlanFloorUnavailableError,
+    StaleScheduleError,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
     apply_saved_query_frequency_target,
@@ -664,7 +665,7 @@ class TestMaybeReconcileDag(BaseTest):
 
         self.assertCountEqual([call.args[0] for call in reconcile.call_args_list], [first, second])
 
-    def _reconcile_organization_with_stale_tier(self, delete_error):
+    def _reconcile_with_stale_tier(self, reconcile, delete_error):
         dag = self._dag_with_target()
         stale_id = tier_schedule_id(str(dag.id), H1)
 
@@ -677,16 +678,27 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=delete_error)),
         ):
             try:
-                reconcile_organization_dags(str(self.organization.id))
+                reconcile(dag)
             finally:
                 create.assert_called_once()
 
     def test_organization_reconcile_raises_when_a_stale_schedule_cannot_be_deleted(self):
         with self.assertRaises(OrganizationReconcileError):
-            self._reconcile_organization_with_stale_tier(RuntimeError("temporal down"))
+            self._reconcile_with_stale_tier(
+                lambda _dag: reconcile_organization_dags(str(self.organization.id)), RuntimeError("temporal down")
+            )
 
     def test_organization_reconcile_treats_a_stale_schedule_that_is_already_gone_as_deleted(self):
-        self._reconcile_organization_with_stale_tier(RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+        self._reconcile_with_stale_tier(
+            lambda _dag: reconcile_organization_dags(str(self.organization.id)),
+            RPCError("gone", RPCStatusCode.NOT_FOUND, b""),
+        )
+
+    def test_dag_retry_raises_when_a_stale_schedule_cannot_be_deleted(self):
+        with self.assertRaises(StaleScheduleError):
+            self._reconcile_with_stale_tier(
+                lambda dag: reconcile_dag_or_raise(str(dag.id), dag.team_id), RuntimeError("temporal down")
+            )
 
     def test_reconcile_command_tries_every_organization_then_fails(self):
         failing_dag = self._dag_with_target()

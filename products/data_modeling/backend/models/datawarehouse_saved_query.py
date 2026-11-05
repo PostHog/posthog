@@ -116,7 +116,7 @@ class NoSchedulableDagError(Exception):
 
 
 class SchedulingUnavailableError(Exception):
-    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
+    """Raised when Temporal is unreachable or the plan floor is unreadable, so a saved query can't be scheduled yet.
     The caller decides what to keep, because the saved query itself is not at fault."""
 
 
@@ -328,9 +328,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller. A Temporal outage propagates as
-        SchedulingUnavailableError and leaves is_materialized as it is: an outage says nothing
-        about the query, and the schedules that already back it keep running. Any other failure
+        A rejected frequency propagates to the caller. A Temporal outage or an unreadable plan floor
+        propagates as SchedulingUnavailableError and leaves is_materialized as it is: an outage says
+        nothing about the query, and the schedules that already back it keep running. Any other failure
         disables materialization, because the alternative is a query that reports itself
         materialized while nothing is scheduled to materialize it.
         """
@@ -340,6 +340,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         )
         from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
+            PlanFloorUnavailableError,
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
         )
@@ -397,7 +398,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
-                    bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
+                    try:
+                        bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
+                    except PlanFloorUnavailableError as e:
+                        raise SchedulingUnavailableError(
+                            f"The plan floor is unavailable to schedule saved query {self.id}"
+                        ) from e
                 # The interval must end up NULL: the node target is the only durable store of
                 # frequency intent.
                 if self.sync_frequency_interval is not None:
@@ -416,7 +422,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             raise
         except SchedulingUnavailableError as e:
             capture_exception(e, {"saved_query_id": self.id, "team_id": self.team_id})
-            logger.warning("schedule_materialization_temporal_unavailable", saved_query_id=str(self.id))
+            logger.warning("schedule_materialization_temporal_unavailable", saved_query_id=str(self.id), error=str(e))
             raise
         except Exception as e:
             capture_exception(
