@@ -214,13 +214,14 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     ).toHaveLength(0);
   });
 
-  it.each(
-    ["completed", "failed", "stopped"].flatMap((status) =>
-      [true, false].map((echo) => ({ status, echo })),
+  it.each([
+    ...["completed", "failed", "stopped"].flatMap((status) =>
+      [true, false].map((echo) => ({ status, echo, inline: false })),
     ),
-  )(
-    "waits for every sub-agent and the parent's reply when a worker $status (echo: $echo)",
-    async ({ status, echo }) => {
+    { status: "completed", echo: true, inline: true },
+  ])(
+    "waits for every sub-agent and the parent's reply when a worker $status (echo: $echo, inline: $inline)",
+    async ({ status, echo, inline }) => {
       const { agent, client } = makeAgent();
       const sessionId = "s-pending-subagents";
       const { query, input } = installFakeSession(agent, sessionId, true);
@@ -250,10 +251,12 @@ describe("ClaudeAcpAgent — task-notification results", () => {
         query,
         assistantMessage(sessionId, "waiting", "Research is pending."),
       );
-      await send(query, {
-        ...resultSuccess(sessionId, "initial"),
-        usage: { output_tokens: 3 },
-      });
+      if (!inline) {
+        await send(query, {
+          ...resultSuccess(sessionId, "initial"),
+          usage: { output_tokens: 3 },
+        });
+      }
       expect(settled).not.toHaveBeenCalled();
 
       for (const taskId of ["worker-a", "worker-b"]) {
@@ -280,11 +283,19 @@ describe("ClaudeAcpAgent — task-notification results", () => {
               : "Another worker remains.",
           ),
         );
-        await send(query, {
-          ...taskNotificationResult(sessionId, taskId, taskId),
-          usage: { output_tokens: 5 },
-        });
+        if (!inline) {
+          await send(query, {
+            ...taskNotificationResult(sessionId, taskId, taskId),
+            usage: { output_tokens: 5 },
+          });
+        }
         if (taskId === "worker-a") expect(settled).not.toHaveBeenCalled();
+      }
+      if (inline) {
+        await send(query, {
+          ...resultSuccess(sessionId, "initial"),
+          usage: { output_tokens: 13 },
+        });
       }
       expect(settled).toHaveBeenCalledOnce();
       await expect(prompt).resolves.toMatchObject({

@@ -1135,6 +1135,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
     interface SubagentReplyBatch {
       runId?: string;
+      inOriginalTurn: boolean;
       tasks: Map<string, string | undefined>;
     }
     const subagentReplyBatches: SubagentReplyBatch[] = [];
@@ -1633,6 +1634,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   }
                 }
               }
+            } else {
+              // Notifications consumed inside the original turn share its normal result.
+              for (let i = subagentReplyBatches.length - 1; i >= 0; i--) {
+                if (subagentReplyBatches[i]?.inOriginalTurn) {
+                  subagentReplyBatches.splice(i, 1);
+                  session.backgroundTurnActive = false;
+                }
+              }
             }
             const isSubagentContinuation =
               session.activeTurn != null && (subagentReply?.size ?? 0) > 0;
@@ -1960,6 +1969,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 }
                 subagentReplyBatches.push({
                   runId: origin?.runId,
+                  inOriginalTurn: !session.activeTurn.waitingForSubagents,
                   tasks: batch,
                 });
               }
