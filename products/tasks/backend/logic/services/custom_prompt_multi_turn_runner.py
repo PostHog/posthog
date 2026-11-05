@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import asyncio
 import logging
@@ -90,6 +91,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -103,6 +105,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -137,6 +140,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -148,6 +152,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
             files=files,
@@ -167,9 +172,9 @@ class MultiTurnSession:
                     e,
                 )
                 salvageable = False
-                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                last_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
                 salvageable = True
-                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -217,6 +222,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -229,6 +235,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -248,6 +255,9 @@ class MultiTurnSession:
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
 
+        `mcp_tool_allowlist` stamps the PostHog MCP tools the run picked. The API refuses a
+        write that no held tool calls. None leaves the run on its token scopes alone.
+
         `files` go into the sandbox before the first turn, and the first prompt lists
         their paths. Use them for text too long for the agent to pass on itself, such as
         the task of a sub-agent.
@@ -261,6 +271,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -268,6 +279,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             output_schema=output_schema,
@@ -337,13 +349,41 @@ class MultiTurnSession:
         *,
         label: str = "",
         validation_context: dict[str, object] | None = None,
+        json_retry_prompt: str | None = None,
+        max_json_retries: int = 1,
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
-        last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(
-            last_message, model, label=label or "followup", validation_context=validation_context
-        )
-        return parsed
+        """Correct invalid structured output on the same session, within the caller's retry budget."""
+        if max_json_retries < 0:
+            raise ValueError("max_json_retries must not be negative")
+        retry_count = 0
+        turn_message = message
+        turn_label = label
+        while True:
+            last_message = await self.send_followup_raw(turn_message, label=turn_label)
+            try:
+                return self._parse_and_validate(
+                    last_message, model, label=turn_label or "followup", validation_context=validation_context
+                )
+            except ValueError as error:
+                if json_retry_prompt is None or retry_count >= max_json_retries:
+                    raise
+                retry_count += 1
+                logger.warning(
+                    "multi_turn: followup did not validate against %s for run=%s label=%s, "
+                    "asking for corrected JSON (retry %d/%d, %s)",
+                    model.__name__,
+                    self.task_run.id,
+                    label,
+                    retry_count,
+                    max_json_retries,
+                    type(error).__name__,
+                )
+                turn_message = json_retry_prompt
+                if isinstance(error, ValidationError):
+                    turn_message += "\n\nCorrect these validation errors in your previous output:\n" + json.dumps(
+                        error.errors(include_input=False, include_context=False, include_url=False)
+                    )
+                turn_label = f"{label or 'followup'} json retry {retry_count}"
 
     async def send_followup_raw(
         self,

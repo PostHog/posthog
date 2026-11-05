@@ -51,13 +51,16 @@ def deciding_rule(index: RuleIndex, subject: Subject, surface: Surface, now: dat
     if effect == "block" and is_protected_domain(subject.domain):
         return None
     allowed_targets = SURFACE_TARGET_TYPES.get(surface)
-    for rule in candidates(index, subject):
-        if (
-            rule.effect == effect
-            and (allowed_targets is None or rule.target_type in allowed_targets)
-            and surface in SCOPE_SURFACES.get(rule.scope, frozenset())
-            and _is_active(rule, now)
-            and rule_matches(rule, subject)
-        ):
-            return rule
-    return None
+    # Only blocks read the look-alike form: an exemption for one mailbox must not cover a different spelling.
+    variants = [subject] if effect != "block" or subject.lookalike is None else [subject, subject.lookalike]
+    matched = [
+        rule
+        for variant in variants
+        for rule in candidates(index, variant)
+        if rule.effect == effect
+        and (allowed_targets is None or rule.target_type in allowed_targets)
+        and surface in SCOPE_SURFACES.get(rule.scope, frozenset())
+        and _is_active(rule, now)
+        and rule_matches(rule, variant)
+    ]
+    return min(matched, key=lambda rule: rule.id, default=None)

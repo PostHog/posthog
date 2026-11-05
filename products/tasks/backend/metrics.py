@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.metrics import pushed_metrics_registry
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -57,6 +59,26 @@ TASK_RUN_CREATED_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_started_beside_live_run_total",
+    "Cloud TaskRuns started while another cloud run of the same task was still live",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
+)
+
+TASK_CONTRACT_VIOLATION_TOTAL = Counter(
+    "posthog_tasks_contract_violation_total",
+    "Task profile checks that a call failed. A profile that enforces the check refuses the call. Any other profile only counts it.",
+    labelnames=["check", "profile"],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -71,6 +93,12 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "outcome",
         "reason",
     ],
+)
+
+SANDBOX_RUN_START_TOTAL = Counter(
+    "posthog_tasks_sandbox_run_start_total",
+    "Run starts requested by task sandboxes, by endpoint and outcome",
+    labelnames=["endpoint", "outcome"],
 )
 
 TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
@@ -134,13 +162,6 @@ SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS = Gauge(
     "Age of the oldest due scheduled task run",
 )
 
-AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
-    "posthog_tasks_agent_otel_telemetry_stamped_total",
-    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
-    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
-    labelnames=["enabled"],
-)
-
 RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
     "posthog_tasks_run_log_mirror_entries_total",
     "Task-run log entries mirrored to stdout for the internal Logs project (run_log_mirror).",
@@ -188,6 +209,14 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+# Counted once per run on the terminal status write. TASK_RUN_FAILED_TOTAL only sees failures
+# that raise, so it misses runs the workflow fails directly, such as an agent lost mid-turn.
+TASK_RUN_TERMINAL_TOTAL = Counter(
+    "posthog_tasks_task_run_terminal_total",
+    "TaskRun terminal status transitions",
+    labelnames=["origin_product", "run_environment", "status", "error_type", "termination_reason"],
 )
 
 CUSTOM_IMAGE_BUILD_TOTAL = Counter(
@@ -344,6 +373,18 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+ACTIVE_SESSION_CAP_HITS_TOTAL = Counter(
+    "posthog_tasks_active_session_cap_hits_total",
+    "Run starts and warm claims refused because the user or organization already holds the max open cloud sandbox sessions",
+    labelnames=["origin_product", "scope"],
+)
+
+WARM_CHURN_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_warm_churn_throttled_total",
+    "Warm requests refused because the user ended too many unclaimed warm sandboxes in the last hour",
+    labelnames=["origin_product"],
+)
+
 SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
 
 SANDBOX_DEADLINE_TOTAL = Counter(
@@ -442,9 +483,52 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+ComputeSettlementOutcome = Literal[
+    "settled",
+    "duplicate",
+    "settled_locally",
+    "conflict",
+    "retry",
+    "attempts_exhausted",
+    "contract_error",
+    "deployment_error",
+    "skipped",
+]
+
+COMPUTE_SETTLEMENTS_TOTAL = Counter(
+    "posthog_tasks_compute_settlements_total",
+    "Sandbox compute settlement attempts against the gateway ledger, by outcome",
+    labelnames=["outcome"],
+)
+
+
+def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
+    COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
+
+
+def push_compute_settlement_sweep_gauges(*, hogland_open_over_day: int, unsettled_over_hour: int) -> None:
+    with pushed_metrics_registry("tasks_compute_settlement") as registry:
+        Gauge(
+            "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+            "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+            registry=registry,
+        ).set(hogland_open_over_day)
+        Gauge(
+            "posthog_tasks_sandbox_sessions_unsettled_over_hour",
+            "Attributed sandbox sessions that ended more than an hour ago and are neither settled nor parked",
+            registry=registry,
+        ).set(unsettled_over_hour)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
@@ -459,6 +543,17 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
+
+
+MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
+    "posthog_tasks_mcp_exclude_tools_over_cap_total",
+    "Profiled runs refused because the profile and the run together hide more MCP tools than the sandbox cap",
+    labelnames=["profile"],
+)
+
+
+def observe_mcp_exclude_tools_over_cap(*, profile: str) -> None:
+    MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL.labels(profile=profile).inc()
 
 
 def _metric_label(value: object | None) -> str:
@@ -530,6 +625,18 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
+    TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_contract_violation(*, check: str, profile: str) -> None:
+    TASK_CONTRACT_VIOLATION_TOTAL.labels(check=check, profile=profile).inc()
+
+
+def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
+    SANDBOX_RUN_START_TOTAL.labels(endpoint=endpoint, outcome=outcome).inc()
 
 
 def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
@@ -697,6 +804,17 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
 _WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
+def observe_task_run_terminal(task_run: "TaskRun", *, error_type: str | None, termination_reason: str | None) -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_TERMINAL_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        run_environment=labels["run_environment"],
+        status=_metric_label(task_run.status),
+        error_type=_failure_metric_label(error_type),
+        termination_reason=_metric_label(termination_reason),
+    ).inc()
+
+
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
     """Record a wizard run ending without its PR ever binding.
 
@@ -727,6 +845,14 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_active_session_cap_hit(origin_product: str, scope: str) -> None:
+    ACTIVE_SESSION_CAP_HITS_TOTAL.labels(origin_product=_metric_label(origin_product), scope=scope).inc()
+
+
+def observe_warm_churn_throttled(origin_product: str) -> None:
+    WARM_CHURN_THROTTLED_TOTAL.labels(origin_product=_metric_label(origin_product)).inc()
 
 
 _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}
@@ -780,3 +906,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

@@ -5,13 +5,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { QuillCrossProjectDashboardLayoutActions } from './QuillCrossProjectDashboardLayoutActions'
 
 /** Mirrors the single-project buttons, which read dashboardLogic, with own data-attrs to stay out of their analytics. */
 export function CrossProjectDashboardLayoutActions(): JSX.Element | null {
     const { layoutEditMode, layoutSaving, tiles, dashboardLoading } = useValues(crossProjectDashboardLogic)
     const { enterLayoutEdit, cancelLayoutEdit, saveLayout } = useActions(crossProjectDashboardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillCrossProjectDashboardLayoutActions />
+    }
 
     if (!layoutEditMode) {
         return tiles.length > 0 ? (

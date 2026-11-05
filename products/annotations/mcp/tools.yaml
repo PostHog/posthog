@@ -128,5 +128,6 @@ tools:
             List the changes that can affect production in a time window, newest first: feature flag and experiment
             edits, error tracking releases, and annotations. Use this first when you investigate an error spike, a
             latency regression, or a metric drop, to find what changed just before it. Set `date_from` and `date_to`
-            (ISO 8601) around the incident. The default is the last 24 hours. When `has_more` is true, narrow the
-            window. Changes the user has no access to are left out.
+            (ISO 8601) around the incident. The default is the last 24 hours. Deploy annotations and releases can fill
+            the page, so set `kinds` to `["feature_flag", "experiment"]` to see only configuration edits. When
+            `has_more` is true, narrow the window or set `kinds`. Changes the user has no access to are left out.

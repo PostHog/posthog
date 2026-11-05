@@ -70,7 +70,7 @@ function basePlayerConfig(overrides: Partial<PlayerConfig> = {}): PlayerConfig {
 describe('PlayerController', () => {
     it('load() sets up exposeFunction, evaluateOnNewDocument, and navigates', async () => {
         const { capturePage, page } = mockCapturePage()
-        const controller = new PlayerController(capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(capturePage, mockBlockProxy, 1, jest.fn())
 
         await controller.load(basePlayerConfig())
 
@@ -88,7 +88,7 @@ describe('PlayerController', () => {
 
     it('waitForStart() resolves when player sends started message', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
@@ -101,7 +101,7 @@ describe('PlayerController', () => {
     it('waitForStart() resets timeout on loading_progress messages', async () => {
         jest.useFakeTimers()
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 1000)
@@ -123,7 +123,7 @@ describe('PlayerController', () => {
     it('waitForStart() rejects on timeout when no progress', async () => {
         jest.useFakeTimers()
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         const startPromise = controller.waitForStart(basePlayerConfig({ sessionId: 'sess-abc' }), 1000)
@@ -137,7 +137,7 @@ describe('PlayerController', () => {
 
     it('waitForStart() surfaces an error that arrived before it was called', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         // Error lands between load() and waitForStart(); previously it was shelved and the wait
@@ -157,7 +157,7 @@ describe('PlayerController', () => {
 
     it('waitForStart() rejects when player sends error message', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
@@ -178,7 +178,7 @@ describe('PlayerController', () => {
         // succeeds on a later attempt. Downgrading NO_SNAPSHOTS to non-retryable here would strand those recordings as
         // permanently ineligible, so the player's own verdict has to survive.
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
@@ -195,7 +195,7 @@ describe('PlayerController', () => {
 
     it('isEnded() returns true after ended message', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         expect(controller.isEnded()).toBe(false)
@@ -205,7 +205,7 @@ describe('PlayerController', () => {
 
     it('getError() returns stored error from message received outside active promise', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         expect(controller.getError()).toBeNull()
@@ -226,7 +226,7 @@ describe('PlayerController', () => {
 
     it('getInactivityPeriods() returns periods from player', async () => {
         const mp = mockCapturePage()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         expect(controller.getInactivityPeriods()).toEqual([])
@@ -243,7 +243,7 @@ describe('PlayerController', () => {
     it('onProgress is called on loading_progress messages', async () => {
         const mp = mockCapturePage()
         const onProgress = jest.fn()
-        const controller = new PlayerController(mp.capturePage, mockBlockProxy, onProgress)
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, 1, onProgress)
         await controller.load(basePlayerConfig())
 
         mp._emit({ type: 'loading_progress', loaded: 1, total: 5 })
@@ -255,7 +255,7 @@ describe('PlayerController', () => {
 
     it('startPlayback() dispatches the start event', async () => {
         const { capturePage, page } = mockCapturePage()
-        const controller = new PlayerController(capturePage, mockBlockProxy, jest.fn())
+        const controller = new PlayerController(capturePage, mockBlockProxy, 1, jest.fn())
         await controller.load(basePlayerConfig())
 
         await controller.startPlayback()

@@ -11,6 +11,7 @@ import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { useReportFeedbackCelebration } from './ReportFeedbackCelebration'
+import { ReportInterviewInvite } from './ReportInterviewInvite'
 
 // Matches the cap on the sibling inbox dialogs (Dismiss, Refund, agent question); the note rides along as
 // an analytics property, so keep it under the client's per-property limit.
@@ -27,7 +28,7 @@ export function ReportFeedbackFooter({
     align = 'start',
 }: {
     report: SignalReport
-    /** `end` pins the row to the right edge, for the redesign's summary column. */
+    /** `end` pins the row to the right edge, for the summary column. */
     align?: 'start' | 'end'
 }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -46,9 +47,11 @@ export function ReportFeedbackFooter({
     // tab, and `LemonTabs` remounts tab content, so an unconditional `autoFocus` would grab focus on
     // every tab switch.
     const [askedHere, setAskedHere] = useState(false)
+    const [noteSubmittedHere, setNoteSubmittedHere] = useState(false)
     const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
+            setNoteSubmittedHere(true)
             submitFeedbackNote(feedbackNoteDraft)
         }
     }
@@ -169,6 +172,7 @@ export function ReportFeedbackFooter({
                     Note added: {feedbackSentNote}
                 </p>
             )}
+            {noteSubmittedHere && feedbackNoteSent && <ReportInterviewInvite />}
         </div>
     )
 }

@@ -7,7 +7,7 @@ import weakref
 import collections.abc
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import requests
@@ -219,9 +219,90 @@ async def test_create_table(fields, time_partitioning, bigquery_client, bigquery
         await client.delete_table(table)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("versioned", [True, False])
+@pytest.mark.parametrize(
+    "key,quoted_key,version,quoted_version",
+    [
+        ("id", "`id`", "version", "`version`"),
+        ("group", "`group`", "updated at", "`updated at`"),
+        ("key`name", r"`key\`name`", "version\\name", r"`version\\name`"),
+        ("key\\`name", r"`key\\\`name`", "version\nname", r"`version\nname`"),
+    ],
+)
+async def test_merge_query_with_optional_version_key(
+    versioned: bool, key: str, quoted_key: str, version: str, quoted_version: str
+) -> None:
+    fields = (
+        BigQueryField(key, BigQueryType("INT64", False), False),
+        BigQueryField(version, BigQueryType("INT64", False), False),
+    )
+    final = BigQueryTable(
+        "final", fields, ("project", "dataset"), primary_key=(key,), version_key=(version,) if versioned else ()
+    )
+    stage = BigQueryTable("stage", fields, ("project", "dataset"))
+    client = BigQueryClient(MagicMock())
+
+    with patch.object(client, "execute_query", new_callable=AsyncMock) as execute:
+        await client.merge_tables(final, stage)
+
+    query = " ".join(execute.call_args.args[0].split())
+    assert query.startswith("MERGE `project.dataset.final`")
+    assert f"ON final.{quoted_key} = stage.{quoted_key}" in query
+    assert (
+        f"UPDATE SET final.{quoted_key} = stage.{quoted_key}, final.{quoted_version} = stage.{quoted_version}" in query
+    )
+    assert f"WHEN NOT MATCHED BY TARGET THEN INSERT ({quoted_key}, {quoted_version})" in query
+    assert f"VALUES (stage.{quoted_key}, stage.{quoted_version})" in query
+    if versioned:
+        assert f"WHEN MATCHED AND (final.{quoted_version} < stage.{quoted_version}) THEN UPDATE" in query
+        assert f"PARTITION BY {quoted_key} ORDER BY {quoted_version} DESC" in query
+    else:
+        assert "WHEN MATCHED THEN UPDATE" in query
+        assert f"ROW_NUMBER() OVER ( PARTITION BY {quoted_key} )" in query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("merge", [True, False])
+async def test_write_query_quotes_fields_and_tables_with_json_casts(merge: bool) -> None:
+    final = BigQueryTable(
+        "final`table",
+        (
+            BigQueryField("group", BigQueryType("INT64", False), False),
+            BigQueryField("json\\`data", BigQueryType("JSON", False), True),
+        ),
+        ("project", "dataset"),
+        primary_key=("group",) if merge else (),
+    )
+    stage = BigQueryTable(
+        "stage\\`table",
+        (
+            BigQueryField("group", BigQueryType("INT64", False), False),
+            BigQueryField("json\\`data", BigQueryType("STRING", False), True),
+        ),
+        ("project", "dataset"),
+    )
+    client = BigQueryClient(MagicMock())
+    with patch.object(client, "execute_query", new_callable=AsyncMock) as execute:
+        await client.merge_tables(final, stage)
+
+    query = " ".join(execute.call_args.args[0].split())
+    assert r"`project.dataset.final\`table`" in query
+    assert r"FROM `project.dataset.stage\\\`table`" in query
+    assert r"`json\\\`data`" in query
+    prefix = "stage." if merge else ""
+    assert f"REGEXP_REPLACE( {prefix}" + r"`json\\\`data`," in query
+    if merge:
+        assert r"INSERT (`group`, `json\\\`data`)" in query
+    else:
+        assert r"(`group`,`json\\\`data`)" in query
+        assert "SELECT `group`, SAFE.PARSE_JSON(" in query
+
+
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
-async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery_dataset):
+@pytest.mark.parametrize("version_key", [("version",), ()])
+async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery_dataset, version_key):
     fields = (
         BigQueryField("id", BigQueryType("INT64", False), False),
         BigQueryField("version", BigQueryType("INT64", False), False),
@@ -230,11 +311,11 @@ async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery
     suffix = "".join(random.choices(string.ascii_letters, k=10))
     parents = (bigquery_client.project, bigquery_dataset.dataset_id)
     final_table = BigQueryTable(
-        f"test_merge_final_{suffix}", fields, parents, primary_key=("id",), version_key=("version",)
+        f"test_merge_final_{suffix}", fields, parents, primary_key=("id",), version_key=version_key
     )
     stage_tables = [
         BigQueryTable(
-            f"test_merge_stage_{index}_{suffix}", fields, parents, primary_key=("id",), version_key=("version",)
+            f"test_merge_stage_{index}_{suffix}", fields, parents, primary_key=("id",), version_key=version_key
         )
         for index in range(2)
     ]
@@ -244,9 +325,7 @@ async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery
         await client.create_table(table)
 
     try:
-        # Key 1 exists in final and in both stage tables: the highest version across all
-        # stage tables must win. Key 4 is newer in final than in stage: it must not be
-        # overwritten.
+        # Key 1 tests cross-stage deduplication; key 4 tests whether versions gate replacement.
         await client.execute_query(
             f"INSERT INTO `{final_table.fully_qualified_name}` (id, version, value)"
             " VALUES (1, 1, 'final-v1'), (4, 5, 'final-v5')"
@@ -262,14 +341,17 @@ async def test_merge_tables_with_multiple_stage_tables(bigquery_client, bigquery
 
         await client.merge_tables(final=final_table, stage=stage_tables)
 
-        result = await client.execute_query(f"SELECT id, version, value FROM `{final_table.fully_qualified_name}`")
+        result = list(
+            await client.execute_query(f"SELECT id, version, value FROM `{final_table.fully_qualified_name}`")
+        )
         rows = {row["id"]: (row["version"], row["value"]) for row in result}
 
+        assert len(rows) == len(result) == 4
+        assert rows.pop(1) in ({(3, "stage1-v3")} if version_key else {(2, "stage0-v2"), (3, "stage1-v3")})
         assert rows == {
-            1: (3, "stage1-v3"),
             2: (1, "stage0-only"),
             3: (1, "stage1-only"),
-            4: (5, "final-v5"),
+            4: (5, "final-v5") if version_key else (1, "stage0-v1"),
         }
     finally:
         for table in (final_table, *stage_tables):

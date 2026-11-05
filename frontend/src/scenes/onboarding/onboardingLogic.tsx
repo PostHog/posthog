@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -7,14 +7,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { reportOnboardingCompleted } from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -68,9 +68,12 @@ export interface onboardingLogicValues {
     currentStepProductKey: ProductKey | null
     flow: OnboardingStepDescriptor[]
     flowIndex: number
+    flowUrl: string
     hasNextStep: boolean
     hasPreviousStep: boolean
+    installStepReturnUrl: string
     isCompleting: boolean
+    isSkippingOnboarding: boolean
     onCompleteOnboardingRedirectUrl: string
     onCompleteOnboardingRedirectUrlOverride: string | null
     onboardingStepKeys: OnboardingStepKey[]
@@ -135,6 +138,9 @@ export interface onboardingLogicActions {
     }
     setIsCompleting: (isCompleting: boolean) => {
         isCompleting: boolean
+    }
+    setIsSkippingOnboarding: (isSkippingOnboarding: boolean) => {
+        isSkippingOnboarding: boolean
     }
     setOnCompleteOnboardingRedirectUrl: (url: string | null) => {
         url: string | null
@@ -205,10 +211,13 @@ export interface onboardingLogicMeta {
             currentFlowStep: OnboardingStepDescriptor | null,
             secondaryProductKeys: ProductKey[]
         ) => Breadcrumb[]
-        onCompleteOnboardingRedirectUrl: (
-            productKey: ProductKey | null,
-            onCompleteOnboardingRedirectUrlOverride: string | null
+        flowUrl: (productKey: ProductKey | null) => string
+        installStepReturnUrl: (
+            flowUrl: string,
+            currentStepProductKey: ProductKey | null,
+            secondaryProductKeys: ProductKey[]
         ) => string
+        onCompleteOnboardingRedirectUrl: (onCompleteOnboardingRedirectUrlOverride: string | null) => string
     }
 }
 
@@ -271,6 +280,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         // selection page) should not trigger the invalid-key redirect-to-home path.
         clearProductKey: true,
         setIsCompleting: (isCompleting: boolean) => ({ isCompleting }),
+        setIsSkippingOnboarding: (isSkippingOnboarding: boolean) => ({ isSkippingOnboarding }),
     }),
     reducers(() => ({
         // True between dispatching `completeOnboarding` and the resulting team PATCH
@@ -281,6 +291,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             {
                 setIsCompleting: (_, { isCompleting }) => isCompleting,
                 resetOnboardingFlowState: () => false,
+            },
+        ],
+        isSkippingOnboarding: [
+            false,
+            {
+                setIsSkippingOnboarding: (_, { isSkippingOnboarding }) => isSkippingOnboarding,
             },
         ],
         productKey: [
@@ -613,16 +629,34 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 ]
             },
         ],
+        // The flow's path without a query. Step changes and OAuth round trips build on it.
+        flowUrl: [
+            (s) => [s.productKey],
+            (productKey: ProductKey | null): string => urls.onboarding({ productKey: productKey ?? undefined }),
+        ],
+        // Where an OAuth round trip started from the install step returns to, so the user lands back in
+        // the same flow instead of the default per-product one.
+        installStepReturnUrl: [
+            (s) => [s.flowUrl, s.currentStepProductKey, s.secondaryProductKeys],
+            (flowUrl: string, currentStepProductKey: ProductKey | null, secondaryProductKeys: ProductKey[]): string => {
+                return combineUrl(flowUrl, {
+                    step: currentStepProductKey
+                        ? `${OnboardingStepKey.INSTALL}:${currentStepProductKey}`
+                        : OnboardingStepKey.INSTALL,
+                    ...(secondaryProductKeys.length ? { with: secondaryProductKeys.join(',') } : {}),
+                }).url
+            },
+        ],
+        // Single decision point for where a user lands after onboarding completes or is skipped.
+        // An explicit `?next=` override wins, and everything else goes home. Products do not choose
+        // their own landing target.
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
+            (s) => [s.onCompleteOnboardingRedirectUrlOverride],
+            (onCompleteOnboardingRedirectUrlOverride: string | null): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                if (!productKey) {
-                    return urls.default()
-                }
-                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.default()
+                return urls.projectHomepage()
             },
         ],
     }),
@@ -705,7 +739,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // changing dashboards. Secondary products are still recorded via
             // `recordProductIntentOnboardingComplete` and `has_completed_onboarding_for`,
             // but don't fire an additional `onboarding completed` analytics event.
-            eventUsageLogic.actions.reportOnboardingCompleted(primary)
+            reportOnboardingCompleted(primary)
             props.onCompleteOnboarding?.(primary)
             // Error Tracking has a side-effect tied to onboarding completion (set up in the
             // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
@@ -783,6 +817,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             } catch {
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            } finally {
+                actions.setIsCompleting(false)
             }
         },
         skipOnboarding: () => {
@@ -942,7 +978,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // string concatenation (`path + '?' + search`), so a query embedded here would get a
             // second `?` appended for `passthrough` — parsed back, the extra params fuse into the
             // step value (`step=configure:x?integration_id=14`) and the step never resolves.
-            const url = urls.onboarding({ productKey: values.productKey ?? undefined })
+            const url = values.flowUrl
             const searchParams: Record<string, any> = {
                 ...passthrough,
                 ...(stepResolves && stepId ? { step: stepId } : {}),
@@ -965,12 +1001,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, params: Record<string, unknown>) => {
-            if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
-                return
-            }
-
+    urlToAction(({ actions, values }) => {
+        const applyFlowUrl = (productKey: ProductKey, params: Record<string, unknown>): void => {
             const success = params.success
             const upgraded = params.upgraded
             const step = params.step
@@ -981,7 +1013,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // between products. Set the product first, THEN apply the post-payment
             // subscription flag, so the reset doesn't clobber it.
             if (productKey !== values.productKey) {
-                actions.setProductKey(productKey as ProductKey)
+                actions.setProductKey(productKey)
             }
 
             if (success || upgraded) {
@@ -1010,16 +1042,25 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (stepValue !== values.stepId) {
                 actions.setStepId(stepValue)
             }
-        },
-        '/onboarding': () => {
-            // Land on the product-selection page. We can't dispatch `setProductKey(null)`
-            // because that listener treats null as "invalid product" and hard-redirects
-            // to the home page — preventing users from returning here from inside an
-            // existing flow.
-            if (values.productKey !== null) {
-                actions.clearProductKey()
-            }
-            actions.resetOnboardingFlowState()
-        },
-    })),
+        }
+
+        return {
+            '/onboarding/:productKey': ({ productKey }, params: Record<string, unknown>) => {
+                if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
+                    return
+                }
+                applyFlowUrl(productKey as ProductKey, params)
+            },
+            '/onboarding': () => {
+                // Land on the product-selection page. We can't dispatch `setProductKey(null)`
+                // because that listener treats null as "invalid product" and hard-redirects
+                // to the home page — preventing users from returning here from inside an
+                // existing flow.
+                if (values.productKey !== null) {
+                    actions.clearProductKey()
+                }
+                actions.resetOnboardingFlowState()
+            },
+        }
+    }),
 ])

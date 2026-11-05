@@ -1,18 +1,24 @@
+from typing import cast
+
 from django import forms
 from django.contrib import admin, messages
 from django.utils.html import format_html
 
-from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport
+from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport, CommitInFlightError
+
+STATUS_CHANGED_MESSAGE = "This import changed since the page loaded. Reload it and try again."
+SINK_TYPE_CHOICES: list[tuple[str, str]] = [("capture", "Capture"), ("kafka", "Kafka")]
 
 
 class BatchImportAdminForm(forms.ModelForm):
     sink_type = forms.ChoiceField(
-        choices=[("capture", "Capture"), ("kafka", "Kafka")],
+        choices=SINK_TYPE_CHOICES,
         required=False,
         help_text="Capture sends events via HTTP; Kafka writes directly to Kafka.",
     )
     send_rate = forms.IntegerField(
         required=False,
+        min_value=1,
         help_text=f"Events per second to send (e.g., {DEFAULT_SEND_RATE}). Leave empty to keep current value.",
         widget=forms.NumberInput(attrs={"placeholder": f"e.g., {DEFAULT_SEND_RATE}"}),
     )
@@ -23,12 +29,51 @@ class BatchImportAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Compare submitted values with what the page showed, not the row at save time, so a
+        # worker write after page load is not counted as an operator edit.
+        for field in self.fields.values():
+            field.show_hidden_initial = True
         if self.instance and self.instance.import_config:
             sink = self.instance.import_config.get("sink", {})
-            if sink.get("type"):
-                self.fields["sink_type"].initial = sink["type"]
+            sink_type = sink.get("type")
+            if sink_type:
+                self.fields["sink_type"].initial = sink_type
+                # Without its own choice, a trial or noop sink would submit "capture" and be
+                # rewritten on every save.
+                if sink_type not in dict(SINK_TYPE_CHOICES):
+                    cast(forms.ChoiceField, self.fields["sink_type"]).choices = [
+                        *SINK_TYPE_CHOICES,
+                        (sink_type, f"{sink_type} (current)"),
+                    ]
             if sink.get("send_rate"):
                 self.fields["send_rate"].initial = sink["send_rate"]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # A page rendered without hidden initial values would make every field read as changed.
+        if self.instance.pk and any(self.add_initial_prefix(name) not in self.data for name in self.fields):
+            raise forms.ValidationError("This page is out of date. Reload it and make your change again.")
+        if self.resumes():
+            # Django admin runs the whole POST in one transaction, so this lock holds until save_model
+            # writes the resume. A refusal here re-renders the form with the error and saves nothing.
+            self.locked_row = BatchImport.objects.select_for_update().get(pk=self.instance.pk)
+            self.raise_if_resume_unsafe(self.locked_row)
+        return cleaned_data
+
+    def resumes(self) -> bool:
+        return (
+            bool(self.instance.pk)
+            and "status" in self.changed_data
+            and self.cleaned_data.get("status") == BatchImport.Status.RUNNING
+        )
+
+    def raise_if_resume_unsafe(self, current: BatchImport) -> None:
+        # A resume clears the lease, so it must act on the status the operator saw, not one that a
+        # worker or a customer set since.
+        if current.status != self.data.get(self.add_initial_prefix("status")):
+            raise forms.ValidationError(STATUS_CHANGED_MESSAGE)
+        if current.commit_in_flight():
+            raise forms.ValidationError(str(CommitInFlightError()))
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -36,23 +81,34 @@ class BatchImportAdminForm(forms.ModelForm):
         sink_type = self.cleaned_data.get("sink_type")
         send_rate = self.cleaned_data.get("send_rate")
 
-        if sink_type:
+        if sink_type and any(name in self.changed_data for name in ("sink_type", "send_rate")):
             if not instance.import_config:
                 instance.import_config = {}
             existing_sink = instance.import_config.get("sink", {})
-            sink = {
-                "type": sink_type,
-                "send_rate": send_rate if send_rate is not None else existing_sink.get("send_rate", DEFAULT_SEND_RATE),
-            }
-            if sink_type == "kafka":
-                sink["topic"] = existing_sink.get("topic", "historical")
-                sink["transaction_timeout_seconds"] = existing_sink.get("transaction_timeout_seconds", 60)
+            if sink_type == existing_sink.get("type"):
+                sink = {**existing_sink}
+                if send_rate is not None:
+                    sink["send_rate"] = send_rate
+            else:
+                sink = {
+                    "type": sink_type,
+                    "send_rate": send_rate
+                    if send_rate is not None
+                    else existing_sink.get("send_rate", DEFAULT_SEND_RATE),
+                }
+                if sink_type == "kafka":
+                    sink["topic"] = existing_sink.get("topic", "historical")
+                    sink["transaction_timeout_seconds"] = existing_sink.get("transaction_timeout_seconds", 60)
 
             instance.import_config["sink"] = sink
 
         if commit:
             instance.save()
         return instance
+
+
+EDITABLE_MODEL_FIELDS = ("team", "created_by_id", "status", "status_message")
+SINK_FORM_FIELDS = ("sink_type", "send_rate")
 
 
 @admin.register(BatchImport)
@@ -83,6 +139,7 @@ class BatchImportAdmin(admin.ModelAdmin):
         "leased_until",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
         "get_worker_progress",
     )
     autocomplete_fields = ("team",)
@@ -97,20 +154,27 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "leased_until",
                     "backoff_attempt",
                     "backoff_until",
+                    "pending_commit",
                 ),
                 "description": (
-                    "A paused job keeps its worker lease; both resume actions clear it "
-                    "(a bare status change leaves the row unclaimable until the lease expires, "
-                    "up to 30 minutes). A running job with a future leased_until is actively "
-                    "claimed by a worker. Choosing a resume action: 'Resume (keep progress)' "
+                    "A running job with a future leased_until is actively claimed by a worker. "
+                    "Changing the status from running stops the worker before it sends another chunk. "
+                    "Changing the status to running, or using a resume action, clears the lease, backoff "
+                    "and pending commit so a worker can claim the job at once. A pending commit on "
+                    "a job no worker holds means a worker stopped mid-commit: the chunk it names "
+                    "may or may not have reached the sink. When the saved offset still matches that chunk, "
+                    "a resume moves the part back to the start of the chunk, so nothing is lost. A chunk "
+                    "that had arrived is sent twice. "
+                    "Choosing a resume action: 'Resume (keep progress)' "
                     "continues from the saved byte offset - right for transient pauses and "
                     "for source data that has not changed. 'Resume + re-import in-flight part' "
                     "resets the current part to offset 0 first - right when the source bytes "
                     "changed underneath the saved offset (a re-downloaded nondeterministic "
                     "export, or a source file replaced after a data fix), which typically "
-                    "shows up as an 'Invalid JSON syntax' pause. The re-imported overlap "
-                    "dedupes for sources with deterministic event UUIDs (Mixpanel $insert_id, "
-                    "Amplitude uuid)."
+                    "shows up as an 'Invalid JSON syntax' pause. Re-imported events are "
+                    "deduplicated only when they carry a source ID (Mixpanel $insert_id, or an "
+                    "Amplitude or captured event uuid). Other events, including the identify "
+                    "events created for Amplitude imports, get a new ID and are not deduplicated."
                 ),
             },
         ),
@@ -130,6 +194,28 @@ class BatchImportAdmin(admin.ModelAdmin):
         ),
         ("Metadata", {"fields": ("id", "created_at", "updated_at", "state")}),
     )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            super().save_model(request, obj, form, change)
+            return
+
+        # A full-row save would overwrite the progress, lease and backoff that a running worker
+        # saved after the page loaded.
+        update_fields = [name for name in form.changed_data if name in EDITABLE_MODEL_FIELDS]
+        if any(name in form.changed_data for name in SINK_FORM_FIELDS):
+            update_fields.append("import_config")
+        if form.resumes():
+            message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
+            # Take the reset fields from the row locked in clean(): obj was loaded before the lock, so its
+            # state and pending_commit can miss a worker write.
+            locked_row = form.locked_row
+            reset_fields = locked_row.rewind_and_reset_for_resume(message)
+            for name in reset_fields:
+                setattr(obj, name, getattr(locked_row, name))
+            update_fields.extend(reset_fields)
+        if update_fields:
+            obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 
     @admin.display(description="Progress")
     def get_progress(self, obj):
@@ -161,8 +247,8 @@ class BatchImportAdmin(admin.ModelAdmin):
         permissions=["change"],
     )
     def resume(self, request, queryset):
-        """Resume paused jobs from their saved progress: for transient pauses and
-        unchanged source data. See the 'Worker state' section on the detail page
+        """Resume paused jobs from their saved progress, re-sending a chunk a worker left
+        mid-commit: for transient pauses and unchanged source data. See the 'Worker state' section on the detail page
         for how this differs from the reset variant."""
         for batch_import in queryset:
             try:
@@ -183,8 +269,8 @@ class BatchImportAdmin(admin.ModelAdmin):
     def resume_with_inflight_part_reset(self, request, queryset):
         """Recover a paused job whose committed byte offset no longer matches the
         source bytes (re-download of a nondeterministic export, or a source file
-        replaced after a data-error pause). Safe for sources with deterministic
-        event UUIDs, which dedupe the re-imported overlap."""
+        replaced after a data-error pause). The re-imported overlap dedupes only for
+        events with a source ID; see the 'Worker state' section."""
         for batch_import in queryset:
             try:
                 reset_key = batch_import.resume_with_inflight_part_reset()

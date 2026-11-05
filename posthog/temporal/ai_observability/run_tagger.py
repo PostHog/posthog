@@ -21,7 +21,13 @@ from posthog.temporal.ai_observability.evaluation_event_io import (
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+    capture_ai_internal_for_team,
+    raise_emit_failure,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -41,7 +47,11 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +131,7 @@ def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
     # Budget each side separately, because sampling the joined text can drop a short output at its end.
     output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
     input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
-    return _render_tagger_user_prompt(input_data, output_data)
+    return sanitize_surrogates(_render_tagger_user_prompt(input_data, output_data))
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:
@@ -304,6 +314,9 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
         provider_key=provider_key,
         config=config,
         capture_analytics=False,
+        # Temporal retries a rate limit after the provider's delay. SDK retries underneath would
+        # multiply the calls and can run past the activity's timeout before the last attempt ends.
+        max_retries=0,
     )
 
     try:
@@ -612,7 +625,9 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         if e.is_billing_limit_exceeded:
             logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
             return
-        raise
+        raise_emit_failure(e)
+    except Exception as e:
+        raise_emit_failure(e)
 
 
 @temporalio.activity.defn
@@ -749,8 +764,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=EMIT_EVENT_RETRY_POLICY,
         )
 
         return {

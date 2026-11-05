@@ -6,12 +6,10 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsSetupLogic } from './mcpAnalyticsSetupLogic'
-import { MCPAnalyticsSetupProgress } from './MCPAnalyticsSetupProgress'
 
 export function MCPAnalyticsSetupActions({
     mode,
@@ -23,7 +21,6 @@ export function MCPAnalyticsSetupActions({
     const { agentPromptOpen, agentPrompt } = useValues(mcpAnalyticsSetupLogic)
     const { setAgentPromptOpen } = useActions(mcpAnalyticsSetupLogic)
     const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }))
-    const { isCloudOrDev } = useValues(preflightLogic)
 
     return (
         <>
@@ -61,7 +58,6 @@ export function MCPAnalyticsSetupActions({
                     arrives.
                 </p>
             </LemonModal>
-            {isCloudOrDev && !preview ? <MCPAnalyticsSetupProgress mode={mode} /> : null}
         </>
     )
 }

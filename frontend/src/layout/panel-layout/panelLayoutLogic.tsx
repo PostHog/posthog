@@ -75,7 +75,11 @@ export interface panelLayoutLogicActions {
     setMainContentRect: (rect: DOMRect) => {
         rect: DOMRect
     }
-    setMainContentRef: (ref: PanelLayoutMainContentRef) => {
+    setMainContentRef: (
+        ref: PanelLayoutMainContentRef,
+        deferDuringResize?: boolean
+    ) => {
+        deferDuringResize: boolean
         ref: PanelLayoutMainContentRef
     }
     setNavExperimentTab: (tab: NavExperimentTab) => {
@@ -145,7 +149,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
         clearActivePanelIdentifier: true,
-        setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
+        setMainContentRef: (ref: PanelLayoutMainContentRef, deferDuringResize: boolean = false) => ({
+            ref,
+            deferDuringResize,
+        }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setLayoutNavCollapsedDesktop: (collapsed: boolean) => ({ collapsed }),
         setLayoutNavCollapsedOverride: (owner: string, collapsed: boolean | null) => ({ owner, collapsed }),
@@ -333,7 +340,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 values.mainContentRef?.current?.focus()
             }
         },
-        setMainContentRef: ({ ref }) => {
+        setMainContentRef: ({ ref, deferDuringResize }) => {
+            if (!ref?.current) {
+                cache.disposables.dispose('resizeObserver')
+            }
             // Measure width immediately when container ref is set
             if (ref?.current) {
                 actions.setMainContentRect(ref.current.getBoundingClientRect())
@@ -345,13 +355,24 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                         if (!ref.current) {
                             return () => {}
                         }
-                        const observer = new ResizeObserver(() => {
-                            if (ref?.current) {
+                        let resizeTimer: ReturnType<typeof setTimeout> | undefined
+                        const updateRect = (): void => {
+                            clearTimeout(resizeTimer)
+                            // Keep sidebar drags from rendering navigation again for each scene measurement.
+                            if (deferDuringResize && document.body.classList.contains('is-resizing')) {
+                                resizeTimer = setTimeout(updateRect, 16)
+                                return
+                            }
+                            if (ref.current) {
                                 actions.setMainContentRect(ref.current.getBoundingClientRect())
                             }
-                        })
+                        }
+                        const observer = new ResizeObserver(updateRect)
                         observer.observe(ref.current)
-                        return () => observer.disconnect()
+                        return () => {
+                            observer.disconnect()
+                            clearTimeout(resizeTimer)
+                        }
                     }, 'resizeObserver')
                 }
             }

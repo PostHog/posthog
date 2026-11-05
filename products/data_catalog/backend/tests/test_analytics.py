@@ -10,7 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from products.data_catalog.backend.logic.certifications import propose_certification
 from products.data_catalog.backend.logic.exceptions import MetricDrifted
 from products.data_catalog.backend.logic.execution import run_metric
-from products.data_catalog.backend.logic.metrics import approve_metric, upsert_metric
+from products.data_catalog.backend.logic.metrics import approve_metric, update_metric, upsert_metric
 from products.data_catalog.backend.logic.relationships import propose_relationship
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -68,6 +68,17 @@ class TestDataCatalogAnalytics(BaseTest):
         assert events == ["data catalog metric approval blocked"]
         [blocked] = _catalog_calls(capture)
         assert blocked.kwargs["properties"]["reason"] == "drifted"
+
+    @patch(_CAPTURE)
+    def test_update_event_lists_the_updated_fields(self, capture: MagicMock) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d")
+        capture.reset_mock()
+
+        update_metric(metric, team=self.team, user=self.user, owner=None, unit="usd")
+
+        [updated] = _catalog_calls(capture)
+        assert updated.kwargs["event"] == "data catalog metric updated"
+        assert updated.kwargs["properties"]["updated_fields"] == ["owner", "unit"]
 
     @parameterized.expand(
         [

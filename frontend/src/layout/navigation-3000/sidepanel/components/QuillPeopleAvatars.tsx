@@ -1,6 +1,6 @@
 import { AvatarGroup, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { QuillPersonAvatar } from './QuillPersonAvatar'
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 
 interface QuillPeopleAvatarsProps {
     people: { name: string; email: string }[]

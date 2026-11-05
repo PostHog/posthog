@@ -37,27 +37,35 @@ To run:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import cast
 
-from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities import classifiers
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
-def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
-    """An unsaved `Integration` row, which is all the classifier reads."""
-    return Integration(
-        id=integration_id,
-        kind="slack",
-        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+def _project(*, team_id: int, integration_id: int, name: str) -> WorkspaceIntegration:
+    """A stand-in row with only what the classifier reads."""
+    return cast(
+        WorkspaceIntegration,
+        SimpleNamespace(
+            id=integration_id,
+            team_id=team_id,
+            kind="slack",
+            integration_id="T_EVAL",
+            team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+        ),
     )
 
 
@@ -87,6 +95,7 @@ PROJECTS = [STAGING, PRODUCTION, WEBSITE, AGENT_PLATFORM, MOBILE, MAIN]
 # this suite is here to measure. The pull towards an owner only appears when several
 # owners are on offer and the message reads like their subject matter.
 AUTOPILOT = _project(team_id=46, integration_id=460, name="Autopilot")
+TEST = _project(team_id=49, integration_id=490, name="🧪 Test")
 CROWD = [
     MAIN,
     STAGING,
@@ -97,7 +106,7 @@ CROWD = [
     AUTOPILOT,
     _project(team_id=47, integration_id=470, name="AI labeling suite"),
     _project(team_id=48, integration_id=480, name="Security Review Agent"),
-    _project(team_id=49, integration_id=490, name="🧪 Test"),
+    TEST,
     _project(team_id=50, integration_id=500, name="DevEx"),
     _project(team_id=51, integration_id=510, name="Demo"),
     _project(team_id=52, integration_id=520, name="Statuspage"),
@@ -111,15 +120,29 @@ NORTHWIND = _project(team_id=53, integration_id=530, name="Northwind")
 SITE_DEV = _project(team_id=54, integration_id=540, name="northwind.io development")
 SITES = [NORTHWIND, SITE_DEV, STAGING, AGENT_PLATFORM, MOBILE]
 
-WORKSPACES: dict[str, tuple[list[Integration], Integration]] = {
+# A fourth workspace, where the default and a mobile project both carry the company's
+# name, so one device word is all that tells them apart. A question about how people use
+# the product on a phone matches part of the mobile project's name, and that partial match
+# moved the run off the default, which holds the data the question asks about.
+NORTHWIND_APP = _project(team_id=55, integration_id=550, name="🎉 Northwind app + website")
+NORTHWIND_MOBILE = _project(team_id=56, integration_id=560, name="📱 Northwind mobile app")
+APPS = [NORTHWIND_APP, NORTHWIND_MOBILE, STAGING, AGENT_PLATFORM]
+
+WORKSPACES: dict[str, tuple[list[WorkspaceIntegration], WorkspaceIntegration]] = {
     "simple": (PROJECTS, MAIN),
     "crowded": (CROWD, MAIN),
     "sites": (SITES, NORTHWIND),
+    "apps": (APPS, NORTHWIND_APP),
 }
 
 
-def _routes_to(project: Integration | None = None) -> dict:
+def _routes_to(project: WorkspaceIntegration | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
+
+
+def _stays_on(default: WorkspaceIntegration) -> dict:
+    """The message names the project the run is already on, so its id and null both pass."""
+    return {PROJECT_ROUTE_KEY: {"integration_id": default.id, "is_default": True}}
 
 
 def _in_the_crowd(**kwargs) -> BaseEvalCase:
@@ -128,6 +151,10 @@ def _in_the_crowd(**kwargs) -> BaseEvalCase:
 
 def _beside_the_site(**kwargs) -> BaseEvalCase:
     return BaseEvalCase(metadata={"workspace": "sites"}, **kwargs)
+
+
+def _beside_the_mobile_app(**kwargs) -> BaseEvalCase:
+    return BaseEvalCase(metadata={"workspace": "apps"}, **kwargs)
 
 
 ROUTING_CASES = [
@@ -201,13 +228,43 @@ ROUTING_CASES = [
     BaseEvalCase(
         name="default_named_explicitly",
         prompt="@PostHog in Main, how many weekly active users did we finish the month on?",
-        expected=_routes_to(MAIN),
+        expected=_stays_on(MAIN),
     ),
     # The run is on the default already, so a project named alongside it still wins.
     BaseEvalCase(
         name="named_project_beside_the_default",
         prompt="@PostHog I know we usually look at Main, but check the paywall conversion on website",
         expected=_routes_to(WEBSITE),
+    ),
+    BaseEvalCase(
+        name="default_as_a_label",
+        prompt="@PostHog Main: what was yesterday's daily active user count?",
+        expected=_stays_on(MAIN),
+    ),
+    BaseEvalCase(
+        name="label_in_front_of_the_request",
+        prompt="@PostHog production: how many 5xx responses have we served since noon?",
+        expected=_routes_to(PRODUCTION),
+    ),
+    BaseEvalCase(
+        name="name_in_capitals",
+        prompt="@PostHog STAGING, are session replays recording again after the SDK bump?",
+        expected=_routes_to(STAGING),
+    ),
+    BaseEvalCase(
+        name="two_word_name_in_a_lowercase_possessive",
+        prompt="@PostHog what's agent platform's p95 latency today?",
+        expected=_routes_to(AGENT_PLATFORM),
+    ),
+    BaseEvalCase(
+        name="project_after_the_question",
+        prompt="@PostHog what's the bounce rate on the pricing page? for website",
+        expected=_routes_to(WEBSITE),
+    ),
+    BaseEvalCase(
+        name="decorated_name_after_on",
+        prompt="@PostHog on mobile app, which screens load slowest this week?",
+        expected=_routes_to(MOBILE),
     ),
 ]
 
@@ -331,6 +388,22 @@ NO_ROUTE_CASES = [
         prompt="@PostHog keep this where it is and tell me which dashboards nobody opened this quarter",
         expected=_routes_to(),
     ),
+    # A project name used as an ordinary word, in the shapes the routing cases above accept.
+    BaseEvalCase(
+        name="environment_word_as_a_verb",
+        prompt="@PostHog we're staging the 5.0 rollout this week, how did signups trend last week?",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="label_that_is_not_a_project",
+        prompt="@PostHog quick one: how many people signed up yesterday?",
+        expected=_routes_to(),
+    ),
+    BaseEvalCase(
+        name="decorated_name_as_the_object_of_a_change",
+        prompt="@PostHog rename the mobile app's settings tab in our onboarding checklist copy",
+        expected=_routes_to(),
+    ),
     # The shape of the mention that misrouted, in a workspace shaped like the one it
     # misrouted in. Dense, numeric, unmistakably about an AI agent, and naming no project.
     _in_the_crowd(
@@ -353,6 +426,17 @@ NO_ROUTE_CASES = [
         ),
         expected=_routes_to(),
     ),
+    # A device word that is also part of a project's name, used to slice the data.
+    BaseEvalCase(
+        name="device_word_as_a_filter",
+        prompt="@PostHog how many mobile users finished onboarding yesterday?",
+        expected=_routes_to(),
+    ),
+    _in_the_crowd(
+        name="crowded_qualifier_word_as_a_verb",
+        prompt="@PostHog can you test whether the paywall_viewed event still fires after the release?",
+        expected=_routes_to(),
+    ),
     _in_the_crowd(
         name="crowded_agent_evaluation_question",
         prompt="@PostHog which of your evaluations regressed this week, and can you make the scorer stricter?",
@@ -371,6 +455,12 @@ CROWDED_ROUTING_CASES = [
         name="crowded_owning_project_asked_a_data_question",
         prompt="@PostHog how many agent runs failed overnight on Autopilot?",
         expected=_routes_to(AUTOPILOT),
+    ),
+    # The whole name is a qualifier word, behind an emoji nobody types.
+    _in_the_crowd(
+        name="crowded_qualifier_word_is_the_whole_name",
+        prompt="@PostHog did the onboarding_completed event fire in the test project today?",
+        expected=_routes_to(TEST),
     ),
 ]
 
@@ -402,13 +492,70 @@ SITE_NO_ROUTE_CASES = [
     ),
 ]
 
+# A device type, platform or browser says which slice of the default's data to read. The
+# mobile project holds only what its own app sends.
+DEVICE_NO_ROUTE_CASES = [
+    _beside_the_mobile_app(
+        name="one_person_on_their_phone",
+        prompt="@PostHog look up ada.lin@example.com and summarize what they do when they use us from their phone",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_against_desktop",
+        prompt="@PostHog is checkout conversion lower on mobile than on desktop this month?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_browsers_as_a_share",
+        prompt="@PostHog what fraction of last week's signups came in through mobile browsers?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_as_an_adjective_on_visitors",
+        prompt="@PostHog are mobile visitors leaving the pricing page faster than they did in March?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="device_model_as_a_cohort",
+        prompt="@PostHog show 4-week retention for people whose first visit was on an iPhone",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="company_name_beside_a_device_word",
+        prompt="@PostHog how much Northwind usage comes from tablets these days?",
+        expected=_routes_to(),
+    ),
+]
+
+# The mobile project is still one a person can ask for by name.
+DEVICE_ROUTING_CASES = [
+    _beside_the_mobile_app(
+        name="mobile_project_named_in_full",
+        prompt="@PostHog in the Northwind mobile app, which screens crash the most this week?",
+        expected=_routes_to(NORTHWIND_MOBILE),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_project_as_a_label",
+        prompt="@PostHog mobile app: how many crashes since Friday's build?",
+        expected=_routes_to(NORTHWIND_MOBILE),
+    ),
+]
+
 # A mention normally arrives with the resolved project on offer as the default, but not
 # always: `routable_projects` drops an install the bot cannot post into, and the project
 # the run is on can be that one. The model then sees the list in the auth filter's own
 # order and no sentence naming where it already is.
 _CASES_BY_NAME = {
     case.name: case
-    for case in [*ROUTING_CASES, *NO_ROUTE_CASES, *CROWDED_ROUTING_CASES, *SITE_ROUTING_CASES, *SITE_NO_ROUTE_CASES]
+    for case in [
+        *ROUTING_CASES,
+        *NO_ROUTE_CASES,
+        *CROWDED_ROUTING_CASES,
+        *SITE_ROUTING_CASES,
+        *SITE_NO_ROUTE_CASES,
+        *DEVICE_ROUTING_CASES,
+        *DEVICE_NO_ROUTE_CASES,
+    ]
 }
 
 
@@ -437,6 +584,7 @@ NO_DEFAULT_CASES = [
         "crowded_change_the_agents_reply",
         "crowded_explicit_on_project",
         "site_named_without_its_qualifier",
+        "one_person_on_their_phone",
     )
 ]
 
@@ -466,14 +614,21 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: {chosen.team.name if chosen else None}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-project-classifier",
+        offline_suite=offline_suite(
+            "slack_app/eval_project_classifier::eval_project_classifier",
+            metrics=["project_route_match", "no_unasked_project_switch"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[
             *ROUTING_CASES,
             *CROWDED_ROUTING_CASES,
             *SITE_ROUTING_CASES,
+            *DEVICE_ROUTING_CASES,
             *NO_ROUTE_CASES,
             *SITE_NO_ROUTE_CASES,
+            *DEVICE_NO_ROUTE_CASES,
             *NO_DEFAULT_CASES,
         ],
         scorers=[ProjectRouteMatch(), NoUnaskedProjectSwitch()],

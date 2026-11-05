@@ -2,10 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use metrics::counter;
+use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::changelog::{warm_sources, LiveChangelog};
 use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::ChangelogConfig;
 use tracing::{error, info};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
@@ -13,10 +17,39 @@ use crate::emitted::EmittedVersions;
 use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 #[cfg(test)]
 use crate::fencing::FencedProducerConfig;
-use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers, HealOutcome};
+use crate::fencing::{
+    heal_fence, preregister_partition_fencing_metrics, FenceGuard, FencedChangelogProducers,
+    HealOutcome,
+};
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
+use crate::warming::{warm_from_sources, WarmClientPools, WarmingConfig};
+
+/// The config a partition was acquired under.
+pub struct Capture {
+    pub config: ChangelogConfig,
+    /// The config's topic, shared so the write path names it without allocating.
+    pub topic: Arc<str>,
+}
+
+/// Per-partition captures, shared by the handler and the service.
+pub type ChangelogCaptures = Arc<DashMap<u32, Capture>>;
+
+/// Drops the partition's capture unless the warm that took it completes, so a
+/// failed or abandoned warm leaves no capture for a partition this pod does not serve.
+struct CaptureGuard<'a> {
+    captures: &'a ChangelogCaptures,
+    partition: u32,
+    armed: bool,
+}
+
+impl Drop for CaptureGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.captures.remove(&self.partition);
+        }
+    }
+}
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -59,7 +92,6 @@ pub struct LeaderHandoffHandler {
     /// The takeover scan's source. Without it (dev fixtures) fences are
     /// not rebuilt on takeover and only FencePerson calls fill the map.
     fence_scan: Option<PgFallback>,
-    num_partitions: u32,
     pools: Arc<WarmClientPools>,
     /// Acquiring a partition initializes its transactional producer,
     /// fencing every predecessor; releasing it drops the producer.
@@ -80,6 +112,8 @@ pub struct LeaderHandoffHandler {
     /// under every write admitted in between — the pod fencing its own
     /// live window.
     freshly_fenced: Arc<dashmap::DashSet<u32>>,
+    captures: ChangelogCaptures,
+    changelog: LiveChangelog,
 }
 
 impl LeaderHandoffHandler {
@@ -91,7 +125,8 @@ impl LeaderHandoffHandler {
         warming: WarmingConfig,
         fences: FenceMap,
         fence_scan: Option<PgFallback>,
-        num_partitions: u32,
+        changelog: LiveChangelog,
+        captures: ChangelogCaptures,
         pools: Arc<WarmClientPools>,
         fenced: Arc<FencedChangelogProducers>,
         authority: Arc<AuthorityClock>,
@@ -104,12 +139,21 @@ impl LeaderHandoffHandler {
             warming,
             fences,
             fence_scan,
-            num_partitions,
             pools,
             fenced,
             authority,
             emitted_versions,
             freshly_fenced: Arc::new(dashmap::DashSet::new()),
+            captures,
+            changelog,
+        }
+    }
+
+    /// The capture, else the live config: a preconnect runs before the capture.
+    fn captured(&self, partition: u32) -> ChangelogConfig {
+        match self.captures.get(&partition) {
+            Some(captured) => captured.config.clone(),
+            None => self.changelog.current(),
         }
     }
 
@@ -201,7 +245,22 @@ impl HandoffHandler for LeaderHandoffHandler {
         // a cancelled inbound handoff leaves no convergence behind, so
         // the sweep is the only path that reaches its leftovers.
         let fenced = Arc::clone(&self.fenced);
-        tokio::spawn(async move { fenced.preconnect(partition).await });
+        let target = self.captured(partition).target();
+        tokio::spawn(async move { fenced.preconnect(partition, &target).await });
+    }
+
+    async fn capture_changelog(&self, partition: u32, config: &ChangelogConfig) {
+        preregister_partition_fencing_metrics(partition);
+        // Adopted before the capture lands, so the live config is never older than a
+        // topic this pod marks; the prune's retirement check relies on that.
+        self.changelog.adopt(config);
+        self.captures.insert(
+            partition,
+            Capture {
+                topic: Arc::from(config.topic.as_str()),
+                config: config.clone(),
+            },
+        );
     }
 
     async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
@@ -238,15 +297,21 @@ impl HandoffHandler for LeaderHandoffHandler {
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         // The takeover scan: rebuild the partition's lifecycle fences from
         // the live marks BEFORE warming — the partition becomes servable
-        // the moment `warm_from_kafka` installs it in the cache, and a
+        // the moment the warm installs it in the cache, and a
         // fenced person must never be writable in that gap. A mark
         // committed after this read arrives as a FencePerson call to this
         // (now current) owner, so the two sources cover every mark; a
         // fence installed for a partition that is not yet serving is
         // harmless.
+        let config = self.captured(partition);
+        let mut capture_guard = CaptureGuard {
+            captures: &self.captures,
+            partition,
+            armed: true,
+        };
         if let Some(fallback) = &self.fence_scan {
             let installed =
-                rebuild_partition_fences(fallback, &self.fences, partition, self.num_partitions)
+                rebuild_partition_fences(fallback, &self.fences, partition, config.partitions)
                     .await
                     .map_err(|e| personhog_coordination::error::Error::HandoffFailed {
                         partition,
@@ -276,20 +341,22 @@ impl HandoffHandler for LeaderHandoffHandler {
         // which is what lets the read complete; the admitted writes fail
         // as fenced and their versions stay spent.
         self.fenced
-            .acquire(partition)
+            .acquire(partition, &config.target())
             .await
             .map_err(Error::invalid_state)?;
         self.check_authority_after_acquire(partition, "warm")?;
-        info!(partition, "changelog fence acquired");
+        info!(partition, topic = %config.topic, "changelog fence acquired");
         // The guard gives the epoch back if the warm fails or never
         // returns, rather than holding a partition this pod lost.
         let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
-        warm_from_kafka(
+        let sources = warm_sources(&config, partition);
+        warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
             &self.dirty_index,
             partition,
+            &sources,
         )
         .await?;
         // This pod may still carry a fence from a previous ownership of
@@ -297,6 +364,7 @@ impl HandoffHandler for LeaderHandoffHandler {
         // ownership through a fresh warm re-admits writes.
         self.inflight.unfence(partition);
         fence_guard.keep();
+        capture_guard.armed = false;
         self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
         Ok(())
@@ -316,7 +384,15 @@ impl HandoffHandler for LeaderHandoffHandler {
     /// applied work, so a repairing pod's budgets reset like any other
     /// progress.
     async fn verify_serving(&self, partition: u32) -> Result<bool> {
-        match heal_fence(&self.fenced, &self.inflight, &self.authority, partition).await {
+        match heal_fence(
+            &self.fenced,
+            &self.inflight,
+            &self.authority,
+            partition,
+            &self.captured(partition).target(),
+        )
+        .await
+        {
             Ok(HealOutcome::Healed) => {
                 // The epoch just moved. Mark it like every other
                 // acquisition site, so the resume step of this same
@@ -342,8 +418,17 @@ impl HandoffHandler for LeaderHandoffHandler {
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
         // Same for the lifecycle fences: the new owner's takeover scan
-        // rebuilds its own.
-        drop_partition_fences(&self.fences, partition, self.num_partitions);
+        // rebuilds its own. A key homed on another capture under that
+        // capture's modulus belongs to that partition, not this one.
+        let modulus = self.captured(partition).partitions;
+        drop_partition_fences(&self.fences, partition, modulus, |key| {
+            self.captures.iter().any(|capture| {
+                *capture.key() != partition
+                    && partition_for_person(key.team_id, key.person_id, capture.config.partitions)
+                        == *capture.key()
+            })
+        });
+        self.captures.remove(&partition);
         // The incoming owner derives versions from the changelog, which
         // is the authority these floors stood in for; carrying them would
         // only constrain a partition this pod no longer serves.
@@ -377,7 +462,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             return Ok(());
         }
         self.fenced
-            .acquire(partition)
+            .acquire(partition, &self.captured(partition).target())
             .await
             .map_err(Error::invalid_state)?;
         self.check_authority_after_acquire(partition, "resume")?;
@@ -431,10 +516,8 @@ mod tests {
             Arc::new(DirtyIndex::new(1_000_000)),
             WarmingConfig {
                 kafka,
-                topic: "personhog_updates".to_string(),
                 pod_name: "test".to_string(),
                 writer_consumer_group: "personhog-writer".to_string(),
-                lookback_offsets: 0,
                 committed_offsets_timeout: Duration::from_secs(5),
                 fetch_watermarks_timeout: Duration::from_secs(5),
                 recv_timeout: Duration::from_secs(10),
@@ -446,13 +529,13 @@ mod tests {
             },
             Arc::new(dashmap::DashMap::new()),
             None,
-            4,
+            LiveChangelog::new(ChangelogConfig::new("personhog_updates", 4)),
+            Arc::new(DashMap::new()),
             pools,
             // Lazily built: these tests never acquire a partition, so
             // nothing here reaches a broker.
             Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: fencing_kafka,
-                topic: "personhog_updates".to_string(),
                 init_timeout: Duration::from_secs(1),
                 commit_timeout: Duration::from_secs(1),
                 broker_txn_timeout: Duration::from_secs(10),
@@ -505,6 +588,109 @@ mod tests {
             handler.emitted_versions.floor_for(3, &key, 5),
             5,
             "a departed owner's floor must not survive the release"
+        );
+    }
+
+    /// A warm that does not complete leaves no capture behind.
+    #[tokio::test]
+    async fn a_failed_warm_drops_its_capture() {
+        let mut handler = handler();
+        // Unclaimed: the warm refuses before it touches the broker.
+        handler.authority = Arc::new(AuthorityClock::unclaimed());
+        handler
+            .capture_changelog(0, &ChangelogConfig::new("personhog_updates", 4))
+            .await;
+        assert!(handler.warm_partition(0).await.is_err());
+        assert!(!handler.captures.contains_key(&0));
+    }
+
+    /// A capture newer than the watch's view is adopted first, so the prune never
+    /// judges a topic this pod marks as retired.
+    #[tokio::test]
+    async fn a_capture_ahead_of_the_watch_keeps_its_topic_live() {
+        let mut handler = handler();
+        handler.changelog = LiveChangelog::new(ChangelogConfig {
+            writer_group: "personhog-writer".to_string(),
+            ..ChangelogConfig::new("personhog_updates", 4)
+        });
+        let flipped = ChangelogConfig {
+            epoch: 2,
+            writer_group: "personhog-writer".to_string(),
+            ..ChangelogConfig::new("personhog_updates_v2", 8)
+        };
+        handler.capture_changelog(0, &flipped).await;
+        assert!(!crate::settle::retired_topic(
+            &handler.changelog.current(),
+            "personhog-writer",
+            "personhog_updates_v2"
+        ));
+    }
+
+    /// After a shrink, old-5 and new-1 share keys on this pod, and the
+    /// release of old-5 may run after new-1 warmed.
+    #[tokio::test]
+    async fn releasing_an_old_home_keeps_the_new_homes_marks_and_fences() {
+        use crate::cache::{DirtyMark, PersonCacheKey, Stream};
+        use crate::fence::FenceState;
+        use personhog_proto::personhog::types::v1::LifecycleOpType;
+
+        let handler = handler();
+        let config = |topic: &str, partitions: u32, epoch: u64| ChangelogConfig {
+            topic: topic.to_string(),
+            partitions,
+            epoch,
+            writer_group: String::new(),
+            retire_groups: vec![],
+            draining: Vec::new(),
+        };
+        for (partition, cfg) in [(5, config("old", 8, 1)), (1, config("new", 4, 2))] {
+            handler.cache.create_partition(partition);
+            handler.captures.insert(
+                partition,
+                Capture {
+                    topic: Arc::from(cfg.topic.as_str()),
+                    config: cfg,
+                },
+            );
+        }
+        let key = (1..)
+            .map(|person_id| PersonCacheKey {
+                team_id: 1,
+                person_id,
+            })
+            .find(|k| partition_for_person(k.team_id, k.person_id, 8) == 5)
+            .unwrap();
+        let old5 = Stream {
+            topic: Arc::from("old"),
+            partition: 5,
+        };
+        for partition in [5, 1] {
+            handler.dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: 1,
+                    offset: 900,
+                    partition,
+                    stream: old5.clone(),
+                    is_deleted: false,
+                },
+            );
+        }
+        handler.fences.insert(
+            key.clone(),
+            FenceState {
+                op_id: uuid::Uuid::new_v4(),
+                op_type: LifecycleOpType::from_op_type_str("delete"),
+                sealed_at: None,
+            },
+        );
+
+        handler.release_partition(5).await.unwrap();
+
+        assert_eq!(handler.dirty_index.get(&key).map(|m| m.partition), Some(1));
+        assert!(
+            handler.fences.contains_key(&key),
+            "new-1's fence must survive old-5's release"
         );
     }
 

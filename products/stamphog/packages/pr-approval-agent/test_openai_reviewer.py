@@ -252,7 +252,7 @@ def test_tool_loop_reads_the_diff_and_derives_the_verdict_from_the_final_facts(c
 def test_tool_loop_stops_with_an_error_the_pipeline_does_not_retry(
     checkout: Path, budget_spent: bool, expected_error: str
 ) -> None:
-    calls = [_tool_call("glob", {"pattern": "src/*"}) for _ in range(5)]
+    calls = [_tool_call("glob", {"pattern": "src/*"}) for _ in range(openai_reviewer.MAX_TURNS)]
     reviewer = OpenAIReviewer(checkout, client=SimpleNamespace(responses=_FakeResponses(calls)))
     if budget_spent:
         reviewer.deadline = 0.0

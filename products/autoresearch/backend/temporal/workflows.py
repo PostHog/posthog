@@ -47,7 +47,12 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
-    from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline, score_shadow_set_for_run
+    from products.autoresearch.backend.inference.scoring import (
+        discard_scored_persons,
+        discard_scored_persons_for,
+        run_inference_for_pipeline,
+        score_shadow_set_for_run,
+    )
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -57,6 +62,7 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
     from products.autoresearch.backend.training.runner import run_training
     from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
+    from products.autoresearch.backend.training.stale import fail_stale_training_runs
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -343,7 +349,12 @@ def activity_run_shadow_scoring(inp: RunShadowScoringInput) -> RunShadowScoringR
             .filter(pk=inp.run_id, pipeline__pk=inp.pipeline_id, run_type=AutoresearchRun.RunType.INFERENCE)
             .first()
         )
-        if run is None or run.pipeline.status not in _LIVE_STATUSES or _sweep_access_block(run.pipeline):
+        if run is None:
+            # A deleted pipeline cascades to its runs, so the key comes from the input to clean up the stored people.
+            discard_scored_persons_for(team_id=inp.team_id, pipeline_id=inp.pipeline_id, inference_run_id=inp.run_id)
+            return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
+        if run.pipeline.status not in _LIVE_STATUSES or _sweep_access_block(run.pipeline):
+            discard_scored_persons(run)
             return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
         outcome = score_shadow_set_for_run(run, query_context=SCORING_QUERY)
     if outcome is None:
@@ -745,7 +756,8 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     outside the ``autoresearch`` rollout is skipped but stays live, so it resumes when the rollout
     reaches it again.
 
-    It also fails every inference run that its lost worker left RUNNING.
+    It also fails every inference run that its lost worker left RUNNING, and closes every training
+    run that its TaskRun can no longer close (``fail_stale_training_runs()``).
 
     The result lists the pipelines that are due and did not score yesterday first, so a bounded
     sweep starts the pipelines that missed a day before the others.
@@ -758,6 +770,7 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     together. The next catch-up tick tries again.
     """
     fail_stale_inference_runs()
+    fail_stale_training_runs()
     if inp.catch_up_date is not None and cache.get(daily_sweep_key(inp.catch_up_date)) == DAILY_SWEEP_RUNNING:
         logger.info("autoresearch_catch_up_deferred", catch_up_date=inp.catch_up_date)
         return LoadActivePipelinesResult(pipelines=[])
@@ -771,7 +784,8 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
         .filter(team__organization__is_active=True)
         .exclude(team__organization__is_pending_deletion=True)
-        .select_related("team", "created_by")
+        # The access check reads each team's organization.
+        .select_related("team__organization", "created_by")
         .order_by("created_at")
     )
     pipelines: list[tuple[bool, ActivePipeline]] = []
@@ -856,7 +870,10 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     The run row and its task binding commit together under the pipeline row lock, as in the
     facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
     so the activity retry applies.
+
+    A stale training run of the pipeline is closed first, outside the lock, so it does not block the start.
     """
+    fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
     # The gates can call out to billing and flags, so they run before the row lock is taken.
     with team_scope(inp.team_id):
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)

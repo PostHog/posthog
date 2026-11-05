@@ -10,3 +10,14 @@ export {
     type WorkflowDataSuggestionsViewProps,
 } from './WorkflowDataSuggestionsView'
 export { WorkflowDataSuggestionBuildView } from './WorkflowDataSuggestionBuildView'
+export {
+    WorkflowSendingRulesView,
+    type WorkflowSendingRulesData,
+    type WorkflowSendingRulesViewProps,
+} from './WorkflowSendingRulesView'
+export {
+    WorkflowSetupStatusView,
+    type WorkflowSetupStatusData,
+    type WorkflowSetupStatusViewProps,
+    type WorkflowSetupStep,
+} from './WorkflowSetupStatusView'

@@ -1,13 +1,16 @@
-//! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
+//! `FilterCatalog` + atomic swap + the refresher that rebuilds it on a team access change or a
+//! jittered period.
 
 use std::collections::hash_map::DefaultHasher;
-use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::{ArcSwap, Guard};
+use common_cohort_team_access::{
+    next_poll_delay, PollError, ProcessingTeams, TeamAccess, TeamAccessPoller,
+};
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
@@ -18,7 +21,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinError;
 use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
+use crate::filters::loader::{
+    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
+};
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{
@@ -26,7 +31,7 @@ use crate::observability::metrics::{
     FILTER_CATALOG_REFRESH_TOTAL, FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS,
 };
 
-/// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
+/// Snapshot counts returned by [`CatalogRefresher::refresh`] for logging.
 #[derive(Debug, Clone, Copy)]
 pub struct CatalogStats {
     pub teams: usize,
@@ -35,8 +40,13 @@ pub struct CatalogStats {
 
 #[derive(Debug, Error)]
 pub enum CatalogRefreshError {
+    /// The refresh has no access read that began after it did, so it reads no cohort rows.
+    #[error("reading team access failed: {0}")]
+    Access(#[from] PollError),
     #[error(transparent)]
     Load(#[from] FilterError),
+    #[error("loading posthog_cohort timed out")]
+    LoadTimedOut(#[from] tokio::time::error::Elapsed),
     #[error("filter catalog build worker failed: {0}")]
     Build(#[from] JoinError),
 }
@@ -62,8 +72,8 @@ pub(crate) enum CatalogView {
 /// Lock-free, atomically-swapped catalog handle. Starts empty and unloaded; the pipeline fails
 /// closed until the first successful refresh.
 ///
-/// The refresh loop is its only writer after boot, and the boot refresh ends before the loop
-/// starts, so refreshes never overlap.
+/// Its [`CatalogRefresher`] is its only writer, and a refresh takes the refresher by `&mut`, so
+/// refreshes never overlap.
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     /// Refreshes started. Refresh `n` takes `n` when it starts.
@@ -71,32 +81,48 @@ pub struct CatalogHandle {
     /// Sequence of the published snapshot, 0 before the first store.
     published: AtomicU64,
     loaded_notify: Notify,
-    /// Cohorts for teams outside this allowlist never enter the catalog.
-    allowlist: TeamAllowlist,
-    cascade_enabled: bool,
-    /// Last stamped generation, advanced by [`Self::store`]. Single-writer (the refresh loop),
-    /// so `Relaxed` suffices.
+    /// Last stamped generation, advanced by [`Self::store`]. Single-writer (the refresher), so
+    /// `Relaxed` suffices.
     current_generation: AtomicU64,
     /// Signature of the last stored catalog, to detect a no-op refresh.
     current_signature: AtomicU64,
 }
 
 impl CatalogHandle {
+    /// An unloaded handle that nothing refreshes from Postgres.
     pub fn new() -> Self {
-        Self::with_allowlist(TeamAllowlist::All, false)
-    }
-
-    pub fn with_allowlist(allowlist: TeamAllowlist, cascade_enabled: bool) -> Self {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),
             begun: AtomicU64::new(0),
             published: AtomicU64::new(0),
             loaded_notify: Notify::new(),
-            allowlist,
-            cascade_enabled,
             current_generation: AtomicU64::new(0),
             current_signature: AtomicU64::new(0),
         }
+    }
+
+    /// An unloaded handle and the one refresher that publishes to it, for the teams in `env` and the
+    /// teams that a `cohort_realtime_team_access` row grants.
+    pub fn with_refresher(
+        env: TeamAllowlist,
+        pool: PgPool,
+        interval: Duration,
+        jitter: Duration,
+        cascade_enabled: bool,
+    ) -> (Arc<Self>, CatalogRefresher) {
+        let catalog = Arc::new(Self::new());
+        let (access, poller) = TeamAccess::new(env);
+        let refresher = CatalogRefresher {
+            catalog: catalog.clone(),
+            access,
+            poller,
+            pool,
+            interval,
+            jitter,
+            cascade_enabled,
+            last: None,
+        };
+        (catalog, refresher)
     }
 
     /// Load the current snapshot for a wait-free hot-path read.
@@ -202,50 +228,6 @@ impl CatalogHandle {
         self.loaded_notify.notify_waiters();
     }
 
-    /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
-    ///
-    /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
-    /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
-    /// look identical to one that never loaded.
-    pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
-        match self.refresh_from(|| load_realtime_cohorts(pool)).await {
-            Ok(stats) => {
-                gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
-                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
-                Ok(stats)
-            }
-            Err(err) => {
-                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "error").increment(1);
-                Err(err)
-            }
-        }
-    }
-
-    /// `load` reads the cohort rows. The refresh begins before it runs, so every write committed
-    /// before the read is in what it returns.
-    async fn refresh_from<Rows>(
-        &self,
-        load: impl FnOnce() -> Rows,
-    ) -> Result<CatalogStats, CatalogRefreshError>
-    where
-        Rows: Future<Output = Result<Vec<CohortRow>, FilterError>>,
-    {
-        let seq = self.begin();
-        let mut rows = load().await?;
-        let fetched_rows = rows.len();
-        retain_allowlisted(&mut rows, &self.allowlist);
-        if rows.len() != fetched_rows {
-            debug!(
-                fetched_rows,
-                kept_rows = rows.len(),
-                "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
-            );
-        }
-        let cascade_enabled = self.cascade_enabled;
-        self.build_and_store(seq, move || build_catalog_from_rows(rows, cascade_enabled))
-            .await
-    }
-
     async fn build_and_store(
         &self,
         seq: RefreshSeq,
@@ -276,9 +258,23 @@ fn now_unix_seconds() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Drop rows outside the configured team scope before catalog construction.
-fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
-    rows.retain(|row| allowlist.includes(row.team_id));
+/// Bounds the cohort load on the client. The statement timeout stops only the server, so a socket
+/// that dies after the pool hands it out would otherwise hang the refresher, and with it every grant
+/// and revoke. Keep it longer than `PG_ACQUIRE_TIMEOUT_SECS` plus `PG_STATEMENT_TIMEOUT_MS`, so the
+/// pool and the server end a slow load first.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn load_processing(
+    pool: &PgPool,
+    teams: &ProcessingTeams,
+) -> Result<Vec<CohortRow>, FilterError> {
+    match teams.scope() {
+        TeamAllowlist::All => load_realtime_cohorts(pool).await,
+        TeamAllowlist::Only(team_ids) => {
+            let team_ids: Vec<i32> = team_ids.iter().copied().collect();
+            load_realtime_cohorts_for_teams(pool, &team_ids).await
+        }
+    }
 }
 
 /// A refresh that has begun and not yet published (test seam).
@@ -311,31 +307,193 @@ fn catalog_signature(catalog: &FilterCatalog) -> u64 {
     hasher.finish()
 }
 
-/// Periodic catalog refresh task. On failure, keeps the previous snapshot and retries next tick.
-pub async fn run_refresh_loop(
+/// Why a tick of [`CatalogRefresher::run`] refreshes the catalog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshReason {
+    /// No refresh has published, so a failed boot load retries on every access poll.
+    NeverPublished,
+    /// Team access lets through other teams than the published catalog covers.
+    AccessChanged,
+    /// `interval ± jitter` has passed since the last refresh.
+    Due,
+}
+
+/// The teams of the published catalog, and when the next periodic refresh is due.
+#[derive(Debug)]
+struct Published {
+    teams: Arc<ProcessingTeams>,
+    due: Instant,
+}
+
+/// The only writer of its [`CatalogHandle`] outside tests. It owns the team access poller, and each
+/// refresh builds a catalog only for the teams of an access read that the refresh made itself. A
+/// catalog built for the env list alone would lack the granted teams, so stage 2 GC would delete
+/// their state.
+pub struct CatalogRefresher {
     catalog: Arc<CatalogHandle>,
+    access: Arc<TeamAccess>,
+    poller: TeamAccessPoller,
     pool: PgPool,
     interval: Duration,
     jitter: Duration,
-    handle: Handle,
-) {
-    let _guard = handle.process_scope();
+    cascade_enabled: bool,
+    /// `None` until a refresh publishes. A failed refresh after that moves only `due`. So a cohort
+    /// load that keeps failing waits for `due`, but a grant or a revoke that no refresh has published
+    /// retries on every access poll.
+    last: Option<Published>,
+}
 
-    loop {
-        let sleep_for = next_interval(interval, jitter);
-        tokio::select! {
-            _ = handle.shutdown_recv() => break,
-            _ = tokio::time::sleep(sleep_for) => match catalog.refresh(&pool).await {
-                Ok(stats) => info!(
-                    teams = stats.teams,
-                    unique_conditions = stats.unique_conditions,
-                    "filter catalog refreshed",
-                ),
-                Err(err) => warn!(
-                    error = %err,
-                    "filter catalog refresh failed; keeping previous snapshot",
-                ),
-            },
+impl CatalogRefresher {
+    /// Read team access and `posthog_cohort`, rebuild the catalog for the teams that team access
+    /// lets through, and swap it in.
+    ///
+    /// The staleness metrics are stamped here rather than in [`Self::run`] so the boot load in
+    /// `main` counts too. Otherwise a pod that booted fine and then lost its refresh loop would look
+    /// identical to one that never loaded.
+    ///
+    /// # Errors
+    ///
+    /// Fails before it reads a cohort row when the access read fails, so also before the first
+    /// accepted read. Also fails when the cohort load or the build fails. The previous catalog then
+    /// stays.
+    #[hotpath::measure(impl_type = "CatalogRefresher")]
+    pub async fn refresh(&mut self) -> Result<CatalogStats, CatalogRefreshError> {
+        let pool = self.pool.clone();
+        match self
+            .refresh_from(
+                async |poller| poller.poll(&pool).await,
+                async |teams| load_processing(&pool, teams).await,
+            )
+            .await
+        {
+            Ok(stats) => {
+                gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
+                Ok(stats)
+            }
+            Err(err) => {
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "error").increment(1);
+                Err(err)
+            }
+        }
+    }
+
+    /// `poll` reads team access, and `load` reads the cohort rows of its teams. The refresh begins
+    /// before both reads, so every write committed before it began is in what it uses.
+    async fn refresh_from(
+        &mut self,
+        poll: impl AsyncFnOnce(&mut TeamAccessPoller) -> Result<usize, PollError>,
+        load: impl AsyncFnOnce(&ProcessingTeams) -> Result<Vec<CohortRow>, FilterError>,
+    ) -> Result<CatalogStats, CatalogRefreshError> {
+        let seq = self.catalog.begin();
+        let polled = poll(&mut self.poller).await;
+        let teams = self.current_teams(polled)?;
+        let refreshed = self.load_and_store(seq, &teams, load).await;
+        let due = Instant::now() + next_interval(self.interval, self.jitter);
+        if refreshed.is_ok() {
+            self.last = Some(Published { teams, due });
+        } else if let Some(last) = &mut self.last {
+            last.due = due;
+        }
+        refreshed
+    }
+
+    async fn load_and_store(
+        &self,
+        seq: RefreshSeq,
+        teams: &ProcessingTeams,
+        load: impl AsyncFnOnce(&ProcessingTeams) -> Result<Vec<CohortRow>, FilterError>,
+    ) -> Result<CatalogStats, CatalogRefreshError> {
+        let rows = tokio::time::timeout(LOAD_TIMEOUT, load(teams)).await??;
+        let processing = teams.scope().clone();
+        let cascade_enabled = self.cascade_enabled;
+        self.catalog
+            .build_and_store(seq, move || {
+                build_catalog_from_rows(rows, processing, cascade_enabled)
+            })
+            .await
+    }
+
+    /// The teams of the read that `polled` reports. A failed read leaves an earlier read in place,
+    /// which can predate the refresh's [`RefreshSeq`], so this returns its error instead. A regressed
+    /// read is current, except that the teams it regressed keep their previous rows.
+    fn current_teams(
+        &self,
+        polled: Result<usize, PollError>,
+    ) -> Result<Arc<ProcessingTeams>, PollError> {
+        match polled {
+            Ok(granted) => debug!(granted_teams = granted, "team access polled"),
+            Err(err @ PollError::RegressedRows(_)) => {
+                warn!(error = %err, "team access poll kept regressed rows")
+            }
+            Err(
+                err @ (PollError::Query(_)
+                | PollError::TimedOut(_)
+                | PollError::UnknownLevel { .. }),
+            ) => return Err(err),
+        }
+        Ok(self
+            .access
+            .processing_teams()
+            .expect("a read that does not fail stores a snapshot"))
+    }
+
+    fn refresh_reason(&self, current: &ProcessingTeams, now: Instant) -> Option<RefreshReason> {
+        match &self.last {
+            None => Some(RefreshReason::NeverPublished),
+            Some(last) if *last.teams != *current => Some(RefreshReason::AccessChanged),
+            Some(last) => (now >= last.due).then_some(RefreshReason::Due),
+        }
+    }
+
+    async fn tick(&mut self) {
+        let polled = self.poller.poll(&self.pool).await;
+        let current = match self.current_teams(polled) {
+            Ok(current) => current,
+            Err(err) => {
+                warn!(error = %err, "team access poll failed; the catalog waits for the next poll");
+                return;
+            }
+        };
+        let Some(reason) = self.refresh_reason(&current, Instant::now()) else {
+            return;
+        };
+        // `refresh` polls again after it begins, so the access read it uses follows its
+        // `RefreshSeq`.
+        match self.refresh().await {
+            Ok(stats) => info!(
+                ?reason,
+                teams = stats.teams,
+                unique_conditions = stats.unique_conditions,
+                "filter catalog refreshed",
+            ),
+            Err(err) => warn!(
+                ?reason,
+                error = %err,
+                "filter catalog refresh failed; keeping previous snapshot",
+            ),
+        }
+    }
+
+    /// Polls team access every [`next_poll_delay`] until shutdown. After each poll whose read does
+    /// not fail, refreshes until a refresh publishes, and after that when team access changes or
+    /// `interval ± jitter` has passed. Shutdown also cancels a poll or a refresh in flight, which
+    /// then publishes nothing, so the task stays inside a short graceful window.
+    ///
+    /// Register `handle` without a liveness deadline: a database outage must not stop a processor
+    /// that can run on its last catalog.
+    pub async fn run(mut self, handle: Handle) {
+        let _guard = handle.process_scope();
+
+        loop {
+            let tick = async {
+                tokio::time::sleep(next_poll_delay()).await;
+                self.tick().await;
+            };
+            tokio::select! {
+                _ = handle.shutdown_recv() => break,
+                () = tick => {}
+            }
         }
     }
 }
@@ -353,7 +511,8 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::cell::Cell;
+    use std::collections::{BTreeSet, HashSet};
 
     use super::*;
     use chrono_tz::UTC;
@@ -362,15 +521,25 @@ mod tests {
     use crate::filters::reverse_index::TeamFiltersBuilder;
     use crate::filters::{CohortId, TeamFilters, TeamId};
 
-    fn cohort_row(id: i32, team_id: i32) -> CohortRow {
-        CohortRow {
-            id,
-            team_id,
-            filters: serde_json::Value::Null,
-            behavioral_filters_shape_hash: None,
-            person_filters_shape_hash: None,
-            timezone: "UTC".to_string(),
-        }
+    fn processing(env: TeamAllowlist, granted: &[i32]) -> Arc<ProcessingTeams> {
+        TeamAccess::with_granted(env, granted.iter().copied())
+            .processing_teams()
+            .expect("with_granted accepts a read")
+    }
+
+    /// The tests read team access and cohort rows through the closures of `refresh_from`, so
+    /// nothing reads this pool.
+    fn refresher(env: TeamAllowlist) -> (Arc<CatalogHandle>, CatalogRefresher) {
+        let pool = PgPool::connect_lazy("postgres://localhost/unused").expect("a valid url");
+        CatalogHandle::with_refresher(env, pool, Duration::from_secs(300), Duration::ZERO, false)
+    }
+
+    fn access_read_failed() -> Result<usize, PollError> {
+        Err(PollError::Query(sqlx::Error::PoolClosed))
+    }
+
+    fn cohort_load_failed() -> Result<Vec<CohortRow>, FilterError> {
+        Err(FilterError::Query(sqlx::Error::PoolClosed))
     }
 
     fn team_with_one_behavioral() -> TeamFilters {
@@ -484,22 +653,178 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refresh_begins_before_it_reads_the_cohort_rows() {
-        let handle = CatalogHandle::new();
-        let before_refresh = handle.last_begun();
-        let begun_at_read = std::cell::Cell::new(before_refresh);
+    async fn a_refresh_begins_before_it_reads_team_access_and_the_cohort_rows_of_the_granted_teams()
+    {
+        let (catalog, mut refresher) = refresher(TeamAllowlist::Only(HashSet::from([2])));
+        let before_refresh = catalog.last_begun();
+        let begun_at_access_read = Cell::new(before_refresh);
+        let begun_at_cohort_read = Cell::new(before_refresh);
 
-        handle
-            .refresh_from(|| async {
-                begun_at_read.set(handle.last_begun());
-                Ok(Vec::new())
-            })
+        refresher
+            .refresh_from(
+                async |poller| {
+                    begun_at_access_read.set(catalog.last_begun());
+                    poller.accept_granted([5])
+                },
+                async |teams| {
+                    assert_eq!(teams.scope(), &TeamAllowlist::Only(HashSet::from([2, 5])));
+                    begun_at_cohort_read.set(catalog.last_begun());
+                    Ok(Vec::new())
+                },
+            )
             .await
             .unwrap();
 
+        for begun_at_read in [begun_at_access_read, begun_at_cohort_read] {
+            assert!(
+                begun_at_read.get() > before_refresh,
+                "a job admitted during a read must not count the refresh as begun after it",
+            );
+        }
         assert!(
-            begun_at_read.get() > before_refresh,
-            "a job admitted during the read must not count the refresh as begun after it",
+            catalog.load().processes(TeamId(5)),
+            "a granted team with no realtime cohort is processed, so its merges still drain",
+        );
+        assert!(
+            !catalog.load().processes(TeamId(9)),
+            "a team outside the read's scope is not processed, so its merges drop",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refresh_reads_no_cohort_rows_only_when_its_access_read_fails() {
+        let (catalog, mut refresher) = refresher(TeamAllowlist::Only(HashSet::from([2])));
+        let cohorts_read = Cell::new(false);
+        let read_cohorts = async |_: &ProcessingTeams| {
+            cohorts_read.set(true);
+            Ok(Vec::new())
+        };
+
+        let before_first_read = refresher
+            .refresh_from(async |_| access_read_failed(), read_cohorts)
+            .await;
+        assert!(matches!(
+            before_first_read,
+            Err(CatalogRefreshError::Access(PollError::Query(_)))
+        ));
+        assert!(
+            !cohorts_read.get(),
+            "a catalog of the env list alone lets stage 2 GC delete the granted teams' state",
+        );
+        assert!(!catalog.is_loaded());
+
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5]),
+                async |_| Ok(Vec::new()),
+            )
+            .await
+            .unwrap();
+        let after_publish = refresher
+            .refresh_from(async |_| access_read_failed(), read_cohorts)
+            .await;
+        assert!(after_publish.is_err());
+        assert!(
+            !cohorts_read.get(),
+            "the rows of an earlier read can lack a grant that a job admitted after it relies on",
+        );
+
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([]),
+                async |teams| {
+                    assert_eq!(teams.scope(), &TeamAllowlist::Only(HashSet::from([2, 5])));
+                    Ok(Vec::new())
+                },
+            )
+            .await
+            .expect("a deleted access row must not fail every refresh until a restart");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_is_due_until_one_publishes_then_on_an_access_change_or_after_the_period() {
+        let (_catalog, mut refresher) = refresher(TeamAllowlist::Only(HashSet::from([2])));
+        let now = Instant::now();
+        let past_due = now + Duration::from_secs(3600);
+
+        let polled = refresher.poller.accept_granted([5]);
+        let granted = refresher.current_teams(polled).unwrap();
+        assert_eq!(
+            refresher.refresh_reason(&granted, now),
+            Some(RefreshReason::NeverPublished)
+        );
+        let hung_boot_load = refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5]),
+                async |_| {
+                    tokio::time::sleep(2 * LOAD_TIMEOUT).await;
+                    Ok(Vec::new())
+                },
+            )
+            .await;
+        assert!(matches!(
+            hung_boot_load,
+            Err(CatalogRefreshError::LoadTimedOut(_))
+        ));
+        assert_eq!(
+            refresher.refresh_reason(&granted, now),
+            Some(RefreshReason::NeverPublished),
+            "a boot load that times out retries on the next tick",
+        );
+
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5]),
+                async |_| Ok(Vec::new()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(refresher.refresh_reason(&granted, now), None);
+        assert_eq!(
+            refresher.refresh_reason(&granted, past_due),
+            Some(RefreshReason::Due)
+        );
+        // A failed refresh that moves `due` puts it after `past_due`.
+        refresher.interval = Duration::from_secs(7200);
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5]),
+                async |_| cohort_load_failed(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refresher.refresh_reason(&granted, past_due),
+            None,
+            "a cohort load that keeps failing waits for the period, not for the next tick",
+        );
+
+        let polled = refresher.poller.accept_granted([5, 6]);
+        let regranted = refresher.current_teams(polled).unwrap();
+        assert_eq!(
+            refresher.refresh_reason(&regranted, now),
+            Some(RefreshReason::AccessChanged)
+        );
+        refresher
+            .refresh_from(async |_| access_read_failed(), async |_| Ok(Vec::new()))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refresher.refresh_reason(&regranted, now),
+            Some(RefreshReason::AccessChanged),
+            "a refresh whose access read failed retries on the next tick",
+        );
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5, 6]),
+                async |_| cohort_load_failed(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refresher.refresh_reason(&regranted, now),
+            Some(RefreshReason::AccessChanged),
+            "a grant that a failed cohort load did not publish retries on the next tick",
         );
     }
 
@@ -532,14 +857,19 @@ mod tests {
         let gen1 = handle.load().generation();
 
         // Same condition set → same signature → generation unchanged (the memo survives the refresh).
-        handle.publish(FilterCatalog::from_teams([(
-            TeamId(7),
-            team_with_one_behavioral(),
-        )]));
+        // The scope is outside the signature, so a grant of a team with no cohort is such a refresh.
+        handle.publish(FilterCatalog::for_processing(
+            TeamAllowlist::Only(HashSet::from([7, 8])),
+            [(TeamId(7), team_with_one_behavioral())],
+        ));
         assert_eq!(
             handle.load().generation(),
             gen1,
             "a no-op refresh reuses the generation",
+        );
+        assert!(
+            handle.load().processes(TeamId(8)),
+            "a refresh with the same signature still publishes its scope",
         );
 
         // A different condition hash → signature changes → generation advances (memo invalidates).
@@ -565,28 +895,6 @@ mod tests {
             (TeamId(7), team_with_one_behavioral()),
         ]);
         assert_eq!(catalog_signature(&a), catalog_signature(&b));
-    }
-
-    #[test]
-    fn retain_allowlisted_keeps_only_in_scope_rows() {
-        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
-        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::from([2])));
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].team_id, 2);
-    }
-
-    #[test]
-    fn retain_allowlisted_all_keeps_everything() {
-        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
-        retain_allowlisted(&mut rows, &TeamAllowlist::All);
-        assert_eq!(rows.len(), 2);
-    }
-
-    #[test]
-    fn retain_allowlisted_empty_scope_drops_everything() {
-        let mut rows = vec![cohort_row(1, 2)];
-        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::new()));
-        assert!(rows.is_empty());
     }
 
     #[test]
@@ -622,15 +930,45 @@ mod tests {
             common_database::get_pool_with_config(&url, common_database::PoolConfig::default())
                 .expect("build posthog_cohort pool");
 
-        let handle = CatalogHandle::new();
+        let (handle, mut refresher) = CatalogHandle::with_refresher(
+            TeamAllowlist::All,
+            pool.clone(),
+            Duration::from_secs(300),
+            Duration::ZERO,
+            false,
+        );
         assert!(!handle.is_loaded());
 
-        let stats = handle
-            .refresh(&pool)
+        let stats = refresher
+            .refresh()
             .await
-            .expect("refresh against live posthog_cohort");
+            .expect("refresh against live posthog_cohort and cohort_realtime_team_access");
 
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
+
+        // Read the rows directly, because the catalog leaves out other teams' filters, which would
+        // hide a missing SQL filter.
+        let keys = |rows: &[CohortRow]| -> BTreeSet<(i32, i32)> {
+            rows.iter().map(|row| (row.team_id, row.id)).collect()
+        };
+        let unscoped = load_processing(&pool, &processing(TeamAllowlist::All, &[]))
+            .await
+            .expect("unscoped load against live posthog_cohort");
+        if let Some(team_id) = unscoped.first().map(|row| row.team_id) {
+            let only_team = processing(TeamAllowlist::Only(HashSet::from([team_id])), &[]);
+            let scoped = load_processing(&pool, &only_team)
+                .await
+                .expect("team-scoped load against live posthog_cohort");
+            let expected: BTreeSet<_> = keys(&unscoped)
+                .into_iter()
+                .filter(|(team, _)| *team == team_id)
+                .collect();
+            assert_eq!(keys(&scoped), expected);
+        }
+        let none = load_processing(&pool, &processing(TeamAllowlist::Only(HashSet::new()), &[]))
+            .await
+            .expect("empty-scope load against live posthog_cohort");
+        assert!(none.is_empty());
     }
 }

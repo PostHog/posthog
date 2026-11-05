@@ -29,7 +29,7 @@ export function handleStickinessChartClick(seriesKey: string, dataIndex: number,
         return
     }
 
-    const day = dataset.action?.days?.[dataIndex] ?? dataset.days?.[dataIndex]
+    const day = dataset.days?.[dataIndex]
     if (day == null || day === '') {
         return
     }

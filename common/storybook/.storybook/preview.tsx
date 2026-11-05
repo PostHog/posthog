@@ -1,14 +1,15 @@
 import '~/styles'
 
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
-import type { Meta, Parameters, Preview } from '@storybook/react'
+import type { Preview } from '@storybook/react'
 import { configure as configureTestingLibrary } from '@testing-library/dom'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
 
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { worker } from '~/mocks/browser'
-import { defaultMocks } from '~/mocks/handlers'
 
 import { getStorybookAppContext } from './app-context'
 import { withChartCanvasSnapshot } from './decorators/withChartCanvasSnapshot'
@@ -24,9 +25,10 @@ import { withTheme } from './decorators/withTheme'
 // story a load-tolerant default budget instead of making each play pass its own timeout.
 configureTestingLibrary({ asyncUtilTimeout: 15000 })
 
-const setupMsw = (): void => {
+const setupMsw = (): Promise<unknown> => {
     // Make sure the msw worker is started
-    worker.start({
+    const workerStarted = worker.start({
+        serviceWorker: { url: '/storybookServiceWorker.js' },
         quiet: true,
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
@@ -43,8 +45,9 @@ const setupMsw = (): void => {
     })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
+    return workerStarted
 }
-setupMsw()
+const mswStarted = setupMsw()
 
 const setupPosthogJs = (): void => {
     // Make sure we don't hit production posthog. We want to control requests to,
@@ -57,7 +60,7 @@ setupPosthogJs()
 
 // Canvas charts measure text at paint time and never repaint when fonts finish loading, so hold
 // every story's render until the app fonts (the set the visual-regression runner preloads) are in.
-export const loaders: Preview['loaders'] = [
+const loaders: Preview['loaders'] = [
     async () => {
         await Promise.all(
             ['400', '500', '700', '800'].flatMap((weight) => [
@@ -69,45 +72,17 @@ export const loaders: Preview['loaders'] = [
             .catch(() => undefined)
         return {}
     },
+    // MSW 2 does not hold requests back while its worker registers. Without this wait, the first story
+    // on a fresh page can send its API calls to the real server and render their failure instead.
+    // A failed start rejects here, so the story reports it rather than rendering without mocks.
+    async () => {
+        await mswStarted
+        return {}
+    },
 ]
 
-/** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
-export const parameters: Parameters = {
-    actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
-    controls: {
-        matchers: {
-            color: /(background|color)$/i,
-            date: /Date$/,
-        },
-    },
-    options: {
-        // automatically show code panel
-        showPanel: false,
-        storySort: {
-            method: 'alphabetical',
-            order: [
-                'Lemon UI',
-                ['Overview', 'Utilities', 'Icons'],
-                'Components',
-                'Forms',
-                ['Field'],
-                'Filters',
-                'Layout',
-            ],
-        },
-    },
-    viewMode: 'docs',
-    // auto-expand code blocks in docs
-    docs: {
-        source: { state: 'closed' },
-    },
-    msw: {
-        mocks: defaultMocks,
-    },
-}
-
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
-export const decorators: Meta['decorators'] = [
+const decorators: Preview['decorators'] = [
     // Make sure the msw service worker is started, and reset the handlers to defaults.
     withKea,
     // Allow us to time travel to ensure our stories don't change over time.
@@ -124,6 +99,8 @@ export const decorators: Meta['decorators'] = [
 ]
 
 const preview: Preview = {
+    loaders,
+    decorators,
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
         // We don't want axe-core tests in visual review
@@ -134,7 +111,23 @@ const preview: Preview = {
                 date: /Date$/,
             },
         },
+        options: {
+            showPanel: false,
+            storySort: {
+                method: 'alphabetical',
+                order: [
+                    'Lemon UI',
+                    ['Overview', 'Utilities', 'Icons'],
+                    'Components',
+                    'Forms',
+                    ['Field'],
+                    'Filters',
+                    'Layout',
+                ],
+            },
+        },
         docs: {
+            source: { state: 'closed' },
             page: () => (
                 <>
                     <Title />

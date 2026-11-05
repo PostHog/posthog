@@ -11,15 +11,14 @@ no longer triggers at setup.
 from collections.abc import Callable
 from typing import Any
 
-from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Model
 from django.db.models.signals import post_delete, post_save
 
-from posthog.models.organization import OrganizationMembership
+from posthog.caching.cache_version import bump_cache_version, read_cache_version
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team import Team
-from posthog.utils import get_safe_cache
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import RoleMembership
@@ -36,31 +35,11 @@ def _org_serializer_version_key(organization_id: str) -> str:
 
 
 def _org_serializer_cache_version(organization_id: str) -> int:
-    key = _org_serializer_version_key(organization_id)
-    raw = get_safe_cache(key)
-    if raw is None:
-        try:
-            cache.add(key, 0, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
-        except Exception:
-            pass
-        return 0
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 0
+    return read_cache_version(_org_serializer_version_key(organization_id), ORG_SERIALIZER_VERSION_TTL_SECONDS)
 
 
 def _bump_org_serializer_cache_version(organization_id: str) -> None:
-    key = _org_serializer_version_key(organization_id)
-    try:
-        cache.incr(key)
-    except ValueError:
-        try:
-            cache.add(key, 1, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
-        except Exception:
-            pass
-    except Exception:
-        pass
+    bump_cache_version(_org_serializer_version_key(organization_id), ORG_SERIALIZER_VERSION_TTL_SECONDS)
 
 
 def _instance_org_id(instance: Any) -> str | None:
@@ -94,6 +73,7 @@ def _access_control_to_org_id(instance: Any) -> str | None:
 
 
 _INVALIDATION_SOURCES: list[tuple[type[Model], Callable[[Any], str | None]]] = [
+    (Organization, lambda instance: str(instance.pk)),
     (Team, _instance_org_id),
     (Project, _instance_org_id),
     (OrganizationMembership, _instance_org_id),

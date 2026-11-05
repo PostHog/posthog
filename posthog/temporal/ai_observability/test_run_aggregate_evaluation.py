@@ -416,6 +416,7 @@ class TestRunAggregateEvaluationWorkflow:
 
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
+        assert "reasoning" not in result
         assert window_starts == [datetime.fromisoformat(anchor).isoformat()]
         # Bounded to the span the live path would have covered from the anchor, so the grade does
         # not sweep in everything that arrived between the anchor and now.

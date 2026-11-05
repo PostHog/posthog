@@ -3,21 +3,21 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import BooleanField, Expression, ExpressionWrapper, Model, Prefetch, Q, Value
 
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
+from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
@@ -27,14 +27,28 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_modeling.backend.facade.api import (
+    MaterializationAlreadyRunningError,
+    MaterializationEngine,
     MaterializationFailedError,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRefusedError,
+    MaterializationRunDirection,
     SavedQueryNotFoundError,
+    delete_saved_query_by_id,
+    disable_saved_query_materialization,
     enable_saved_query_materialization,
+    run_related_node_materializations,
 )
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
+from products.managed_warehouse.backend.facade.sql_editor import managed_trino_query_flag_enabled
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -64,8 +78,21 @@ class DependentsValidationError(serializers.ValidationError):
             self.extra = {"node_id": node_id}
 
 
-class DataWarehouseSavedQueryPagination(PageNumberPagination):
+class DataWarehouseSavedQueryPagination(BoundedPageNumberPagination):
     page_size = 1000
+
+
+class SavedQueryResumeRequestSerializer(serializers.Serializer):
+    """Body of the `resume` action."""
+
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        help_text=(
+            "Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). "
+            "Omit it to resume every engine the query is suspended on."
+        ),
+    )
 
 
 class SavedQueryResumeSerializer(serializers.Serializer):
@@ -94,6 +121,39 @@ class SavedQueryRunSerializer(serializers.Serializer):
         help_text="Rebuild the whole table instead of updating it incrementally. Has no effect on a "
         "view that is not incremental. This is how you reprocess history after changing what the "
         "query means without changing its text, or after upstream data was corrected.",
+    )
+    direction = serializers.ChoiceField(
+        choices=MaterializationRunDirection.choices,
+        required=False,
+        help_text=(
+            "Run this view with all upstream dependencies or all downstream dependents. "
+            "Omit this field to run only this view. You cannot use it with full_refresh."
+        ),
+    )
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        default=MaterializationEngine.CLICKHOUSE,
+        help_text=(
+            "Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. "
+            "'trino' builds the same views on the organization's managed warehouse only, and leaves the "
+            "ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed "
+            "warehouse, and 409 while another managed warehouse run of these views is in progress."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("direction") and attrs["full_refresh"]:
+            raise serializers.ValidationError(
+                {"full_refresh": "You cannot use full_refresh with an upstream or downstream run."}
+            )
+        return attrs
+
+
+class SavedQueryRunResponseSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The data model nodes included in the run.",
     )
 
 
@@ -191,6 +251,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
                 "query", "external_tables", "incremental_state"
             )
+            # Reading the two keys still detoasts `query`, so only orgs that can save raw Trino views pay for it.
+            # The flag check is read-only. The editor's access check can promote the warehouse lifecycle, which a list must not do.
+            if managed_trino_query_flag_enabled(self.team.organization_id):
+                raw_managed_trino: Expression = ExpressionWrapper(
+                    Q(query__executionTarget="managed_trino", query__sendRawQuery=True),
+                    output_field=BooleanField(),
+                )
+            else:
+                raw_managed_trino = Value(False, output_field=BooleanField())
+            base_queryset = base_queryset.annotate(raw_managed_trino=raw_managed_trino)
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
@@ -229,7 +299,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
-            lifecycle.delete_saved_query(instance)
+            delete_saved_query_by_id(
+                self.team_id, instance.id, user=cast(User, request.user), was_impersonated=is_impersonated(request)
+            )
         except HasDependentsError as dependents_error:
             visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
             raise DependentsValidationError(
@@ -237,20 +309,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=instance.id,
-            scope="DataWarehouseSavedQuery",
-            activity="deleted",
-            detail=Detail(name=name),
-        )
-
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(request=SavedQueryRunSerializer, responses={200: None})
+    @extend_schema(
+        request=SavedQueryRunSerializer,
+        responses={
+            200: SavedQueryRunResponseSerializer,
+            403: OpenApiResponse(
+                description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
+            ),
+            409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+            429: OpenApiResponse(
+                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' have no such limit. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=True,
@@ -264,27 +337,72 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
+            raise_if_ran_recently,
+            run_trino_node_materializations,
         )
 
         body = SavedQueryRunSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
-
-        if body.validated_data["full_refresh"]:
-            # Dropping the watermark is the whole mechanism: the next run finds no progress to
-            # build on and rebuilds. Commit it before dispatch, and outside any transaction the
-            # dispatch could roll back, or the worker reads the old watermark and runs
-            # incrementally instead.
-            clear_incremental_state(saved_query)
-            clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+        if saved_query.is_raw_managed_trino:
+            raise exceptions.ValidationError(detail="Views that run raw Trino SQL cannot be materialized yet.")
+        on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
+        direction = body.validated_data.get("direction")
 
         try:
-            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+            if direction or on_trino:
+                node = (
+                    Node.objects.filter(team_id=self.team_id, saved_query_id=saved_query.id)
+                    .order_by("created_at")
+                    .first()
+                )
+                if node is None:
+                    raise MissingDagNodeError
+                hidden_types = (
+                    frozenset()
+                    if self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
+                    else frozenset({NodeType.METRIC})
+                )
+                if on_trino:
+                    node_ids = run_trino_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        full_refresh=body.validated_data["full_refresh"],
+                        hidden_types=hidden_types,
+                    )
+                else:
+                    node_ids = run_related_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        hidden_types=hidden_types,
+                    )
+            else:
+                # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
+                raise_if_ran_recently(self.team_id, saved_query.id)
+                if body.validated_data["full_refresh"]:
+                    # Dropping the watermark is the whole mechanism: the next run finds no progress to
+                    # build on and rebuilds. Commit it before dispatch, and outside any transaction the
+                    # dispatch could roll back, or the worker reads the old watermark and runs
+                    # incrementally instead.
+                    clear_incremental_state(saved_query)
+                    clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+                node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+                node_ids = [str(node_id)]
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
             )
+        except MaterializationForbiddenError as error:
+            raise exceptions.PermissionDenied(str(error))
+        except MaterializationAlreadyRunningError as error:
+            raise Conflict(str(error))
+        except MaterializationRanRecentlyError as error:
+            raise exceptions.Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -297,7 +415,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             detail=Detail(name=saved_query.name),
         )
 
-        return response.Response(status=status.HTTP_200_OK)
+        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=incremental_config.CheckIncrementalSerializer,
@@ -315,7 +433,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
         the editor explain why the incremental option is unavailable before anything is saved.
         """
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         body = incremental_config.CheckIncrementalSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -332,7 +454,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         result = check_incremental_eligibility(
             data["query"],
             config,
-            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+            database=definition_database(self.team_id, user=cast(User, request.user)),
         )
         return response.Response(
             incremental_config.IncrementalEligibilitySerializer(
@@ -348,7 +470,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
+    @extend_schema(request=SavedQueryResumeRequestSerializer, responses={200: SavedQueryResumeSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def resume(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Resume materialization suspended after repeated failures.
@@ -358,7 +480,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
-        resumed = unsuspend_saved_query(self.get_object())
+        body = SavedQueryResumeRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        resumed = unsuspend_saved_query(self.get_object(), engine=body.validated_data.get("engine"))
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
 
@@ -375,31 +499,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
-
-        saved_query.revert_materialization()
-
-        # set data modeling node type to view
         try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_disabled",
-            detail=Detail(name=saved_query.name),
-        )
+            disable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except (MaterializationRefusedError, MaterializationFailedError) as e:
+            raise serializers.ValidationError(str(e))
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -415,6 +527,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+        if saved_query.is_raw_managed_trino:
+            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
 
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
@@ -482,7 +596,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         to walk, so 1 gives the immediate parents.
         """
         saved_query = self.get_object()
-        ancestors = lineage._related_saved_queries(saved_query, upstream=True, max_depth=lineage._parse_level(request))
+        ancestors = lineage._related_saved_queries(
+            saved_query,
+            self.user_access_control,
+            upstream=True,
+            max_depth=lineage._parse_level(request),
+        )
         return response.Response({"ancestors": ancestors})
 
     @extend_schema(
@@ -497,7 +616,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query = self.get_object()
         descendants = lineage._related_saved_queries(
-            saved_query, upstream=False, max_depth=lineage._parse_level(request)
+            saved_query,
+            self.user_access_control,
+            upstream=False,
+            max_depth=lineage._parse_level(request),
         )
         return response.Response({"descendants": descendants})
 
@@ -582,8 +704,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query = self.get_object()
         return response.Response(
             {
-                "upstream_count": len(lineage._related_saved_queries(saved_query, upstream=True, max_depth=1)),
-                "downstream_count": len(lineage._related_saved_queries(saved_query, upstream=False, max_depth=1)),
+                "upstream_count": len(
+                    lineage._related_saved_queries(saved_query, self.user_access_control, upstream=True, max_depth=1)
+                ),
+                "downstream_count": len(
+                    lineage._related_saved_queries(saved_query, self.user_access_control, upstream=False, max_depth=1)
+                ),
             }
         )
 

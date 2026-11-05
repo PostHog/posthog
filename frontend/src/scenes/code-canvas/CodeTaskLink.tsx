@@ -2,10 +2,9 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { DesktopBridgeBody } from './DesktopBridgeBody'
+import { DesktopBridgePage } from './DesktopBridgePage'
 import { DESKTOP_SCHEME } from './desktopScheme'
 
 export interface CodeTaskLinkProps {
@@ -44,11 +43,7 @@ export function CodeTaskLink({ taskId }: CodeTaskLinkProps): JSX.Element {
         }
     }, [deepLink])
 
-    return (
-        <BridgePage view="code-task-link">
-            <DesktopBridgeBody subject="This task" deepLink={deepLink} />
-        </BridgePage>
-    )
+    return <DesktopBridgePage subject="This task" deepLink={deepLink} />
 }
 
 export default CodeTaskLink

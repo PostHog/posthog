@@ -8,8 +8,8 @@ import { CohortBlockedAction, cohortBlockingWorkflowsModalLogic } from './cohort
 
 const BLOCKING_COPY: Record<CohortBlockedAction, string> = {
     delete: 'These workflows trigger on this cohort or branch on it. Remove the cohort from each workflow, or disable the workflow, then delete the cohort.',
-    edit: 'This change would stop the cohort updating in real time, and these workflows need real-time updates. Remove the cohort from each workflow, or disable the workflow, then save your change.',
-    view: "These workflows trigger on this cohort or branch on it, so the cohort is locked. You can't delete it or make a change that stops real-time updates. Remove the cohort from each workflow, or disable the workflow, to unlock it.",
+    edit: 'These workflows trigger on this cohort or branch on it, so its criteria are locked. Changing them would send current members through these workflows again. Remove the cohort from each workflow, or disable the workflow, then save your change.',
+    view: "These workflows trigger on this cohort or branch on it, so the cohort is locked. You can't delete it or change its criteria. Remove the cohort from each workflow, or disable the workflow, to unlock it.",
 }
 
 export function CohortBlockingWorkflowsModal(): JSX.Element {

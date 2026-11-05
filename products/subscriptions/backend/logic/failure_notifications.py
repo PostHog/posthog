@@ -6,7 +6,6 @@ from django.utils.formats import date_format
 from posthog.email import EmailMessage
 from posthog.models import User
 
-from products.exports.backend.models.subscription import Subscription
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -16,6 +15,7 @@ from products.notifications.backend.facade.api import (
     has_been_dispatched,
 )
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 def _get_notification_creator(subscription: Subscription) -> User | None:

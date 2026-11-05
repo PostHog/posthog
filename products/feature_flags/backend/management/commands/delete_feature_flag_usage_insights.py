@@ -29,13 +29,13 @@ from posthog.utils import friendly_time
 from products.alerts.backend.facade.api import insight_ids_with_alerts
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import dashboard_ids_with_subscriptions, insight_ids_with_subscriptions
 from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_DESCRIPTION_PREFIX,
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions, insight_ids_with_subscriptions
 
 # Tags each activity-log entry so a sweep's deletions are distinguishable from a user's.
 _JOB_TYPE = "delete_feature_flag_usage_insights"

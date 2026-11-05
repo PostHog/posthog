@@ -612,6 +612,16 @@ describe("buildSessionOptions", () => {
       expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
     });
 
+    it("turns off the Claude sandbox for a cloud subscription run", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        cloudMode: true,
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+      });
+
+      expect(options.settings).toMatchObject({ sandbox: { enabled: false } });
+    });
+
     it("skips the pinned gateway-era fallback model", () => {
       const options = buildSessionOptions({
         ...makeParams(),
@@ -1019,6 +1029,41 @@ describe("buildSessionOptions", () => {
       });
     });
 
+    it.each([
+      [true, { enabled: false }],
+      [false, undefined],
+    ])(
+      "pins the Claude sandbox off only in cloud runs (cloudMode %s)",
+      (cloudMode, sandbox) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          gatewayEnv,
+          cloudMode,
+        });
+
+        expect(flagSettings(options).sandbox).toEqual(sandbox);
+      },
+    );
+
+    it.each([
+      ["the SDK settings option", { settings: "/tmp/caller-settings.json" }],
+      [
+        "the settings flag",
+        { extraArgs: { settings: "/tmp/caller-settings.json" } },
+      ],
+    ])(
+      "drops repo settings in a cloud run when %s holds a file path",
+      (_name, provided) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          cloudMode: true,
+          userProvidedOptions: provided as Options,
+        });
+
+        expect(options.settingSources).toEqual(["user"]);
+      },
+    );
+
     it("removes the pinned settings file and nothing outside its directory", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
       const file = String(options.extraArgs?.settings);
@@ -1083,6 +1128,42 @@ describe("buildSessionOptions", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
 
       expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it("pins disableAllHooks for a run that opts out of repo hooks", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+      });
+
+      const settings = flagSettings(options);
+      expect(settings.disableAllHooks).toBe(true);
+      expect(settings.hooks).toBeUndefined();
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
+      expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it("passes disableAllHooks inline when no gateway pin is written", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        disableRepoHooks: true,
+      });
+
+      expect(JSON.parse(String(options.extraArgs?.settings))).toEqual({
+        disableAllHooks: true,
+      });
+    });
+
+    it("drops repo settings to keep repo hooks off when the caller owns the settings flag", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+        userProvidedOptions: { settings: '{"model":"x"}' },
+      });
+
+      expect(options.settingSources).toEqual(["user"]);
     });
 
     it.each([

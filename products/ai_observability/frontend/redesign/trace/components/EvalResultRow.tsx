@@ -1,9 +1,8 @@
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
 import { EvalResult } from '../types'
 import { EvalOutcomeTag } from './EvalOutcomeTag'
+import { ShortTimestamp } from './ShortTimestamp'
 
 export interface EvalResultRowProps {
     result: EvalResult
@@ -44,7 +43,7 @@ export function EvalResultRow({ result, onSelectNode }: EvalResultRowProps): JSX
                             {target.label}
                         </Link>
                     ) : null}
-                    <TZLabel time={result.timestamp} timestampStyle="absolute" formatDate="MMM D," formatTime="HH:mm" />
+                    <ShortTimestamp time={result.timestamp} />
                 </span>
             </div>
             {result.reasoning ? <p className="m-0 text-secondary text-xs">{result.reasoning}</p> : null}

@@ -18,6 +18,7 @@ from posthog.temporal.oauth import (
     CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
+    MCP_SCOPE_PRESETS,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     RESEARCH_WITHHELD_SCOPES,
@@ -103,9 +104,16 @@ class TestResolveScopes(SimpleTestCase):
         assert set(result) == expected
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
+        assert "inbox:write" not in result
+        assert "inbox:read" in result
         assert "action:write" not in result
 
         assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
+
+    @parameterized.expand([(preset, preset) for preset in MCP_SCOPE_PRESETS] + [("custom", ["feature_flag:read"])])
+    def test_inbox_write_travels_with_task_write(self, _name: str, scopes: PosthogMcpScopes) -> None:
+        result = resolve_scopes(scopes)
+        assert ("task:write" in result) == ("inbox:write" in result)
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
@@ -297,6 +305,11 @@ class TestResolveScopes(SimpleTestCase):
             assert scope in resolve_scopes("full")
             assert scope in resolve_scopes(["feature_flag:read"])
 
+    def test_assessment_tokens_only_grant_reads(self) -> None:
+        granted = resolve_scopes("signals_assessment")
+        assert "query:read" in granted and "inbox:read" in granted
+        assert not any(scope.endswith(":write") for scope in granted)
+
     def test_include_internal_scopes_false_drops_internal_scopes(self) -> None:
         custom = ["clickhouse_test_cluster_perf:read"]
         result = resolve_scopes(custom, include_internal_scopes=False)
@@ -336,6 +349,7 @@ class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("read_only_preset", "read_only", False),
+            ("signals_assessment_preset", "signals_assessment", False),
             ("full_preset", "full", True),
             ("signals_scout_preset", "signals_scout", True),
             # Both pipeline postures need read-only mode off, or the MCP server strips the
@@ -461,19 +475,6 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         team = Team.objects.create(organization=organization, name="Wizard OAuth test team")
         user = User.objects.create(email="wizard-oauth-test@example.com")
         return user, team
-
-    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.temporal.oauth.wizard_identity_blocked", return_value=True)
-    def test_a_blocklisted_identity_is_refused_a_wizard_token(self, mock_blocked) -> None:
-        # Gated at the mint, not only at the HTTP kickoff: a workflow retry or resume
-        # reaches here with no request in front of it.
-        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
-        user, team = self._create_user_and_team()
-
-        with pytest.raises(WizardIdentityBlockedError):
-            create_wizard_oauth_access_token_for_user(user, team.id)
-
-        assert not OAuthAccessToken.objects.exists()
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:

@@ -1,9 +1,13 @@
+import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+const EVENT_DEFINITION_PATH = '/api/projects/:project_id/event_definitions/:id/'
 
 const MOCK_EVENT_DEFINITION = {
     id: '1',
@@ -42,7 +46,7 @@ const meta: Meta = {
         pageUrl: urls.eventDefinition(MOCK_EVENT_DEFINITION.id),
         // The full DefinitionView mounts EventDefinitionProperties / EventDefinitionInsights / a
         // matching-events table — those keep their loaders spinning because we don't mock every
-        // downstream endpoint. The metadata row (Status + Primary property) is what this story
+        // downstream endpoint. The metadata row (Owner + Status + Primary property) is what this story
         // exists to capture, so don't block on loaders that are intentionally never going to settle.
         testOptions: {
             waitForLoadersToDisappear: false,
@@ -52,7 +56,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:project_id/event_definitions/:id/': MOCK_EVENT_DEFINITION,
+                [EVENT_DEFINITION_PATH]: MOCK_EVENT_DEFINITION,
                 '/api/projects/:project_id/event_definitions/:id/metrics/': MOCK_METRICS,
                 '/api/projects/:project_id/event_definitions/primary_properties/': {
                     primary_properties: {},
@@ -68,3 +72,16 @@ export default meta
 type Story = StoryObj<{}>
 
 export const EventDefinitionMetadata: Story = {}
+
+const withOwner = mswDecorator({
+    get: { [EVENT_DEFINITION_PATH]: { ...MOCK_EVENT_DEFINITION, owner: MOCK_SECOND_BASIC_USER } },
+})
+
+export const EventDefinitionWithOwner: Story = {
+    decorators: [withOwner],
+}
+
+export const EventDefinitionEditWithOwner: Story = {
+    parameters: { pageUrl: urls.eventDefinitionEdit(MOCK_EVENT_DEFINITION.id) },
+    decorators: [withOwner],
+}

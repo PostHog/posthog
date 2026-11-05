@@ -20,6 +20,65 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
+@dataclass(frozen=True)
+class SlackAppOnboardingInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    # Spreads a burst of new members over time. Only a fresh run waits; continue_as_new resets it to 0.
+    start_delay_seconds: int = 0
+
+
+@frozen
+class SlackAppOnboardingMessage:
+    """One message of a person's onboarding thread. For an edit, ``ts`` names the message. ``planned``,
+    ``root_status`` and ``summarizes_step`` say what to store after it."""
+
+    kind: Literal["root", "step", "ready"]
+    text: str
+    blocks: list[dict[str, Any]]
+    step: str | None = None
+    ts: str | None = None
+    root_status: str | None = None
+    planned: list[str] | None = None
+    summarizes_step: bool = False
+
+    @property
+    def summary(self) -> str:
+        """The label of the activity that sends this message, shown in the Temporal UI."""
+        if self.kind == "step" and self.summarizes_step:
+            return f"{self.step}: shrink to one line"
+        if self.kind == "step":
+            return f"{self.step}: show step"
+        if self.kind == "root":
+            progress, _, _ = (self.root_status or "").partition("\n")
+            return f"top message: {progress}"
+        return "ready message"
+
+
+@frozen
+class SlackAppOnboardingPlan:
+    edits: list[SlackAppOnboardingMessage]
+    post: SlackAppOnboardingMessage | None
+    finished: bool
+    # Shown as the workflow's current details in the Temporal UI.
+    status: str = ""
+
+    @property
+    def plan_again(self) -> bool:
+        # The first step reply goes under the top message, so it needs one more plan after the top post.
+        return self.post is not None and self.post.kind == "root"
+
+
+ONBOARDING_DONE_PLAN = SlackAppOnboardingPlan(edits=[], post=None, finished=True, status="Done")
+
+
+@frozen
+class SlackAppOnboardingMessageInputs:
+    setup: SlackAppOnboardingInputs
+    message: SlackAppOnboardingMessage
+
+
 def insight_render_key(insight_id: int) -> str:
     return f"insight:{insight_id}"
 
@@ -120,6 +179,16 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # ephemeral prompt. The classifier ran before the prompt was posted and the
     # answer is in, so the run skips both on the way back through.
     untagged_followup_confirmed: bool = False
+    # True when the workflow was started for a top-level channel message that did not
+    # tag the app. Nothing visible happens until the classifier says PostHog can answer
+    # it and the author's untagged-message mode allows it.
+    untagged_question: bool = False
+    # True when the author already accepted the private offer to answer, so the run
+    # skips the classifier and the offer on the way back through.
+    untagged_question_confirmed: bool = False
+    # True when the thread creator let this person join and the message that asked is sent
+    # again. The same Slack event already came through once to raise the join prompt.
+    thread_join_approved: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
@@ -138,6 +207,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+
+    @property
+    def untagged_confirmed(self) -> bool:
+        return self.untagged_followup_confirmed or self.untagged_question_confirmed
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
@@ -217,6 +290,9 @@ class SlackAppModelOverrideInput(BaseModel):
     slack_team_id: str
     event_text: str
     thread_ts: str | None = None
+    # Who sent the message, so a model named in it counts as a use of that feature. Trailing and
+    # defaulted, so a task queued before this field existed still decodes.
+    slack_user_id: str | None = None
 
 
 class SlackAppModelOverride(BaseModel):
@@ -300,7 +376,7 @@ class PostHogCodeRepoCascadeOutcome:
     reason: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class SlackRepoSelectionOutcome:
     """Discovery-agent result wrapped at the activity boundary.
 
@@ -310,6 +386,11 @@ class SlackRepoSelectionOutcome:
 
     `repo_research_task_id`/`repo_research_run_id` point at the internal sandbox
     run the repo discovery agent spun up to make this call.
+
+    `usage_limited` marks a `failed` outcome where the team has no AI credits left.
+    The activity already told the thread, so the workflow stops instead of offering
+    the picker. It defaults to False, so histories recorded before it existed decode
+    to the picker path.
     """
 
     status: Literal["found", "no_match", "failed"]
@@ -317,6 +398,7 @@ class SlackRepoSelectionOutcome:
     reason: str
     repo_research_task_id: str | None = None
     repo_research_run_id: str | None = None
+    usage_limited: bool = False
 
 
 @dataclass

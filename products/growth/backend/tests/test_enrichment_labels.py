@@ -9,9 +9,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import openai
+from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
 from openai import OpenAI
 from parameterized import parameterized
 
@@ -43,7 +44,7 @@ def _mock_llm_client(
     verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", verdict_key: str = "is_ai"
 ) -> MagicMock:
     client = MagicMock()
-    # The command call sites chain .with_options(max_retries=0) onto get_llm_client(...); without
+    # The command call sites chain .with_options(max_retries=0) onto build_openai_client(...); without
     # this, that call returns a fresh, unconfigured child mock and every assertion below silently
     # checks the wrong object.
     client.with_options.return_value = client
@@ -402,6 +403,104 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
                 classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
         assert len(client.calls) == 3
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.test/v1")
+    def test_claude_on_the_ai_gateway_runs_the_tool_loop_through_anthropic_messages(self):
+        config = self._config()
+        config.model = "claude-haiku-4-5"
+        client = OpenAI(
+            api_key="phs_test", base_url="https://gateway.test/v1", default_headers={"X-PostHog-Product": "growth"}
+        )
+        usage = Usage(input_tokens=10, output_tokens=5)
+        replies = [
+            Message(
+                id="msg_1",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="tool_use",
+                content=[ToolUseBlock(type="tool_use", id="toolu_1", name="web_search", input={"query": "Acme AI"})],
+                usage=usage,
+            ),
+            Message(
+                id="msg_2",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="end_turn",
+                content=[TextBlock(type="text", text=json.dumps({"is_ai": True, "evidence_url": ""}))],
+                usage=usage,
+            ),
+        ]
+        found = FirecrawlSearch(
+            query="Acme AI", results=(FirecrawlSearchResult(url="https://techcrunch.com/acme", title="funding"),)
+        )
+
+        with (
+            patch(f"{_LABELS_MODULE}.anthropic.Anthropic") as anthropic_client,
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            create = anthropic_client.return_value.messages.create
+            create.side_effect = replies
+            result = classify_payload(config, {"name": "Acme"}, "example.com", client)
+
+        assert result["is_ai"] is True
+        assert result["meta"]["prompt_tokens"] == 20
+        assert anthropic_client.call_args.kwargs["base_url"] == "https://gateway.test"
+        assert anthropic_client.call_args.kwargs["default_headers"] == {"X-PostHog-Product": "growth"}
+        first_turn, second_turn = (call.kwargs for call in create.call_args_list)
+        assert first_turn["system"].startswith("judge it.")
+        assert [tool["name"] for tool in first_turn["tools"]] == ["web_search", "fetch_page"]
+        assert second_turn["messages"][1]["content"][0]["type"] == "tool_use"
+        tool_result = second_turn["messages"][2]["content"][0]
+        assert tool_result["tool_use_id"] == "toolu_1"
+        assert "techcrunch.com/acme" in tool_result["content"]
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.test/v1")
+    def test_claude_final_turn_after_the_tool_budget_keeps_tools_but_disables_them(self):
+        config = self._config()
+        config.model = "claude-haiku-4-5"
+        client = OpenAI(api_key="phs_test", base_url="https://gateway.test/v1")
+        usage = Usage(input_tokens=10, output_tokens=5)
+        tool_uses = [
+            ToolUseBlock(type="tool_use", id=f"toolu_{i}", name="web_search", input={"query": f"q{i}"})
+            for i in range(5)
+        ]
+        replies = [
+            Message(
+                id="msg_1",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="tool_use",
+                content=tool_uses,
+                usage=usage,
+            ),
+            Message(
+                id="msg_2",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="end_turn",
+                content=[TextBlock(type="text", text=json.dumps({"is_ai": True, "evidence_url": ""}))],
+                usage=usage,
+            ),
+        ]
+        found = FirecrawlSearch(query="q", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with (
+            patch(f"{_LABELS_MODULE}.anthropic.Anthropic") as anthropic_client,
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            create = anthropic_client.return_value.messages.create
+            create.side_effect = replies
+            result = classify_payload(config, {"name": "Acme"}, "example.com", client)
+
+        assert result["is_ai"] is True
+        final_turn = create.call_args_list[1].kwargs
+        assert [tool["name"] for tool in final_turn["tools"]] == ["web_search", "fetch_page"]
+        assert final_turn["tool_choice"] == {"type": "none"}
+        assert len(final_turn["messages"][-1]["content"]) == 5
 
 
 class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
@@ -776,7 +875,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         fetch = self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(organization=self.organization, label_name="test_label")
@@ -799,7 +898,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         response.usage.completion_tokens = 40
         client.chat.completions.create.return_value = response
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         output = EnrichmentLabelResult.objects.get(label_name="test_label").output
@@ -819,7 +918,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(label_name="test_label")
@@ -831,7 +930,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch(payload={})
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(label_name="test_label")
@@ -845,7 +944,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
@@ -857,7 +956,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         first_fetch = self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         second_fetch = self._fetch(payload={"name": "Acme v2"})
@@ -865,7 +964,7 @@ class TestEnrichmentLabelBatch(BaseTest):
             fetched_at=first_fetch.fetched_at + dt.timedelta(minutes=5)
         )
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         rows = EnrichmentLabelResult.objects.filter(
@@ -890,7 +989,7 @@ class TestEnrichmentLabelBatch(BaseTest):
             return original_classify(*args, **kwargs)
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=rename_then_classify),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1)
@@ -916,7 +1015,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         client.chat.completions.create.return_value = response
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
             patch("tenacity.nap.time.sleep"),
         ):
@@ -950,7 +1049,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         client = MagicMock()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "unknown 1" in out.getvalue()
@@ -963,14 +1062,14 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         v1.is_active = False
         v1.save()
         self._config(version="ai-pilled-clay-v2", prompt_text="a different prompt entirely. Email: {email}")
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.filter(prompt_version="ai-pilled-clay-v1").count() == 1
@@ -1016,7 +1115,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         )
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label")
 
         assert EnrichmentLabelResult.objects.count() == 0
@@ -1068,7 +1167,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         client.chat.completions.create.return_value = response
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command(
                 "enrichment_label_dry_run",
                 label="ai_native_teams",
@@ -1113,13 +1212,13 @@ class TestEnrichmentLabelBatchConcurrency(NonAtomicBaseTest):
             )
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=2)
 
         assert client.chat.completions.create.call_count == 4
         assert EnrichmentLabelResult.objects.count() == 4
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=2)
 
         assert client.chat.completions.create.call_count == 4

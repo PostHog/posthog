@@ -1,6 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
@@ -27,11 +28,13 @@ export function MessageTemplateCard({
     index,
     onClick,
     actions,
+    onTagClick,
 }: {
     template: MessageTemplateListItem
     index: number
     onClick: () => void
     actions?: React.ReactNode
+    onTagClick?: (tag: string) => void
 }): JSX.Element {
     const emailHtml = template.content?.email?.html
     const createdBy = template.created_by
@@ -77,6 +80,17 @@ export function MessageTemplateCard({
                     </div>
                     {template.description && (
                         <p className="text-secondary text-xs line-clamp-1 mb-1">{template.description}</p>
+                    )}
+                    {!!template.tags?.length && (
+                        <div className="mb-1" onClick={(e) => e.stopPropagation()}>
+                            <ObjectTags
+                                tags={[...template.tags]}
+                                staticOnly
+                                onTagClick={onTagClick}
+                                maxVisibleTags={3}
+                                data-attr="message-template-tags"
+                            />
+                        </div>
                     )}
                     {(createdBy || template.created_at) && (
                         <div className="flex items-center gap-2 text-xs text-secondary">

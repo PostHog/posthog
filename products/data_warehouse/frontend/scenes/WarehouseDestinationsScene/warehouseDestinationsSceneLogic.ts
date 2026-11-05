@@ -1,13 +1,16 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     externalDataDestinationsDestroy,
     externalDataDestinationsList,
+    externalDataSourcesList,
 } from 'products/warehouse_sources/frontend/generated/api'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -17,6 +20,8 @@ export interface warehouseDestinationsSceneLogicValues {
     deletingId: string | null
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
+    hasSources: boolean | null
+    hasSourcesLoading: boolean
     loadError: string | null
 }
 
@@ -26,6 +31,9 @@ export interface warehouseDestinationsSceneLogicActions {
         destination: ExternalDataDestinationApi
     }
     deleteDestination: (destination: ExternalDataDestinationApi) => {
+        destination: ExternalDataDestinationApi
+    }
+    destinationCreated: (destination: ExternalDataDestinationApi) => {
         destination: ExternalDataDestinationApi
     }
     loadDestinations: () => any
@@ -41,6 +49,21 @@ export interface warehouseDestinationsSceneLogicActions {
         payload?: any
     ) => {
         destinations: ExternalDataDestinationApi[]
+        payload?: any
+    }
+    loadHasSources: () => any
+    loadHasSourcesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHasSourcesSuccess: (
+        hasSources: boolean,
+        payload?: any
+    ) => {
+        hasSources: boolean
         payload?: any
     }
 }
@@ -65,6 +88,7 @@ export const warehouseDestinationsSceneLogic = kea<warehouseDestinationsSceneLog
     actions({
         deleteDestination: (destination: ExternalDataDestinationApi) => ({ destination }),
         confirmDelete: (destination: ExternalDataDestinationApi) => ({ destination }),
+        destinationCreated: (destination: ExternalDataDestinationApi) => ({ destination }),
     }),
     loaders(({ values }) => ({
         destinations: [
@@ -75,6 +99,16 @@ export const warehouseDestinationsSceneLogic = kea<warehouseDestinationsSceneLog
                 loadDestinations: async () => {
                     const response = await externalDataDestinationsList(String(values.currentTeamId))
                     return response.results ?? []
+                },
+            },
+        ],
+        hasSources: [
+            // Null until loaded, so the page does not show "no sources" guidance while the check runs.
+            null as boolean | null,
+            {
+                loadHasSources: async () => {
+                    const response = await externalDataSourcesList(String(values.currentTeamId), { limit: 1 })
+                    return (response.results ?? []).length > 0
                 },
             },
         ],
@@ -110,6 +144,17 @@ export const warehouseDestinationsSceneLogic = kea<warehouseDestinationsSceneLog
                 secondaryButton: { children: 'Cancel' },
             })
         },
+        destinationCreated: () => {
+            // A destination receives nothing until a source turns it on, so the toast points at that step.
+            const hasSources = values.hasSources !== false
+            lemonToast.success('Destination added. Turn it on for a source to start sending data to it.', {
+                button: {
+                    label: hasSources ? 'Go to sources' : 'Add a source',
+                    action: () => router.actions.push(hasSources ? urls.sources() : urls.dataWarehouseSourceNew()),
+                    dataAttr: 'warehouse-destinations-created-next-step',
+                },
+            })
+        },
         confirmDelete: async ({ destination }) => {
             try {
                 await externalDataDestinationsDestroy(String(values.currentTeamId), destination.id)
@@ -124,5 +169,6 @@ export const warehouseDestinationsSceneLogic = kea<warehouseDestinationsSceneLog
     })),
     afterMount(({ actions }) => {
         actions.loadDestinations()
+        actions.loadHasSources()
     }),
 ])

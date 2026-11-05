@@ -1,10 +1,8 @@
 import math
 import time
 import uuid
-from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.utils.dateparse import parse_datetime
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -27,7 +25,6 @@ from products.error_tracking.backend.models import (
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
     DEFAULT_AUTO_MERGE_CONFIG,
-    JUDGE_MODEL,
     JUDGE_PROMPT_VERSION,
     AutoMergeConfig,
     JudgeUnavailableError,
@@ -36,12 +33,15 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge
     load_auto_merge_config,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    CLOSEST_FINGERPRINTS_WINDOW,
     AutoMergeOutcome,
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
+    parse_embedding_timestamp,
 )
+from products.error_tracking.backend.temporal.grouping_judge.inline import grouping_judge_properties
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 NIL_UUID = "00000000-0000-0000-0000-000000000000"
@@ -147,19 +147,12 @@ def _model_specific_query(query_by_model: dict[str, str], model_name: str) -> st
     return query
 
 
-def _parse_timestamp(timestamp: str) -> datetime:
-    parsed = parse_datetime(timestamp)
-    if parsed is None:
-        raise ValueError(f"Invalid embedding timestamp: {timestamp}")
-    return parsed
-
-
 def _closest_fingerprints_query(
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
     target_embedding: list[float],
 ) -> ast.SelectQuery | ast.SelectSetQuery:
-    min_timestamp = _parse_timestamp(inputs.timestamp) - timedelta(days=30)
+    min_timestamp = parse_embedding_timestamp(inputs.timestamp) - CLOSEST_FINGERPRINTS_WINDOW
     return parse_select(
         _model_specific_query(CLOSEST_FINGERPRINTS_QUERY_BY_MODEL, model_name),
         placeholders={
@@ -212,6 +205,7 @@ def _report_closest_fingerprint_metrics(
     closest_fingerprints: list[SimilarFingerprintDistance],
     model_name: str,
     query_duration_ms: float,
+    judge_properties: dict[str, object],
 ) -> None:
     properties: dict[str, object] = {
         "model_name": model_name,
@@ -219,6 +213,7 @@ def _report_closest_fingerprint_metrics(
         "fingerprint": inputs.fingerprint,
         "query_duration_ms": query_duration_ms,
         "closest_fingerprint_count": len(closest_fingerprints),
+        **judge_properties,
     }
     for index, closest_fingerprint in enumerate(closest_fingerprints[:3], start=1):
         properties[f"rank_{index}_fingerprint"] = closest_fingerprint.fingerprint
@@ -309,7 +304,12 @@ def _merge_into_candidate(
     reopened_target = (
         _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
     )
-    return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
+    return AutoMergeOutcome(
+        merged_count=1,
+        reopened_target=reopened_target,
+        target_fingerprint=candidate.fingerprint,
+        merge_decision=str(decision_properties["merge_decision"]),
+    )
 
 
 def _fetch_fingerprint_document(
@@ -322,7 +322,9 @@ def _fetch_fingerprint_document(
             "rendering": ast.Constant(value=inputs.rendering),
             "team_id": ast.Constant(value=team.id),
             "fingerprint": ast.Constant(value=fingerprint),
-            "min_timestamp": ast.Constant(value=_parse_timestamp(inputs.timestamp) - timedelta(days=30)),
+            "min_timestamp": ast.Constant(
+                value=parse_embedding_timestamp(inputs.timestamp) - CLOSEST_FINGERPRINTS_WINDOW
+            ),
         },
     )
     response = execute_hogql_query(
@@ -360,7 +362,7 @@ def _judge(
     remaining_seconds = deadline - time.monotonic()
     if remaining_seconds <= 0:
         raise JudgeUnavailableError("judge_timeout")
-    return ask_judge(team.id, inputs.content, candidate_document, remaining_seconds)
+    return ask_judge(team.id, inputs.content, candidate_document, remaining_seconds, model=config.judge_model)
 
 
 def _judge_candidate(
@@ -394,7 +396,7 @@ def _judge_candidate(
             "judge_score": score,
             "judge_latency_ms": latency_ms,
             "judge_error": error,
-            "judge_model": JUDGE_MODEL,
+            "judge_model": config.judge_model,
             "judge_prompt_version": JUDGE_PROMPT_VERSION,
             "judge_cutoff": config.judge_cutoff,
             "judge_max_distance": config.judge_max_distance,
@@ -475,7 +477,7 @@ def _merge_fingerprint_into_closest_issue(
                 "merge_decision": "judge",
                 "judge_score": score,
                 "judge_cutoff": config.judge_cutoff,
-                "judge_model": JUDGE_MODEL,
+                "judge_model": config.judge_model,
                 "judge_prompt_version": JUDGE_PROMPT_VERSION,
             }
         else:
@@ -505,20 +507,30 @@ def merge_similar_fingerprints(
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
-        # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
-        _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, inputs.model_name, query_duration_ms)
-        merge_outcome = _merge_fingerprint_into_closest_issue(
-            team,
-            inputs.fingerprint,
-            closest_fingerprints,
-            inputs.source_issue_id,
-            event_reference=_event_reference(inputs),
-            # Only read the flag when there is something to decide.
-            config=load_auto_merge_config(team)
+        # Only read the flag when there is something to decide.
+        config = (
+            load_auto_merge_config(team)
             if settings.ERROR_TRACKING_AUTO_MERGE_ENABLED and closest_fingerprints
-            else DEFAULT_AUTO_MERGE_CONFIG,
-            judge_inputs=inputs,
+            else DEFAULT_AUTO_MERGE_CONFIG
         )
+        merge_outcome: AutoMergeOutcome | None = None
+        try:
+            merge_outcome = _merge_fingerprint_into_closest_issue(
+                team,
+                inputs.fingerprint,
+                closest_fingerprints,
+                inputs.source_issue_id,
+                event_reference=_event_reference(inputs),
+                config=config,
+                judge_inputs=inputs,
+            )
+        finally:
+            # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
+            # The grouping judge runs only after the merge decision, so it cannot change it.
+            judge_properties = grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome, config)
+            _report_closest_fingerprint_metrics(
+                team, inputs, closest_fingerprints, inputs.model_name, query_duration_ms, judge_properties
+            )
 
         return FingerprintEmbeddingMergeResult(
             merged_count=merge_outcome.merged_count,

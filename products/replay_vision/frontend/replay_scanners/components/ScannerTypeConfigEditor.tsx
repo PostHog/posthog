@@ -1,22 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback } from 'react'
 
-import { IconAI, IconPlus, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCard,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { IconAI } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -29,15 +18,12 @@ import { ExperimentScannerConfigFields } from './ExperimentScannerConfigFields'
 
 /** Whether this form should offer no AI help at all.
  *
- * In the goal-based flow the AI path is the flow itself, so someone who turned it down to build by
- * hand gets one path or the other rather than a half-AI middle. Only while creating: editing a
- * saved scanner is not that choice, and someone who did use the flow keeps the entry points so they
- * can rework what it drafted. Multivariate flag, so a truthy check would strip the control arm too
- * and change what the experiment compares. */
+ * The goal step is the AI path, so someone who turned it down to build by hand gets one path or the
+ * other rather than a half-AI middle. Only while creating: editing a saved scanner is not that
+ * choice, and someone who did draft with AI keeps the entry points so they can rework the draft. */
 function useManualWithoutAi(scannerId: string): boolean {
     const { isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    return isNew && !goalDraft && featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
+    return isNew && !goalDraft
 }
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
@@ -128,83 +114,13 @@ function ScannerPromptField({
     )
 }
 
-const SUGGESTION_SOURCE_META: Record<string, { label: string; type: 'success' | 'primary' | 'default' }> = {
-    observed: { label: 'Seen in recordings', type: 'success' },
-    product: { label: 'From your product', type: 'primary' },
-    prompt: { label: 'From the goal', type: 'default' },
-}
-
-/** Grounded tag suggestions, each shown with the evidence it came from and a one-click add. */
-function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const logic = replayScannerLogic({ id: scannerId })
-    const { tagSuggestions } = useValues(logic)
-    const { acceptTagSuggestion, acceptAllTagSuggestions, dismissTagSuggestions } = useActions(logic)
-
-    if (tagSuggestions.length === 0) {
-        return null
-    }
-    return (
-        <LemonCard className="space-y-2">
-            <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Suggested categories</span>
-                <div className="flex items-center gap-1">
-                    <LemonButton size="xsmall" type="secondary" onClick={() => acceptAllTagSuggestions()}>
-                        Add all
-                    </LemonButton>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        tooltip="Dismiss"
-                        onClick={() => dismissTagSuggestions()}
-                    />
-                </div>
-            </div>
-            <div className="space-y-2">
-                {tagSuggestions.map((suggestion) => {
-                    const meta = SUGGESTION_SOURCE_META[suggestion.source] ?? SUGGESTION_SOURCE_META.prompt
-                    return (
-                        <div key={suggestion.tag} className="flex items-start gap-2">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconPlus />}
-                                tooltip="Add to categories"
-                                onClick={() => acceptTagSuggestion(suggestion.tag)}
-                            />
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="font-mono text-xs">{suggestion.tag}</span>
-                                    <LemonTag size="small" type={meta.type}>
-                                        {meta.label}
-                                    </LemonTag>
-                                </div>
-                                <div className="text-xs text-muted">{suggestion.rationale}</div>
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
-        </LemonCard>
-    )
-}
-
-/** Tag-vocabulary field with an AI entry point that suggests grounded tags to add. */
 function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
-    const { scanner, isNew, goalDraft, tagSuggestionsLoading } = useValues(logic)
-    const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
-    const { searchParams } = useValues(router)
+    const { scanner } = useValues(logic)
+    const { clearClassifierTags } = useActions(logic)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
-    const hasPrompt = !!config?.prompt?.trim()
     const hasTags = (config?.tags ?? []).length > 0
-    // The draft already filled these in, so the offer is more of them, not a first set.
-    const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
-    const manualWithoutAi = useManualWithoutAi(scannerId)
-    // The param only survives on a new scanner whose config a valid template prefilled: the picker
-    // drops it when the blank card is chosen, and loadScanner strips it on load when a goal draft
-    // outranks the template or the key is unknown.
-    const startedFromTemplate = isNew && typeof searchParams.template === 'string'
 
     return (
         <div className="space-y-2">
@@ -213,34 +129,15 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Categories
-                        <span className="flex flex-wrap items-center gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                disabledReason={hasTags ? undefined : 'No categories to clear'}
-                                onClick={() => clearClassifierTags()}
-                                data-attr="replay-vision-clear-categories"
-                            >
-                                Clear all
-                            </LemonButton>
-                            {!manualWithoutAi && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    icon={<IconAI />}
-                                    loading={tagSuggestionsLoading}
-                                    disabledReason={
-                                        hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'
-                                    }
-                                    onClick={() => loadTagSuggestions()}
-                                    data-attr="replay-vision-suggest-tags-with-ai"
-                                >
-                                    {categoriesWereDrafted
-                                        ? 'Suggest more categories'
-                                        : 'Suggest categories with PostHog AI'}
-                                </LemonButton>
-                            )}
-                        </span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            disabledReason={hasTags ? undefined : 'No categories to clear'}
+                            onClick={() => clearClassifierTags()}
+                            data-attr="replay-vision-clear-categories"
+                        >
+                            Clear all
+                        </LemonButton>
                     </span>
                 }
             >
@@ -255,12 +152,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     />
                 )}
             </LemonField>
-            <div className="text-xs text-muted">
-                The classifier sorts each session it scans into these categories.
-                {startedFromTemplate &&
-                    " The template's categories are examples. Edit or clear them to fit your product."}
-            </div>
-            <ClassifierTagSuggestions scannerId={scannerId} />
+            <div className="text-xs text-muted">The classifier sorts each session it scans into these categories.</div>
         </div>
     )
 }

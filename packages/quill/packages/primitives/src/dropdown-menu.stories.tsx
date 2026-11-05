@@ -155,6 +155,41 @@ export const Checkboxes: Story = {
     },
 } satisfies Story
 
+export const DescriptionsAndDisabledReasons: Story = {
+    render: () => (
+        <DropdownMenu defaultOpen>
+            <DropdownMenuTrigger render={<Button variant="primary" size="icon" aria-label="New" tooltip="New" />}>
+                <MoreVertical />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem description="Start from an empty folder">
+                    <Folder />
+                    New folder
+                </DropdownMenuItem>
+                <DropdownMenuItem description="Make an exact copy, including its settings">
+                    <Copy />
+                    Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger description="Rename, move or change who can see it">
+                        <Pencil />
+                        Edit
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                        <DropdownMenuItem>Rename</DropdownMenuItem>
+                        <DropdownMenuItem>Move</DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" disabledReason="Only owners can delete this folder">
+                    <TrashIcon />
+                    Delete
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    ),
+} satisfies Story
+
 export const Radios: Story = {
     render: () => {
         const [open, setOpen] = useState(true)

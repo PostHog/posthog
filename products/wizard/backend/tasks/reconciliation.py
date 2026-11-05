@@ -1,6 +1,6 @@
-import logging
 from time import monotonic
 
+import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
@@ -10,7 +10,7 @@ from posthog.tasks.utils import PushGatewayTask
 from products.wizard.backend.logic.reconciliation import service as reconciliation
 from products.wizard.backend.tasks.config import RECONCILE_WIZARD_RUNS_TASK
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @shared_task(
@@ -32,17 +32,15 @@ def reconcile_wizard_runs(self: PushGatewayTask) -> None:
 
     logger.info(
         "wizard_run_reconciliation_completed",
-        extra={
-            "duration_seconds": round(monotonic() - started_at, 3),
-            "operations": {
-                operation: {
-                    "scanned": result.scanned,
-                    "reconciled": result.reconciled,
-                    "failed": result.failed,
-                    "batch_limit_reached": result.batch_limit_reached,
-                }
-                for operation, result in results.items()
-            },
+        duration_seconds=round(monotonic() - started_at, 3),
+        operations={
+            operation: {
+                "scanned": result.scanned,
+                "reconciled": result.reconciled,
+                "failed": result.failed,
+                "batch_limit_reached": result.batch_limit_reached,
+            }
+            for operation, result in results.items()
         },
     )
 

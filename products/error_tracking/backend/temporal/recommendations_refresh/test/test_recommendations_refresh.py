@@ -14,14 +14,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingRecommendation,
-    sync_issues_to_clickhouse,
-)
-from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL
+from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.temporal.recommendations_refresh.activities import (
     get_team_batches_activity,
     pack_team_batches,
@@ -40,7 +33,6 @@ from products.error_tracking.backend.temporal.recommendations_refresh.workflow i
 _ALERTS_COMPUTE_BATCH = (
     "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute_batch"
 )
-_LONG_RUNNING_COMPUTE_BATCH = "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
 _SOURCE_MAPS_COMPUTE_BATCH = (
     "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
 )
@@ -49,7 +41,6 @@ _RATE_LIMITS_COMPUTE_BATCH = (
 )
 
 _ALERTS_META = {"alerts": [{"key": "error-tracking-issue-created", "enabled": False}]}
-_LONG_RUNNING_META: dict = {"issues": []}
 _SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 _RATE_LIMITS_META = {"rate_limits": [{"key": "project", "enabled": False}, {"key": "per_issue", "enabled": False}]}
 
@@ -104,48 +95,45 @@ class TestPackTeamBatches:
 class TestRefreshRecommendationsBatchActivity(APIBaseTest):
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_computes_recommendations_for_all_teams(self, _alerts, _long, _source, _rate_limits):
+    def test_computes_recommendations_for_all_teams(self, _alerts, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
         assert result.teams_processed == 2
-        assert result.recommendations_kicked == 8
+        assert result.recommendations_kicked == 6
         for team_id in (self.team.id, team_b.id):
             recs = ErrorTrackingRecommendation.objects.filter(team_id=team_id)
-            assert recs.count() == 4
+            assert recs.count() == 3
             for rec in recs:
                 assert rec.status == ErrorTrackingRecommendation.Status.READY
                 assert rec.computed_at is not None
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _source, _rate_limits):
+    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
         first = _run_batch_activity(batch)
-        assert first.recommendations_kicked == 8
+        assert first.recommendations_kicked == 6
 
         second = _run_batch_activity(batch)
         # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
-        # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
+        # source_maps (6h) is still fresh and is skipped.
         assert second.recommendations_kicked == 4
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=Exception("boom"))
-    def test_failing_recommendation_reverts_claims_and_spares_others(self, _alerts, _long, _source, _rate_limits):
+    def test_failing_recommendation_reverts_claims_and_spares_others(self, _alerts, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
-        assert result.recommendations_kicked == 6
+        assert result.recommendations_kicked == 4
         alerts_rows = ErrorTrackingRecommendation.objects.filter(type="alerts")
         assert alerts_rows.count() == 2
         for row in alerts_rows:
@@ -154,9 +142,8 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_skips_deleted_teams_without_failing_batch(self, _alerts, _long, _source, _rate_limits):
+    def test_skips_deleted_teams_without_failing_batch(self, _alerts, _source, _rate_limits):
         # ClickHouse retains events for teams later deleted from Postgres; the batch must
         # process surviving teams and not blow up on the missing team_id foreign key.
         deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
@@ -167,15 +154,14 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
         # teams_processed reflects only the surviving team, not the raw input count.
         assert result.teams_processed == 1
-        assert result.recommendations_kicked == 4
-        assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 4
+        assert result.recommendations_kicked == 3
+        assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 3
         assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_all_teams_deleted_kicks_nothing(self, _alerts, _long, _source, _rate_limits):
+    def test_all_teams_deleted_kicks_nothing(self, _alerts, _source, _rate_limits):
         deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
         deleted_team_id = deleted_team.id
         deleted_team.delete()
@@ -188,80 +174,14 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
-    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=lambda team_ids: {})
-    def test_missing_meta_reverts_claim(self, _alerts, _long, _source, _rate_limits):
+    def test_missing_meta_reverts_claim(self, _alerts, _source, _rate_limits):
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id]))
 
-        assert result.recommendations_kicked == 3
+        assert result.recommendations_kicked == 2
         alerts_row = ErrorTrackingRecommendation.objects.get(team_id=self.team.id, type="alerts")
         assert alerts_row.status == ErrorTrackingRecommendation.Status.READY
         assert alerts_row.computed_at is None
-
-
-class TestLongRunningIssuesComputeBatch(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        from posthog.clickhouse.client import sync_execute
-
-        sync_execute(TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL())
-
-    def _create_issue_with_events(
-        self, team: Team, fingerprint: str, first_seen, event_count: int, **issue_kwargs
-    ) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=team, **issue_kwargs)
-        ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=fingerprint)
-        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue).update(first_seen=first_seen)
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team.id)
-
-        for i in range(event_count):
-            _create_event(
-                distinct_id=f"u{i}",
-                event="$exception",
-                team=team,
-                timestamp=timezone.now().isoformat(),
-                properties={"$exception_fingerprint": fingerprint},
-            )
-        return issue
-
-    def test_returns_long_running_issues_per_team(self):
-        team_b = Team.objects.create(organization=self.organization, name="Team B")
-        team_quiet = Team.objects.create(organization=self.organization, name="Quiet")
-
-        old = timezone.now() - timedelta(days=30)
-        long_running = self._create_issue_with_events(
-            self.team, "fp_old", old, event_count=3, name="Old issue", description="Still firing"
-        )
-        # Recent issue: first_seen inside the 7 day window, so not long-running.
-        self._create_issue_with_events(self.team, "fp_new", timezone.now(), event_count=2, name="New issue")
-        # Resolved long-running issue on another team: excluded by status.
-        self._create_issue_with_events(
-            team_b, "fp_resolved", old, event_count=2, name="Done", status=ErrorTrackingIssue.Status.RESOLVED
-        )
-        flush_persons_and_events()
-
-        metas = LongRunningIssuesRecommendation().compute_batch([self.team.id, team_b.id, team_quiet.id])
-
-        assert set(metas.keys()) == {self.team.id, team_b.id, team_quiet.id}
-        assert metas[team_b.id] == {"issues": []}
-        assert metas[team_quiet.id] == {"issues": []}
-
-        issues = metas[self.team.id]["issues"]
-        assert len(issues) == 1
-        assert issues[0]["id"] == str(long_running.id)
-        assert issues[0]["name"] == "Old issue"
-        assert issues[0]["description"] == "Still firing"
-        assert issues[0]["occurrences"] == 3
-        assert issues[0]["status"] == ErrorTrackingIssue.Status.ACTIVE
-
-    def test_compute_delegates_to_batch(self):
-        old = timezone.now() - timedelta(days=30)
-        issue = self._create_issue_with_events(self.team, "fp_old", old, event_count=1, name="Old issue")
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        assert [i["id"] for i in meta["issues"]] == [str(issue.id)]
 
 
 async def _run_refresh_workflow(

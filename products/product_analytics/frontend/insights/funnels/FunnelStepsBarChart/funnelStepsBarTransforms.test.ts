@@ -1,10 +1,10 @@
 import type { PointClickData, Series } from '@posthog/quill-charts'
 
-import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
+import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelStepsBarData,
-    formatFunnelStepRates,
+    formatFunnelStepRate,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
     getConversionChipStepIndexes,
     placeStepConversionChips,
@@ -16,13 +16,11 @@ type StepOverrides = Partial<FunnelStepWithConversionMetrics> & { fromBasisStep:
 
 function makeStep({ fromBasisStep, ...overrides }: StepOverrides): FunnelStepWithConversionMetrics {
     return {
-        action_id: 'action',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 0,
         name: 'Step',
         order: 0,
-        type: EntityTypes.EVENTS,
         converted_people_url: '',
         dropped_people_url: null,
         droppedOffFromPrevious: 0,
@@ -269,23 +267,18 @@ describe('placeStepConversionChips', () => {
     })
 })
 
-describe('formatFunnelStepRates', () => {
+describe('formatFunnelStepRate', () => {
     test.each([
-        { name: 'keeps far-apart rates whole', rates: [1, 0.8, 0.201], expected: ['100%', '80%', '20%'] },
-        { name: 'never shows a drop-off as 100%', rates: [1, 24861 / 24873], expected: ['100%', '99.9%'] },
         {
-            name: 'never shows a small rate as 0%',
-            rates: [1, 77 / 24873, 3 / 24873],
-            expected: ['100%', '0.3%', '<0.1%'],
+            name: 'shows one decimal on close steps',
+            rates: [0.909, 0.907, 0.901, 0.9, 0.015],
+            expected: ['90.9%', '90.7%', '90.1%', '90.0%', '1.5%'],
         },
-        {
-            name: 'adds a decimal to neighbors that round the same',
-            rates: [0.454, 0.451, 0.2],
-            expected: ['45.4%', '45.1%', '20%'],
-        },
-        { name: 'keeps equal neighbors whole', rates: [2071 / 24873, 2071 / 24873], expected: ['8%', '8%'] },
+        { name: 'keeps exact 0% and 100% whole', rates: [1, 0], expected: ['100%', '0%'] },
+        { name: 'never shows a drop-off as 100%', rates: [24872 / 24873], expected: ['99.9%'] },
+        { name: 'never shows a small rate as 0%', rates: [3 / 24873], expected: ['<0.1%'] },
     ])('$name', ({ rates, expected }) => {
-        expect(formatFunnelStepRates(rates)).toEqual(expected)
+        expect(rates.map((rate) => formatFunnelStepRate(rate))).toEqual(expected)
     })
 })
 

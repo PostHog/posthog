@@ -10,8 +10,10 @@ import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
 import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
 import {
+    DATA_SOURCE_SHORTCUT_TYPE,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    isFileSystemEntryTypeEnabled,
     isProjectTreeItemActive,
     joinPath,
     matchesRefType,
@@ -25,6 +27,27 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    describe('isFileSystemEntryTypeEnabled', () => {
+        it.each([
+            ['a Today type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
+            ['a Today type with its flag off', 'canvas', {}, false],
+            ['a type behind another flag, with that flag off', 'task', {}, true],
+            ['an unflagged type', 'dashboard', {}, true],
+            ['a subtype of an unflagged type', 'insight/trends', {}, true],
+            ['a folder', 'folder', {}, true],
+            ['the Unfiled folder of a Today type with its flag off', 'folder:Unfiled/Canvases', {}, false],
+            [
+                'the Unfiled folder of a Today type with its flag on',
+                'folder:Unfiled/Canvases',
+                { 'today-rail-nav': true },
+                true,
+            ],
+        ])('keeps %s: %s', (_label, typeAndPath, featureFlags, expected) => {
+            const [type, path] = typeAndPath.split(':')
+            expect(isFileSystemEntryTypeEnabled({ type, path }, featureFlags)).toBe(expected)
+        })
+    })
+
     describe('isProjectTreeItemActive', () => {
         const insight: TreeDataItem = {
             id: 'project/sql-insight',
@@ -121,6 +144,21 @@ describe('project tree utils', () => {
                 item: shortcuts[0],
                 folder: 'Research',
             })
+        })
+
+        it.each([
+            ['shortcuts://My home', 'onto', null],
+            ['project://Research', 'onto', null],
+            [
+                'shortcuts://My home',
+                'before',
+                { type: 'reorder', activeId: 'shortcuts/source', overId: 'shortcuts://My home' },
+            ],
+        ] as const)('keeps a source star out of folder moves when dropped on %s (%s)', (overId, position, expected) => {
+            const sourceStar = { id: 'source', type: DATA_SOURCE_SHORTCUT_TYPE, ref: 'source-id', path: 'Stripe' }
+            expect(
+                resolveProjectTreeDrop('shortcuts/source', overId, [folder], [...shortcuts, sourceStar], position)
+            ).toEqual(expected)
         })
     })
 

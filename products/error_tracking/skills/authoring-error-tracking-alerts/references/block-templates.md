@@ -107,14 +107,25 @@ time against the live event — leave the curly-braced segments as-is.
 These integrations file a tracking issue rather than post a message. Use the same `inputs` shape across
 all three:
 
-```json
+````json
 "inputs": {
-  "title": { "value": "{event.properties.name}" },
-  "description": { "value": "{event.properties.description}" },
+  "title": { "value": "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}" },
+  "description": { "value": "{notEmpty(event.properties.description) ? concat('```\\n', replaceAll(event.properties.description, '`', '\\''), '\\n```') : ''}\n{notEmpty(trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))) ? concat('\\n- Browser: ', concat('`', replaceAll(replaceAll(replaceAll(trim(concat(event.properties.$browser, ' ', event.properties.$browser_version)), '`', '\\''), '\\n', ' '), '\\r', ' '), '`')) : ''}{notEmpty(trim(concat(event.properties.$os, ' ', event.properties.$os_version))) ? concat('\\n- OS: ', concat('`', replaceAll(replaceAll(replaceAll(trim(concat(event.properties.$os, ' ', event.properties.$os_version)), '`', '\\''), '\\n', ' '), '\\r', ' '), '`')) : ''}{notEmpty(event.properties.$exception_release.version) ? concat('\\n- Release: ', concat('`', replaceAll(replaceAll(replaceAll(event.properties.$exception_release.version, '`', '\\''), '\\n', ' '), '\\r', ' '), '`')) : ''}{notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status)) ? concat('\\n- Session replay: ', concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))) : ''}" },
   "posthog_issue_id": { "value": "{event.distinct_id}" },
   "posthog_issue_url": { "value": "{project.url}/error-tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=linear" }
 }
-```
+````
+
+The title reads as the exception type and message, for example `RangeError: Invalid Date`, on one line, cut at 120 characters.
+The description is the message, then a Markdown list of the browser, OS, release and a session replay link.
+The destination code then adds up to 5 resolved in-app stack frames as a code block, so the inputs do not carry the trace.
+Each frame shows only the file name, the line and the function name.
+A file name that does not look like a source file, a function name with characters outside an identifier set, or any name that holds a UUID or looks like a key or token, becomes `[redacted]`.
+The message sits in a code block and the browser, OS and release values sit in inline code, so client-sent text cannot render links, images or @mentions.
+Do not add the page URL, request data, local variables or source lines to these inputs. Trackers sit outside PostHog's access controls and a repository can be public, so these values can expose tokens and user data.
+Each list line is left out when the event has no value for it, and the replay line is left out when replay was not recording.
+Keep the list form: GitLab joins plain consecutive lines into one paragraph.
+`_spiking` events carry no exception properties, so on them only the message would render.
 
 Set `utm_medium` to the destination (`linear`, `github`, `gitlab`). `posthog_issue_url` is the merge-stable deep link embedded in the external issue; when omitted, the destination falls back to building a link from `posthog_issue_id`.
 

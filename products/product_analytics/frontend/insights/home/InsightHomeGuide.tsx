@@ -10,8 +10,8 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { Link } from 'lib/lemon-ui/Link'
 
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { Node, NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { InsightType } from '~/types'
 
 type GuidedInsightType = InsightType.FUNNELS | InsightType.PATHS | InsightType.STICKINESS

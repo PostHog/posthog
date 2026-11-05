@@ -5,13 +5,13 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.health.context import SplitChange
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     net_effect,
     split_change_from_activity,
     split_shape,
 )
+from products.feature_flags.backend.facade.edits import SplitChange
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 

@@ -1,6 +1,20 @@
 {
     "name": "Node.js runtime",
     "description": "Event loop lag, heap, garbage collection and CPU of Node.js services that export prom-client metrics.",
+    "variables": [
+        {
+            "name": "service",
+            "label": "Service",
+            "source": "sql",
+            "query": "SELECT DISTINCT service_name FROM posthog.metric_names WHERE time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "eventloop_p99",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "nodejs_eventloop_lag_p99_seconds",
-                        "aggregation": "max"
+                        "aggregation": "max",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -50,7 +71,14 @@
                     {
                         "name": "a",
                         "metricName": "nodejs_heap_size_used_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -75,7 +103,14 @@
                     {
                         "name": "a",
                         "metricName": "process_resident_memory_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -100,7 +135,14 @@
                     {
                         "name": "a",
                         "metricName": "process_cpu_seconds_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -124,17 +166,38 @@
                     {
                         "name": "p50",
                         "metricName": "nodejs_eventloop_lag_p50_seconds",
-                        "aggregation": "max"
+                        "aggregation": "max",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "p90",
                         "metricName": "nodejs_eventloop_lag_p90_seconds",
-                        "aggregation": "max"
+                        "aggregation": "max",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "p99",
                         "metricName": "nodejs_eventloop_lag_p99_seconds",
-                        "aggregation": "max"
+                        "aggregation": "max",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -158,12 +221,26 @@
                     {
                         "name": "used",
                         "metricName": "nodejs_heap_size_used_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "total",
                         "metricName": "nodejs_heap_size_total_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -191,6 +268,13 @@
                         "groupBy": [
                             {
                                 "key": "space"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
                             }
                         ]
                     }
@@ -222,6 +306,13 @@
                             {
                                 "key": "kind"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -246,12 +337,26 @@
                     {
                         "name": "handles",
                         "metricName": "nodejs_active_handles_total",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "requests",
                         "metricName": "nodejs_active_requests_total",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -278,6 +383,13 @@
                         "groupBy": [
                             {
                                 "key": "service_name"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
                             }
                         ]
                     }

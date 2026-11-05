@@ -177,10 +177,10 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
                 cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Save to cohort failed:', error)
                 lemonToast.dismiss(toastId)
-                lemonToast.error('Save to cohort failed')
+                lemonToast.error(error.detail || 'Save to cohort failed')
             }
         },
     })),

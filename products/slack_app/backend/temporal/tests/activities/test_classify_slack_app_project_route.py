@@ -25,7 +25,7 @@ STAGING = _project(team_id=41, integration_id=410, name="Staging")
 PRODUCTION = _project(team_id=42, integration_id=420, name="Production")
 PROJECTS = [STAGING, PRODUCTION]
 
-CLASSIFIER = "products.slack_app.backend.temporal.activities.classifiers.build_openai_client"
+CLASSIFIER = "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client"
 
 
 class TestClassifySlackAppProjectRoute:
@@ -55,7 +55,7 @@ class TestClassifySlackAppProjectRoute:
             classify_slack_app_project_route("check staging", PROJECTS)
 
     def test_token_cap_uses_the_reasoning_model_parameter(self):
-        # `gpt-5.6-luna` rejects `max_tokens` on chat completions, and the activity turns
+        # The reasoning-class model rejects `max_tokens` on chat completions, and the activity turns
         # that rejection into its fallback — a mention would silently never route.
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):

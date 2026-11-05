@@ -60,6 +60,8 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         "imap_password",
         # Synthesia's webhooks endpoint returns each webhook signing secret under this key.
         "secret",
+        # Everflow's advertiser list returns the token that authenticates conversion postbacks.
+        "verification_token",
         # Twilio's Accounts list returns each subaccount's live Auth Token here; the source's
         # `data_map` drops it from rows, but that runs after sample capture.
         "auth_token",

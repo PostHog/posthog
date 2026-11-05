@@ -20,6 +20,7 @@ import {
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
 import type { ComposerCodexBilling } from './ComposerModelEffortPickers'
+import { ComposerModelIcon } from './ComposerModelIcon'
 
 export interface ComposerModelEffortSheetProps {
     modelLabel: string
@@ -63,11 +64,19 @@ export function ComposerModelEffortSheet({
     const [open, setOpen] = useState(false)
     return (
         <>
-            <Button size="lg" onClick={() => setOpen(true)} data-attr="composer-model-sheet-open">
-                <span className="max-w-32 truncate">{modelLabel}</span>
-                {effortOptions.length > 0 && <span className="text-muted">{getEffortLabel(selectedEffort)}</span>}
-                {billing?.value === ModelAccessEnumApi.OwnSubscription && (
-                    <span className="text-muted">ChatGPT plan</span>
+            <Button
+                size="sm"
+                className="min-w-0 shrink"
+                onClick={() => setOpen(true)}
+                data-attr="composer-model-sheet-open"
+            >
+                <ComposerModelIcon
+                    model={selectedModel}
+                    ownPlan={billing?.value === ModelAccessEnumApi.OwnSubscription}
+                />
+                <span className="whitespace-nowrap">{modelLabel}</span>
+                {effortOptions.length > 0 && (
+                    <span className="text-muted @max-[400px]/composer:hidden">{getEffortLabel(selectedEffort)}</span>
                 )}
             </Button>
             <TodaySheetMenu open={open} onOpenChange={setOpen} title="Model and reasoning">

@@ -1,11 +1,20 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import {
+    dropHandledAuthGateExceptions,
+    dropInjectedScriptReferenceErrors,
+    dropScopeNotFoundExceptions,
+    dropUnactionableNetworkExceptions,
+} from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
+import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+
+import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -49,6 +58,17 @@ export function withLastSeenFeatureFlags(
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
 
+const dropExceptions: BeforeSendFn = (event) => (event?.event === '$exception' ? null : event)
+
+/**
+ * Local development without self-capture sends its events to PostHog Cloud. Its crashes come from
+ * dev-only state, for example a stale Vite prebundle, and file issues that no user can hit.
+ * This reads the raw context because getAppContext() hides it in OAuth mode, which also runs locally.
+ */
+function sendsLocalDevelopmentToCloud(): boolean {
+    return window.POSTHOG_APP_CONTEXT?.run_mode === 'LOCAL' && !window.JS_POSTHOG_SELF_CAPTURE
+}
+
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
         const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
@@ -88,7 +108,10 @@ export function loadPostHogJS(): void {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
-            defaults: SDK_DEFAULTS_DATE,
+            defaults: 'latest',
+            disable_capture_url_hashes: false,
+            // Cookie reconciliation breaks the anonymous flag handoff and group persistence in this startup flow.
+            cookieWinsOnConflict: false,
             // Hobby static files use /static/<asset>.js, without a version directory.
             ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
                 ? { strict_script_versioning: false as const }
@@ -106,6 +129,9 @@ export function loadPostHogJS(): void {
                 : {},
             // The first flags request must wait until the user and groups from the page are set.
             advanced_disable_feature_flags_on_first_load: true,
+            // Flags tagged only with other contexts stay out of the app. The server bootstrap
+            // applies the same rule in `flags_for_app_evaluation_context` (posthog/utils.py).
+            evaluation_contexts: ['posthog-web-app'],
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
@@ -115,10 +141,19 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app' },
-            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
-            // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
+            metrics: { network: true, flags: true, serviceName: 'posthog-app' },
+            before_send: [
+                dropScopeNotFoundExceptions,
+                dropHandledAuthGateExceptions,
+                dropUnactionableNetworkExceptions,
+                dropInjectedScriptReferenceErrors,
+                dropWebMCPToolErrors,
+                redactMetricVariableUrls,
+                // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+                // `register` would persist the property in storage the main window shares, so it is stamped per event.
+                ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+                ...(sendsLocalDevelopmentToCloud() ? [dropExceptions] : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -217,6 +252,7 @@ export function loadPostHogJS(): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
+                captureJsonLd: false,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth

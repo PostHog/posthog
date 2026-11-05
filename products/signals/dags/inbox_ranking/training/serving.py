@@ -8,7 +8,8 @@ The served entry is the model the `served.json` pointer names, so the served mod
 when a person runs `inbox_ranking_promote_job`. The other entries are there so one pass produces several scores: an online paired read
 and a later interleaving then need no rescoring of the same reports. The recent entries keep a
 version in the manifest for several days, so its online grade reads more than one day's cohort. A
-pinned entry is there so an owner's `served` override can name it.
+challenger entry is the newest version of another trained family, so a recipe gets online scores
+before anyone serves it. A pinned entry is there so an owner's `served` override can name it.
 """
 
 import datetime
@@ -21,6 +22,7 @@ from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.model_contract import readable_head_names, trained_head_files
 from products.signals.backend.ranking.model_store import ONNX_PROJECT_VECTOR_KINDS_KEY
 from products.signals.backend.ranking.serving_manifest import (
+    CHALLENGER_ROLE,
     CROSS_FAMILY_ROLE,
     DEFAULT_MODEL_KIND,
     ONNX_MODEL_FILE,
@@ -93,12 +95,15 @@ def compose_manifest(
     now: datetime.datetime,
     recent: Sequence[Mapping[str, Any]] = (),
     recent_versions: int = 0,
+    challengers: Sequence[Mapping[str, Any]] = (),
     pinned: Sequence[Mapping[str, Any]] = (),
 ) -> ManifestDecision:
     """`served` holds the metadata of the model the `served.json` pointer names, `recent` the
-    metadata of the served family's versions newest first, and `pinned` the metadata of the models
-    the `pin` override keeps. At most `recent_versions` of `recent` get the recent role. The caller
-    checks that their files exist, because a manifest that names a missing file is never published."""
+    metadata of the served family's versions newest first, `challengers` the metadata of the other
+    families' versions, each family newest first, and `pinned` the metadata of the models the `pin`
+    override keeps. At most `recent_versions` of `recent` get the recent role, and the first readable
+    version of each other family gets the challenger role. The caller checks that their files exist,
+    because a manifest that names a missing file is never published."""
     if served is None:
         return ManifestDecision(manifest=None, reason="no served pointer")
     served_family = served["model_name"]
@@ -132,6 +137,21 @@ def compose_manifest(
             entries.append(version)
             kept_recent += 1
 
+    challenged: set[str] = set()
+    for metadata in challengers:
+        family_name = metadata["model_name"]
+        if family_name == served_family or family_name in challenged or not readable_head_names(metadata):
+            continue
+        challenger = _entry(
+            metadata,
+            roles=[CHALLENGER_ROLE],
+            labels={"reason": f"newest {family_name} version, paired against the served model"},
+            prefix=prefix,
+        )
+        if challenger is not None and challenger.key not in {entry.key for entry in entries}:
+            entries.append(challenger)
+            challenged.add(family_name)
+
     for metadata in pinned:
         pin = _entry(
             metadata,
@@ -154,9 +174,10 @@ def compose_manifest(
         if cross is not None and cross.key not in {entry.key for entry in entries}:
             entries.append(cross)
 
-    # The served entry and the recent versions are the reads the sweep exists for, so the cap
-    # falls on the pinned and cross-family entries, cross-family first. They are last in
-    # `entries`, the cross-family ones in family registration order.
+    # The served entry, the recent versions and the challengers are the reads the sweep exists for,
+    # so the cap falls on the pinned and cross-family entries, cross-family first. They are last in
+    # `entries`, the cross-family ones in family registration order. Challengers come in the order
+    # the caller gives them, which is family registration order.
     return ManifestDecision(
         manifest=ServingManifest(manifest_version=now.isoformat(), models=entries[:MAX_RANKING_MODEL_RESULTS]),
         reason="composed",

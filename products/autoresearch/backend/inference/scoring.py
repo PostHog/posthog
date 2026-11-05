@@ -101,7 +101,14 @@ from products.autoresearch.backend.inference.sandbox import (
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
-from products.autoresearch.backend.training.artifacts import ArtifactBundle, read_bundle
+from products.autoresearch.backend.training.artifacts import (
+    ArtifactBundle,
+    delete_scored_persons,
+    read_bundle,
+    read_scored_persons,
+    scored_persons_key,
+    write_scored_persons,
+)
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
     validate_model_class,
@@ -388,6 +395,8 @@ def run_inference_for_pipeline(
 
     if not window.is_backfill:
         _record_coverage(team=team, pipeline=pipeline, run=run, scored=scored, window=window, user=acting_user)
+    if not window.is_backfill and defer_shadows and scored.rows:
+        _store_scored_persons(run=run, person_ids=[str(row["distinct_id"]) for row in scored.rows])
     if not window.is_backfill and not defer_shadows:
         try:
             outcome = _score_shadow_set(
@@ -396,6 +405,7 @@ def run_inference_for_pipeline(
                 champion=model,
                 persons=run.metrics["scored_persons_digest"] if scored.rows else None,
                 features=scored.features,
+                champion_rows_eligible=scored.rows_eligible,
                 window=window,
                 user=acting_user,
                 query_context=query_context,
@@ -408,6 +418,73 @@ def run_inference_for_pipeline(
                 run.metrics["shadow_models"] = outcome.as_metrics()
                 run.save(update_fields=["metrics"])
     return run
+
+
+def _pairs_with_champion(data: InferenceRows, *, persons: str, anchor_person_ids: list[str] | None) -> bool:
+    """
+    True when feature rows key the people the champion scored.
+
+    Fixed anchors already drop a person deleted or merged away since the champion's run, and the
+    materialization checks the rows against the live count, so the rows pair when they key only the
+    champion's people. Without fixed anchors the rows must key exactly the champion's people.
+    """
+    scored = {str(row["distinct_id"]) for row in data.rows}
+    if anchor_person_ids is not None:
+        return scored <= set(anchor_person_ids)
+    return persons_digest(scored) == persons
+
+
+def _store_scored_persons(*, run: AutoresearchRun, person_ids: list[str]) -> None:
+    """
+    Store the people a live run scored, so deferred shadow scoring anchors on exactly them.
+
+    A failure here never fails the champion's run. The deferred phase then selects the people
+    from the population again, as manual scoring does.
+    """
+    key = scored_persons_key(team_id=run.team_id, pipeline_id=str(run.pipeline_id), inference_run_id=str(run.pk))
+    try:
+        write_scored_persons(key, person_ids)
+        run.metrics["scored_persons_key"] = key
+        run.save(update_fields=["metrics"])
+    except Exception:
+        # The run already completed and emitted, so an error here must not reach the activity and start a retry.
+        logger.exception("autoresearch_scored_persons_store_failed", run_id=str(run.pk))
+        run.metrics.pop("scored_persons_key", None)
+        try:
+            delete_scored_persons(key)
+        except Exception:
+            logger.exception("autoresearch_scored_persons_delete_failed", run_id=str(run.pk))
+
+
+def _load_scored_persons(run: AutoresearchRun) -> list[str] | None:
+    key = (run.metrics or {}).get("scored_persons_key")
+    if not key:
+        return None
+    try:
+        return read_scored_persons(key)
+    except Exception:
+        logger.exception("autoresearch_scored_persons_read_failed", run_id=str(run.pk))
+        return None
+
+
+def discard_scored_persons_for(*, team_id: int, pipeline_id: str, inference_run_id: str) -> None:
+    """Delete the stored people of a run that no longer exists, from its ids alone."""
+    key = scored_persons_key(team_id=team_id, pipeline_id=pipeline_id, inference_run_id=inference_run_id)
+    try:
+        delete_scored_persons(key)
+    except Exception:
+        logger.exception("autoresearch_scored_persons_delete_failed", run_id=inference_run_id)
+
+
+def discard_scored_persons(run: AutoresearchRun) -> None:
+    """Delete the people a run stored for deferred shadow scoring. Every path that ends the deferred phase calls it."""
+    key = (run.metrics or {}).get("scored_persons_key")
+    if not key:
+        return
+    try:
+        delete_scored_persons(key)
+    except Exception:
+        logger.exception("autoresearch_scored_persons_delete_failed", run_id=str(run.pk))
 
 
 def persons_digest(person_ids: Iterable[Any]) -> str:
@@ -808,6 +885,8 @@ def _score_shadow_set(
     user: User,
     query_context: QueryContext = INTERACTIVE_QUERY,
     clock: Callable[[], float] = time.monotonic,
+    anchor_person_ids: list[str] | None = None,
+    champion_rows_eligible: int | None = None,
 ) -> ShadowScoringOutcome | None:
     """
     Score every shadow-set model other than the champion against the people the champion's run
@@ -854,6 +933,8 @@ def _score_shadow_set(
             window=window,
             user=user,
             query_context=query_context,
+            anchor_person_ids=anchor_person_ids,
+            champion_rows_eligible=champion_rows_eligible,
         )
         (completed if ok else failed).append(str(model.pk))
         digest = digests[index]
@@ -878,39 +959,47 @@ def score_shadow_set_for_run(
     Temporal payload. Each feature query binds the run's cutoff and must select exactly those people.
     Returns None, and scores nothing, when the run did not complete, scored nobody, or its prediction
     date has passed: a shadow score emitted after that date would not pair with the champion's.
+
+    The anchors are the people the run stored (``scored_persons_key``), and the stored list is
+    deleted once this phase ends, scored or not. Without a stored list the population is selected again.
     """
-    started = time.monotonic()
-    metrics = run.metrics or {}
-    digest = metrics.get("scored_persons_digest")
-    if (
-        run.status != AutoresearchRun.Status.COMPLETED
-        or metrics.get("shadow")
-        or not digest
-        or not run.rows_scored
-        or run.model is None
-    ):
-        return None
-    window = ScoringWindow.for_date(date.fromisoformat(metrics["prediction_date"]))
-    if window.is_backfill:
-        logger.warning("autoresearch_shadow_scoring_after_prediction_date", run_id=str(run.pk))
-        return None
-    pipeline = run.pipeline
-    team = pipeline.team
-    outcome = _score_shadow_set(
-        team=team,
-        pipeline=pipeline,
-        champion=run.model,
-        persons=digest,
-        features=None,
-        window=window,
-        user=_acting_user(team=team, pipeline=pipeline, user=None),
-        query_context=query_context,
-    )
-    if outcome is not None:
-        run.metrics["shadow_models"] = outcome.as_metrics()
-        run.metrics["shadow_seconds"] = _elapsed_s(started)
-        run.save(update_fields=["metrics"])
-    return outcome
+    try:
+        started = time.monotonic()
+        metrics = run.metrics or {}
+        digest = metrics.get("scored_persons_digest")
+        if (
+            run.status != AutoresearchRun.Status.COMPLETED
+            or metrics.get("shadow")
+            or not digest
+            or not run.rows_scored
+            or run.model is None
+        ):
+            return None
+        window = ScoringWindow.for_date(date.fromisoformat(metrics["prediction_date"]))
+        if window.is_backfill:
+            logger.warning("autoresearch_shadow_scoring_after_prediction_date", run_id=str(run.pk))
+            return None
+        pipeline = run.pipeline
+        team = pipeline.team
+        outcome = _score_shadow_set(
+            team=team,
+            pipeline=pipeline,
+            champion=run.model,
+            persons=digest,
+            features=None,
+            anchor_person_ids=_load_scored_persons(run),
+            champion_rows_eligible=metrics.get("rows_eligible"),
+            window=window,
+            user=_acting_user(team=team, pipeline=pipeline, user=None),
+            query_context=query_context,
+        )
+        if outcome is not None:
+            run.metrics["shadow_models"] = outcome.as_metrics()
+            run.metrics["shadow_seconds"] = _elapsed_s(started)
+            run.save(update_fields=["metrics"])
+        return outcome
+    finally:
+        discard_scored_persons(run)
 
 
 def _read_shadow_bundle(model: AutoresearchModel) -> ArtifactBundle | Exception:
@@ -934,6 +1023,8 @@ def _score_shadow_model(
     window: ScoringWindow,
     user: User,
     query_context: QueryContext,
+    anchor_person_ids: list[str] | None = None,
+    champion_rows_eligible: int | None = None,
 ) -> bool:
     """
     Score one shadow model and record its run. The run is never ``scheduled``, so it cannot
@@ -954,6 +1045,7 @@ def _score_shadow_model(
             window=window,
             user=user,
             query_context=query_context,
+            anchor_person_ids=anchor_person_ids,
         )
         result = score_via_sandbox(
             team=team,
@@ -999,7 +1091,8 @@ def _score_shadow_model(
             "stub": False,
             "sandbox": True,
             "holdout_auc": scored.holdout_auc,
-            "rows_eligible": scored.rows_eligible,
+            # Fixed anchors count only the champion's people, so the champion's count keeps the coverage true.
+            "rows_eligible": champion_rows_eligible if champion_rows_eligible is not None else scored.rows_eligible,
         }
     )
     run.completed_at = django_timezone.now()
@@ -1017,14 +1110,17 @@ def _shadow_score_data(
     window: ScoringWindow,
     user: User,
     query_context: QueryContext,
+    anchor_person_ids: list[str] | None = None,
 ) -> InferenceRows:
     """
     The feature rows for ``feature_sql``, materialized once per digest. A failure is cached too,
     so a second model with the same broken SQL fails without a second query.
 
-    The anchors bind the run's cutoff, so the selection repeats the champion's. Rows that key a
-    different set of people (an event that landed late moved the rolling ranking) fail the
-    models that use them, because unpaired scores would not compare with the champion's.
+    The anchors bind the run's cutoff, so the selection repeats the champion's. With
+    ``anchor_person_ids`` the anchors are exactly the people the champion scored, so a person
+    merge or a property change since the champion's run cannot change the selection. Rows that
+    key a different set of people still fail the models that use them, because unpaired scores
+    would not compare with the champion's.
     """
     digest = features_sql_digest(feature_sql)
     if digest not in materialized:
@@ -1036,8 +1132,9 @@ def _shadow_score_data(
                 cutoff_ts=window.cutoff_ts,
                 user=user,
                 query_context=query_context,
+                anchor_person_ids=anchor_person_ids,
             )
-            if persons_digest(row["distinct_id"] for row in data.rows) != persons:
+            if not _pairs_with_champion(data, persons=persons, anchor_person_ids=anchor_person_ids):
                 raise InferenceRunError(
                     "The shadow feature query did not select the people the champion scored; "
                     "refusing to emit scores that do not pair with the champion's"

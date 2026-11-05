@@ -20,6 +20,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
+from products.tasks.backend.constants import FINAL_MESSAGE_MAX_CHARS
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
@@ -93,8 +95,6 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
 )
 
 _TERMINAL_TOOL_CALL_STATUSES = frozenset({"completed", "failed"})
-
-FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
 def _sanitize_httpx_error(e: httpx.HTTPStatusError) -> str:
@@ -1073,6 +1073,8 @@ def _persist_final_message(run_id: str, text: str) -> None:
             close_old_connections()
         with transaction.atomic():
             run = TaskRunModel.objects.select_for_update().get(id=run_id)
+            if run.finish_report is not None:
+                return
             output = run.output if isinstance(run.output, dict) else {}
             run.output = {**output, "final_message": text}
             run.save(update_fields=["output", "updated_at"])
@@ -1083,14 +1085,16 @@ def _persist_final_message(run_id: str, text: str) -> None:
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
-    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker)."""
+    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker), and
+    otherwise tell the run's creator that the agent waits for their answer."""
     try:
         # The close_old_connections guard mirrors event_ingest: this thread's pooled
         # connection is never health-checked by Django (gated off in tests, where
         # it would close the test transaction's connection).
         if not settings.TEST:
             close_old_connections()
-        try_auto_respond_permission_request(task_run, permission_request)
+        if not try_auto_respond_permission_request(task_run, permission_request):
+            dispatch_awaiting_input(task_run, request_id=permission_request["request_id"])
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",

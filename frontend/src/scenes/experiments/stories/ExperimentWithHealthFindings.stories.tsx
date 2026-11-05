@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
@@ -28,6 +27,18 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'A5',
         },
     ],
+    checks: [
+        { key: 'flag_state', name: "Flag state that doesn't match the experiment", status: 'finding', reason: null },
+        { key: 'flag_history', name: 'Unreadable flag history', status: 'passed', reason: null },
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'passed', reason: null },
+        {
+            key: 'flag_variants_mismatch',
+            name: 'Flag variants not set up',
+            status: 'passed',
+            reason: null,
+        },
+        { key: 'no_metric', name: 'Metrics not set up', status: 'passed', reason: null },
+    ],
 }
 
 const EXPOSURES_WITH_BIAS_RISK = {
@@ -49,12 +60,18 @@ const EXPOSURES_WITH_BIAS_RISK = {
             code: 'bias_risk_multiple_excluded',
             subcode: null,
             severity: 'warning',
-            title: 'Setup likely introduced bias',
+            title: 'The uneven split may bias the results',
             detail: '4.2% of users were exposed to multiple variants. With an uneven variant split and the Exclude handling, these users were dropped more often from the smaller variant, so its metrics can be biased. Use an even split and control exposure with the overall rollout, or switch the handling to First seen.',
             evidence: { multiple_variant_percentage: 4.2 },
             actions: ['adjust_distribution', 'use_first_seen_variant'],
             diagnostic_ref: 'A1',
         },
+    ],
+    health_checks: [
+        { key: 'srm', name: 'Split of users across variants', status: 'finding', reason: null },
+        { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
+        { key: 'zero_exposures', name: 'Exposures not received since launch', status: 'passed', reason: null },
+        { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
     ],
 }
 
@@ -102,13 +119,11 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// One finding open and two closed, so both row states are in one picture.
+// The metrics tab with issues: the chip and the health tab's count show them, and no warning banner renders.
 export const ExperimentWithHealthFindings: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await makeDelay(500)()
-        const [firstWhy] = await canvas.findAllByText('Why?', {}, { timeout: 5000 })
-        await userEvent.click(firstWhy)
+        await canvas.findByText('3 issues', {}, { timeout: 15000 })
         await makeDelay(500)()
     },
 }
