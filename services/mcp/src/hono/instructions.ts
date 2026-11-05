@@ -14,8 +14,8 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import EXEC_READ_ONLY_LEAD from '@/templates/sections/exec-read-only-lead.md'
-import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
+import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
@@ -332,10 +332,13 @@ export class InstructionsBuilder {
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        // The plugin and PostHog Code sandboxes bundle their own skill context, so
-        // learn stays off for them regardless of the feature flag.
-        if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
+        // The plugin and PostHog Code bundle their own skills, so learn never serves skills to them.
+        // The plugin still gets the built-in guides, which carry server guidance rather than skills.
+        if (isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
+        }
+        if (clientContext.mcpConsumer === 'plugin') {
+            return { guidesEnabled: true, skillsEnabled: false }
         }
         return {
             guidesEnabled: true,
