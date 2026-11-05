@@ -57,6 +57,7 @@ _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
 _DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
 _WARM_TEAM = "products.marketing_analytics.dags.marketing_precompute._warm_team"
+_TIME = "products.marketing_analytics.dags.marketing_precompute.time"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -433,6 +434,52 @@ class TestConversionWarming(APIBaseTest):
             "deferred": deferred,
         }
         assert warm_team_mock.call_count == warmed
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    def test_budget_stops_a_started_team_between_chunks(self, ensure_mock):
+        # A cold team that starts just before the deadline must not run its whole backfill past it.
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        clock = MagicMock()
+        clock.monotonic.return_value = 0.0
+
+        def advance_clock(**_kwargs):
+            clock.monotonic.return_value += 10.0
+            return MagicMock(ready=True)
+
+        ensure_mock.side_effect = advance_clock
+        with (
+            patch(_TIME, clock),
+            patch(_SINGLE_CHUNK, 7),
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: "15"}),
+            patch(_DB),
+        ):
+            result = warm_selected_teams(dagster.build_op_context())
+
+        assert ensure_mock.call_count == 2
+        assert result["deferred"] == 0
+
+    @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
+    def test_budget_spent_runs_start_with_a_different_team_each_hour(self, warm_team_mock):
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
+        ids = ",".join(str(team.pk) for team in teams)
+        started: set[int] = set()
+        for hour in range(len(teams)):
+            warm_team_mock.reset_mock()
+            with (
+                time_machine.travel(datetime(2024, 4, 2, hour, 5, tzinfo=UTC), tick=False),
+                patch(_FF, _flag_fn(conversion=True)),
+                patch.dict(
+                    os.environ,
+                    {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "1", WALL_CLOCK_BUDGET_ENV_VAR: "0"},
+                ),
+                patch(_DB),
+            ):
+                warm_selected_teams(dagster.build_op_context())
+            assert warm_team_mock.call_count == 1
+            started.add(warm_team_mock.call_args.args[1].team.pk)
+
+        assert started == {team.pk for team in teams}
 
     @parameterized.expand([("utc", "UTC"), ("behind_utc", "America/Los_Angeles"), ("ahead_of_utc", "Asia/Jerusalem")])
     @patch(_ENSURE, new_callable=_ready_mock)
