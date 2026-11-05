@@ -3260,6 +3260,27 @@ describe('CDP API', () => {
                 }
             )
 
+            it('deletes the stored files of a scheduled code send it cancels', async () => {
+                const filename = `report-${new UUIDT().toString()}.pdf`
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    scheduled_at: inDays(2),
+                    send: { ...codeSend, attachments: [attachment({ filename })] },
+                })
+                expect(res.status).toEqual(202)
+                const invocation: CyclotronJobInvocation = mockQueueInvocations.mock.calls[0][0][0]
+                expect(await storedAttachments(filename)).toHaveLength(1)
+                cancelUnclaimed.mockResolvedValue({
+                    outcome: 'canceled',
+                    job: unclaimedJob(invocation.id, invocation.queueScheduledAt!, invocation),
+                })
+
+                const canceled = await manage('cancel', invocation.id)
+
+                expect(canceled.status).toEqual(200)
+                expect(await storedAttachments(filename)).toEqual([])
+            })
+
             it.each([
                 ['an unknown message', 'not_found', 404, { error: 'not_found' }],
                 ['a message a worker has claimed', 'claimed', 409, { error: 'already_sending' }],

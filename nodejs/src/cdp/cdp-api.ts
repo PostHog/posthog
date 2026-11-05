@@ -1370,6 +1370,7 @@ export class CdpApi {
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
+                emailAttachments: this.emailAttachmentsService,
             })
             return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
         } catch (e) {

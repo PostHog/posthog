@@ -332,6 +332,7 @@ export type ScheduledTransactionalSendsDeps = {
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
+    emailAttachments: Pick<EmailAttachmentsService, 'delete'>
 }
 
 export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'claimed' | 'not_found' }
@@ -411,6 +412,9 @@ export class ScheduledTransactionalSends {
             functionId: job.functionId,
         })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
+        if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments?.length) {
+            await this.deps.emailAttachments.delete(job.id, job.teamId)
+        }
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))
     }
