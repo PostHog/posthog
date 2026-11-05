@@ -1,9 +1,9 @@
 import { act, fireEvent } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { rawDrag, renderHogChart, waitForHogChartTooltip } from '../../testing'
+import { rawDrag, renderChart, waitForChartTooltip } from '../../testing'
 import { Histogram, type HistogramProps } from './Histogram'
-import type { HistogramBin, HistogramConfig } from './types'
+import type { HistogramBin } from './types'
 
 const THEME: ChartTheme = { colors: ['#1f77b4', '#d62728'], backgroundColor: '#ffffff' }
 
@@ -17,17 +17,14 @@ const BINS: HistogramBin[] = [
 ]
 const MID_Y = 200
 
-function renderHistogram(props: Partial<HistogramProps> = {}): ReturnType<typeof renderHogChart> {
-    return renderHogChart(
-        <Histogram bins={BINS} theme={THEME} {...props} config={{ margins: MARGINS, ...props.config }} />,
-        {
-            nativeTooltip: true,
-        }
+function renderHistogram(props: Partial<HistogramProps> = {}): ReturnType<typeof renderChart> {
+    return renderChart(
+        <Histogram bins={BINS} theme={THEME} {...props} config={{ margins: MARGINS, ...props.config }} />
     )
 }
 
 async function hoverAt(wrapper: HTMLElement, x: number): Promise<HTMLElement> {
-    return waitForHogChartTooltip(3000, () =>
+    return waitForChartTooltip(3000, () =>
         act(() => {
             fireEvent.mouseMove(wrapper, { clientX: x, clientY: MID_Y })
         })
@@ -61,15 +58,16 @@ describe('Histogram', () => {
     })
 
     it('clears a selection on Escape while the pointer is over a bin', async () => {
-        const onRangeClear = jest.fn()
-        const { chart } = renderHistogram({ selectedRange: { min: 10, max: 70 }, onRangeClear })
+        const onRangeSelect = jest.fn()
+        const { chart } = renderHistogram({ selectedRange: { min: 10, max: 70 }, onRangeSelect })
         await hoverAt(chart.element, 400)
 
         act(() => {
             fireEvent.keyDown(window, { key: 'Escape' })
         })
 
-        expect(onRangeClear).toHaveBeenCalledTimes(1)
+        expect(onRangeSelect).toHaveBeenCalledTimes(1)
+        expect(onRangeSelect).toHaveBeenCalledWith(null)
     })
 
     it.each<[string, HistogramBin[], number, string[]]>([
@@ -90,6 +88,18 @@ describe('Histogram', () => {
             700,
             ['10 – 15', '6 (60%)'],
         ],
+        // The two middle bins are a fifth of a pixel wide, so they share the last bin's column.
+        [
+            'a column of merged sub-pixel bins with their summed count and range',
+            [
+                { start: 0, end: 10, count: 4 },
+                { start: 10, end: 10.02, count: 3 },
+                { start: 10.02, end: 10.04, count: 5 },
+                { start: 10.04, end: 80, count: 8 },
+            ],
+            400,
+            ['10 – 80', '16 (80%)', 'Below 80100%'],
+        ],
     ])('describes %s', async (_, bins, x, expected) => {
         const { chart } = renderHistogram({ bins })
         const tooltip = await hoverAt(chart.element, x)
@@ -97,28 +107,6 @@ describe('Histogram', () => {
         for (const text of expected) {
             expect(tooltip.textContent).toContain(text)
         }
-    })
-
-    it.each<[string, HistogramBin[], HistogramConfig, string[]]>([
-        [
-            'labels a percentile marker with its estimated value in the axis format',
-            BINS,
-            { markers: [{ percentile: 50 }], xAxis: { format: 'duration_ms' } },
-            ['p50 40ms'],
-        ],
-        [
-            'drops a value marker beyond the bins rather than pinning it to the clamped log axis edge',
-            [
-                { start: 1, end: 10, count: 5 },
-                { start: 10, end: 100, count: 5 },
-            ],
-            { markers: [{ value: 5000, label: 'SLO' }], xAxis: { scale: 'log' } },
-            [],
-        ],
-    ])('%s', (_, bins, config, expected) => {
-        const { chart } = renderHistogram({ bins, config })
-
-        expect(chart.histogram.markerLabels()).toEqual(expected)
     })
 
     it('ticks a log axis in 1-2-5 steps in the axis format, dropping labels the edges would clip', () => {

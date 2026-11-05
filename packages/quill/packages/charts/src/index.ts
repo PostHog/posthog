@@ -81,16 +81,12 @@ export type {
     HistogramAxisConfig,
     HistogramBin,
     HistogramConfig,
-    HistogramMarker,
     HistogramRange,
     HistogramSeries,
     HistogramTooltipConfig,
     HistogramTooltipContext,
+    HistogramXAxisConfig,
 } from './charts/Histogram/types'
-export { HistogramTooltip } from './charts/Histogram/HistogramTooltip'
-export type { HistogramTooltipProps } from './charts/Histogram/HistogramTooltip'
-export { estimateHistogramPercentile } from './charts/Histogram/histogram-layout'
-export type { HistogramEdges } from './charts/Histogram/histogram-layout'
 
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'

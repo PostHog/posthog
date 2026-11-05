@@ -1,9 +1,9 @@
 import type { ChartDimensions } from '../../core/types'
 import {
     computeHistogramLayout,
-    estimateHistogramPercentile,
     histogramColumnAtPixel,
     histogramRangeToPixels,
+    histogramTotals,
     prepareHistogramBins,
     snapPixelRangeToBins,
 } from './histogram-layout'
@@ -21,11 +21,13 @@ const DIMENSIONS: ChartDimensions = {
 function layoutOf(
     bins: HistogramEdges[],
     data: number[][],
-    options: { xScaleType?: HistogramScaleType; minBarHeight?: number } = {}
+    options: { xScaleType?: HistogramScaleType } = {}
 ): ReturnType<typeof computeHistogramLayout> {
+    const series = data.map((d) => ({ data: d }))
     return computeHistogramLayout({
         bins,
-        series: data.map((d) => ({ data: d })),
+        series,
+        totals: histogramTotals(series, bins.length),
         dimensions: DIMENSIONS,
         ...options,
     })
@@ -80,7 +82,7 @@ describe('histogram layout', () => {
         expect(layout.bins.map((bin) => [bin.x0, bin.x1])).toEqual(expected)
     })
 
-    it('leaves a bin ending at or below zero off a log axis but keeps it in the totals', () => {
+    it('leaves a bin ending at or below zero off a log axis', () => {
         const layout = layoutOf(
             [
                 { start: -5, end: 0 },
@@ -90,7 +92,6 @@ describe('histogram layout', () => {
             { xScaleType: 'log' }
         )
         expect(layout.bins.map((bin) => bin.index)).toEqual([1])
-        expect(layout.grandTotal).toBe(10)
     })
 
     it('stacks series, keeps an empty bin as a column with no bar, and floors a tiny bin', () => {
@@ -103,8 +104,7 @@ describe('histogram layout', () => {
             [
                 [600, 0, 1],
                 [400, 0, 0],
-            ],
-            { minBarHeight: 2 }
+            ]
         )
         expect(layout.bins).toHaveLength(3)
         const byBin = (binIndex: number): { y: number; height: number; seriesIndex: number }[] =>
@@ -116,7 +116,7 @@ describe('histogram layout', () => {
             { seriesIndex: 1, y: 0, height: 160 },
         ])
         expect(byBin(1)).toEqual([])
-        expect(byBin(2)).toEqual([{ seriesIndex: 0, y: 398, height: 2 }])
+        expect(byBin(2)).toEqual([{ seriesIndex: 0, y: 399, height: 1 }])
     })
 
     it('merges bins narrower than a pixel into columns so a one-bin spike still draws and hovers', () => {
@@ -201,24 +201,5 @@ describe('histogram layout', () => {
             const snapped = snapPixelRangeToBins(layout, x0, x1)
             expect(snapped ? [snapped.first.start, snapped.last.end] : null).toEqual(expected)
         })
-    })
-
-    const QUARTER_BINS = [
-        { start: 0, end: 10 },
-        { start: 10, end: 20 },
-        { start: 20, end: 30 },
-        { start: 30, end: 40 },
-    ]
-
-    it.each<[string, number[], number, number]>([
-        ['interpolates inside the crossing bin', [10, 10, 0, 80], 50, 33.75],
-        ['starts at the first non-empty bin for p0', [0, 10, 0, 0], 0, 10],
-        ['ends at the last non-empty bin for p100', [5, 5, 0, 0], 100, 20],
-    ])('percentile estimate %s', (_, totals, percentile, expected) => {
-        expect(estimateHistogramPercentile(QUARTER_BINS, totals, percentile)).toBeCloseTo(expected)
-    })
-
-    it('has no percentile estimate without samples', () => {
-        expect(estimateHistogramPercentile(QUARTER_BINS, [0, 0, 0, 0], 50)).toBeUndefined()
     })
 })

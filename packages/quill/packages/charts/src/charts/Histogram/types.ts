@@ -31,56 +31,29 @@ export interface HistogramRange {
     max: number
 }
 
-/** A labeled vertical line. A `percentile` marker estimates its value from the bins, interpolating
- *  linearly inside the bin that crosses it; a `value` marker sits at an exact x value, such as a
- *  percentile computed upstream or an SLO threshold. */
-export type HistogramMarker =
-    | {
-          /** 0 to 100. Labeled `p50`, `p95` and so on unless `label` is set. */
-          percentile: number
-          value?: never
-          label?: string
-          /** CSS color. Defaults to the axis label color. */
-          color?: string
-      }
-    | {
-          value: number
-          percentile?: never
-          label: string
-          /** CSS color. Defaults to the axis label color. */
-          color?: string
-      }
+export type HistogramAxisConfig = YFormatterConfig & Pick<YAxisConfig, 'label' | 'tickFormatter' | 'hide'>
 
-export interface HistogramAxisConfig extends YFormatterConfig, Pick<YAxisConfig, 'label' | 'tickFormatter' | 'hide'> {
-    /** Defaults to `linear`. On the x axis `log` suits latency, where bins grow geometrically: a bin
-     *  starting at or below zero is drawn one bin-ratio wide, and a bin ending at or below zero is not
-     *  drawn but still counts toward totals. On the y axis `log` keeps a long tail readable. */
+export interface HistogramXAxisConfig extends HistogramAxisConfig {
+    /** Defaults to `linear`. `log` suits latency, where bins grow geometrically: a bin starting at or
+     *  below zero is drawn one bin-ratio wide, and a bin ending at or below zero is not drawn but
+     *  still counts toward totals. */
     scale?: YAxisConfig['scale']
 }
 
-export interface HistogramTooltipConfig {
-    /** Defaults to true. */
-    enabled?: boolean
-    /** Defaults to `cursor`. */
-    placement?: TooltipConfig['placement']
-}
+/** `placement` defaults to `cursor`. */
+export type HistogramTooltipConfig = Pick<TooltipConfig, 'enabled' | 'placement'>
 
 export interface HistogramConfig {
-    /** Bin-edge axis. Its formatter also writes the tooltip's bin range and the marker values. */
-    xAxis?: HistogramAxisConfig
-    /** Count axis. A `log` scale keeps a long tail readable next to one tall bin. */
+    /** Bin-edge axis. Its formatter also writes the tooltip's bin range. */
+    xAxis?: HistogramXAxisConfig
+    /** Count axis. */
     yAxis?: HistogramAxisConfig
-    /** Labeled vertical lines, such as `[{ percentile: 50 }, { percentile: 99 }]`. */
-    markers?: HistogramMarker[]
     /** Defaults to true. */
     showGrid?: boolean
     /** Defaults to true. */
     showAxisLines?: boolean
     /** Defaults to true. */
     showTickMarks?: boolean
-    /** Floor (px) on the height of a non-empty bin, so a few samples next to a tall bin still show.
-     *  Empty bins never draw. Defaults to 1. */
-    minBarHeight?: number
     /** Built-in legend for stacked `series`. Hidden by default. */
     legend?: ChartLegendConfig
     tooltip?: HistogramTooltipConfig

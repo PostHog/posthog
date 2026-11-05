@@ -58,9 +58,6 @@ export interface HistogramLayout {
     /** Position in `bins` of the column holding each prepared bin, or -1 when the bin is not drawn. */
     columnOf: number[]
     segments: HistogramSegment[]
-    /** Visible-series total per prepared bin, drawable or not. */
-    totals: number[]
-    grandTotal: number
     yTicks: number[]
     xTicks: HistogramXTick[]
     /** Pixel of the value-axis floor that bars grow from. */
@@ -71,12 +68,10 @@ export interface HistogramLayoutInput {
     bins: HistogramEdges[]
     /** Per-series counts aligned with `bins`. Excluded series draw nothing and count toward nothing. */
     series: { data: number[]; excluded?: boolean }[]
+    totals: number[]
     dimensions: ChartDimensions
     xScaleType?: HistogramScaleType
-    yScaleType?: HistogramScaleType
     xTickFormatter?: (value: number) => string
-    /** Floor (px) on the height of a non-empty bin, so a lone sample next to a tall bin stays visible. */
-    minBarHeight?: number
     /** Device pixel ratio that bar edges snap to, so adjacent bars share an exact edge. */
     pixelRatio?: number
 }
@@ -88,6 +83,8 @@ const BAR_GUTTER = 0.5
 const X_TICK_SPACING_PX = 80
 const X_TICK_LABEL_PADDING = 12
 const LOG_TICK_MANTISSAS = [1, 5, 2]
+// Keeps a lone sample next to a tall bin visible.
+const MIN_BAR_HEIGHT_PX = 1
 
 function finiteCount(value: number | undefined): number {
     return typeof value === 'number' && isFinite(value) && value > 0 ? value : 0
@@ -266,19 +263,9 @@ function valueRangeOf(totals: number[]): SeriesValueRange {
         : { min: Infinity, max, minPositive, count: 0 }
 }
 
-/** Whole-number ticks when every count is whole, since "2.5 requests" reads as a bug. A log axis
- *  also drops its floor tick, which `niceLogDomain` puts a decade below the smallest count. */
-function countTicks(
-    yScale: D3YScale,
-    tickCount: number,
-    floor: number,
-    scaleType: HistogramScaleType,
-    totals: number[]
-): number[] {
+/** Whole-number ticks when every count is whole, since "2.5 requests" reads as a bug. */
+function countTicks(yScale: D3YScale, tickCount: number, totals: number[]): number[] {
     const ticks = yScale.ticks?.(tickCount) ?? []
-    if (scaleType === 'log' && floor > 0) {
-        return ticks.filter((tick) => tick > floor)
-    }
     if (!totals.every((total) => Number.isInteger(total))) {
         return ticks
     }
@@ -358,11 +345,10 @@ function sumRange(values: number[], from: number, to: number): number {
 export function computeHistogramLayout({
     bins,
     series,
+    totals,
     dimensions,
     xScaleType = 'linear',
-    yScaleType = 'linear',
     xTickFormatter,
-    minBarHeight = 0,
     pixelRatio = 1,
 }: HistogramLayoutInput): HistogramLayout {
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
@@ -370,9 +356,6 @@ export function computeHistogramLayout({
     const ratio = pixelRatio > 0 ? pixelRatio : 1
     const snap = snapTo(ratio)
     const visibleSeries = series.map((s, seriesIndex) => ({ ...s, seriesIndex })).filter((s) => !s.excluded)
-
-    const totals = histogramTotals(series, bins.length)
-    const grandTotal = totals.reduce((sum, total) => sum + total, 0)
 
     const { scale: xScale, drawStarts, drawable } = buildXScale(bins, xScaleType, [plotLeft, plotLeft + plotWidth])
     const columns = buildColumns(bins, drawStarts, drawable, xScale, snap, 1 / ratio)
@@ -383,7 +366,6 @@ export function computeHistogramLayout({
         range: valueRangeOf(columnTotals),
         valueRange: [plotBottom, plotTop],
         tickCount,
-        scaleType: yScaleType,
     })
     const yDomainFloor = Math.min(...(yScale.domain() as number[]))
     const baselineY = snap(yScale(yDomainFloor))
@@ -418,8 +400,8 @@ export function computeHistogramLayout({
             })
         }
         const top = columnSegments[columnSegments.length - 1]
-        if (top && baselineY - top.y < minBarHeight) {
-            const floored = baselineY - minBarHeight
+        if (top && baselineY - top.y < MIN_BAR_HEIGHT_PX) {
+            const floored = baselineY - MIN_BAR_HEIGHT_PX
             top.height += top.y - floored
             top.y = floored
         }
@@ -435,9 +417,7 @@ export function computeHistogramLayout({
         bins: layoutBins,
         columnOf,
         segments,
-        totals,
-        grandTotal,
-        yTicks: countTicks(yScale, tickCount, yDomainFloor, yScaleType, columnTotals),
+        yTicks: countTicks(yScale, tickCount, columnTotals),
         xTicks: computeXTicks(xScale, xScaleType, dimensions, xTickFormatter),
         baselineY,
     }
@@ -510,34 +490,4 @@ export function histogramRangeToPixels(
         return null
     }
     return { x0: layout.xScale(min), x1: layout.xScale(max) }
-}
-
-/** Value below which `percentile`% of the samples fall, interpolated linearly inside the bin that
- *  crosses it, as Prometheus' `histogram_quantile` does. `bins` must be sorted and non-overlapping
- *  (see {@link prepareHistogramBins}), with `totals` aligned to them. Undefined when the bins hold no
- *  samples. */
-export function estimateHistogramPercentile(
-    bins: HistogramEdges[],
-    totals: number[],
-    percentile: number
-): number | undefined {
-    const grandTotal = totals.reduce((sum, total) => sum + finiteCount(total), 0)
-    if (grandTotal <= 0 || !isFinite(percentile)) {
-        return undefined
-    }
-    const target = (Math.min(Math.max(percentile, 0), 100) / 100) * grandTotal
-    let cumulative = 0
-    let lastEnd: number | undefined
-    for (let i = 0; i < bins.length; i++) {
-        const count = finiteCount(totals[i])
-        if (count === 0) {
-            continue
-        }
-        if (cumulative + count >= target) {
-            return bins[i].start + ((target - cumulative) / count) * (bins[i].end - bins[i].start)
-        }
-        cumulative += count
-        lastEnd = bins[i].end
-    }
-    return lastEnd
 }

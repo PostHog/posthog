@@ -6,13 +6,12 @@ import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../c
 import { Chart } from '../../core/Chart'
 import { useChartHover, useChartLayout } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import { SINGLE_LABEL_MIN_DRAG_PX } from '../../core/interaction'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
-    ChartMargins,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
@@ -23,7 +22,8 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
-import { humanFriendlyNumber } from '../../utils/format'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { humanFriendlyNumber, percentage } from '../../utils/format'
 import { useYTickFormatter } from '../../utils/use-axis-formatters'
 import {
     drawHistogramBars,
@@ -32,7 +32,6 @@ import {
     drawHistogramSelectionEdges,
 } from './draw-histogram'
 import {
-    estimateHistogramPercentile,
     histogramColumnAtPixel,
     histogramRangeToPixels,
     histogramTotals,
@@ -46,8 +45,6 @@ import {
     readHistogramHoverColors,
     readHistogramLayout,
 } from './histogram-scales'
-import { HistogramMarkers, MARKER_LABEL_MARGIN, type ResolvedHistogramMarker } from './HistogramMarkers'
-import { HistogramTooltip } from './HistogramTooltip'
 import { HistogramXAxisLabels } from './HistogramXAxisLabels'
 import type {
     HistogramAxisConfig,
@@ -56,12 +53,13 @@ import type {
     HistogramRange,
     HistogramSeries,
     HistogramTooltipContext,
+    HistogramXAxisConfig,
 } from './types'
 
 const DEFAULT_SERIES_KEY = 'count'
-const DEFAULT_MIN_BAR_HEIGHT = 1
 const DEFAULT_COLUMN_COLOR = 'rgba(0, 0, 0, 0.5)'
-const EMPTY_AXIS_CONFIG: HistogramAxisConfig = {}
+const EMPTY_X_AXIS_CONFIG: HistogramXAxisConfig = {}
+const EMPTY_Y_AXIS_CONFIG: HistogramAxisConfig = {}
 
 /** Blanks the base chart's category x-axis layer, which {@link HistogramXAxisLabels} replaces. At
  *  module scope so it can't churn the base chart's margin and tick memos. */
@@ -72,17 +70,16 @@ export interface HistogramProps<Meta = unknown> {
     bins: HistogramBin<Meta>[]
     /** Stacked layers, each with one count per bin. Omit to draw `bins[i].count` as one series. */
     series?: HistogramSeries[]
-    /** Colors and chrome, from `useChartTheme()`. */
-    theme: ChartTheme
+    /** Colors and chrome. Defaults to the nearest `ChartThemeProvider`, then the CSS variables. */
+    theme?: ChartTheme
     config?: HistogramConfig
     /** Draws a selection band over this range and fades the bars outside it. Controlled: pass back
-     *  what `onRangeSelect` reports, and `null` to clear. */
+     *  what `onRangeSelect` reports. */
     selectedRange?: HistogramRange | null
     /** Enables drag to select. Fires once per completed drag with the range snapped outward to whole
-     *  bins: `min` is the first bin's `start` and `max` the last bin's exclusive `end`. */
-    onRangeSelect?: (range: HistogramRange) => void
-    /** Fires when Escape is pressed while the pointer is over a bin and a range is selected. */
-    onRangeClear?: () => void
+     *  bins: `min` is the first bin's `start` and `max` the last bin's exclusive `end`. Fires `null`
+     *  when Escape is pressed while the pointer is over a bin and a range is selected. */
+    onRangeSelect?: (range: HistogramRange | null) => void
     /** Replaces the default tooltip content. */
     tooltip?: (ctx: HistogramTooltipContext<Meta>) => React.ReactNode
     /** Class applied to the chart wrapper. */
@@ -105,6 +102,11 @@ export function Histogram<Meta = unknown>({ onError, ...rest }: HistogramProps<M
 
 function defaultFormat(value: number): string {
     return humanFriendlyNumber(value)
+}
+
+function formatShare(fraction: number): string {
+    // Two decimals keep a tail bin's share distinguishable from zero.
+    return percentage(fraction, fraction > 0 && fraction < 0.01 ? 2 : 1)
 }
 
 /** Clears the selection on Escape, only while the pointer is over a bin so a key meant for a dialog
@@ -184,33 +186,30 @@ function ColumnTooltip<Meta>({
 function HistogramInner<Meta = unknown>({
     bins,
     series,
-    theme,
+    theme: themeProp,
     config,
     selectedRange,
     onRangeSelect,
-    onRangeClear,
     tooltip,
     className,
     dataAttr,
     children,
 }: Omit<HistogramProps<Meta>, 'onError'>): React.ReactElement {
     const {
-        xAxis = EMPTY_AXIS_CONFIG,
-        yAxis = EMPTY_AXIS_CONFIG,
-        markers,
+        xAxis = EMPTY_X_AXIS_CONFIG,
+        yAxis = EMPTY_Y_AXIS_CONFIG,
         showGrid = true,
         showAxisLines = true,
         showTickMarks = true,
-        minBarHeight = DEFAULT_MIN_BAR_HEIGHT,
         legend,
         tooltip: tooltipConfig,
         margins,
     } = config ?? {}
 
+    const theme = useResolvedChartTheme(themeProp)
     const xFormatter = useYTickFormatter(xAxis)
     const yFormatter = useYTickFormatter(yAxis)
     const xScaleType = xAxis.scale
-    const yScaleType = yAxis.scale
 
     const prepared = useMemo(() => prepareHistogramBins(bins), [bins])
     const labels = useMemo(() => prepared.map((_, i) => String(i)), [prepared])
@@ -248,13 +247,12 @@ function HistogramInner<Meta = unknown>({
             createHistogramScales({
                 bins: prepared,
                 series: coloredSeries,
+                totals,
                 dimensions,
                 xScaleType,
-                yScaleType,
                 xTickFormatter: xFormatter,
-                minBarHeight,
             }),
-        [prepared, xScaleType, yScaleType, xFormatter, minBarHeight]
+        [prepared, totals, xScaleType, xFormatter]
     )
 
     const drawStatic = useCallback(
@@ -332,20 +330,48 @@ function HistogramInner<Meta = unknown>({
         [onRangeSelect]
     )
 
+    // Clamped to the plot like the committed drag, so the band never shows a range the release drops.
     const snapDragRect = useCallback((rect: DragRect, scales: ChartScales): DragRect => {
         const layout = readHistogramLayout(scales)
-        const wideEnough = Math.abs(rect.x1 - rect.x0) >= SINGLE_LABEL_MIN_DRAG_PX
-        const snapped = layout && wideEnough ? snapPixelRangeToBins(layout, rect.x0, rect.x1) : null
+        if (!layout) {
+            return { x0: rect.x0, x1: rect.x0 }
+        }
+        const [left, right] = layout.xScale.range()
+        const x0 = Math.min(Math.max(rect.x0, left), right)
+        const x1 = Math.min(Math.max(rect.x1, left), right)
+        const snapped = Math.abs(x1 - x0) >= SINGLE_LABEL_MIN_DRAG_PX ? snapPixelRangeToBins(layout, x0, x1) : null
         return snapped ? { x0: snapped.first.x0, x1: snapped.last.x1 } : { x0: rect.x0, x1: rect.x0 }
     }, [])
+
+    const clearRange = useCallback(() => onRangeSelect?.(null), [onRangeSelect])
 
     const formatX = xFormatter ?? defaultFormat
     const formatCount = yFormatter ?? defaultFormat
 
     const renderContent = useCallback(
-        (ctx: HistogramTooltipContext<Meta>): React.ReactNode =>
-            tooltip ? tooltip(ctx) : <HistogramTooltip ctx={ctx} formatX={formatX} formatCount={formatCount} />,
-        [tooltip, formatX, formatCount]
+        (ctx: HistogramTooltipContext<Meta>): React.ReactNode => {
+            if (tooltip) {
+                return tooltip(ctx)
+            }
+            const formatWithShare = (value: number): string =>
+                `${formatCount(value)} (${formatShare(grandTotal > 0 ? value / grandTotal : 0)})`
+            return (
+                <DefaultTooltip
+                    {...ctx}
+                    label={`${formatX(ctx.bin.start)} – ${formatX(ctx.bin.end)}`}
+                    valueFormatter={formatWithShare}
+                    showTotal
+                    hideZeroRows={ctx.seriesData.length > 1}
+                    footer={
+                        <div className="flex items-center gap-2 py-0.5 px-1.5">
+                            <span className="flex-1 opacity-60">Below {formatX(ctx.bin.end)}</span>
+                            <strong className="tabular-nums">{formatShare(ctx.cumulativeFraction)}</strong>
+                        </div>
+                    }
+                />
+            )
+        },
+        [tooltip, formatX, formatCount, grandTotal]
     )
     const renderTooltip = useCallback(
         (ctx: TooltipContext): React.ReactNode => (
@@ -361,41 +387,8 @@ function HistogramInner<Meta = unknown>({
         [prepared, totals, cumulative, grandTotal, renderContent]
     )
 
-    const resolvedMarkers = useMemo<ResolvedHistogramMarker[]>(() => {
-        if (!markers?.length) {
-            return []
-        }
-        const resolved: ResolvedHistogramMarker[] = []
-        markers.forEach((marker, i) => {
-            const value =
-                marker.percentile !== undefined
-                    ? estimateHistogramPercentile(prepared, totals, marker.percentile)
-                    : marker.value
-            if (value === undefined || !isFinite(value)) {
-                return
-            }
-            resolved.push({
-                key: `${i}`,
-                label: marker.label ?? `p${marker.percentile}`,
-                value,
-                valueText: formatX(value),
-                color: marker.color,
-            })
-        })
-        return resolved
-    }, [markers, prepared, totals, formatX])
-
     // Gutter sizing reads series values, which for a stack are per layer rather than the bar's height.
     const valueRangeSeries = useMemo<Series[]>(() => [{ key: '__histogram_totals', label: '', data: totals }], [totals])
-
-    const hasMarkers = resolvedMarkers.length > 0
-    const resolvedMargins = useMemo<Partial<ChartMargins> | undefined>(() => {
-        if (!hasMarkers) {
-            return margins
-        }
-        const computed: Partial<ChartMargins> = { top: MARKER_LABEL_MARGIN }
-        return margins ? applyMarginOverride(computed, margins) : computed
-    }, [hasMarkers, margins])
 
     const baseConfig = useMemo<ChartConfig>(
         () => ({
@@ -405,7 +398,7 @@ function HistogramInner<Meta = unknown>({
             yAxisLabel: yAxis.label,
             hideXAxis: xAxis.hide,
             hideYAxis: yAxis.hide,
-            margins: resolvedMargins,
+            margins,
             showTickMarks,
             showCrosshair: false,
             tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement ?? 'cursor' },
@@ -416,7 +409,7 @@ function HistogramInner<Meta = unknown>({
             yAxis.label,
             xAxis.hide,
             yAxis.hide,
-            resolvedMargins,
+            margins,
             showTickMarks,
             tooltipConfig?.enabled,
             tooltipConfig?.placement,
@@ -443,8 +436,7 @@ function HistogramInner<Meta = unknown>({
                 dataAttr={dataAttr}
             >
                 {!xAxis.hide && <HistogramXAxisLabels />}
-                {hasMarkers && <HistogramMarkers markers={resolvedMarkers} />}
-                {onRangeClear && selectedRange && <EscapeToClear onClear={onRangeClear} />}
+                {onRangeSelect && selectedRange && <EscapeToClear onClear={clearRange} />}
                 {children}
             </Chart>
         </ChartLegend>

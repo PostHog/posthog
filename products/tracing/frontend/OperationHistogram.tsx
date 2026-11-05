@@ -53,8 +53,14 @@ export function OperationHistogram({
         [selection]
     )
     const onRangeSelect = useCallback(
-        ({ min, max }: HistogramRange): void => onSelect({ minNs: min, maxNs: max }),
-        [onSelect]
+        (range: HistogramRange | null): void => {
+            if (range) {
+                onSelect({ minNs: range.min, maxNs: range.max })
+            } else if (!samplesLoading) {
+                onClear()
+            }
+        },
+        [onSelect, onClear, samplesLoading]
     )
 
     return (
@@ -89,7 +95,6 @@ export function OperationHistogram({
                         config={HISTOGRAM_CONFIG}
                         selectedRange={selectedRange}
                         onRangeSelect={onRangeSelect}
-                        onRangeClear={samplesLoading ? undefined : onClear}
                     />
                 ) : !loading ? (
                     <div className="h-full text-muted flex items-center justify-center">No spans in this range</div>

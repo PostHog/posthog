@@ -32,10 +32,9 @@ export interface HistogramScalesInput {
     bins: HistogramEdges[]
     series: ResolvedSeries[]
     dimensions: ChartDimensions
+    totals: number[]
     xScaleType?: HistogramScaleType
-    yScaleType?: HistogramScaleType
     xTickFormatter?: (value: number) => string
-    minBarHeight: number
 }
 
 /** Labels are prepared-bin indices, so `x(label)` is the center of the bin's column and

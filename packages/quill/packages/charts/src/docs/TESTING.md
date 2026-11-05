@@ -60,7 +60,6 @@ chart.slope.seriesLabels() // slope series names, after collision avoidance
 chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
 chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
 chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
-chart.histogram.markerLabels() // ['p50 34.5ms', 'p99 1.7s'] Histogram marker labels, left to right
 chart.gauge.text() // { value, label, min, max } text a Gauge shows, null for other charts
 chart.gauge.valueColor() // CSS color of the Gauge value text, null for other charts
 ```

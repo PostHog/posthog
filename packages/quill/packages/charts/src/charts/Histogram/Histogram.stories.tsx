@@ -79,24 +79,6 @@ export const StackedOkAndError: Story = {
     },
 }
 
-export const PercentileMarkers: Story = {
-    render: function Render() {
-        const theme = useReactiveTheme()
-        return (
-            <Stage width={720} height={280}>
-                <Histogram
-                    bins={LATENCY_BINS}
-                    theme={theme}
-                    config={{
-                        xAxis: DURATION_AXIS,
-                        markers: [{ percentile: 50 }, { percentile: 95 }, { percentile: 99 }],
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
 export const RangeSelection: Story = {
     render: function Render() {
         const theme = useReactiveTheme()
@@ -110,23 +92,6 @@ export const RangeSelection: Story = {
                     config={{ xAxis: DURATION_AXIS }}
                     selectedRange={range}
                     onRangeSelect={setRange}
-                    onRangeClear={() => setRange(null)}
-                />
-            </Stage>
-        )
-    },
-}
-
-export const LogCountAxis: Story = {
-    render: function Render() {
-        const theme = useReactiveTheme()
-        return (
-            <Stage width={720} height={280}>
-                <Histogram
-                    bins={LATENCY_BINS}
-                    series={STACKED_SERIES}
-                    theme={theme}
-                    config={{ xAxis: DURATION_AXIS, yAxis: { scale: 'log' } }}
                 />
             </Stage>
         )
@@ -148,10 +113,7 @@ export const LinearBins: Story = {
                 <Histogram
                     bins={LINEAR_BINS}
                     theme={theme}
-                    config={{
-                        xAxis: { format: 'duration_ms', label: 'Response time' },
-                        markers: [{ percentile: 50 }, { value: 600, label: 'SLO' }],
-                    }}
+                    config={{ xAxis: { format: 'duration_ms', label: 'Response time' } }}
                 />
             </Stage>
         )
@@ -186,10 +148,9 @@ export const Narrow: Story = {
                     bins={LATENCY_BINS}
                     series={STACKED_SERIES}
                     theme={theme}
-                    config={{ xAxis: DURATION_AXIS, markers: [{ percentile: 50 }, { percentile: 99 }] }}
+                    config={{ xAxis: DURATION_AXIS }}
                     selectedRange={range}
                     onRangeSelect={setRange}
-                    onRangeClear={() => setRange(null)}
                 />
             </Stage>
         )
