@@ -5,6 +5,8 @@ import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, LemonSkelet
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
@@ -57,6 +59,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     } = useValues(contentAutopilotPromptDetailLogic)
     const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
         useActions(contentAutopilotPromptDetailLogic)
+    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
 
     if (!promptId) {
         return null
@@ -120,6 +123,12 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         <span className="text-muted">{pluralize(stats.total_checks, 'check')} in total</span>
                         {prompt.archived_at ? null : (
                             <div className="ml-auto flex gap-2">
+                                {opportunityByPromptId[prompt.id] ? (
+                                    <ContentAutopilotDraftButton
+                                        opportunity={opportunityByPromptId[prompt.id]}
+                                        onReview={closePromptDetail}
+                                    />
+                                ) : null}
                                 <LemonButton
                                     size="small"
                                     type="secondary"
@@ -164,13 +173,13 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-2 gap-3">
                                     <ContentAutopilotPromptKpiCard
                                         label="Mentioned in answers"
-                                        description="Share of answers that name you. An answer that cites your site always counts."
+                                        description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
                                         {...rateKpiCard(reportKpis.visibility)}
                                         data-attr="content-autopilot-prompt-kpi-mentioned"
                                     />
                                     <ContentAutopilotPromptKpiCard
                                         label="Cited as a source"
-                                        description="Share of answers that link to a page on your site."
+                                        description="Share of answers that link to a page on your site as a source, so people can click through to it."
                                         {...rateKpiCard(reportKpis.citation)}
                                         data-attr="content-autopilot-prompt-kpi-cited"
                                     />
@@ -178,7 +187,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                             </Section>
 
                             <Section
-                                title="How often engines mention or cite you"
+                                title="Mentions and citations over time"
                                 description="One line per engine, one point per day it ran."
                             >
                                 <ContentAutopilotPromptQueryTile
@@ -211,7 +220,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                             </Section>
 
                             <Section
-                                title="Where the answers come from"
+                                title="Cited sources"
                                 description="The sites and pages the engines link to when they answer this prompt."
                             >
                                 <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
@@ -233,21 +242,21 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                             </Section>
 
                             <Section
-                                title="Which sites each engine relies on"
+                                title="Cited sites by engine"
                                 description="The share of each engine's answers that link to a site. A darker cell means the engine links to that site more often."
                             >
                                 <ContentAutopilotPromptConsensus matrix={consensusMatrix} />
                             </Section>
 
                             <Section
-                                title="How answers talk about you"
+                                title="Sentiment"
                                 description="Scored on the sentences that name you, so praise of another tool does not count."
                             >
                                 <ContentAutopilotPromptSentiment summary={sentimentSummary} query={sentimentQuery} />
                             </Section>
 
                             <Section
-                                title="What the engines searched for"
+                                title="Engine searches"
                                 description="The searches an engine ran before it answered. Engines that do not report their searches are left out."
                             >
                                 <ContentAutopilotPromptQueryTile

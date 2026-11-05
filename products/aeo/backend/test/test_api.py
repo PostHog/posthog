@@ -363,6 +363,22 @@ class TestAEOPromptAPI(APIBaseTest):
             assert (latest["claude-web-search"]["cited"], latest["claude-web-search"]["check_failed"]) == (True, False)
         assert listed["never checked?"]["latest_checks"] == []
 
+    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:
+        texts = ["cited?", "never cited?", "only failed?", "cited long ago?", "never checked?"]
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
+        ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
+        self._record_check(ids["cited?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["cited?"], "claude-web-search", minutes_ago=10, cited=True)
+        self._record_check(ids["never cited?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["only failed?"], "exa-answer", minutes_ago=10, check_failed=True)
+        self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=60 * 24 * 40, cited=True)
+        self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=10, cited=False)
+
+        response = self.client.get(self.url, {"needs_improvement": "true"}).json()
+
+        assert sorted(row["prompt"] for row in response["results"]) == ["cited long ago?", "never cited?"]
+        assert response["count"] == 2
+
     def test_list_query_count_does_not_grow_with_page_size(self) -> None:
         prompts = [{"prompt": f"q{i}?"} for i in range(4)]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
