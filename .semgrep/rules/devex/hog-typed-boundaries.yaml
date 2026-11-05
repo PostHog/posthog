@@ -6,8 +6,8 @@ rules:
           where hog read it.
 
           Read JSON with a zod schema instead: `parseJson(text, Schema, failure)` when a bad document
-          must stop the command, `parseJsonOrUndefined(text, Schema)` when it counts as missing, or
-          `decodeJson` when the caller needs the problem. Tests use `readJson` from `@/testing`.
+          must stop the command, `parseJsonOrUndefined(text, Schema)` when it counts as missing. Tests use `readJson` from
+          `@/testing`.
       severity: ERROR
       languages: [typescript, javascript]
       paths:
