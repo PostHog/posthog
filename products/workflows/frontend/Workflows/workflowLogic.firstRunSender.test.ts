@@ -2,6 +2,7 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -253,7 +254,7 @@ describe('workflow first-run sender', () => {
                               200,
                               {
                                   results: Array.from({ length: 100 }, (_, index) => unverifiedOwn(100 + index)),
-                                  next: 'next-page',
+                                  next: `${new URL(request.url).origin}${new URL(request.url).pathname}?limit=100&offset=100`,
                               },
                           ],
             },
@@ -282,6 +283,34 @@ describe('workflow first-run sender', () => {
 
         expect(emailValueOf(logic)?.from).toEqual({})
         expect(ensureCalls).toBe(0)
+        logic.unmount()
+    })
+
+    it('looks up and sets up the sender in the current environment, not its project', async () => {
+        const requestedIds: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': ({ params }) => {
+                    requestedIds.push(String(params.team_id))
+                    return [200, { results: integrations }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': ({ params }) => {
+                    requestedIds.push(String(params.team_id))
+                    integrations = [SANDBOX]
+                    return [200, SANDBOX]
+                },
+            },
+        })
+        const environmentId = ApiConfig.getCurrentTeamId()
+        ApiConfig.setCurrentProjectId(environmentId + 1)
+
+        const logic = await loadTemplate()
+
+        expect(emailValueOf(logic)?.from).toEqual({ integrationId: SANDBOX.id })
+        expect(requestedIds.length).toBeGreaterThanOrEqual(2)
+        expect(new Set(requestedIds)).toEqual(new Set([String(environmentId)]))
         logic.unmount()
     })
 
