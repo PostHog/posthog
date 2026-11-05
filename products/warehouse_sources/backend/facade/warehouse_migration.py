@@ -3,8 +3,6 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from django.db.models import QuerySet
-
 from pydantic import ValidationError
 
 from products.warehouse_sources.backend.facade import contracts
@@ -22,7 +20,14 @@ ITEM_VERDICT_CHOICES = _WarehouseMigrationItem.Verdict.choices
 ITEM_STATUS_CHOICES = _WarehouseMigrationItem.Status.choices
 
 
-def _to_migration(migration: _WarehouseMigration) -> contracts.WarehouseMigration:
+def _to_migrations(team_id: int, migrations: list[_WarehouseMigration]) -> list[contracts.WarehouseMigration]:
+    counts = service.item_counts(team_id=team_id, migration_ids=[migration.id for migration in migrations])
+    return [_to_migration(migration, counts[migration.id]) for migration in migrations]
+
+
+def _to_migration(migration: _WarehouseMigration, counts: dict[str, int] | None = None) -> contracts.WarehouseMigration:
+    if counts is None:
+        counts = service.item_counts(team_id=migration.team_id, migration_ids=[migration.id])[migration.id]
     return contracts.WarehouseMigration(
         id=migration.id,
         provider=migration.provider,
@@ -31,7 +36,7 @@ def _to_migration(migration: _WarehouseMigration) -> contracts.WarehouseMigratio
         crawled_at=migration.crawled_at,
         latest_error=migration.latest_error,
         created_at=migration.created_at,
-        item_counts=contracts.WarehouseMigrationItemCounts(**service.item_counts(migration)),
+        item_counts=contracts.WarehouseMigrationItemCounts(**counts),
     )
 
 
@@ -63,20 +68,14 @@ def _to_item(item: _WarehouseMigrationItem) -> contracts.WarehouseMigrationItem:
     )
 
 
-def _migrations(team_id: int) -> QuerySet[_WarehouseMigration]:
-    # The snapshot can be large and no endpoint returns it.
-    return _WarehouseMigration.objects.for_team(team_id).defer("snapshot")
-
-
 def list_migrations(team_id: int, *, limit: int, offset: int) -> tuple[list[contracts.WarehouseMigration], int]:
     """One page of the team's migrations, newest first, and the total count."""
-    migrations = _migrations(team_id)
-    page = migrations.order_by("-created_at", "-id")[offset : offset + limit]
-    return [_to_migration(migration) for migration in page], migrations.count()
+    page, count = service.list_migrations(team_id=team_id, limit=limit, offset=offset)
+    return _to_migrations(team_id, page), count
 
 
 def get_migration(team_id: int, migration_id: UUID) -> contracts.WarehouseMigration | None:
-    migration = _migrations(team_id).filter(id=migration_id).first()
+    migration = service.get_migration(team_id=team_id, migration_id=migration_id)
     return _to_migration(migration) if migration else None
 
 
@@ -92,8 +91,7 @@ def create_migration(
 
 
 def delete_migration(team_id: int, migration_id: UUID) -> bool:
-    deleted, _ = _WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).delete()
-    return bool(deleted)
+    return service.delete_migration(team_id=team_id, migration_id=migration_id)
 
 
 def refresh_migration(team_id: int, migration_id: UUID) -> contracts.WarehouseMigration | None:
@@ -106,11 +104,11 @@ def list_migration_items(
     team_id: int, migration_id: UUID, *, limit: int, offset: int
 ) -> tuple[list[contracts.WarehouseMigrationItem], int] | None:
     """One page of the migration's items and the total count. Returns None when the migration is not found."""
-    if not _migrations(team_id).filter(id=migration_id).exists():
+    result = service.list_items(team_id=team_id, migration_id=migration_id, limit=limit, offset=offset)
+    if result is None:
         return None
-    items = _WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
-    page = items.order_by("verdict", "name", "id")[offset : offset + limit]
-    return [_to_item(item) for item in page], items.count()
+    page, count = result
+    return [_to_item(item) for item in page], count
 
 
 def skip_migration_items(
@@ -120,8 +118,11 @@ def skip_migration_items(
     item_ids: Sequence[UUID] | None = None,
     keep_item_ids: Sequence[UUID] | None = None,
 ) -> contracts.WarehouseMigrationBulkSkip | None:
-    """Skip `item_ids`, or every item except `keep_item_ids`. Returns None when the migration is not found."""
-    if not _migrations(team_id).filter(id=migration_id).exists():
+    """Skip `item_ids`, or every item except `keep_item_ids`. Returns None when the migration is not found.
+
+    Raises `WarehouseMigrationUnknownItemsError` when an id is not an item of the migration.
+    """
+    if not service.migration_exists(team_id=team_id, migration_id=migration_id):
         return None
     return service.skip_items(
         team_id=team_id, migration_id=migration_id, item_ids=item_ids, keep_item_ids=keep_item_ids
