@@ -15679,9 +15679,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-privacy--light:
         hash: v1.k794b7964.52575183df15ee111029b50d9a5699323a24f452953e188baf983fcec1128e1e._Xh6Gb8q1UZCF5MonVhd2fNxpHC8-_iep72Rt55Ep1U
     scenes-app-settings-environment--settings-environment-product-analytics--dark:
-        hash: v1.k794b7964.a1bd0d37b4de9501597c5ea321639772b719da464e5ff8fcb8216e4802f81e78.3Xyt8DMdz8VrgsrHshyH7_xa509DdrroFOPMLU9beLA
+        hash: v1.k794b7964.63489a2d766e2e0babb398650f4fcad8719ce60c052e0497d6875812ba24eb33.k_wsJhiAifjzK2lKY6vnaaXDMyuFREJiC705IEq1C6o
     scenes-app-settings-environment--settings-environment-product-analytics--light:
-        hash: v1.k794b7964.6aa76aedbd54e7d08348055938099fb7a24dbea15c8c0483a9e7ad206e15bad9.I3-fdJrwMw1vyqFeld6zNUL-6J8rXwxgCOYnbT9x3o0
+        hash: v1.k794b7964.11219460001244d77b8b551f1fc640a7d4a108b27e4d26aa3c9df19dbeaa84e2.ghbEO1vWYuDsjE772Cz1ZfD79_gjA91Vt5GMU68-pDo
     scenes-app-settings-environment--settings-environment-replay--dark:
         hash: v1.k794b7964.81aeaa4ffb47e8347ceccd2aecf68c51f1fbe9796fcd7fb75121dbe41e710ad2.kcBO_KCrWUs5KJM-V9drAfD9azOX95r-Nt2LN7VCuaM
     scenes-app-settings-environment--settings-environment-replay--light:
@@ -15699,29 +15699,29 @@ snapshots:
     scenes-app-settings-environment--settings-environment-web-analytics--light:
         hash: v1.k794b7964.b4553dbb84a15391496c2edb32b37890962415241c5e65720176f96aaf9a6c79.e3XURvfm-ojSu2iaXmrhEHQPltapWYsUAWZQktCPSpk
     scenes-app-settings-events-retention--organization-on-free-plan--dark:
-        hash: v1.k794b7964.56168dc2f207145fdedfa5032f82cec9db91ad34e7752c6451d1fcfae638073f.tNLkyWmObTv9op5FIBQVrh-AJCtgCD41p7Ab4yCT-aw
+        hash: v1.k794b7964.b075e1de23700cf59e5e17cc0dbe15496d9e7ee89677ca11110b5507b17da120.ud-PQDmvtjOEehGDRhgCKwok3Fivo8yrPTs1kHt81bU
     scenes-app-settings-events-retention--organization-on-free-plan--light:
-        hash: v1.k794b7964.a246fea4326c09917b665f5c47e3019fdab8b2793c86225b87e426645ec63e20.wsUaw29inZskewb426IItzy9sCkWanlnEflGpSmeGN8
+        hash: v1.k794b7964.1538a5b5023d81082c4a245a5498a0f70a44a2e3fe04448ab155fe3574b6baac.RWmMKDsUvlOqlEN28fo1km3fP80fNYbq7XIVzTQdsb8
     scenes-app-settings-events-retention--organization-on-grandfathered-plan--dark:
-        hash: v1.k794b7964.361b4692945d3710b2575417d4df7584f3ac1d87c6a06546b95a07aee3ddf633.P-NXkzF5HmfBG9k9wzJ9pR7p73MO3oejiB1-D3tPfAA
+        hash: v1.k794b7964.5311139faef8cf37fad26eeba16adb9a88c5ae1e46c49f3c7473a0e5f9686523.e97y8wSJ3pXxWtRy93YDkFPgK407gmXdqZKc66yveaw
     scenes-app-settings-events-retention--organization-on-grandfathered-plan--light:
-        hash: v1.k794b7964.272a308b4ba4054874b4a3bb94d6aa79c6b41c3fd53aac18757ed14b2c5e1edf.a4LnEI2L_WSkkXskGM8xYfb_70FeyBEEPJAbN3Qpnok
-    scenes-app-settings-events-retention--organization-with-window--dark:
-        hash: v1.k794b7964.ae1c099bae841033501a78cf78e567dc560223585d24eb8b83c31090010768bf.LmGzqMT4d7cFNCfVpWac0QeFxf6QKe4uTmrHFKvBCpc
-    scenes-app-settings-events-retention--organization-with-window--light:
-        hash: v1.k794b7964.f12d054b89f50633e93f909491b631612b71ecc9600cb26826514818b8320d1d.-vkeBmEYyY6U2_6Vb_z6Dj8wKaCv-OADeZjD95GVMb0
-    scenes-app-settings-events-retention--organization-without-window--dark:
-        hash: v1.k794b7964.5662d4f5940e8c84a20c5edff74b5d943f6af1d0e3bfbba02adade283350873c.jl_SomHbTIneRuwEtLE6pmOUJH57HakN_reieH3cMIw
-    scenes-app-settings-events-retention--organization-without-window--light:
-        hash: v1.k794b7964.1d5704254517bbec4fe1057ce6b24a08d6a836a9b2857995d5c96d5ed5e8408d.OglCAS48jJnRmlBMwaOc927ffg6yDromyFBE7cmMKVk
-    scenes-app-settings-events-retention--project-using-organization-window--dark:
-        hash: v1.k794b7964.5e5c791e45c98e9bf2dd7408d38e15e80bd7f260691878b0bb5e39306b983830.7doMOf_fwtojSG0FAdgvCPdkyk5x2q8HUtzHExd9abo
-    scenes-app-settings-events-retention--project-using-organization-window--light:
-        hash: v1.k794b7964.85796c9f49e9dd2d3bf85512716df5ba381330f6747942e922cf261c484fdf2b.KIYXUbh4GbMtFhQwOc77LKXlVCRcoU0Q1SofzLjOea8
-    scenes-app-settings-events-retention--project-with-own-window--dark:
-        hash: v1.k794b7964.8a000997809ae0e9d5486e6aa83807dece56d48ff5391cc6dca0b6d2078b9133.8xvCr9lS40_UdAJQ8aDjSM57ylDAEWEr6bRQTIOqdig
-    scenes-app-settings-events-retention--project-with-own-window--light:
-        hash: v1.k794b7964.1a71001ba726326cb97c0f70d785da6dd3aa8acf13632ad7248dfa52f90e239f._FY8npFMn08c3DibBDoh5pXt-RivrE1PiIABUAjHh3E
+        hash: v1.k794b7964.b6f168f7046609d662f9023a27c8d28921b7e1f3ba6f768d31dcd28862785747.fbQQL7TqYoGBOH4kp5lJNZUe5kKL0SNy8NerIPnGAow
+    scenes-app-settings-events-retention--organization-with-period--dark:
+        hash: v1.k794b7964.165e9b03a293c5ee6249f998ed36a2cfabf80ff67c1ea00471093085498d2315.kdBEWYevBrv63tAhIOQQ9h4u-BI1WLbpKsEcMFKctCw
+    scenes-app-settings-events-retention--organization-with-period--light:
+        hash: v1.k794b7964.f9f44cdd37ef8531e33a8e74cf6ee344a8bcd4ba797d7f5f5d426f1c41b915b0.FKSyT1L3_hDodtppsaX1lkLrx81qfS-tjjdtSX7UNwY
+    scenes-app-settings-events-retention--organization-without-period--dark:
+        hash: v1.k794b7964.c1f65c05625107a8ed095d01d89fdc6921de2701ea92e9879d40d8ebe63bd8ad.cfjZwS9viICOHj7ddHDZUmHp8VVnE-t1iELfoY1_62c
+    scenes-app-settings-events-retention--organization-without-period--light:
+        hash: v1.k794b7964.70b84417da61be49f74a1321cde10be43dd0838d2f1273b43cdef0c83d30c26e.knpupxV5SmTtLFZId8MYyZWJpm_AEryMMAT2kBP1u7Q
+    scenes-app-settings-events-retention--project-using-organization-period--dark:
+        hash: v1.k794b7964.229349004ef5468c3def133e850f08c7a28a57ef49663fe344f8c22d84048716.YwtOJlYaxCduvmLEriS0jyN1GDc6fT3gISX8gt_kF0g
+    scenes-app-settings-events-retention--project-using-organization-period--light:
+        hash: v1.k794b7964.b50e196abb2e7785a5d7c4c88c49583bbc3c848da114ea28be4fcd0a91eae30c.6lPa6cQKDSSVBSIASTBRa4qhBT6udZdSsa2rvduEXTY
+    scenes-app-settings-events-retention--project-with-own-period--dark:
+        hash: v1.k794b7964.568009db37ab7f7df4de9ba8543e040e1bf5cfc6d0aeed2d6342b1be41048d63.75oc5HCFJm4kFC5ZB28Bcpjn_7Tojly4nO8rRKNN6K4
+    scenes-app-settings-events-retention--project-with-own-period--light:
+        hash: v1.k794b7964.3c957dc5d92dff3513425f466865fd176cbcbfee6b09e7c060a84c549405acbc.ZCzmrgeTdAdr44h1YPLtCDtFiy0DmNaWdYg90VB-Gb8
     scenes-app-settings-identity-provider-configuration--oidc--dark:
         hash: v1.k794b7964.1177527533a6ec000b396e1ee39627722226aed5cbab11759198dbbc2d72dcb3.NqKVUNSdSz-yE-r1M5EiEIaPRbQwBbyjCAf7rSSi9Do
     scenes-app-settings-identity-provider-configuration--oidc--light:
@@ -15767,13 +15767,13 @@ snapshots:
     scenes-app-settings-organization--settings-organization-danger-zone--light:
         hash: v1.k794b7964.47049e159f958a0d42bf69400030b50e718c5da6890e9467a328c3ed6e3e37bc.gSKYIxiKiBZBrNFbFPjqppAmyocGM5c4Iur9ADLtViY
     scenes-app-settings-organization--settings-organization-details--dark:
-        hash: v1.k794b7964.ec0dd86d5132c1a9b73d69118bebdad0c7476a645f8285a17d755e7948aac505.Di885SWF-qRdI_4F-rBIVMDOP5UK4_uY2ryKWAm44l8
+        hash: v1.k794b7964.555f4cbe6b3d2e8cda7a8a26c3d0ceace505a3d4d8bf47b95437a0c219c3b897.2Nsqrq90CZ_GSSgHY_OSWbbp4k7mXhbBkWWaA1U0FbQ
     scenes-app-settings-organization--settings-organization-details--light:
         hash: v1.k794b7964.6b710a60920169c832e3873e5d222f778ca2a104065d80d79f54175f87e7480f.bmg12j2uhYgaTf-tk29enBlIhLfcnjdoVRQ0JpIpW-o
     scenes-app-settings-organization--settings-organization-details-with-member-notice--dark:
-        hash: v1.k794b7964.a2d63fc6c5131b69dd5b2234db9cae32d242294ae6fbeeb7c7988e2b932399a1.xjL8tq6uTqW6yLhfVscegh_Z4jVc67W7n2vPe9LUMOM
+        hash: v1.k794b7964.3046a655a56e1d4a33897a5a79013a1927f5a6d5979a7c1a64c0f649648d4e07.DmEJFR6KjsuILMNlNM87pLEuKPY_zHA-Bz-dgijwAPY
     scenes-app-settings-organization--settings-organization-details-with-member-notice--light:
-        hash: v1.k794b7964.9475f7acf79715b81814cf695bea4c935a212f0aee2f5b1f4aa05b9f1630f7e8.QNsBY22rr7iBSuUeIqopAuWw9jvHgQrDCS2E3KaEHcc
+        hash: v1.k794b7964.d5b40e2d956d4e71e645f8d4baea556fdbb2932a310c205d621eb8282ec7ed1e.b4mhrUjazwT0r0kw7zXZ2MTL0PCUWRMLgDxNIYN-34o
     scenes-app-settings-organization--settings-organization-members--dark:
         hash: v1.k794b7964.e750e1f4c754266afa20e4c43138ecf961d5a57d50b0ec8081c17339ca773e52.MpA-4kw4SUGZP6CXeibLZVAB447iJGmz5tdUixiYNjs
     scenes-app-settings-organization--settings-organization-members--light:
@@ -15843,9 +15843,9 @@ snapshots:
     scenes-app-settings-project--settings-project-logs-read-only--light:
         hash: v1.k794b7964.e234f3e555bcb083ca96f00005f91ccccf94941d371c71497162169077ec1022.jNkdKOK2KaEq2T2jksEoVtN5Nupa3FuJLTe-npm0RIM
     scenes-app-settings-project--settings-project-product-analytics--dark:
-        hash: v1.k794b7964.bf1398a314f958b1cb22ab85c91877c1f023b9e179b492d55a8cfe7344e87f3d.TwN3XZaq0G9bVKcnZOoe5VAWvIw38IO0U3sz4KNmUkg
+        hash: v1.k794b7964.85f8e21d31fd4c1040909f8d99e637eaeefc59c9138a26352978eda99c5f2ba9.WWhduUdFrgCPqi1Qu0KHeI_bgiOeiH4ktiDx-ukFQBU
     scenes-app-settings-project--settings-project-product-analytics--light:
-        hash: v1.k794b7964.3b2937c4b3464915e3854faa819f1e5a7c1e9a87c178c683e71e263a41098fab.8rhyrqJalZuQP7g0rwRhhO_XNlgQLW_w72bowvbPkR8
+        hash: v1.k794b7964.a7484e8ef01c7dba79faf9b14824fe62b482d67d9ffb5570ea1bdc0bbcb3bac1.Jj6O9EuwvUaUeF0gd4IsQLhPs17RmuPZ1j9aVwOMIP8
     scenes-app-settings-project--settings-project-replay--dark:
         hash: v1.k794b7964.8ce54ec8a83fd3e878a1bb2d75ef68392487a26f1e0f7de9284561ad71ad8161.Mpfnk_sh9J8RWHJXffqyd_l2OPcxexT5utejEcTANFI
     scenes-app-settings-project--settings-project-replay--light:
