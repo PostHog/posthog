@@ -61,6 +61,7 @@ from posthog.models.organization_notification_lock import (
 from posthog.models.scoping import with_team_scope
 from posthog.models.workload_trust_policy import workload_trust_policies_settings_url
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
+from posthog.scopes import APIScopeObject
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -1301,10 +1302,10 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
-def filter_members_by_external_data_source_access(
-    memberships: list[OrganizationMembership], team: Team
+def filter_members_by_resource_access(
+    memberships: list[OrganizationMembership], team: Team, resource: APIScopeObject
 ) -> list[OrganizationMembership]:
-    """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
+    """Drop members who cannot view `resource`.
 
     Falls back to the unfiltered list when the check fails: not being able to check must not silently stop the email.
     """
@@ -1316,13 +1317,20 @@ def filter_members_by_external_data_source_access(
         return [
             membership
             for membership in memberships
-            if UserAccessControl(membership.user, team).check_access_level_for_resource(
-                "external_data_source", "viewer"
-            )
+            if UserAccessControl(membership.user, team).check_access_level_for_resource(resource, "viewer")
         ]
     except Exception:
-        logger.exception("Destination access check failed, sending to all subscribed members", team_id=team.id)
+        logger.exception(
+            "Resource access check failed, sending to all subscribed members", team_id=team.id, resource=resource
+        )
         return memberships
+
+
+def filter_members_by_external_data_source_access(
+    memberships: list[OrganizationMembership], team: Team
+) -> list[OrganizationMembership]:
+    """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`."""
+    return filter_members_by_resource_access(memberships, team, "external_data_source")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -2112,6 +2120,7 @@ def send_error_tracking_issue_assigned(
             for membership in memberships_to_email
             if (membership.user_id in role_user_ids and membership.user_id != assigner_id)
         ]
+    memberships_to_email = filter_members_by_resource_access(memberships_to_email, team, "error_tracking")
 
     campaign_key_segment = "" if assigner_id is not None else "automatic_"
     campaign_key: str = (

@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, Literal
 
 import structlog
@@ -64,6 +65,7 @@ def dispatch_issue_assigned_realtime(
     assignment: ErrorTrackingIssueAssignment,
     assignee: dict[str, Any],
     actor: AssignmentActor,
+    idempotency_key: str | None = None,
 ) -> None:
     """Fire one in-app issue_assigned notification for the new assignee.
 
@@ -107,6 +109,7 @@ def dispatch_issue_assigned_realtime(
                 source_id=str(issue.id),
                 metadata=metadata,
                 resolver=resolver,
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as e:
@@ -122,18 +125,35 @@ def notify_automatic_assignment(
     assignment: ErrorTrackingIssueAssignment,
     assignee: AssigneeRef,
     label: str,
+    dedupe_key: str,
+    event_uuid: str | None = None,
+    event_timestamp: str | None = None,
 ) -> None:
     """Tell the assignee about an assignment that no person made, and emit `$error_tracking_issue_assigned`.
 
     Raises when the lifecycle event cannot be built or the email cannot be queued, so the caller can count the failure.
     The in-app notification goes first, so the assignee still gets it when the event or the email raises.
+
+    `dedupe_key` must stay the same when the caller retries. It names the in-app notification and the assigned
+    event, so a retry does not send them twice. The email needs no key, because its campaign key names the assignment.
+    `event_uuid` and `event_timestamp` name the exception that caused the assignment, so alert filters on exception
+    properties can match.
     """
     actor = AssignmentActor.automatic(label)
-    dispatch_issue_assigned_realtime(assignment=assignment, assignee=assignee.to_json(), actor=actor)
+    notification_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{ISSUE_ASSIGNED_EVENT}:{dedupe_key}"))
+    dispatch_issue_assigned_realtime(
+        assignment=assignment,
+        assignee=assignee.to_json(),
+        actor=actor,
+        idempotency_key=f"issue_assigned:{notification_id}",
+    )
     produce_issue_lifecycle_event_on_commit(
         event=ISSUE_ASSIGNED_EVENT,
         issue=assignment.issue,
         user=None,
         extra_properties={"assignee": assignee_property(assignee.to_json())},
+        notification_id=notification_id,
+        event_uuid=event_uuid,
+        event_timestamp=event_timestamp,
     )
     send_error_tracking_issue_assigned.delay(assignment.id, None, actor.label)

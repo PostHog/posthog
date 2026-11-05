@@ -91,6 +91,9 @@ def prepare_issue_lifecycle_event(
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
     opener_allowed: bool = True,
+    notification_id: Optional[str] = None,
+    event_uuid: Optional[str] = None,
+    event_timestamp: Optional[str] = None,
 ) -> PendingLifecycleEvent:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
@@ -108,7 +111,7 @@ def prepare_issue_lifecycle_event(
     issue_id = str(issue.id)
     # The notification id names both the internal event and the alert delivery
     # workflow, so redelivered starts and retries stay idempotent per transition.
-    notification_id = str(uuid.uuid4())
+    notification_id = notification_id or str(uuid.uuid4())
     # Same issue-property set the ingestion-driven producer emits (see
     # produce_issue_lifecycle_internal_event), so destination property filters
     # match both paths.
@@ -165,6 +168,8 @@ def prepare_issue_lifecycle_event(
         first_seen=properties.get("first_seen"),
         extra=delivery_extra or None,
         opener_allowed=opener_allowed,
+        event_uuid=event_uuid,
+        event_timestamp=event_timestamp,
     )
     return PendingLifecycleEvent(
         team_id=team_id, internal_event=internal_event, person=person, alert_inputs=alert_inputs
@@ -257,11 +262,21 @@ def produce_issue_lifecycle_event_on_commit(
     user: Optional[User],
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
+    notification_id: Optional[str] = None,
+    event_uuid: Optional[str] = None,
+    event_timestamp: Optional[str] = None,
 ) -> None:
     produce_issue_lifecycle_events_on_commit(
         [
             prepare_issue_lifecycle_event(
-                event=event, issue=issue, user=user, status=status, extra_properties=extra_properties
+                event=event,
+                issue=issue,
+                user=user,
+                status=status,
+                extra_properties=extra_properties,
+                notification_id=notification_id,
+                event_uuid=event_uuid,
+                event_timestamp=event_timestamp,
             )
         ]
     )

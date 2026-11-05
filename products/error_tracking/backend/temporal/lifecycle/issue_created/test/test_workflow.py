@@ -24,11 +24,12 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import User
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
+from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingIssue, ErrorTrackingIssueAssignment
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
@@ -478,6 +479,28 @@ class TestRuleAssignmentNotification(BaseTest):
 
         self._assert_notified_nobody()
         self.capture.assert_not_called()
+
+    def test_retry_reuses_the_assigned_notification_and_names_the_exception(self) -> None:
+        _, assignee = self._assign_like_cymbal("user")
+        with team_scope(self.team.id):
+            ErrorTrackingAlert.objects.create(
+                team=self.team, name="Assigned", enabled=True, triggers=["issue_assigned"]
+            )
+        dispatch_alerts = self.enterContext(
+            patch("products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay")
+        )
+        inputs = self._activity_inputs(assignee)
+
+        for _ in range(2):
+            with self.captureOnCommitCallbacks(execute=True):
+                emit_issue_created_internal_event_activity(inputs)
+
+        idempotency_keys = {call.args[0].idempotency_key for call in self.create_notification.call_args_list}
+        alerts = [call.kwargs["notifications"][0] for call in dispatch_alerts.call_args_list]
+        assert len(idempotency_keys) == 1 and None not in idempotency_keys
+        assert len(alerts) == 2 and alerts[0]["notification_id"] == alerts[1]["notification_id"]
+        assert alerts[0]["notification_id"] != inputs.notification_id
+        assert alerts[0]["event_uuid"] == inputs.event_uuid
 
     def test_failed_capture_still_notifies(self) -> None:
         _, assignee = self._assign_like_cymbal("user")

@@ -436,7 +436,14 @@ def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmen
         # A person can reassign the issue before this activity runs, and that change sends its own notifications.
         if assignment is None or assignee is None or assignee_property(assignee.to_json()) != inputs.assignee:
             return RuleAssignmentNotifyOutcome.ASSIGNEE_CHANGED
-        notify_automatic_assignment(assignment=assignment, assignee=assignee, label=RULE_ASSIGNMENT_LABEL)
+        notify_automatic_assignment(
+            assignment=assignment,
+            assignee=assignee,
+            label=RULE_ASSIGNMENT_LABEL,
+            dedupe_key=inputs.notification_id,
+            event_uuid=inputs.event_uuid,
+            event_timestamp=inputs.event_timestamp,
+        )
     except Exception as error:
         _report_rule_assignment_failure("error_tracking_rule_assignment_notify_failed", inputs, error)
         return RuleAssignmentNotifyOutcome.SEND_FAILED
