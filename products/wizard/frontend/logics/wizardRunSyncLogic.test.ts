@@ -3,6 +3,8 @@ import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSo
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import { wizardRunsList, wizardRunsRetrieve, wizardRunsTasksRetrieve } from '../generated/api'
@@ -235,6 +237,51 @@ describe('wizardRunSyncLogic', () => {
             expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/local-installation/stream/')
         }
     )
+
+    it('waits out a throttled run check instead of retrying it on every trigger', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockRejectedValue(new ApiError('Throttled', 429, new Headers({ 'Retry-After': '60' })))
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        for (let attempt = 0; attempt < 20; attempt++) {
+            window.dispatchEvent(new Event('focus'))
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        jest.advanceTimersByTime(55_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        mockWizardRunsList.mockResolvedValue({ results: [run('newer')], next: null })
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+        expect(logic.values.userRuns.map((run) => run.id)).toEqual(['newer'])
+    })
+
+    it('waits the poll interval after a failed run check without a retry hint', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockRejectedValue(new Error('offline'))
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.advanceTimersByTime(25_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+    })
 
     it('keeps a new creation response when an older full-history poll finishes afterward', async () => {
         await expectLogic(logic).toFinishAllListeners()

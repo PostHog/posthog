@@ -13,6 +13,7 @@ import {
     selectors,
 } from 'kea'
 
+import { ApiError } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -44,6 +45,11 @@ type RunStreamState = Pick<
     'status' | 'stage' | 'error_code' | 'error_message' | 'updated_at' | 'started_at' | 'finished_at'
 > &
     WizardRunTaskListApi
+
+function checkRunsRetryDelayMs(error: unknown): number {
+    const retryAfterSeconds = error instanceof ApiError ? Number(error.headers?.get('Retry-After')) : NaN
+    return retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : RUN_POLL_MS
+}
 
 function streamRunPatch(state: RunStreamState): Partial<WizardRunApi> {
     return {
@@ -205,7 +211,14 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
     }),
     listeners(({ actions, cache, props: logicProps, values }) => ({
         checkRuns: async ({ recentOnly }) => {
-            if (cache.checking || !logicProps.projectId || !values.user) {
+            // Focus, stream updates and user reloads all call this, so only a shared cooldown keeps
+            // them from retrying a throttled list request back to back.
+            if (
+                cache.checking ||
+                !logicProps.projectId ||
+                !values.user ||
+                Date.now() < (cache.checkRunsBlockedUntil ?? 0)
+            ) {
                 return
             }
             cache.checking = true
@@ -237,7 +250,8 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 if (!recentOnly) {
                     cache.historyLoaded = true
                 }
-            } catch {
+            } catch (error) {
+                cache.checkRunsBlockedUntil = Date.now() + checkRunsRetryDelayMs(error)
                 return
             } finally {
                 cache.checking = false
