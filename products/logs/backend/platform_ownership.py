@@ -13,7 +13,7 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     Grouping,
@@ -103,7 +103,7 @@ def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping:
 
 
 def on_deleted(*, team_id: int, alert_id: UUID) -> None:
-    delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+    delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
 def _platform_change_of(
