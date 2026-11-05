@@ -773,7 +773,9 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
         ):
             result = MaterializeCandidate().evaluate(candidate_context)
 
-        assert result.measurement_requests == ((view_subject(VIEW_ID),) if expect_measurement_request else ())
+        assert tuple(request.subject for request in result.measurement_requests) == (
+            (view_subject(VIEW_ID),) if expect_measurement_request else ()
+        )
         if not expect_draft:
             assert result.drafts == ()
             return

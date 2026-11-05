@@ -25,8 +25,12 @@ import {
     MessagingNavTabKey,
     isMessagingSetupTab,
 } from '../messagingTabs'
+import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
+
+type TransactionalTab = 'transactional' | 'log' | 'metrics'
 
 export const scene: SceneExport = {
     component: TransactionalScene,
@@ -39,11 +43,14 @@ export function TransactionalScene(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
     const lastSegment = location.pathname.split('/').pop() ?? ''
-    const currentTab: MessagingNavTabKey | 'transactional' = MESSAGING_NAV_TAB_KEYS.includes(
+    const currentTab: MessagingNavTabKey | TransactionalTab = MESSAGING_NAV_TAB_KEYS.includes(
         lastSegment as MessagingNavTabKey
     )
         ? (lastSegment as MessagingNavTabKey)
-        : 'transactional'
+        : lastSegment === 'log' || lastSegment === 'metrics'
+          ? lastSegment
+          : 'transactional'
+    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -60,7 +67,7 @@ export function TransactionalScene(): JSX.Element {
                 description="Send emails from your code with one API call"
                 resourceType={{ type: 'transactional' }}
                 actions={
-                    currentTab === 'transactional' ? (
+                    isTransactionalTab ? (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -90,14 +97,26 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<'transactional' | 'library' | 'messaging-setup'>
-                activeKey={currentTab === 'transactional' || currentTab === 'library' ? currentTab : 'messaging-setup'}
+            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup'>
+                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
                 tabs={[
                     {
                         label: 'Transactional emails',
                         key: 'transactional',
                         link: urls.transactional(),
                         content: <TransactionalEmailsTable />,
+                    },
+                    {
+                        label: 'Log',
+                        key: 'log',
+                        link: urls.transactionalLog(),
+                        content: <TransactionalEmailLog />,
+                    },
+                    {
+                        label: 'Metrics',
+                        key: 'metrics',
+                        link: urls.transactionalMetrics(),
+                        content: <TransactionalEmailMetrics />,
                     },
                     {
                         label: 'Templates',
