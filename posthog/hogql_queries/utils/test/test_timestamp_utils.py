@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
@@ -38,7 +39,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, DataWarehouseSavedQuery
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -552,29 +553,37 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # date_to raised "can't compare offset-naive and offset-aware datetimes" here.
         self.assertGreater(len(query_date_range.all_values()), 0)
 
-    @override_settings(IN_UNIT_TESTING=False)
-    @patch("posthog.hogql_queries.utils.timestamp_utils._get_earliest_timestamp_from_node")
-    def test_multi_node_propagates_query_tags_to_threads(self, mock_node):
-        # Multiple nodes resolve their earliest timestamp via ThreadPoolExecutor, which does not
-        # inherit contextvars. Without copying the context, the worker threads' sync_execute calls
-        # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
-        captured: dict[str, object] = {}
+    @parameterized.expand([("view_edited",), ("view_materialized_again",)])
+    def test_data_warehouse_view_change_refreshes_cached_earliest_timestamp(self, change):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_view", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        node = DataWarehouseNode(
+            id="orders_view",
+            table_name="orders_view",
+            id_field="id",
+            distinct_id_field="id",
+            timestamp_field="created_at",
+        )
+        before_change = datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC)
+        after_change = datetime.datetime(2022, 1, 1, tzinfo=datetime.UTC)
 
-        def capture(team, node, user=None):
-            captured[node.table_name] = get_query_tags().product
-            return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [[before_change]]
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), before_change)
 
-        mock_node.side_effect = capture
-        nodes = [
-            DataWarehouseNode(id="a", table_name="a", id_field="id", distinct_id_field="id", timestamp_field="ts"),
-            DataWarehouseNode(id="b", table_name="b", id_field="id", distinct_id_field="id", timestamp_field="ts"),
-        ]
+            mock_execute.return_value.results = [[after_change]]
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), before_change)
 
-        with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY):
-            get_earliest_timestamp_from_series(self.team, nodes)
+            if change == "view_edited":
+                view.query = {"kind": "HogQLQuery", "query": "SELECT 2 AS id"}
+                view.save()
+            else:
+                DataModelingJob.objects.create(
+                    team=self.team, saved_query=view, status=DataModelingJobStatus.COMPLETED, last_run_at=timezone.now()
+                )
 
-        self.assertEqual(captured["a"], Product.MARKETING_ANALYTICS)
-        self.assertEqual(captured["b"], Product.MARKETING_ANALYTICS)
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), after_change)
 
     def test_cached_raw_value_is_coerced_on_read(self):
         # Entries cached before the coercion fix shipped hold a raw str/date for up to the

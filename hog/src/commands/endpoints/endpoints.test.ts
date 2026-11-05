@@ -75,13 +75,20 @@ variables:
 `
 
 describe('hog endpoints', () => {
-    test('list follows pages until PostHog has no more', async () => {
+    test.each([
+        ['', BASE],
+        ['under a path', 'https://ph.example.com/posthog/api/environments/7/'],
+    ])('list follows pages until PostHog has no more, for a host %s', async (_name, base) => {
         const result = await runHog(['endpoints', 'list'], {
-            env: AGENT,
-            respond: (url) =>
-                url === `${BASE}endpoints/`
-                    ? { status: 200, body: { results: [TRENDS], next: `${BASE}endpoints/?offset=1` } }
-                    : { status: 200, body: { results: [HOGQL], next: null } },
+            env: { ...AGENT, HOG_HOST: new URL('../../../', base).toString() },
+            respond: (url) => {
+                if (url === `${base}endpoints/`) {
+                    return { status: 200, body: { results: [TRENDS], next: `${base}endpoints/?offset=1` } }
+                }
+                return url === `${base}endpoints/?offset=1`
+                    ? { status: 200, body: { results: [HOGQL], next: null } }
+                    : { status: 404, body: {} }
+            },
         })
         expect(
             result.stdout
@@ -89,6 +96,19 @@ describe('hog endpoints', () => {
                 .split('\n')
                 .map((line) => JSON.parse(line).name)
         ).toEqual(['weekly', 'by-type'])
+    })
+
+    test('list refuses a pagination link to another host, so the token stays on the host', async () => {
+        const result = await runHog(['endpoints', 'list'], {
+            env: AGENT,
+            respond: () => ({
+                status: 200,
+                body: { results: [TRENDS], next: 'https://ph.example.com//attacker.example/endpoints/' },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'unexpected_response' })
+        expect(result.requests.map((request) => new URL(request.url).host)).toEqual(['ph.example.com'])
     })
 
     test('pull writes short files with the project variable types, and updates a file in place', async () => {

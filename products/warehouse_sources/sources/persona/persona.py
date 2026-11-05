@@ -47,6 +47,24 @@ class PersonaRedirectError(Exception):
     """The API answered with a 3xx. Redirects are refused so the API key stays on the API host."""
 
 
+class PersonaApiNotEnabledError(requests.HTTPError):
+    pass
+
+
+def _api_not_enabled_detail(response: requests.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    for error in body.get("errors") or []:
+        detail = error.get("details") if isinstance(error, dict) else None
+        if isinstance(detail, str) and detail.lower().endswith("api is not enabled"):
+            return detail
+    return None
+
+
 def _refuse_redirect(response: requests.Response) -> None:
     if not 300 <= response.status_code < 400:
         return
@@ -180,6 +198,11 @@ def _fetch_page(
 
     if not response.ok:
         logger.error(f"Persona API error: status={response.status_code}, body={response.text}, url={page_url}")
+        detail = _api_not_enabled_detail(response) if response.status_code == 403 else None
+        if detail:
+            raise PersonaApiNotEnabledError(
+                f"Persona API not enabled for this account: {detail}, url={page_url}", response=response
+            )
         response.raise_for_status()
 
     return response.json()

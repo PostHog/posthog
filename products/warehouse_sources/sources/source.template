@@ -1,47 +1,42 @@
-# 1. TODO: add a new value for your source in the ONE place a source type is declared:
-#       - ExternalDataSourceType at `products/warehouse_sources/backend/types.py`
-#         (models.TextChoices: `KEY = "PascalValue", "PascalValue"`, KEY is ALL_CAPS with NO underscores)
-# 2. TODO: run django migrations with `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate`
+# 1. TODO: copy this file to `products/warehouse_sources/sources/{your_source}/source.py` and add an empty
+#       `__init__.py` next to it (and `tests/__init__.py` once you add tests). the loader finds the
+#       directory on its own, so there is no import list to edit
+# 2. TODO: set SOURCE_KEY below to your source key: a PascalCase string such as "AcmeCrm". lowercased it
+#       must equal the directory name without underscores (`AcmeCrm` -> `acme_crm/`). do NOT add an
+#       ExternalDataSourceType member and do not run migrations; a new source has no enum member
 # 3. TODO: change the name of your source class from TemplateSource
-# 4. TODO: update the return value of source_type to match the ExternalDataSourceType you created in step one
-# 5. TODO: update get_source_config(). set the name to ExternalDataSourceType.<YOUR_KEY> (the same value
-#       from step one). also add any config fields users will need to connect the source. see other
-#       sources for examples. set `category` to the closest DataWarehouseSourceCategory bucket (required —
-#       it groups the source in the new-source wizard catalog) and optionally `keywords` (search aliases).
-#       see other sources for examples.
-# 6. TODO: add an empty `products/warehouse_sources/sources/{your_source}/__init__.py` (and `tests/__init__.py` once you add tests).
-#       the loader finds `products/warehouse_sources/sources/{your_source}/source.py` on its own, so there is no import list to edit
-# 7. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
-#       {YOUR_SOURCE}" in the logs. you should also see a generated config class for your
-#       source in `products/warehouse_sources/sources/{your_source}/_config.py`
-# 8. TODO: update all the references to `Config` in this file to the newly generated source
-#       config class from step 7
-# 9. TODO: implement the logic for your source or mark it as unreleased by setting
+# 4. TODO: update get_source_config(). set `category` to the closest DataWarehouseSourceCategory bucket
+#       (required, it groups the source in the new-source wizard catalog) and optionally `keywords`
+#       (search aliases). add any config fields users will need to connect the source
+# 5. TODO: run `pnpm run generate:source-configs`. it writes the config class for your source to
+#       `products/warehouse_sources/sources/{your_source}/_config.py`
+# 6. TODO: update all the references to `Config` in this file to the generated source config class
+# 7. TODO: implement the logic for your source or mark it as unreleased by setting
 #       unreleasedSource=True in the SourceConfig constructor
-# 10. TODO: add a new .png icon for your source in `frontend/public/services/`
-#       and update the iconPath field in your SourceConfig including the
-#       extension. this is important because the icon is rendered in the frontend
-#       by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx`
-# 11. TODO: rerun `pnpm run generate:source-configs`. you will need to do this every time you
-#       modify the implementation of your source
-# 12. TODO: run `hogli build:openapi` to regenerate the frontend types. this also ensures your
-#       source will appear in frontend dropdowns and menus.
-# 13. TODO: phew! you're done. just delete these TODOs before you PR
+# 8. TODO: put a PNG icon at `products/warehouse_sources/sources/{your_source}/icon.png` and set
+#       iconPath to "/static/warehouse-sources/{your_source}/icon.png"
+# 9. TODO: rerun `pnpm run generate:source-configs` every time you change the source's fields
+# 10. TODO: check `git status`: every change is under `products/warehouse_sources/sources/{your_source}/`.
+#       no `hogli build:openapi` run, no SOURCES.md line and no file in frontend/public are needed
+# 11. TODO: phew! you're done. just delete these TODOs before you PR
 
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
     Config,
     DataWarehouseSourceCategory,
-    ExternalDataSourceType,
     FieldType,
     SimpleSource,
     SourceConfig,
     SourceInputs,
+    SourceKey,
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    source_key,
 )
+
+SOURCE_KEY = "Template"  # replace with your source key
 
 
 @SourceRegistry.register
@@ -52,16 +47,16 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
     #   default_version = "v3"                 # must equal the single supported_versions entry
 
     @property
-    def source_type(self) -> ExternalDataSourceType:
-        return ExternalDataSourceType.SOURCE_TYPE  # replace this enum value
+    def source_type(self) -> SourceKey:
+        return source_key(SOURCE_KEY)
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.SOURCE_TYPE,  # replace this enum value
+            name=self.source_type,
             category=DataWarehouseSourceCategory.DATABASES,  # TODO: pick the closest catalog bucket (groups this source in the new-source wizard)
             keywords=[],  # TODO (optional): lowercase search terms — acronyms/alt spellings (e.g. ["ga4", "ga"])
-            iconPath="/static/services/template.png",  # update this icon path
+            iconPath="/static/warehouse-sources/template/icon.png",  # the icon.png in your source directory
             label="Template",  # only needed if the readable name is complex
             caption=None,  # only needed if you wanna inline docs
             docsUrl=None,  # link to the docs in the website, full path including https://

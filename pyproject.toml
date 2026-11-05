@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.1.2",
-    "django~=6.1.0",
+    "django~=6.1.3",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
     "django-extensions~=4.1.0",
@@ -104,12 +104,12 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.82.2",
+    "posthoganalytics==7.83.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
     "pyarrow==23.0.1",
-    "pydantic~=2.12.0",
+    "pydantic~=2.14.2",
     "pypdf==6.10.2",
     "pyod==2.0.7",
     "pyjwt~=2.12.1",
@@ -327,7 +327,7 @@ proto-codegen = [
 required-version = ">=0.13.4"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, grpcio = false }
+exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, pydantic = false, pydantic-core = false, posthog-hogland = false, google-ads = false, grpcio = false }
 # posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.
@@ -519,6 +519,10 @@ python_version = "3.14"
 
 [tool.mypy]
 python_version = "3.14"
+# CI runs in parallel mode, which forces the native parser. Setting it here keeps sequential
+# runs (local mypy, dmypy, reports) on the same parser as CI. Do not set num_workers here:
+# parallel mode breaks dmypy and report flags, so CI sets MYPY_NUM_WORKERS instead.
+native_parser = true
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",
@@ -628,6 +632,7 @@ ignore_imports = [
     "products.warehouse_sources.sources.sdk -> products.**",
     "products.warehouse_sources.sources.sdk.** -> posthog",
     "products.warehouse_sources.sources.sdk.** -> products.**",
+    "products.warehouse_sources.sources.sdk.testing -> common",
     "products.warehouse_sources.sources.conftest -> products.**",
 ]
 
@@ -805,6 +810,14 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
+    # TODO: signals presentation wave. The activity summary viewset reads its modes, limits and
+    # render types from backend/activity_summary/ directly. That directory has no __init__.py, so
+    # grimp cannot see these edges and only the AST surface check in `hogli product:lint` holds
+    # them. Expose what the view needs through the facade and delete each entry.
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.prompt",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.read",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.render",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.search",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -826,6 +839,7 @@ ignore_imports = [
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.actions.backend.routes -> products.actions.backend.api.action",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
+    "products.analytics_platform.backend.routes -> products.analytics_platform.backend.api.precompute_debug",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
     "products.business_knowledge.backend.routes -> products.business_knowledge.backend.api",

@@ -96,7 +96,20 @@ Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread
 
 `useNotificationRouting()` handles taps that start the app (`getLastNotificationResponse`) and taps while it runs (`addNotificationResponseReceivedListener`).
 It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
+A signed-out tap waits for sign-in. On Android, the most recent push or snooze reminder tap survives
+process death and opens once routing is ready. On iOS, Expo keeps the response in memory. If the
+process dies before sign-in finishes, reopen the target from the inbox or chats.
 The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
+
+On Android, Firebase and Expo open a private activity alias when the user taps a notification.
+The native handoff records the tap before Expo SDK 57's startup delegate can drop it.
+Both push and local reminder taps replace the same pending destination, so tapping a reminder
+after a push opens the reminder even if Expo later replays the earlier response.
+The store keeps only the notification identifier and routing fields. It clears the destination
+when JavaScript acknowledges that identifier. It also remembers the original launch identifier
+so restoring the task from Recents does not replay it.
+This workaround requires a new Android build.
+Recheck the workaround when upgrading Expo ([upstream issue](https://github.com/expo/expo/issues/49254)).
 
 Chat taps reuse the single chat screen. If the target task is already open in the same account
 and project, the tap leaves its session and draft intact. Otherwise it replaces the open chat

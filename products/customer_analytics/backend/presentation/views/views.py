@@ -42,7 +42,7 @@ from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
@@ -237,7 +237,8 @@ def _has_group_scope(request: Request, *, write: bool) -> bool:
 
 def _assert_group_scope(request: Request, *, write: bool) -> None:
     if not _has_group_scope(request, write=write):
-        raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+        scope = f"group:{'write' if write else 'read'}"
+        raise InsufficientScope([scope], detail=f"This action requires the `{scope}` API scope.")
 
 
 class AccountTrackRuleThrottle(UserRateThrottle):

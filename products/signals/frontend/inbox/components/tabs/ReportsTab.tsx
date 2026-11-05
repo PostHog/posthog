@@ -3,9 +3,6 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
-import { urls } from 'scenes/urls'
-
 import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
@@ -33,8 +30,10 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
+import { InboxSortSelect } from '../shell/InboxSortSelect'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
 
@@ -51,6 +50,7 @@ type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 interface SectionListState {
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
@@ -69,6 +69,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     const {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -80,6 +81,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     return {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -99,6 +101,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
+        'outcome-monitoring': useSectionState('outcome-monitoring'),
         resolved: useSectionState('resolved'),
         closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
@@ -127,10 +130,9 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
-    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
-    // filter refresh in progress doesn't fire the event with the previous query's counts.
-    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    // Waiting on `countSettled` rather than the loading flags means a scope or filter change
+    // doesn't fire the event with the previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 
     useEffect(() => {
@@ -355,20 +357,27 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <InboxReportFilters />
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={urls.inboxTriage()}
-                        sideIcon={<KeyboardShortcut t />}
-                        tooltip="Go through the reports that need a pull request one at a time"
-                        data-attr="inbox-triage-mode"
-                    >
-                        Triage mode
-                    </LemonButton>
-                    <InboxScopeFilter />
+            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
+                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
+                line it falls outside the clipped edge instead of leading the line. The sort group
+                grows so scope always ends the row. */}
+            <div className="@container -mx-1 overflow-x-clip px-1">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
+                    <InboxReportFilters />
+                    <div className="relative flex flex-1 items-center gap-2">
+                        <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
+                        <InboxSortSelect />
+                        <div className="ml-auto shrink-0">
+                            <InboxScopeFilter />
+                        </div>
+                    </div>
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />

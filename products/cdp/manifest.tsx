@@ -89,7 +89,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_transformation',
             iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
             href: urls.transformations(),
-            searchKeywords: ['enrichment', 'geoip', 'redact pii'],
+            searchKeywords: ['enrichment', 'geoip', 'redact pii', 'plugins'],
             sceneKey: 'Transformations',
             sceneKeys: ['Transformations'],
         },

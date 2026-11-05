@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { MouseEvent, useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -14,7 +14,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
@@ -25,8 +24,10 @@ import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObser
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
 import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
-import { TraceDrawerHost } from './redesign/trace/TraceDrawerHost'
-import { traceDrawerLogic } from './redesign/trace/traceDrawerLogic'
+import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
+import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
+import { hasOwnClickHandler } from './redesign/trace/traceDrawerRows'
+import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
 import { TraceListRow } from './redesign/trace/traceListRows'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
@@ -46,7 +47,6 @@ import {
 
 const TRACES_DATA_NODE_KEY = 'llm-analytics-traces'
 const TRACE_DRAWER_LIST_ID = 'traces'
-const OPEN_ROW_CLASS = 'LemonTable__row--status-highlighted'
 const TRACE_LINKS = '[data-attr="trace-id-link"], [data-attr="trace-name-link"]'
 
 export function AIObservabilityTraces(): JSX.Element {
@@ -58,38 +58,9 @@ export function AIObservabilityTraces(): JSX.Element {
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
-    const baseContext = useTracesQueryContext()
-    const { rowProps: baseRowProps } = baseContext
-    const logic = traceDrawerLogic({ listId: TRACE_DRAWER_LIST_ID })
-    const { isEnabled, openTraceId } = useValues(logic)
-    const { openRow } = useActions(logic)
-    const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
-        (record) => {
-            const baseProps = baseRowProps?.(record) ?? {}
-            const trace = getTraceFromRow(record)
-            if (!trace) {
-                return baseProps
-            }
-            return {
-                ...baseProps,
-                className: clsx(baseProps.className, trace.id === openTraceId && OPEN_ROW_CLASS),
-                onClickCapture: (event) => {
-                    if (opensTraceDrawer(event)) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        // A row cannot take focus, and the panel gives focus back to what held it on opening.
-                        event.currentTarget.querySelector<HTMLElement>(TRACE_LINKS)?.focus({ preventScroll: true })
-                        openRow(toTraceListRow(trace))
-                    }
-                },
-            }
-        },
-        [baseRowProps, openRow, openTraceId]
-    )
+    const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
     const context: QueryContext<DataTableNode> = {
-        ...baseContext,
-        dataNodeLogicKey: TRACES_DATA_NODE_KEY,
-        rowProps: isEnabled ? drawerRowProps : baseRowProps,
+        ...drawerContext,
         ...(appliedSearchTerm
             ? {
                   emptyStateHeading: 'No traces matched your search',
@@ -130,24 +101,14 @@ export function AIObservabilityTraces(): JSX.Element {
                 context={context}
                 uniqueKey={TRACES_DATA_NODE_KEY}
             />
-            {isEnabled ? <TraceDrawerRows query={tracesQuery.source} /> : null}
-            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
+            <TraceDrawerQueryHost
+                listId={TRACE_DRAWER_LIST_ID}
+                dataNodeKey={TRACES_DATA_NODE_KEY}
+                query={tracesQuery.source}
+                toRow={toTraceDrawerRow}
+            />
         </div>
     )
-}
-
-// A sibling after DataTable, so that DataTable builds the logic with its full props. Subscribing in
-// AIObservabilityTraces would also rebuild the table context on each poll and re-render every row.
-function TraceDrawerRows({ query }: { query: DataTableNode['source'] }): null {
-    const { response } = useValues(dataNodeLogic({ key: TRACES_DATA_NODE_KEY, query }))
-    const { setRows } = useActions(traceDrawerLogic({ listId: TRACE_DRAWER_LIST_ID }))
-    const rows = useMemo(() => toTraceListRows(response), [response])
-
-    useEffect(() => {
-        setRows(rows)
-    }, [rows, setRows])
-
-    return null
 }
 
 function TracesOptionsMenu(): JSX.Element | null {
@@ -203,21 +164,15 @@ function toTraceListRow(trace: LLMTrace): TraceListRow {
     return { traceId: trace.id, timestamp: getTraceLookupTimestamp(trace) ?? null, stepId: null }
 }
 
-function toTraceListRows(response: unknown): TraceListRow[] {
-    const results = typeof response === 'object' && response && 'results' in response ? response.results : null
-    if (!Array.isArray(results)) {
-        return []
-    }
-    return results.flatMap((result) => {
-        const trace = getTraceFromRow({ result })
-        return trace ? [toTraceListRow(trace)] : []
-    })
+export function toTraceDrawerRow(result: unknown): TraceListRow | null {
+    const trace = getTraceFromRow({ result })
+    return trace && toTraceListRow(trace)
 }
 
 function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
     return combineUrl(urls.aiObservabilityTrace(row.id), {
         ...toFullPageListParams(searchParams),
-        back_to: 'traces',
+        back_to: TRACE_DRAWER_LISTS[TRACE_DRAWER_LIST_ID].backTo,
         timestamp: getTraceLookupTimestamp(row),
     }).url
 }
@@ -233,17 +188,20 @@ function getTraceFromRow(record: unknown): LLMTrace | null {
     return result as LLMTrace
 }
 
-// Cells with their own link or button (ID, trace name, person) handle their own clicks.
-function hasOwnClickHandler(target: EventTarget | null): boolean {
-    return target instanceof Element && !!target.closest('button, a, [role="button"]')
-}
-
-function opensTraceDrawer({ target, currentTarget, button, metaKey, ctrlKey, shiftKey, altKey }: MouseEvent): boolean {
-    // React capture also reaches the row from a portal, so an overlay opened from a cell would lose its own clicks.
-    const isInsideRow = target instanceof Node && currentTarget.contains(target)
-    const isPlainClick = button === 0 && !metaKey && !ctrlKey && !shiftKey && !altKey
-    const isTraceLink = target instanceof Element && !!target.closest(TRACE_LINKS)
-    return isInsideRow && isPlainClick && (isTraceLink || !hasOwnClickHandler(target))
+export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: string): QueryContext<DataTableNode> {
+    const baseContext = useTracesQueryContext()
+    const { rowProps: baseRowProps } = baseContext
+    const { isEnabled, rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
+    const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const baseProps = baseRowProps?.(record) ?? {}
+            const trace = getTraceFromRow(record)
+            const rowProps = toDrawerRowProps(trace && toTraceListRow(trace))
+            return { ...baseProps, ...rowProps, className: clsx(baseProps.className, rowProps.className) }
+        },
+        [baseRowProps, toDrawerRowProps]
+    )
+    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: isEnabled ? drawerRowProps : baseRowProps }
 }
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
