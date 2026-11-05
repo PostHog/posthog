@@ -8,11 +8,17 @@ from uuid import UUID
 
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Max
+from django.utils import timezone
 
+import posthoganalytics
+
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
+from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
@@ -24,6 +30,13 @@ MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
 MAX_DATASETS_PER_TEAM = 20
 MAX_VERSIONS_PER_ITEM = 40
+
+# The flag that gates the dataset API. Its payload also carries per-project overrides of
+# `MAX_DATASETS_PER_TEAM`, so a project that asks for more datasets gets them with no deploy:
+# {"team_configs": {"<team_id>": {"max_datasets": 50}}}
+DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
+PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
+PAYLOAD_MAX_DATASETS_KEY = "max_datasets"
 
 
 class DatasetValidationError(Exception):
@@ -113,6 +126,12 @@ class DatasetItemMutationResult:
     item: DatasetItem
     version: DatasetItemVersion
     created: bool = True
+
+
+@frozen
+class DatasetMutationResult:
+    dataset: Dataset
+    changed_fields: tuple[str, ...] = ()
 
 
 def _json_size(value: JSONValue | dict[str, JSONValue], *, field: str, limit: int) -> None:
@@ -240,7 +259,7 @@ def _lock_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
         Dataset.objects.for_team(team_id, canonical=True)
         .select_for_update(of=("self",))
         .select_related("current_revision")
-        .get(id=dataset_id)
+        .get(id=dataset_id, expired_at__isnull=True)
     )
     current_revision = dataset.current_revision
     if current_revision is None:
@@ -313,6 +332,10 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
 
 
 def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
+    if dataset.current_revision_id is not None:
+        DatasetRevision.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.current_revision_id).update(
+            last_used_at=timezone.now()
+        )
     latest_revision_number = (
         DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
         .filter(dataset_id=dataset.id)
@@ -387,8 +410,46 @@ def _create_item_version(
     item.current_version = version
     item.save(update_fields=["current_version", "updated_at"])
     dataset.current_revision = revision
-    dataset.save(update_fields=["current_revision", "updated_at"])
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["current_revision", "updated_at", "last_used_at"])
     return version
+
+
+def max_datasets_for_team(*, team: Team, user: User | None, caller_properties: dict[str, str] | None = None) -> int:
+    """The project's dataset limit: its override in the flag payload, or `MAX_DATASETS_PER_TEAM`.
+
+    The payload is evaluated for the requesting user with the groups and caller properties
+    that `PostHogFeatureFlagPermission` uses, so it follows the same rollout that gates the API.
+    A missing, malformed, or unreadable override resolves to the default.
+    """
+    if user is None:
+        return MAX_DATASETS_PER_TEAM
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    caller = caller_properties or {}
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            DATASETS_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={
+                "organization": {**caller, "id": organization_id},
+                "project": {**caller, "id": project_id},
+            },
+            person_properties=caller or None,
+            send_feature_flag_events=False,
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except Exception as error:
+        capture_exception(error)
+        return MAX_DATASETS_PER_TEAM
+    team_configs = payload.get(PAYLOAD_TEAM_CONFIGS_KEY) if isinstance(payload, dict) else None
+    team_config = team_configs.get(project_id) if isinstance(team_configs, dict) else None
+    limit = team_config.get(PAYLOAD_MAX_DATASETS_KEY) if isinstance(team_config, dict) else None
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        return MAX_DATASETS_PER_TEAM
+    return limit
 
 
 @transaction.atomic
@@ -399,19 +460,20 @@ def create_dataset(
     name: str,
     description: str = "",
     metadata: dict[str, JSONValue] | None = None,
+    max_datasets: int = MAX_DATASETS_PER_TEAM,
 ) -> Dataset:
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
-    current_count = Dataset.objects.for_team(team.id, canonical=True).count()
-    if current_count >= MAX_DATASETS_PER_TEAM:
+    current_count = Dataset.objects.for_team(team.id, canonical=True).filter(expired_at__isnull=True).count()
+    if current_count >= max_datasets:
         raise DatasetLimitExceeded(
             resource="datasets",
             current_count=current_count,
-            limit=MAX_DATASETS_PER_TEAM,
+            limit=max_datasets,
             detail=(
-                f"No more datasets can be added to this project. The limit is {MAX_DATASETS_PER_TEAM}. "
+                f"No more datasets can be added to this project. The limit is {max_datasets}. "
                 "Contact support if you need more."
             ),
         )
@@ -438,7 +500,7 @@ def update_dataset(
     name: str | _Unset = UNSET,
     description: str | _Unset = UNSET,
     metadata: dict[str, JSONValue] | _Unset = UNSET,
-) -> Dataset:
+) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if dataset.archived:
         raise DatasetMutationConflict(
@@ -455,14 +517,22 @@ def update_dataset(
         metadata=next_metadata,
     )
 
-    update_fields = ["updated_at"]
+    changed_fields: list[str] = []
+    dataset.last_used_at = timezone.now()
+    update_fields = ["updated_at", "last_used_at"]
     if not isinstance(name, _Unset):
+        if dataset.name != normalized_name:
+            changed_fields.append("name")
         dataset.name = normalized_name
         update_fields.append("name")
     if not isinstance(description, _Unset):
+        if dataset.description != description:
+            changed_fields.append("description")
         dataset.description = description
         update_fields.append("description")
     if not isinstance(metadata, _Unset):
+        if not _json_values_equal(dataset.metadata, metadata):
+            changed_fields.append("metadata")
         dataset.metadata = metadata
         update_fields.append("metadata")
     try:
@@ -472,27 +542,29 @@ def update_dataset(
             code="dataset_name_conflict",
             detail="A dataset with this name already exists.",
         ) from error
-    return dataset
+    return DatasetMutationResult(dataset=dataset, changed_fields=tuple(changed_fields))
 
 
 @transaction.atomic
-def archive_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
+def archive_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if dataset.archived:
-        return dataset
+        return DatasetMutationResult(dataset=dataset)
     dataset.archived = True
-    dataset.save(update_fields=["archived", "updated_at"])
-    return dataset
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["archived", "updated_at", "last_used_at"])
+    return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
 @transaction.atomic
-def restore_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
+def restore_dataset(*, team_id: int, dataset_id: UUID) -> DatasetMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if not dataset.archived:
-        return dataset
+        return DatasetMutationResult(dataset=dataset)
     dataset.archived = False
-    dataset.save(update_fields=["archived", "updated_at"])
-    return dataset
+    dataset.last_used_at = timezone.now()
+    dataset.save(update_fields=["archived", "updated_at", "last_used_at"])
+    return DatasetMutationResult(dataset=dataset, changed_fields=("archived",))
 
 
 @transaction.atomic
@@ -547,6 +619,7 @@ def create_dataset_item(
                     current_item_id=existing_item.id,
                 )
             if _item_contents_equal(_DatasetItemContent.from_version(current_version), content):
+                DatasetUsage.record(dataset, dataset.current_revision)
                 return DatasetItemMutationResult(
                     item=existing_item,
                     version=current_version,
@@ -627,6 +700,7 @@ def update_dataset_item(
     _validate_item_content(content=next_content)
 
     if _item_contents_equal(current_content, next_content):
+        DatasetUsage.record(dataset, dataset.current_revision)
         return DatasetItemMutationResult(
             item=item,
             version=current_version,

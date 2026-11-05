@@ -260,6 +260,33 @@ class TestMotherDuck:
         assert metadata_conn.execute.call_args_list[0].args[0] == 'USE "warehouse"'
         assert 'FROM "sales"."users"' in streaming_conn.execute.call_args.args[0]
 
+    @pytest.mark.parametrize(
+        ("incremental", "expected_order_by"),
+        [(True, 'ORDER BY "updated_at" ASC'), (False, None)],
+        ids=["incremental", "full_refresh"],
+    )
+    def test_build_pipeline_claims_ascending_order_only_for_the_incremental_read(
+        self, impl, incremental, expected_order_by
+    ):
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 1, [pa.RecordBatch.from_pydict({"id": [1]})])
+        inputs = _make_inputs(
+            should_use_incremental_field=incremental,
+            incremental_field="updated_at" if incremental else None,
+            incremental_field_type=IncrementalFieldType.Timestamp if incremental else None,
+            db_incremental_field_last_value="2025-01-01T00:00:00" if incremental else None,
+        )
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), inputs)
+            list(response.items())
+
+        sql = streaming_conn.execute.call_args.args[0]
+        if expected_order_by:
+            assert sql.endswith(expected_order_by)
+        else:
+            assert "ORDER BY" not in sql
+        assert response.sort_mode == ("asc" if incremental else None)
+
     def test_build_pipeline_rejects_an_unresolvable_catalog(self, impl):
         # Account-wide with nothing naming a catalog: `USE` would be a guess, and the sync would
         # silently read whichever database DuckDB happens to resolve to.

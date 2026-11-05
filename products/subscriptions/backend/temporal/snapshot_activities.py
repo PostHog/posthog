@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import uuid
+import asyncio
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import temporalio.activity
 from asgiref.sync import sync_to_async
@@ -11,6 +14,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -18,7 +22,11 @@ from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.llm_change_summary import generate_change_summary
-from products.subscriptions.backend.temporal.results_summarizer import build_results_summary
+from products.subscriptions.backend.temporal.query_results_summary import condense_query_results
+from products.subscriptions.backend.temporal.results_summarizer import (
+    build_results_summary,
+    uses_generic_results_summary,
+)
 from products.subscriptions.backend.temporal.types import (
     MISSING_QUERY_ERROR_TYPE,
     SnapshotInsightsInputs,
@@ -26,6 +34,9 @@ from products.subscriptions.backend.temporal.types import (
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 LOGGER = get_logger(__name__)
 
@@ -396,6 +407,44 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         raise
 
 
+async def _condense_generic_results(
+    states: list[dict],
+    content_snapshot: dict,
+    *,
+    team: Team | None,
+    delivery_id: str | None,
+) -> None:
+    """Preserve older activity that newest-first row truncation would hide from the final summary."""
+    snapshots_by_id = {insight["id"]: insight for insight in content_snapshot.get("insights", [])}
+    concurrency = asyncio.Semaphore(10)
+
+    async def condense(state: dict) -> None:
+        query_kind = state["query_kind"]
+        if query_kind == "Unknown" or not uses_generic_results_summary(query_kind):
+            return
+        query_results = snapshots_by_id[state["insight_id"]].get("query_results")
+        if not query_results or not query_results.get("result"):
+            return
+        try:
+            async with concurrency:
+                state["results_summary"] = await condense_query_results(
+                    query_kind,
+                    {**query_results, "query_date_range": snapshots_by_id[state["insight_id"]].get("query_date_range")},
+                    team=team,
+                    delivery_id=delivery_id,
+                )
+        except Exception as error:
+            state["results_summary"] = "Summary unavailable for this insight. The returned rows could not be condensed."
+            await LOGGER.awarning(
+                "subscription_summary.condensation_failed",
+                insight_id=state["insight_id"],
+                delivery_id=delivery_id,
+                exception_class=type(error).__name__,
+            )
+
+    await asyncio.gather(*(condense(state) for state in states))
+
+
 async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> SnapshotInsightsResult:
     await LOGGER.ainfo(
         "snapshot_subscription_insights.starting",
@@ -514,46 +563,60 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        prompt_guide = (
-            sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
-            if subscription.summary_prompt_guide
-            else ""
-        )
-        core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
-        content_snapshots = [
-            s
-            for s in (
-                current_delivery.content_snapshot,
-                previous_delivery.content_snapshot if previous_delivery else None,
+        async with Heartbeater(details=("generating LLM summary",)):
+            await _condense_generic_results(
+                current_states, content_snapshot, team=subscription.team, delivery_id=inputs.delivery_id
             )
-            if s
-        ]
-        # Annotations are best-effort context — a DB hiccup here should not fail the whole
-        # summary, which would also drop the rest of the digest. Log and continue with an
-        # empty block.
-        try:
-            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
-                subscription, content_snapshots, insight_ids
+            if previous_states and previous_delivery:
+                await _condense_generic_results(
+                    previous_states,
+                    previous_delivery.content_snapshot,
+                    team=subscription.team,
+                    delivery_id=inputs.delivery_id,
+                )
+            prompt_guide = (
+                sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
+                if subscription.summary_prompt_guide
+                else ""
             )
-        except Exception as annotations_error:
-            annotations_section = ""
-            await LOGGER.awarning(
-                "snapshot_subscription_insights.annotations_load_failed",
-                subscription_id=inputs.subscription_id,
-                error=str(annotations_error),
-                exc_info=True,
+            core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(
+                subscription
             )
-        summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
-            previous_states,
-            current_states,
-            subscription_title=subscription.title,
-            prompt_guide=prompt_guide,
-            team=subscription.team,
-            delivery_id=inputs.delivery_id,
-            insight_images=insight_images or None,
-            core_memory_text=core_memory_text,
-            annotations_section=annotations_section,
-        )
+            content_snapshots = [
+                s
+                for s in (
+                    current_delivery.content_snapshot,
+                    previous_delivery.content_snapshot if previous_delivery else None,
+                )
+                if s
+            ]
+            # Annotations are best-effort context — a DB hiccup here should not fail the whole
+            # summary, which would also drop the rest of the digest. Log and continue with an
+            # empty block.
+            try:
+                annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                    subscription, content_snapshots, insight_ids
+                )
+            except Exception as annotations_error:
+                annotations_section = ""
+                await LOGGER.awarning(
+                    "snapshot_subscription_insights.annotations_load_failed",
+                    subscription_id=inputs.subscription_id,
+                    error=str(annotations_error),
+                    exc_info=True,
+                )
+            summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
+                previous_states,
+                current_states,
+                subscription_title=subscription.title,
+                prompt_guide=prompt_guide,
+                team=subscription.team,
+                delivery_id=inputs.delivery_id,
+                insight_images=insight_images or None,
+                core_memory_text=core_memory_text,
+                annotations_section=annotations_section,
+                slack_formatting=subscription.target_type == Subscription.SubscriptionTarget.SLACK,
+            )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:
         error_msg = str(e)

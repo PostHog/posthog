@@ -4,7 +4,6 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -22,13 +21,6 @@ const FILL_CLASS: Record<InboxUsageStatus, string> = {
     limit: 'bg-danger',
 }
 
-// The Usage settings section is already a card; the legacy setup rail needs the widget to frame itself.
-function cardClassName(redesign: boolean): string {
-    return redesign
-        ? 'flex flex-col gap-2'
-        : 'flex flex-col gap-2 rounded border border-primary bg-surface-primary px-2.5 py-2'
-}
-
 /** A single status-coloured fill over a neutral track. Width is runtime-derived, hence inline. */
 function UsageBar({ percentage, status }: { percentage: number; status: InboxUsageStatus }): JSX.Element {
     return (
@@ -43,9 +35,8 @@ function UsageBar({ percentage, status }: { percentage: number; status: InboxUsa
 }
 
 function UsageCardSkeleton(): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
-        <div className={cardClassName(redesign)}>
+        <div className="flex flex-col gap-2">
             <LemonSkeleton className="h-3 w-24" />
             <LemonSkeleton className="h-2 w-full" />
             <div className="flex items-center justify-between">
@@ -148,7 +139,6 @@ function EditLimitModal(): JSX.Element {
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
         product,
         isLoading,
@@ -181,7 +171,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     // Only org admins/owners can change billing (canAccessBilling) — others get a read-only view with a hint.
     return (
         <>
-            <div className={cardClassName(redesign)}>
+            <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-1.5">
                     <span className="text-[13px] font-semibold text-default">Pull requests</span>
                     {!isSubscribed ? (

@@ -1,20 +1,31 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { initKeaTests } from '~/test/init'
 
 import { LemonDialog, LemonFormDialog } from './LemonDialog'
+import { lemonDialogLogic } from './lemonDialogLogic'
 
-describe('LemonDialog', () => {
+function DialogName(): JSX.Element {
+    const { form } = useValues(lemonDialogLogic)
+    return <span>{form.name}</span>
+}
+
+describe('LemonFormDialog', () => {
+    let captureException: jest.SpyInstance
+
     beforeEach(() => {
         initKeaTests()
+        captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
     })
 
     afterEach(() => {
@@ -22,97 +33,172 @@ describe('LemonDialog', () => {
         jest.restoreAllMocks()
     })
 
-    describe('open', () => {
-        it("calls the caller's onAfterClose when the dialog closes", async () => {
-            const onAfterClose = jest.fn()
+    function renderDialog(
+        onSubmit: (values: Record<string, any>) => void | Promise<void>,
+        shouldAwaitSubmit = true
+    ): void {
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog"
+                title="Test dialog"
+                shouldAwaitSubmit={shouldAwaitSubmit}
+                initialValues={{ name: 'a name' }}
+                content={
+                    <LemonField name="name">
+                        <LemonInput />
+                    </LemonField>
+                }
+                onSubmit={onSubmit}
+            />
+        )
+    }
 
-            LemonDialog.open({ title: 'Test dialog', onAfterClose })
-            await userEvent.click(await screen.findByLabelText('close'))
+    const submitViaButton = async (): Promise<void> => {
+        await userEvent.click(screen.getByText('Submit'))
+    }
 
-            await waitForElementToBeRemoved(() => screen.queryByText('Test dialog'))
-            expect(onAfterClose).toHaveBeenCalledTimes(1)
-        })
+    const submitViaEnter = async (): Promise<void> => {
+        // click focuses the input through userEvent, so the focus state update is act-wrapped
+        await userEvent.click(screen.getByRole('textbox'))
+        await userEvent.keyboard('{Enter}')
+    }
+
+    it.each([
+        ['button click', submitViaButton],
+        ['enter key', submitViaEnter],
+    ])('keeps the dialog open when the submit rejects (%s)', async (_mode, submit) => {
+        const onSubmit = jest.fn().mockRejectedValue(new Error('rejected'))
+
+        renderDialog(onSubmit)
+        await submit()
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+        // Dialog stays open so the user can correct and retry.
+        expect(screen.getByText('Submit')).toBeInTheDocument()
     })
 
-    describe('LemonFormDialog', () => {
-        let captureException: jest.SpyInstance
+    it.each([
+        ['unexpected Error', new Error('boom'), true],
+        ['5xx ApiError', new ApiError('server error', 500), true],
+        ['4xx validation ApiError', new ApiError('reserved name', 400), false],
+    ])('only captures unexpected failures, not user-validation errors (%s)', async (_desc, error, shouldCapture) => {
+        const onSubmit = jest.fn().mockRejectedValue(error)
 
-        beforeEach(() => {
-            captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        })
+        renderDialog(onSubmit)
+        await submitViaButton()
 
-        function renderDialog(onSubmit: (values: Record<string, any>) => void | Promise<void>): void {
-            render(
-                <LemonFormDialog
-                    dialogKey="test-dialog"
-                    title="Test dialog"
-                    shouldAwaitSubmit
-                    initialValues={{ name: 'a name' }}
-                    content={
-                        <LemonField name="name">
-                            <LemonInput />
-                        </LemonField>
-                    }
-                    onSubmit={onSubmit}
-                />
-            )
+        await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+        expect(screen.getByText('Submit')).toBeInTheDocument()
+        if (shouldCapture) {
+            expect(captureException).toHaveBeenCalledWith(error)
+        } else {
+            expect(captureException).not.toHaveBeenCalled()
         }
+    })
 
-        const submitViaButton = async (): Promise<void> => {
-            await userEvent.click(screen.getByText('Submit'))
-        }
-
-        const submitViaEnter = async (): Promise<void> => {
-            // click focuses the input through userEvent, so the focus state update is act-wrapped
-            await userEvent.click(screen.getByRole('textbox'))
-            await userEvent.keyboard('{Enter}')
-        }
-
-        it.each([
-            ['button click', submitViaButton],
-            ['enter key', submitViaEnter],
-        ])('keeps the dialog open when the submit rejects (%s)', async (_mode, submit) => {
-            const onSubmit = jest.fn().mockRejectedValue(new Error('rejected'))
-
-            renderDialog(onSubmit)
-            await submit()
-
-            await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-            // Dialog stays open so the user can correct and retry.
-            expect(screen.getByText('Submit')).toBeInTheDocument()
-        })
-
-        it.each([
-            ['unexpected Error', new Error('boom'), true],
-            ['5xx ApiError', new ApiError('server error', 500), true],
-            ['4xx validation ApiError', new ApiError('reserved name', 400), false],
-        ])(
-            'only captures unexpected failures, not user-validation errors (%s)',
-            async (_desc, error, shouldCapture) => {
-                const onSubmit = jest.fn().mockRejectedValue(error)
-
-                renderDialog(onSubmit)
-                await submitViaButton()
-
-                await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-                expect(screen.getByText('Submit')).toBeInTheDocument()
-                if (shouldCapture) {
-                    expect(captureException).toHaveBeenCalledWith(error)
-                } else {
-                    expect(captureException).not.toHaveBeenCalled()
+    it('lets a field that handles Enter commit its value instead of submitting', async () => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog"
+                title="Test dialog"
+                shouldAwaitSubmit
+                initialValues={{ tags: ['growth'] }}
+                content={
+                    <LemonField name="tags">
+                        <LemonInputSelect mode="multiple" allowCustomValues options={[]} />
+                    </LemonField>
                 }
-            }
+                onSubmit={onSubmit}
+            />
         )
 
-        it('closes the dialog and does not capture when the submit resolves', async () => {
+        await userEvent.type(screen.getByRole('textbox'), 'billing{Enter}')
+
+        expect(onSubmit).not.toHaveBeenCalled()
+        await submitViaButton()
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ tags: ['growth', 'billing'] }))
+    })
+
+    it.each([
+        ['an IME composition confirm', 0, { isComposing: true }],
+        ['a Safari IME composition confirm', 0, { keyCode: 229 }],
+        ['a plain key press', 1, {}],
+    ])('Enter from %s in a text field submits %i times', async (_case, submits, eventInit) => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ...eventInit })
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(submits))
+    })
+
+    it('closes the dialog and does not capture when the submit resolves', async () => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        await submitViaButton()
+
+        await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
+        expect(onSubmit).toHaveBeenCalled()
+        expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['Cancel', true, 0],
+        ['Submit', true, 1],
+        ['Cancel', false, 0],
+        ['Submit', false, 1],
+    ])(
+        'pressing Enter on the focused %s button only clicks it (await submit: %s)',
+        async (button, awaitSubmit, submits) => {
             const onSubmit = jest.fn().mockResolvedValue(undefined)
 
-            renderDialog(onSubmit)
-            await submitViaButton()
+            renderDialog(onSubmit, awaitSubmit)
+            screen.getByText(button).closest('button')?.focus()
+            await userEvent.keyboard('{Enter}')
 
             await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
-            expect(onSubmit).toHaveBeenCalled()
-            expect(captureException).not.toHaveBeenCalled()
+            expect(onSubmit).toHaveBeenCalledTimes(submits)
+        }
+    )
+
+    it.each(['Cancel', 'Submit'])('calls the imperative form close callback after %s', async (button) => {
+        const onAfterClose = jest.fn()
+        act(() => {
+            LemonDialog.openForm({
+                title: 'Test dialog',
+                initialValues: { name: 'a name' },
+                content: <DialogName />,
+                onSubmit: jest.fn(),
+                onAfterClose,
+            })
         })
+
+        expect(await screen.findByText('a name')).toBeInTheDocument()
+        await userEvent.click(screen.getByText(button))
+
+        await waitFor(() => expect(onAfterClose).toHaveBeenCalledTimes(1))
+        expect(screen.queryByText('Test dialog')).not.toBeInTheDocument()
+    })
+})
+
+describe('LemonDialog.open', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it("calls the caller's onAfterClose when the dialog closes", async () => {
+        const onAfterClose = jest.fn()
+
+        LemonDialog.open({ title: 'Test dialog', onAfterClose })
+        await userEvent.click(await screen.findByLabelText('close'))
+
+        await waitForElementToBeRemoved(() => screen.queryByText('Test dialog'))
+        expect(onAfterClose).toHaveBeenCalledTimes(1)
     })
 })

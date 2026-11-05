@@ -120,13 +120,13 @@ class UnfinishedAppendRuns:
             return
 
         delta_table = async_to_sync(self._delta_table_ref.get_delta_table)()
-        if (
-            not export_signal.is_resume
-            and marker is not None
-            and delta_table is not None
-            and self._never_completed(marker)
-        ):
-            self._roll_back(marker, export_signal)
+        unfinished = (
+            None
+            if export_signal.is_resume or delta_table is None
+            else self._marker_to_roll_back(export_signal.run_uuid)
+        )
+        if unfinished is not None:
+            self._roll_back(unfinished, export_signal)
             delta_table = async_to_sync(self._delta_table_ref.get_delta_table)()
 
         # Written before the batch, so a crash between the two leaves a version that is still the
@@ -141,6 +141,24 @@ class UnfinishedAppendRuns:
         self._schema.sync_type_config = update_sync_type_config_keys(
             self._schema.id, self._schema.team_id, updates={APPEND_RUN_MARKER_KEY: started.to_config()}
         )
+
+    def restores_before_first_batch(self, run_uuid: str) -> bool:
+        """Whether `start_run` tries to restore the table at the first batch of the fresh attempt `run_uuid`.
+
+        The restore also adds back every file that a compaction after the recorded version removed.
+        A compaction before that batch therefore only makes the restore larger. `_roll_back` can still
+        skip the restore, for example when the unfinished run committed nothing.
+        """
+        if not settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED:
+            return False
+        return self._marker_to_roll_back(run_uuid) is not None
+
+    def _marker_to_roll_back(self, run_uuid: str) -> AppendRunMarker | None:
+        """The recorded run that a fresh attempt `run_uuid` removes before it loads, or None."""
+        marker = self._marker()
+        if marker is None or marker.run_uuid == run_uuid or not self._never_completed(marker):
+            return None
+        return marker
 
     def _never_completed(self, marker: AppendRunMarker) -> bool:
         """Whether every row written after the recorded version belongs to a run that did not complete.

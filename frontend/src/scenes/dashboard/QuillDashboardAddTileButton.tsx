@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
 import {
@@ -14,13 +13,17 @@ import {
 } from '@posthog/quill'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import {
+    DashboardAddTileKey,
+    getDashboardAddTileOptions,
+    groupDashboardAddTileOptions,
+} from './dashboardAddTileOptions'
+import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 // pinned: autocapture data-attrs for the header's Add menu items
@@ -30,11 +33,11 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
-    'widget-preview': 'dashboard-add-widget-preview',
+    group: 'dashboard-add-tile-group',
 }
 
 export function QuillDashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles, tileGroupSectionsEnabled } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -42,9 +45,8 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         openTextTileModal,
         openImageTileModal,
         openButtonTileModal,
+        addTileGroup,
     } = useActions(dashboardLogic)
-    const { push } = useActions(router)
-    const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null
@@ -56,13 +58,12 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         dashboard.user_access_level
     )
     const options = getDashboardAddTileOptions({
-        dashboardWidgetsEnabled,
         onAddInsight: openAddInsightModal,
         onAddText: openTextTileModal,
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
-        push,
         setAddWidgetModalOpen,
+        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
     })
 
     return (
@@ -103,29 +104,29 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
                         Add
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-40">
-                        <DropdownMenuGroup>
-                            <DropdownMenuLabel>Content</DropdownMenuLabel>
-                            {options.map((option) => {
-                                return (
-                                    <DropdownMenuItem
-                                        key={option.key}
-                                        onClick={option.onClick}
-                                        tooltip={option.tooltip}
-                                        data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
-                                    >
-                                        {option.label}
-                                        {option.tag && (
-                                            <Badge
-                                                variant={option.tag === 'new' ? 'success' : 'warning'}
-                                                className="ml-auto"
+                        {groupDashboardAddTileOptions(options).map(({ section, title, options: sectionOptions }) => {
+                            return (
+                                <DropdownMenuGroup key={section}>
+                                    <DropdownMenuLabel>{title}</DropdownMenuLabel>
+                                    {sectionOptions.map((option) => {
+                                        return (
+                                            <DropdownMenuItem
+                                                key={option.key}
+                                                onClick={option.onClick}
+                                                data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
                                             >
-                                                {option.tag.toUpperCase()}
-                                            </Badge>
-                                        )}
-                                    </DropdownMenuItem>
-                                )
-                            })}
-                        </DropdownMenuGroup>
+                                                {option.label}
+                                                {option.tag && (
+                                                    <Badge variant="success" className="ml-auto">
+                                                        {option.tag.toUpperCase()}
+                                                    </Badge>
+                                                )}
+                                            </DropdownMenuItem>
+                                        )
+                                    })}
+                                </DropdownMenuGroup>
+                            )
+                        })}
                     </DropdownMenuContent>
                 </DropdownMenu>
             )}

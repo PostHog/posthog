@@ -20,21 +20,38 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 class TestResolveInactivityTimeout(SimpleTestCase):
     @parameterized.expand(
         [
-            ("user_origin", True, None, INACTIVITY_TIMEOUT_USER_SECONDS),
-            ("non_user_origin", False, "signals_scout", INACTIVITY_TIMEOUT_DEFAULT_SECONDS),
-            ("posthog_ai", False, POSTHOG_AI_ORIGIN_PRODUCT, POSTHOG_AI_IDLE_TIMEOUT_SECONDS),
+            ("user_origin", True, None, None, INACTIVITY_TIMEOUT_USER_SECONDS),
+            ("non_user_origin", False, "signals_scout", None, INACTIVITY_TIMEOUT_DEFAULT_SECONDS),
+            ("posthog_ai", False, POSTHOG_AI_ORIGIN_PRODUCT, None, POSTHOG_AI_IDLE_TIMEOUT_SECONDS),
+            ("profile_on_user_origin", True, None, 45, 45 * 60),
+            ("profile_on_posthog_ai", False, POSTHOG_AI_ORIGIN_PRODUCT, 45, 45 * 60),
         ]
     )
     @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
-    def test_production_default_depends_on_origin(self, _name, is_user_origin, origin_product, expected_seconds):
-        result = resolve_inactivity_timeout(is_user_origin=is_user_origin, origin_product=origin_product)
+    def test_production_default_depends_on_profile_then_origin(
+        self, _name, is_user_origin, origin_product, profile_idle_minutes, expected_seconds
+    ):
+        result = resolve_inactivity_timeout(
+            is_user_origin=is_user_origin, origin_product=origin_product, profile_idle_minutes=profile_idle_minutes
+        )
         self.assertEqual(result, timedelta(seconds=expected_seconds))
+
+    @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
+    def test_per_task_override_wins_over_profile(self):
+        result = resolve_inactivity_timeout(state={"inactivity_timeout_seconds": 600}, profile_idle_minutes=45)
+        self.assertEqual(result, timedelta(seconds=600))
 
     def test_posthog_ai_origin_constant_matches_model_enum(self):
         self.assertEqual(POSTHOG_AI_ORIGIN_PRODUCT, Task.OriginProduct.POSTHOG_AI.value)
 
+    @parameterized.expand(
+        [
+            ("origin", {}, POSTHOG_AI_IDLE_TIMEOUT_SECONDS),
+            ("profile", {"profile_key": "test.profile", "profile_idle_minutes": 45}, 45 * 60),
+        ]
+    )
     @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
-    def test_context_forwards_its_origin_to_the_resolver(self):
+    def test_context_forwards_its_origin_and_profile_to_the_resolver(self, _name, profile_fields, expected_seconds):
         # Guards the wiring, not the resolver: dropping `origin_product=` at this call site
         # would leave every resolver case green while PostHog AI silently fell back to 30 minutes.
         context = TaskProcessingContext(
@@ -47,8 +64,9 @@ class TestResolveInactivityTimeout(SimpleTestCase):
             repository="explore-science/paper-wizard-frontend",
             distinct_id="distinct",
             origin_product=POSTHOG_AI_ORIGIN_PRODUCT,
+            **profile_fields,
         )
-        self.assertEqual(context.inactivity_timeout(), timedelta(seconds=POSTHOG_AI_IDLE_TIMEOUT_SECONDS))
+        self.assertEqual(context.inactivity_timeout(), timedelta(seconds=expected_seconds))
 
     @override_settings(TEST=True, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
     def test_test_default_is_short_regardless_of_origin(self):

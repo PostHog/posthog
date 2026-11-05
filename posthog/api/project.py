@@ -19,6 +19,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import ProductKey
 
+from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -51,6 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
+    hide_secret_api_tokens_from_unscoped_caller,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -62,11 +64,13 @@ from posthog.api.team.team_config import (
     TeamFeatureFlagPolicyConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamWorkflowsConfigSerializer,
+    drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    hide_team_secrets_from_workload_tokens,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -147,6 +151,7 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
+from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -279,6 +284,7 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
 
 def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
     user_access_control = context.get("user_access_control")
+    drop_cached_workflows_config(team)
     old_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
 
     serializer = TeamWorkflowsConfigSerializer(
@@ -638,6 +644,13 @@ class ProjectBackwardCompatSerializer(
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    api_host = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Host the PostHog SDKs send events to, set as their `api_host` option. It is "
+            "`https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, "
+            "and the instance URL when self-hosted."
+        )
+    )
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -645,6 +658,12 @@ class ProjectBackwardCompatSerializer(
             "everyone else and when none has been generated."
         ),
     )  # Compat with TeamSerializer
+    is_ai_data_processing_approved = serializers.BooleanField(
+        source="organization.is_ai_data_processing_approved",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the project's organization approved AI data processing. AI features need this approval.",
+    )
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -724,6 +743,7 @@ class ProjectBackwardCompatSerializer(
         fields: tuple[str, ...] = (
             "id",
             "organization",
+            "is_ai_data_processing_approved",
             "name",
             "logo_media_id",
             "product_description",
@@ -747,7 +767,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",  # Compat with TeamSerializer
             "data_attributes",  # Compat with TeamSerializer
             "person_display_name_properties",  # Compat with TeamSerializer
-            "correlation_config",  # Compat with TeamSerializer
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
@@ -801,6 +820,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -843,6 +863,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "api_host",
         )
 
         team_passthrough_fields = {
@@ -860,7 +881,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",
             "data_attributes",
             "person_display_name_properties",
-            "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",
@@ -1006,7 +1026,8 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        return representation
+        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):
@@ -1059,6 +1080,9 @@ class ProjectBackwardCompatSerializer(
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
+
+    def get_api_host(self, project: Project) -> str:
+        return cloud_utils.get_api_host()
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1118,9 +1142,13 @@ class ProjectBackwardCompatSerializer(
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
-    @staticmethod
-    def validate_session_recording_linked_flag(value) -> dict | None:
-        return session_recording_settings.validate_session_recording_linked_flag(value)
+    def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
+        return session_recording_settings.validate_session_recording_linked_flag(
+            value,
+            stored=self.instance.passthrough_team.session_recording_linked_flag if self.instance is not None else None,
+            project_id=self.instance.id if self.instance is not None else None,
+            user_access_control=self.user_access_control,
+        )
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
@@ -1188,6 +1216,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
@@ -1395,39 +1427,48 @@ class ProjectBackwardCompatSerializer(
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        updated_team_fields = []
-        updated_project_fields = []
-        for attr, value in validated_data.items():
-            if attr in LOCKED_CONVERSATIONS_COLUMNS:
-                continue
-            if attr not in self.Meta.team_passthrough_fields:
-                # This attr is a Project field
-                setattr(instance, attr, value)
-                updated_project_fields.append(attr)
-            else:
-                # This attr is actually on the Project's passthrough Team
-                setattr(team, attr, value)
-                updated_team_fields.append(attr)
+        with locked_replay_gate_write(
+            team,
+            validated_data,
+            self.user_access_control,
+            can_read_flags=session_recording_settings.can_read_feature_flags(self.context.get("request")),
+        ):
+            updated_team_fields = []
+            updated_project_fields = []
+            for attr, value in validated_data.items():
+                if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                    continue
+                if attr not in self.Meta.team_passthrough_fields:
+                    # This attr is a Project field
+                    setattr(instance, attr, value)
+                    updated_project_fields.append(attr)
+                else:
+                    # This attr is actually on the Project's passthrough Team
+                    setattr(team, attr, value)
+                    updated_team_fields.append(attr)
 
-        if "name" in validated_data:
-            # Keep Team.name mirroring Project.name: surfaces like the organization's teams
-            # list and the app context still read the name off the Team row
-            team.name = validated_data["name"]
-            updated_team_fields.append("name")
+            if "name" in validated_data:
+                # Keep Team.name mirroring Project.name: surfaces like the organization's teams
+                # list and the app context still read the name off the Team row
+                team.name = validated_data["name"]
+                updated_team_fields.append("name")
 
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = merge_conversations_settings_locked(
+                    team, validated_data, patch_conversations_settings, updated_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif updated_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # Saved outside the replay gate lock. The tagged path in `save()` locks the Project row
+        # and then the Team row. A Project write under the Team lock would take the two locks in
+        # the opposite order, so two concurrent requests could deadlock.
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = merge_conversations_settings_locked(
-                team, validated_data, patch_conversations_settings, updated_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif updated_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
@@ -1718,7 +1759,8 @@ class ProjectViewSet(
         license = get_cached_instance_license()
         try:
             has_active_subscription = (
-                settings.EE_AVAILABLE
+                is_last_project
+                and settings.EE_AVAILABLE
                 and is_cloud()
                 and license
                 and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
@@ -2051,6 +2093,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 

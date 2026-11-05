@@ -7,6 +7,7 @@ import {
     DataTableNode,
     VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -35,7 +36,8 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
 
 /** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
-    type?: string
+    orderBy?: string
+    type?: string | string[]
     createdBy?: string[]
     folder?: string
     search?: string
@@ -44,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -89,7 +91,10 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
+        tileGroupKey,
         filters,
         metricName,
         metricPrefill,
@@ -103,7 +108,11 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
+        /** The dashboard tile group the saved insight goes into. Only applies with `dashboard`. */
+        tileGroupKey?: string | null
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
@@ -115,6 +124,10 @@ export const urls = {
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            // With a view, the query opens as unsaved edits on top of that view
+            if (view_id) {
+                params.set('open_view', view_id)
+            }
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -148,12 +161,21 @@ export const urls = {
 
         if (dashboard) {
             params.set('dashboard', String(dashboard))
+            if (tileGroupKey) {
+                params.set('tile_group', tileGroupKey)
+            }
         }
 
         const queryString = params.toString()
         const hashParams = new URLSearchParams()
         if (connectionId) {
             hashParams.set('c', connectionId)
+        }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
         }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))
@@ -218,6 +240,8 @@ export const urls = {
     credentialReview: (next?: string): string =>
         `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
+    // pinned: the OAuth server sends devices here as verification_uri, see posthog/api/oauth/device.py
+    oauthDeviceAuthorize: (): string => '/device',
     cliLive: (): string => '/cli/live',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
@@ -269,6 +293,7 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
+    onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -353,6 +378,7 @@ export const urls = {
     projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    workloadTrustPolicyRequest: (id: string): string => `/workload-trust-policy-requests/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     healthAlerts: (presetKinds?: string[]): string =>

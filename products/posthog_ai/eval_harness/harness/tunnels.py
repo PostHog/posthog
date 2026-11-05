@@ -19,7 +19,7 @@ SETUP_GUIDE = "docs/internal/sandboxes-setup-guide.md"
 
 FUNNEL_PUBLIC_PORTS: tuple[int, ...] = (443, 8443, 10000)
 """The only public ports Tailscale Funnel will serve — the daemon rejects any
-other. Three is exactly enough for the harness's Django, LLM gateway, and MCP
+other. Three is exactly enough for the harness's Django, AI gateway, and MCP
 callbacks; each requested service is assigned one in the order the caller lists
 them."""
 
@@ -77,7 +77,7 @@ def funnel_preflight_error() -> str | None:
     if shutil.which("tailscale") is None:
         return (
             "`tailscale` not found on PATH. Modal sandboxes run outside this host, so the "
-            "Django API, LLM gateway, and MCP server must be publicly reachable via Tailscale Funnel. "
+            "Django API, AI gateway, and MCP server must be publicly reachable via Tailscale Funnel. "
             f"See {SETUP_GUIDE}."
         )
     status = tailscale_status()
@@ -167,7 +167,7 @@ def _relay_answers(ip: str, host: str, public_port: int) -> bool:
 
 class TailscaleFunnel:
     """Modal-only Tailscale Funnel lifecycle: publicly exposes the host services a
-    remote Modal sandbox must reach (Django API, LLM gateway, MCP server).
+    remote Modal sandbox must reach (Django API, AI gateway, MCP server).
 
     Each service is served over HTTPS on one of Tailscale's three permitted public
     ports and is reachable by anyone on the internet who learns the URL, so the
@@ -326,7 +326,7 @@ class TailscaleFunnel:
     def _failure_message(self, detail: str) -> str:
         return (
             f"{detail}\n"
-            "Tailscale Funnel could not serve the Django, LLM gateway, and MCP services. "
+            "Tailscale Funnel could not serve the Django, AI gateway, and MCP services. "
             "Make sure tailscaled is running and this node is logged in (`tailscale up`), that Funnel "
             "is enabled for the tailnet and this node in the admin console's ACLs, and that HTTPS "
             f"certificates are enabled for the tailnet. See {SETUP_GUIDE}."

@@ -79,6 +79,14 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 - **Deterministic**: Same token always produces the same hash/prefix
 - **Secure**: Tokens can't be reversed from the hash
 
+Project and organization selections are scoped to the credential and transport session, or to the SDK's conversation handle for sessionless clients. Conversation and transport namespaces are separate. Echoed handles resolve before the state lookup; a newly minted handle binds state before tool execution. Both direct and exec-routed switches require the request to carry a session or conversation handle. A switch without one returns an error and the SDK's new handle for retrying. Switching does not update the shared credential selection.
+
+Each sessionless legacy batch item resolves its own request properties, state, and carried-handle guard. A wrapper-only `sessionId` cannot restore selections, so it does not suppress SDK conversation-handle minting.
+
+Credential, user, and entity lookup promises are shared within an HTTP request, keyed by credential cache scope and entity. Per-item state managers and active selections remain independent. Existing Redis TTLs control freshness; rejected promises are removed to permit retries. A newly minted conversation's state resolution uses the same request-local lookup cache.
+
+Remote flag evaluation uses this cache too, keyed by credential, distinct ID, normalized groups, and flag keys. Both flag values and payloads are shared only for matching contexts; each call applies its own overrides afterward. Failed evaluations leave the cache before the resolver returns its empty fallback.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:

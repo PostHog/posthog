@@ -86,3 +86,14 @@ def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[d
     from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
 
     start_alert_delivery_workflows([AlertDeliveryWorkflowInputs(**notification) for notification in notifications])
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.generate_error_tracking_issue_summary",
+    ignore_result=True,
+    max_retries=0,
+)
+def generate_error_tracking_issue_summary(team_id: int, issue_id: str, queued_at: float | None = None) -> None:
+    # A no-op that keeps the task name registered. Web pods from the previous release queue this task until the deploy
+    # replaces them, and a worker logs an error for each task name it does not know. Delete it after that deploy.
+    pass

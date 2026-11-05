@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -14,13 +14,12 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from ..github_repos import has_github_repos_feature_flag, selected_repositories
+from ..github_repos import selected_repositories
 from ..libraries import (
     LibraryNotFound,
     LibraryRejected,
@@ -123,10 +122,6 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     def partial_update(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
         library_id = _parse_library_id(pk)
         data = request.validated_data
-        if "repos" in data:
-            user = cast(User, request.user)
-            if not has_github_repos_feature_flag(self.team, str(user.distinct_id)):
-                raise exceptions.PermissionDenied(detail="GitHub repositories are not available for this project.")
         allowlist = self._allowlist() if "repos" in data else set()
         try:
             with transaction.atomic():

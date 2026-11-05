@@ -7,6 +7,7 @@ import typing
 import asyncio
 import datetime as dt
 import tempfile
+import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -21,13 +22,15 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import (
-    MISSING_CERT_PATH,
-    TLS,
-    Authority,
-    Credentials,
-    Integration,
-    PostgreSQLIntegration,
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import MISSING_CERT_PATH, TLS, Authority, Credentials, PostgreSQLIntegration
+from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ResolvedIPs,
+    ShapeError,
+    validate_external_host,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -50,6 +53,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -58,6 +62,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -80,6 +85,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on errors that are related to database operation.
     # For example: unexpected disconnect, database or other object not found.
     "OperationalError",
@@ -346,9 +352,14 @@ class PostgreSQLClient:
         error as its `__cause__`. Without it, every `OperationalError` is retried.
         """
         max_attempts = 5
+
+        async def connect_to_checked_host(**kwargs: typing.Any) -> psycopg.AsyncConnection:
+            host_kwargs = await asyncio.to_thread(self._checked_host_kwargs)
+            return await psycopg.AsyncConnection.connect(**{**kwargs, **host_kwargs})
+
         connect: typing.Callable[..., typing.Awaitable[psycopg.AsyncConnection]] = (
             make_retryable_with_exponential_backoff(
-                psycopg.AsyncConnection.connect,
+                connect_to_checked_host,
                 max_attempts=max_attempts,
                 retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
                 is_exception_retryable=is_error_retryable or (lambda _: True),
@@ -361,7 +372,6 @@ class PostgreSQLClient:
                     user=self.user,
                     password=self.password,
                     dbname=self.database,
-                    host=self.host,
                     port=self.port,
                     sslmode=self.ssl_mode,
                     sslrootcert=ssl_root_cert,
@@ -383,6 +393,45 @@ class PostgreSQLClient:
         async with connection as connection:
             self._connection = connection
             yield self
+
+    def _checked_host_kwargs(self) -> dict[str, str]:
+        """Return the libpq `host`/`hostaddr` that dial only addresses that pass the SSRF check.
+
+        The API checks the host when a destination is saved, but the hostname is what gets stored,
+        and libpq resolves it again on every connect. A record with a short TTL can answer public
+        for the save and private for the connect, and no egress proxy sees a raw Postgres socket,
+        so the check has to run on the addresses this connect dials. `host` repeats the hostname
+        once per address because libpq pairs the two lists by position, and TLS checks the server
+        certificate against `host`.
+        """
+        resolved_ips: ResolvedIPs | None = None
+        host_kwargs = {"host": self.host}
+        if is_resolvable_hostname(self.host):
+            addresses = resolve_psycopg_hostaddr_with_timeout(
+                self.host,
+                self.port,
+                self.connection_timeout,
+                fail_on_resolution_error=True,
+                raise_on_temporary_failure=True,
+            )
+            if not addresses:
+                raise psycopg.OperationalError("Could not resolve database host name")
+            resolved_ips = {ipaddress.ip_address(address) for address in addresses}
+            host_kwargs = {"host": ",".join([self.host] * len(addresses)), "hostaddr": ",".join(addresses)}
+
+        try:
+            validate_external_host(self.host, resolved_ips=resolved_ips)
+        except ShapeError as err:
+            raise PostgreSQLConnectionError(INVALID_HOST_MESSAGE) from err
+        except ValueError as err:
+            self.logger.warning(
+                "Refused to connect to a host that failed the SSRF check",
+                reason=str(err),
+                hostaddr=host_kwargs.get("hostaddr"),
+            )
+            raise PostgreSQLConnectionError(UNREACHABLE_HOST_MESSAGE) from err
+
+        return host_kwargs
 
     @contextlib.asynccontextmanager
     async def _ensure_ssl_root_cert_file(self):
@@ -792,7 +841,7 @@ def get_postgres_fields_from_record_schema(
             pg_type = "TEXT[]"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise ColumnTypeMappingError("PostgreSQL", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
@@ -888,10 +937,11 @@ def _get_table_fields(
         # A retry can consume files staged before a new default column was added.
         return [field for field in table_fields if field[0] in record_batch_schema.names]
     else:
-        return get_postgres_fields_from_record_schema(
-            record_batch_schema,
-            known_json_columns=["properties", "set", "set_once", "person_properties"],
-        )
+        with handle_column_type_mapping_errors(model):
+            return get_postgres_fields_from_record_schema(
+                record_batch_schema,
+                known_json_columns=["properties", "set", "set_once", "person_properties"],
+            )
 
 
 class PostgreSQLIntegrationNotFoundError(Exception):
@@ -908,8 +958,8 @@ async def _get_postgresql_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.postgresql.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise PostgreSQLIntegrationNotFoundError(f"PostgreSQL integration with id '{inputs.integration_id}' not found")
     return PostgreSQLIntegration(integration)
 
@@ -937,7 +987,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -951,6 +1001,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

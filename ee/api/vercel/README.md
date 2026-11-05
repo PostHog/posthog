@@ -101,9 +101,9 @@ Vercel marketplace integrations have two separate flows:
 When a user clicks "Link Existing Account" in the Vercel Marketplace:
 
 1. Vercel opens a popup to our **Redirect URL** (`/connect/vercel/callback`) with an OAuth code
-2. The Marketplace request has no `state`, so PostHog sends the popup to Vercel's external install page (`https://vercel.com/integrations/{VERCEL_INTEGRATION_SLUG}/new`) with a random `state`, and stores the same value in a host-only `__Host-` cookie. PostHog keeps the Marketplace's `next` link for the return, and a browser holds at most a few pending `state` cookies
-3. Vercel returns to the Redirect URL with `source=external`, a new code, and the same `state`. PostHog rejects the request when the browser has no matching cookie, or when the request has no `state`
-4. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
+2. The Marketplace request has no `state`. PostHog exchanges the Marketplace code for an access token via `POST /v2/oauth/access_token` and keeps that grant, encrypted, in the cache for 10 minutes. The resource import must use this grant, because Vercel waits for the import on the Marketplace installation
+3. PostHog sends the popup to Vercel's external install page (`https://vercel.com/integrations/{VERCEL_INTEGRATION_SLUG}/new`) with a random `state`, and stores the same value in a host-only `__Host-` cookie. PostHog keeps the Marketplace's `next` link for the return, and a browser holds at most a few pending `state` cookies
+4. Vercel returns to the Redirect URL with `source=external`, a new code, and the same `state`. PostHog rejects the request when the browser has no matching cookie, or when the request has no `state`. PostHog exchanges the new code only to confirm that it belongs to the same Vercel user as the Marketplace code, and the link session carries the Marketplace grant
 5. If the user isn't logged in, they're redirected to `/login` first
 6. The user selects which PostHog organization to link
 7. An `OrganizationIntegration` record is created with `type=connectable`

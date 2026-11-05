@@ -29,6 +29,7 @@ from products.review_hog.backend.reviewer.constants import effective_priority, p
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 
 FINDING_BUDGET = 20
+ROUND_CAP = 3
 
 BudgetArm = Literal["budget", "control"]
 
@@ -76,6 +77,39 @@ class FindingBudget:
         if self.arm == "control":
             return None
         return max(FINDING_BUDGET - self.posted_before, 0)
+
+
+@frozen
+class ReviewRound:
+    """Which review round a turn is on its pull request: the turns that published before it, plus one.
+
+    A round is a turn that posted to GitHub, by any mode and trigger, the same count the finding budget
+    uses. A turn that kept nothing is not a round, so a clean turn repeats the number of the next one.
+    """
+
+    number: int
+
+    @classmethod
+    def for_turn(cls, report: ReviewReport, *, run_index: int) -> "ReviewRound":
+        published_before = sum(1 for index in (report.published_head_shas or {}) if int(index) < run_index)
+        return cls(number=published_before + 1)
+
+    @property
+    def asks_for_a_rethink(self) -> bool:
+        return self.number >= ROUND_CAP
+
+
+def round_note(review_round: ReviewRound) -> str:
+    """The line a review ends with from round `ROUND_CAP` on, so the author reconsiders the approach.
+
+    An author and a reviewer that fix and re-review one finding at a time can loop for a long time, and most
+    of what a late round flags was already there in the first one.
+    """
+    return (
+        f"This is review round {review_round.number} on this pull request. When findings keep coming back in the "
+        "same code, the approach is usually the problem. Before the next fix, check whether a different design "
+        "would remove the whole class of findings."
+    )
 
 
 def _posted_count(report: ReviewReport, findings: Sequence[tuple[ReviewIssueFinding, ValidationVerdict | None]]) -> int:

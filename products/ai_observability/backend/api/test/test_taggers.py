@@ -63,6 +63,11 @@ class TestTaggersApi(APIBaseTest):
         feature_flag_patch.start()
         self.addCleanup(feature_flag_patch.stop)
 
+    def _create_tagger(self) -> Tagger:
+        return Tagger.objects.create(
+            name="Feature Tagger", tagger_config=_make_tagger_config(), team=self.team, created_by=self.user
+        )
+
     def test_feature_flag_gates_the_api_server_side(self):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
             response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
@@ -74,58 +79,21 @@ class TestTaggersApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_can_create_tagger(self):
+    def test_create_is_not_allowed(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Feature Tagger",
-                "description": "Tags product features",
-                "enabled": True,
-                "tagger_config": _make_tagger_config(),
-                "conditions": [{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert Tagger.objects.count() == 1
-
-        tagger = Tagger.objects.first()
-        assert tagger is not None
-        assert tagger.name == "Feature Tagger"
-        assert tagger.description == "Tags product features"
-        assert tagger.enabled is True
-        assert tagger.tagger_config["prompt"] == "Which product features were discussed?"
-        assert len(tagger.tagger_config["tags"]) == 2
-        assert len(tagger.conditions) == 1
-        assert tagger.conditions[0]["id"] == "cond-1"
-        assert tagger.team == self.team
-        assert tagger.created_by == self.user
-        assert tagger.deleted is False
-
-    def test_create_cannot_soft_delete_tagger(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Feature Tagger",
-                "tagger_config": _make_tagger_config(),
-                "deleted": True,
-            },
+            {"name": "Feature Tagger", "tagger_config": _make_tagger_config()},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(
-            "This field cannot be set when creating a tagger.",
-            attr="deleted",
-        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
         assert Tagger.objects.count() == 0
 
-    def test_create_rejects_read_only_provider_key_name(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
+    def test_update_rejects_read_only_provider_key_name(self):
+        tagger = self._create_tagger()
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
             {
-                "name": "Feature Tagger",
-                "tagger_config": _make_tagger_config(),
                 "model_configuration": {
                     "provider": LLMProvider.OPENAI,
                     "model": "gpt-4o",
@@ -140,7 +108,6 @@ class TestTaggersApi(APIBaseTest):
             "This field is read-only.",
             attr="model_configuration__provider_key_name",
         )
-        assert Tagger.objects.count() == 0
 
     def test_can_retrieve_list_of_taggers(self):
         Tagger.objects.create(
@@ -242,6 +209,22 @@ class TestTaggersApi(APIBaseTest):
         assert tagger.description == "Updated desc"
         assert tagger.enabled is False
         assert tagger.tagger_config["prompt"] == "Updated prompt"
+
+    @parameterized.expand(
+        [("switched_off", False, status.HTTP_400_BAD_REQUEST), ("switched_on", True, status.HTTP_200_OK)]
+    )
+    def test_enabling_a_tagger(self, _name: str, currently_enabled: bool, expected_status: int):
+        tagger = self._create_tagger()
+        tagger.enabled = currently_enabled
+        tagger.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/", {"enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        tagger.refresh_from_db()
+        assert tagger.enabled is currently_enabled
 
     def test_delete_method_returns_405(self):
         tagger = Tagger.objects.create(
@@ -347,26 +330,6 @@ class TestTaggersApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) == 0
 
-    def test_validation_requires_name(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "tagger_config": _make_tagger_config(),
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_validation_requires_tagger_config(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Test",
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     @parameterized.expand(
         [
             ("empty_tags", {"tags": []}),
@@ -384,30 +347,25 @@ class TestTaggersApi(APIBaseTest):
         ]
     )
     def test_validation_rejects_invalid_tagger_config(self, _name: str, config_overrides: dict):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Test",
-                "tagger_config": _make_tagger_config(**config_overrides),
-            },
+        tagger = self._create_tagger()
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
+            {"tagger_config": _make_tagger_config(**config_overrides)},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("fractional", 33.3), ("slider_minimum", 0.1), ("whole", 50)])
     def test_can_save_fractional_rollout_percentage(self, _name: str, rollout_percentage: float):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Feature Tagger",
-                "tagger_config": _make_tagger_config(),
-                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
-            },
+        tagger = self._create_tagger()
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
+            {"conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}]},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        tagger = Tagger.objects.get(id=response.data["id"])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        tagger.refresh_from_db()
         assert tagger.conditions[0]["rollout_percentage"] == rollout_percentage
 
     def test_patch_tagger_type_without_fresh_config_is_rejected(self):
@@ -465,19 +423,11 @@ class TestTaggersAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def test_no_access_user_cannot_list_or_create_taggers(self):
+    def test_no_access_user_cannot_list_taggers(self):
         self.client.force_login(self.no_access_user)
 
         list_response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
         assert list_response.status_code == status.HTTP_403_FORBIDDEN
-
-        create_response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {"name": "Blocked Tagger", "tagger_config": _make_tagger_config()},
-            format="json",
-        )
-        assert create_response.status_code == status.HTTP_403_FORBIDDEN
-        assert Tagger.objects.count() == 0
 
     def test_viewer_user_can_read_but_not_write_taggers(self):
         tagger = Tagger.objects.create(
@@ -495,14 +445,6 @@ class TestTaggersAccessControl(APIBaseTest):
         retrieve_response = self.client.get(f"/api/environments/{self.team.id}/taggers/{tagger.id}/")
         assert retrieve_response.status_code == status.HTTP_200_OK
 
-        create_response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {"name": "New Tagger", "tagger_config": _make_tagger_config()},
-            format="json",
-        )
-        assert create_response.status_code == status.HTTP_403_FORBIDDEN
-        assert Tagger.objects.count() == 1
-
         edit_response = self.client.patch(
             f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
             {"name": "Renamed by viewer"},
@@ -512,16 +454,11 @@ class TestTaggersAccessControl(APIBaseTest):
         tagger.refresh_from_db()
         assert tagger.name == "Existing Tagger"
 
-    def test_editor_user_can_create_and_edit_taggers(self):
+    def test_editor_user_can_edit_taggers(self):
+        tagger_id = Tagger.objects.create(
+            name="Editor Tagger", tagger_config=_make_tagger_config(), team=self.team, created_by=self.user
+        ).id
         self.client.force_login(self.editor_user)
-
-        create_response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {"name": "Editor Tagger", "tagger_config": _make_tagger_config()},
-            format="json",
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED
-        tagger_id = create_response.data["id"]
 
         edit_response = self.client.patch(
             f"/api/environments/{self.team.id}/taggers/{tagger_id}/",

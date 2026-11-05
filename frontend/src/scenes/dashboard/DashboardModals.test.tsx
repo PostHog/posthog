@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -124,7 +124,6 @@ describe('DashboardModals', () => {
                     buttonTileId: null,
                     terraformModalOpen: false,
                     addWidgetModalOpen: false,
-                    dashboardWidgetsEnabled: false,
                     addWidgetTileLoading: false,
                 }
             }
@@ -152,7 +151,7 @@ describe('DashboardModals', () => {
     it.each([
         ['image', ImageTileModal, 'showImageTileModal'],
         ['button', ButtonTileCardModal, 'showButtonTileModal'],
-    ] as const)('closes a new %s modal without navigating', (_type, modal, visibleKey) => {
+    ] as const)('closes a new %s modal without navigating', async (_type, modal, visibleKey) => {
         mockedUseValues.mockImplementation((logic) =>
             logic === dashboardLogic
                 ? {
@@ -167,7 +166,6 @@ describe('DashboardModals', () => {
                       buttonTileId: null,
                       terraformModalOpen: false,
                       addWidgetModalOpen: false,
-                      dashboardWidgetsEnabled: false,
                       addWidgetTileLoading: false,
                       [visibleKey]: true,
                   }
@@ -175,6 +173,8 @@ describe('DashboardModals', () => {
         )
 
         render(<DashboardModals dashboard={{ id: 5, tiles: [] } as unknown as DashboardType} />)
+        // The image modal loads lazily.
+        await waitFor(() => expect(modal).toHaveBeenCalled())
         const modalProps = (modal as jest.Mock).mock.calls[0][0]
         modalProps.onClose()
 

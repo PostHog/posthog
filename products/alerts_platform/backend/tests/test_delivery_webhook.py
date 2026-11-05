@@ -90,6 +90,13 @@ class TestAlertmanagerBody(SimpleTestCase):
             ("resolved", AlertEventKind.RESOLVED, "resolved", "2026-09-30T09:00:00+00:00", "2026-09-30T10:00:00+00:00"),
             ("errored", AlertEventKind.ERRORED, "firing", "2026-09-30T10:00:00+00:00", "0001-01-01T00:00:00Z"),
             ("broken", AlertEventKind.BROKEN, "firing", "2026-09-30T10:00:00+00:00", "0001-01-01T00:00:00Z"),
+            (
+                "verdict_changed",
+                AlertEventKind.VERDICT_CHANGED,
+                "resolved",
+                "2026-09-30T09:00:00+00:00",
+                "2026-09-30T10:00:00+00:00",
+            ),
         ]
     )
     def test_each_kind_maps_onto_an_alertmanager_status(
@@ -127,6 +134,8 @@ class TestAlertmanagerBody(SimpleTestCase):
         assert fingerprint(AlertEventKind.FIRING) == fingerprint(AlertEventKind.RESOLVED)
         # A failed check sent as firing would otherwise be closed by the breach's resolve.
         assert fingerprint(AlertEventKind.ERRORED) != fingerprint(AlertEventKind.FIRING)
+        # A follow-up goes out ended, so on the breach's fingerprint it would close a firing that is still open.
+        assert fingerprint(AlertEventKind.VERDICT_CHANGED) != fingerprint(AlertEventKind.FIRING)
         assert fingerprint(AlertEventKind.FIRING, "search") != fingerprint(AlertEventKind.FIRING)
 
 
@@ -229,6 +238,7 @@ class TestWebhookThreads(APIBaseTest):
                 configuration_id=str(self.configuration.id),
                 evaluation_key=evaluation_key,
                 target=TARGET,
+                destination_id="destination-1",
                 announcement=announcement,
             )
         return adapter

@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonBanner, LemonTabs, LemonButton, Link, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import IconGoogleCloud from 'public/services/google-cloud.png'
@@ -18,6 +19,7 @@ export const GoogleCloudServiceAccountSetupModal = (
 ): JSX.Element => {
     const logic = googleCloudServiceAccountSetupModalLogic(props)
     const { currentOrganization } = useValues(organizationLogic)
+    const { isCloud } = useValues(preflightLogic)
     const { serviceAccountMode, isGoogleCloudServiceAccountIntegrationSubmitting } = useValues(logic)
     const { setServiceAccountMode, submitGoogleCloudServiceAccountIntegration } = useActions(logic)
 
@@ -102,14 +104,45 @@ export const GoogleCloudServiceAccountSetupModal = (
                                         2
                                     </span>
                                     <p className="m-0 text-secondary">
-                                        Assign PostHog's service account:{' '}
-                                        <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code> as a
-                                        principal with access to your service account with the role{' '}
+                                        {isCloud ? (
+                                            <>
+                                                Assign PostHog's service account:{' '}
+                                                <code>
+                                                    posthog-batch-exports@posthog-external.iam.gserviceaccount.com
+                                                </code>
+                                            </>
+                                        ) : (
+                                            <span>Assign the service account configured for your instance</span>
+                                        )}{' '}
+                                        as a principal with access to your service account with the role{' '}
                                         <code>roles/iam.serviceAccountTokenCreator</code> to allow impersonation, and
                                         any role containing <code>iam.serviceAccounts.get</code> permission to allow us
                                         to verify ownership.
                                     </p>
                                 </div>
+                                {isCloud !== undefined && (
+                                    <LemonBanner type="info">
+                                        <div className="flex flex-col gap-2">
+                                            {isCloud ? (
+                                                <>
+                                                    <p className="m-0">
+                                                        If your Google Cloud organization restricts access to external
+                                                        identities, you may need an exception to grant PostHog access.
+                                                        PostHog's organization principal set is:
+                                                    </p>
+                                                    <code className="break-all" translate="no">
+                                                        is:principalSet://cloudresourcemanager.googleapis.com/organizations/777310081778
+                                                    </code>
+                                                </>
+                                            ) : (
+                                                <p className="m-0">
+                                                    For hobby or local instances, use the Google Cloud organization ID
+                                                    and service account configured for your instance.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </LemonBanner>
+                                )}
                             </div>
                         </>
                     )}

@@ -23,8 +23,10 @@ export const AutoresearchListParams = () => zod.object({
         ),
 })
 
+export const autoresearchListQueryLimitMax = 1000
+
 export const AutoresearchListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(autoresearchListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -57,6 +59,10 @@ export const autoresearchCreateBodyCadenceDaysMax = 365
 export const autoresearchCreateBodyIterationBudgetMax = 500
 
 export const autoresearchCreateBodyIterationsPerRunMax = 50
+
+export const autoresearchCreateBodyAgentModelMax = 100
+
+export const autoresearchCreateBodyAgentReasoningEffortMax = 20
 
 export const autoresearchCreateBodySuccessAucMin = 0
 export const autoresearchCreateBodySuccessAucMax = 1
@@ -148,6 +154,20 @@ export const AutoresearchCreateBody = () => zod.object({
         .describe(
             'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
         ),
+    agent_model: zod
+        .string()
+        .max(autoresearchCreateBodyAgentModelMax)
+        .nullish()
+        .describe(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    agent_reasoning_effort: zod
+        .string()
+        .max(autoresearchCreateBodyAgentReasoningEffortMax)
+        .nullish()
+        .describe(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run."
+        ),
     success_auc: zod
         .number()
         .min(autoresearchCreateBodySuccessAucMin)
@@ -191,8 +211,14 @@ export const AutoresearchModelsListParams = () => zod.object({
         ),
 })
 
+export const autoresearchModelsListQueryLimitMax = 1000
+
 export const AutoresearchModelsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(autoresearchModelsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -225,8 +251,14 @@ export const AutoresearchRunsListParams = () => zod.object({
         ),
 })
 
+export const autoresearchRunsListQueryLimitMax = 1000
+
 export const AutoresearchRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(autoresearchRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -243,8 +275,14 @@ export const AutoresearchSuggestionsListParams = () => zod.object({
         ),
 })
 
+export const autoresearchSuggestionsListQueryLimitMax = 1000
+
 export const AutoresearchSuggestionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(autoresearchSuggestionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -330,8 +368,14 @@ export const AutoresearchTrainingRunsListParams = () => zod.object({
         ),
 })
 
+export const autoresearchTrainingRunsListQueryLimitMax = 1000
+
 export const AutoresearchTrainingRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(autoresearchTrainingRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -776,6 +820,10 @@ export const autoresearchPartialUpdateBodyIterationBudgetMax = 500
 
 export const autoresearchPartialUpdateBodyIterationsPerRunMax = 50
 
+export const autoresearchPartialUpdateBodyAgentModelMax = 100
+
+export const autoresearchPartialUpdateBodyAgentReasoningEffortMax = 20
+
 export const autoresearchPartialUpdateBodySuccessAucMin = 0
 export const autoresearchPartialUpdateBodySuccessAucMax = 1
 
@@ -865,6 +913,20 @@ export const AutoresearchPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             'Days between scheduled research runs once the first burst of daily runs ends: 7, 14, 30, 60 or 90. Null means only when asked: no scheduled research, so the only training cost comes from runs you start and from rescue runs for a model that cannot score. A shorter interval costs more. Default: 7.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `60` - 60\n\* `90` - 90'
+        ),
+    agent_model: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyAgentModelMax)
+        .nullish()
+        .describe(
+            "Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it."
+        ),
+    agent_reasoning_effort: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyAgentReasoningEffortMax)
+        .nullish()
+        .describe(
+            "Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run."
         ),
     success_auc: zod
         .number()

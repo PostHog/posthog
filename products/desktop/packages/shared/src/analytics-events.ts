@@ -355,6 +355,10 @@ export interface DesktopAccessScreenShownProperties {
   reason: "startup_plan" | "prepaid_credits" | null;
 }
 
+export interface DesktopAccessLinkOpenedProperties {
+  link: "games";
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -1269,6 +1273,8 @@ type ChannelActionType =
   | "expand_channel"
   | "activity_unreads_toggle"
   | "activity_mark_all_read"
+  | "mark_task_read"
+  | "mark_task_unread"
   | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
@@ -1845,6 +1851,7 @@ export const ANALYTICS_EVENTS = {
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
   DESKTOP_ACCESS_SCREEN_SHOWN: "Desktop access screen shown",
+  DESKTOP_ACCESS_LINK_OPENED: "Desktop access link opened",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -2072,6 +2079,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
   [ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN]: DesktopAccessScreenShownProperties;
+  [ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED]: DesktopAccessLinkOpenedProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

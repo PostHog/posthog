@@ -14,11 +14,14 @@ from posthog.schema import TrendsQueryResponse
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.product_analytics.backend.facade.api import (
+    insight_short_ids_built_by,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    viewer_counts_by_insight,
 )
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -71,6 +74,27 @@ class TestRecordInsightView(BaseTest):
 
 
 class TestInsightReads(BaseTest):
+    @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+    def test_built_insights_are_recent_saved_ones_you_created_or_edited(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        since = now() - timedelta(days=28)
+        old = now() - timedelta(days=40)
+        rows: dict[str, tuple[dict[str, object], datetime]] = {
+            "created": ({"created_by": self.user}, now()),
+            "edited": ({"created_by": other, "last_modified_by": self.user}, now()),
+            "old": ({"created_by": self.user, "last_modified_by": self.user}, old),
+            "unsaved": ({"created_by": self.user, "saved": False}, now()),
+            "deleted": ({"created_by": self.user, "deleted": True}, now()),
+            "theirs": ({"created_by": other, "last_modified_by": other}, now()),
+        }
+        for short_id, (fields, at) in rows.items():
+            insight = Insight.objects.create(team=self.team, short_id=short_id, **fields)
+            Insight.objects_including_soft_deleted.filter(id=insight.id).update(created_at=at, last_modified_at=at)
+
+        found = insight_short_ids_built_by(team=self.team, user_id=self.user.id, since=since, limit=10)
+
+        assert sorted(found) == ["created", "edited"]
+
     def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
         deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
         live_insight = Insight.objects.create(team=self.team, name="Live")
@@ -83,6 +107,31 @@ class TestInsightReads(BaseTest):
         )
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
+
+    def test_viewer_counts_count_recent_signed_in_viewers_of_the_team(self) -> None:
+        viewed = Insight.objects.create(team=self.team, name="Viewed")
+        unviewed = Insight.objects.create(team=self.team, name="Unviewed")
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+        recent = now() - timedelta(days=1)
+        for viewer in (self.user, self._create_user("second@example.com")):
+            InsightViewed.objects.create(team=self.team, user=viewer, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(
+            team=self.team,
+            user=self._create_user("old@example.com"),
+            insight=viewed,
+            last_viewed_at=now() - timedelta(days=40),
+        )
+        InsightViewed.objects.create(team=None, user=None, insight=viewed, last_viewed_at=recent)
+        InsightViewed.objects.create(team=other_team, user=self.user, insight=other_team_insight, last_viewed_at=recent)
+
+        counts = viewer_counts_by_insight(
+            team_id=self.team.pk,
+            insight_ids={viewed.pk, unviewed.pk, other_team_insight.pk},
+            since=now() - timedelta(days=30),
+        )
+
+        assert counts == {viewed.pk: 2}
 
 
 class TestRunCachedTrendsQuery(BaseTest):

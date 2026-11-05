@@ -110,7 +110,7 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
     return typeof value === 'number' ? [value] : []
 }
 
-// Persist logical column names so views do not depend on typed query references.
+// Persist column aliases so saved views do not depend on typed query references.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []

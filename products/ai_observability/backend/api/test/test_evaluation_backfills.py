@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,7 +27,6 @@ from posthog.rate_limit import (
     AIObservabilityBackfillEstimateSustainedThrottle,
     AIObservabilityBackfillEstimateThrottle,
 )
-from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluation_backfills import (
@@ -168,9 +168,13 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
+    @parameterized.expand([("enabled", True), ("disabled_draft", False)])
     @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42, already_judged=8))
-    def test_estimate_counts_without_creating_a_row(self, _count, capture):
+    def test_estimate_counts_without_creating_a_row(self, _case, enabled, _count, capture):
+        self.evaluation.enabled = enabled
+        self.evaluation.save()
+
         response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -372,22 +376,31 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.RUNNING
 
-    @parameterized.expand(["start_after_end", "entirely_in_future"])
-    def test_create_rejects_bad_windows(self, case):
+    @parameterized.expand(["start_after_end", "entirely_in_future", "expired_retention_day"])
+    @time_machine.travel("2024-03-01T12:00:00Z", tick=False)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
+    @patch(f"{API_MODULE}.sync_connect")
+    def test_create_rejects_bad_windows(self, case: str, connect: MagicMock, _count: MagicMock) -> None:
+        connect.return_value = _temporal_client()
         now = timezone.now()
         windows = {
             "start_after_end": (now, now - timedelta(days=1)),
             "entirely_in_future": (now + timedelta(days=1), now + timedelta(days=2)),
+            "expired_retention_day": (
+                datetime.fromisoformat("2024-01-31T18:00:00+00:00"),
+                datetime.fromisoformat("2024-02-01T00:00:00+00:00"),
+            ),
         }
         window_start, window_end = windows[case]
 
-        response = self.client.post(
-            f"{self.url}/",
-            {"window_start": window_start.isoformat(), "window_end": window_end.isoformat()},
-            format="json",
-        )
+        for path in (f"{self.url}/estimate/", f"{self.url}/"):
+            response = self.client.post(
+                path,
+                {"window_start": window_start.isoformat(), "window_end": window_end.isoformat()},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["evaluation_has_no_conditions", "explicit_empty_list"])
@@ -405,28 +418,36 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             assert "at least one condition set" in response.json()["detail"]
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
+    @parameterized.expand(
+        [
+            ("2024-02-29T23:59:59Z", "2023-12-01T00:00:00+00:00", "2024-01-31T00:00:00+00:00"),
+            ("2024-03-01T00:00:00Z", "2023-12-01T00:00:00+00:00", "2024-02-01T00:00:00+00:00"),
+            ("2024-03-01T12:00:00Z", "2023-12-01T00:00:00+00:00", "2024-02-01T00:00:00+00:00"),
+            ("2024-03-01T12:00:00Z", "2024-02-15T07:30:00+05:30", "2024-02-15T02:00:00+00:00"),
+        ]
+    )
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_clamps_a_window_wider_than_retention(self, connect, _count):
+    def test_clamps_a_window_to_ai_events_retention(
+        self, now_iso: str, requested_start: str, retained_start: str, connect: MagicMock, _count: MagicMock
+    ) -> None:
         connect.return_value = _temporal_client()
-        now = timezone.now()
-        body = _body(
-            window_start=(now - timedelta(days=90)).isoformat(),
-            window_end=(now + timedelta(days=1)).isoformat(),
-        )
+        with time_machine.travel(now_iso, tick=False):
+            now = timezone.now()
+            body = _body(window_start=requested_start, window_end=(now + timedelta(days=1)).isoformat())
 
-        estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
-        assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        expected_end = now - BACKFILL_AI_EVENTS_LAG
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
-        expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
-        assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
+            estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
+            assert estimate.status_code == status.HTTP_200_OK, estimate.json()
+            expected_end = now - BACKFILL_AI_EVENTS_LAG
+            expected_start = datetime.fromisoformat(retained_start)
+            assert datetime.fromisoformat(estimate.json()["window_end"]) == expected_end
+            assert datetime.fromisoformat(estimate.json()["window_start"]) == expected_start
 
-        created = self.client.post(f"{self.url}/", body, format="json")
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
-        assert abs(row.window_end - expected_end) < timedelta(seconds=5)
-        assert abs(row.window_start - expected_start) < timedelta(seconds=5)
+            created = self.client.post(f"{self.url}/", body, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
+            assert row.window_end == expected_end
+            assert row.window_start == expected_start
 
     @parameterized.expand(
         [
@@ -559,14 +580,12 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @parameterized.expand(["create", "estimate"])
     @patch(CAPTURE)
-    def test_a_disabled_evaluation_cannot_be_backfilled(self, case, capture):
+    def test_a_disabled_evaluation_cannot_be_backfilled(self, capture):
         self.evaluation.enabled = False
         self.evaluation.save()
-        path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
 
-        response = self.client.post(path, _body(), format="json")
+        response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "Enable the evaluation before backfilling it."

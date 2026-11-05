@@ -36,6 +36,11 @@ from products.slack_app.backend.temporal.activities.rules import (
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
 )
+from products.slack_app.backend.temporal.activities.slack_app_onboarding import (
+    edit_slack_app_onboarding_message_activity,
+    plan_slack_app_onboarding_activity,
+    post_slack_app_onboarding_message_activity,
+)
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
     derive_mention_workflow_id,
@@ -46,6 +51,10 @@ from products.slack_app.backend.temporal.activities.thread import collect_postho
 from products.slack_app.backend.temporal.activities.unfurl_charts import (
     post_slack_unfurl_charts_activity,
     prepare_slack_unfurl_charts_activity,
+)
+from products.slack_app.backend.temporal.activities.untagged_question import (
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
 )
 from products.slack_app.backend.temporal.activities.user_resolution import (
     resolve_posthog_code_slack_command_user_activity,
@@ -64,7 +73,9 @@ __all__ = [
     "classify_slack_app_project_route",
     "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
+    "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
+    "request_untagged_question_confirmation_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",
     "create_posthog_code_task_for_repo_activity",
@@ -85,6 +96,9 @@ __all__ = [
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding",
+    "edit_slack_app_onboarding_message_activity",
+    "plan_slack_app_onboarding_activity",
+    "post_slack_app_onboarding_message_activity",
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",

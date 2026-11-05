@@ -17,6 +17,7 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
 )
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.execute import sync_execute, validated_client_query_id
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
@@ -182,6 +183,7 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
                 mock.return_value.run.side_effect = ConcurrencyLimitExceeded("internal limiter detail")
                 throttled = self.client.post(url, payload, format="json")
                 self.assertEqual(throttled.status_code, 429)
+                self.assertEqual(throttled["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
                 self.assertNotIn("internal limiter detail", throttled.json()["detail"])
 
     def test_campaign_mapping_and_missing_row(self) -> None:

@@ -158,7 +158,7 @@ class TestWebhookView(SimpleTestCase):
         self.addCleanup(patcher.stop)
 
     def _github_view(self):
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET):
             provider = build_github_provider("posthog")
         return build_webhook_view(provider)
 
@@ -171,7 +171,7 @@ class TestWebhookView(SimpleTestCase):
         )
 
     def test_a_non_post_is_refused_before_any_verification(self) -> None:
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET) as secret:
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET) as secret:
             response = self._github_view()(self.factory.get("/webhooks/github/"))
         self.assertEqual(response.status_code, 405)
         secret.assert_not_called()
@@ -190,7 +190,7 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
 
         with (
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET) as secret,
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET) as secret,
             patch.object(_StubThrottle, "wait_seconds", wait_seconds),
             patch("posthog.ingress.views.observe_delivery") as observe,
         ):
@@ -217,7 +217,7 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
 
         with (
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET),
             patch.object(_StubThrottle, "allowed", True),
         ):
             response = build_webhook_view(_ThrottledGitHubProvider("posthog"))(request)
@@ -229,7 +229,7 @@ class TestWebhookView(SimpleTestCase):
         body = json.dumps({"action": "opened"}).encode()
         request = self._post(body, {"X-Hub-Signature-256": "sha256=" + "0" * 64, "X-GitHub-Event": "pull_request"})
 
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET):
             response = self._github_view()(request)
 
         self.assertEqual(response.status_code, 403)
@@ -262,7 +262,7 @@ class TestWebhookView(SimpleTestCase):
         body = b"{not json"
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET):
             with structlog.testing.capture_logs() as logs:
                 response = self._github_view()(request)
 
@@ -285,7 +285,7 @@ class TestWebhookView(SimpleTestCase):
             },
         )
 
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET):
             response = self._github_view()(request)
 
         self.assertEqual(response.status_code, 202)
@@ -324,7 +324,7 @@ class TestWebhookView(SimpleTestCase):
         body = json.dumps({"action": "opened"}).encode()
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=""):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=""):
             with structlog.testing.capture_logs() as logs:
                 response = build_webhook_view(build_github_provider("posthog"))(request)
 
@@ -360,7 +360,7 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with (
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=""),
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=""),
             patch("posthog.ingress.views.capture_exception") as capture,
         ):
             response = build_webhook_view(provider_class("posthog"))(request)
@@ -401,7 +401,7 @@ class TestWebhookView(SimpleTestCase):
             headers={"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "pull_request"},
         )
 
-        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET):
             response = build_webhook_view(_FormBodyGitHubProvider("posthog"))(request)
 
         self.assertEqual(response.status_code, 202)
@@ -427,7 +427,7 @@ class TestWebhookView(SimpleTestCase):
 
         with (
             patch(
-                "posthog.ingress.github.provider.get_instance_setting",
+                "posthog.credentials_service.instance_settings.get_instance_setting",
                 side_effect=OperationalError("server closed the connection unexpectedly"),
             ),
             patch("posthog.ingress.views.observe_delivery") as observe,
@@ -443,7 +443,7 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with (
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET),
             patch("posthog.ingress.views.logger") as logger,
         ):
             response = build_webhook_view(_RefusingDeliveriesGitHubProvider("posthog"))(request)
@@ -536,7 +536,7 @@ class _DispatchingViewTestCase(SimpleTestCase):
         self.factory = RequestFactory()
         self.handler = Mock()
 
-        secret = patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET)
+        secret = patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=SECRET)
         secret.start()
         self.addCleanup(secret.stop)
 

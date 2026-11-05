@@ -289,6 +289,8 @@ describe('performance-event-utils', () => {
         ['rrweb/network@1 with null payload', { plugin: 'rrweb/network@1', payload: null }],
         ['posthog/network@1 with missing payload', { plugin: 'posthog/network@1' }],
         ['posthog/network@1 with null payload', { plugin: 'posthog/network@1', payload: null }],
+        ['plugin snapshot with missing data', undefined],
+        ['plugin snapshot with null data', null],
     ])('does not crash when network snapshot has no usable payload (%s)', (_name, snapshotData) => {
         const snapshot = {
             windowId: '018d5247-079c-7126-8e43-464605576a62',

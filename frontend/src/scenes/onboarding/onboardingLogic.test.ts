@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -38,6 +39,7 @@ describe('onboardingLogic — flow composition', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     /** Convenience: list step ids for the active flow. */
@@ -554,6 +556,15 @@ describe('onboardingLogic — flow composition', () => {
                 router.actions.push('/onboarding/web_analytics?with=logs,product_analytics')
             }).toDispatchActions(['setSecondaryProductKeys'])
             expect(logic.values.secondaryProductKeys).toEqual([ProductKey.LOGS, ProductKey.PRODUCT_ANALYTICS])
+
+            logic.actions.setStepId(`${OnboardingStepKey.INSTALL}:${ProductKey.LOGS}`)
+            expect(logic.values.installStepReturnUrl).toBe(
+                urls.onboarding({
+                    productKey: ProductKey.WEB_ANALYTICS,
+                    step: `${OnboardingStepKey.INSTALL}:${ProductKey.LOGS}`,
+                    withProducts: [ProductKey.LOGS, ProductKey.PRODUCT_ANALYTICS],
+                })
+            )
         })
 
         it('filters the primary product out of ?with= (avoids self-secondary)', async () => {
@@ -643,35 +654,19 @@ describe('onboardingLogic — flow composition', () => {
     })
 
     describe('completion redirect URL', () => {
-        // Each entry: [primary, expected redirect path-substring].
-        // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
-        // the original central switch.
-        const cases: Array<[ProductKey, RegExp]> = [
-            [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
-            [ProductKey.WEB_ANALYTICS, /web/i],
-            [ProductKey.SESSION_REPLAY, /replay/i],
-            [ProductKey.FEATURE_FLAGS, /feature_flag/i],
-            [ProductKey.SURVEYS, /survey/i],
-            [ProductKey.ERROR_TRACKING, /error-tracking/i],
-            [ProductKey.AI_OBSERVABILITY, /ai-observability/i],
-            [ProductKey.WORKFLOWS, /workflow/i],
-            [ProductKey.LOGS, /log/i],
-            [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
-            [ProductKey.CONVERSATIONS, /support/i],
-        ]
+        // Post-onboarding landing is one central decision, not per-product. In the default flow
+        // every product goes home, so the product the user onboarded must not change the target.
+        // The simplified-onboarding welcome page is the only other destination, covered under
+        // 'flow variants'.
+        it.each([ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.EXPERIMENTS])(
+            '%s lands on the homepage in the default flow',
+            (product) => {
+                logic.actions.setProductKey(product)
+                expect(logic.values.onCompleteOnboardingRedirectUrl).toBe(urls.projectHomepage())
+            }
+        )
 
-        it.each(cases)('%s lands on a product-specific page', (product, pattern) => {
-            logic.actions.setProductKey(product)
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
-        })
-
-        it('experiments falls through to urls.default()', () => {
-            logic.actions.setProductKey(ProductKey.EXPERIMENTS)
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-        })
-
-        it('redirect override takes precedence over the per-product URL', () => {
+        it('redirect override takes precedence over the homepage', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
             logic.actions.setOnCompleteOnboardingRedirectUrl('/custom-target')
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/custom-target')
@@ -684,13 +679,13 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.updateCurrentTeamSuccess(completed as any, completed as any)
         }
 
-        it('redirects to the product once onboarding completes', async () => {
+        it('redirects home once onboarding completes', async () => {
             router.actions.push(urls.default())
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
             await expectLogic(logic, () => {
                 completeProduct()
             }).toFinishAllListeners()
-            expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.projectHomepage())
         })
     })
 

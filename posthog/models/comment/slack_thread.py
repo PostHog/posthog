@@ -1,6 +1,6 @@
 from django.db import models, transaction
 
-from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, Comment
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES, Comment
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
@@ -74,7 +74,11 @@ def mirror_comment_reply_to_slack_on_create(sender, instance: Comment, created: 
     """
     if not created or not instance.source_comment_id:
         return
-    if instance.scope == "conversations_ticket" or instance.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+    if (
+        instance.scope == "conversations_ticket"
+        or instance.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
+        or instance.scope in OBSERVATION_COMMENT_SCOPES
+    ):
         return
     item_context = instance.item_context
     if isinstance(item_context, dict) and (item_context.get("from_slack") or item_context.get("is_emoji")):

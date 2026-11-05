@@ -1,7 +1,13 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Alerts',
+    activityDescribers: {
+        [ActivityScope.ALERT_CONFIGURATION]: () =>
+            import('./frontend/components/activityDescriptions').then(
+                (module) => module.alertConfigurationActivityDescriber
+            ),
+    },
     scenes: {
         Alerts: {
             import: () => import('./frontend/AlertsScene'),

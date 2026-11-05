@@ -18,10 +18,12 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PageLinksSerializer, page_link
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -42,6 +44,12 @@ from products.ai_observability.backend.score_definition_configs import ScoreDefi
 
 
 class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
+    short_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Optional compact label for table headers and other compact views."
+    )
+    updated_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who last updated the scorer or created a version."
+    )
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -68,6 +76,7 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
         fields = [
             "id",
             "name",
+            "short_name",
             "description",
             "tags",
             "kind",
@@ -78,6 +87,7 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
             "created_by",
             "created_at",
             "updated_at",
+            "updated_by",
             "team",
         ]
         read_only_fields = fields
@@ -101,7 +111,7 @@ class ScoreDefinitionVersionSerializer(serializers.ModelSerializer):
 
 
 @extend_schema_serializer(many=False)
-class ScoreDefinitionVersionPageSerializer(serializers.Serializer):
+class ScoreDefinitionVersionPageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total immutable versions for this scorer.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null on the last page.")
     results = ScoreDefinitionVersionSerializer(many=True, help_text="Versions on this page, newest first.")
@@ -117,7 +127,7 @@ class ScoreDefinitionVersionQuerySerializer(StrictQuerySerializer):
         try:
             version, version_id = decode_cursor(value, 2)
             number = int(version)
-            if not 1 <= number <= 2147483647:
+            if not 1 <= number <= INTEGER_FIELD_MAX:
                 raise ValueError
             return number, UUID(version_id)
         except ValueError as error:
@@ -143,6 +153,9 @@ def _score_definition_version_page(
 
 class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, help_text="Human-readable scorer name.")
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Optional compact label. Blank uses the full name."
+    )
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -174,6 +187,9 @@ class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
 
 class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Updated scorer name.")
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Updated compact label. Blank uses the full name."
+    )
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -193,6 +209,9 @@ class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Updated compact label, saved with this version."
+    )
     name = serializers.CharField(
         max_length=255, required=False, help_text="Updated scorer name, saved with this version."
     )
@@ -221,9 +240,10 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
+    created_by = django_filters.NumberFilter(field_name="created_by_id", help_text="Filter by the creator's user ID.")
     search = django_filters.CharFilter(
         method="filter_search",
-        help_text="Search scorers by name or description.",
+        help_text="Search scorers by name, short name, or description.",
     )
     kind = django_filters.ChoiceFilter(
         field_name="kind",
@@ -251,7 +271,9 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
 
     def filter_search(self, queryset: QuerySet, _name: str, value: str) -> QuerySet:
         if value:
-            return queryset.filter(Q(name__icontains=value) | Q(description__icontains=value))
+            return queryset.filter(
+                Q(name__icontains=value) | Q(short_name__icontains=value) | Q(description__icontains=value)
+            )
         return queryset
 
 
@@ -277,7 +299,9 @@ class ScoreDefinitionViewSet(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
         queryset = (
-            queryset.filter(team_id=self.team_id).select_related("current_version", "created_by").order_by("name", "id")
+            queryset.filter(team_id=self.team_id)
+            .select_related("current_version", "created_by", "updated_by")
+            .order_by("name", "id")
         )
 
         # List defaults to active scorers to mirror the UI; non-boolean `?archived=` values keep that default.
@@ -347,7 +371,10 @@ class ScoreDefinitionViewSet(
         if not changed_fields:
             return
 
-        definition.save(update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at"])
+        definition.updated_by = cast(User, self.request.user)
+        definition.save(
+            update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at", "updated_by"]
+        )
         event_properties: dict[str, str | bool | int | list[str]] = {
             **self._event_properties(definition),
             "changed_fields": changed_fields,
@@ -377,7 +404,12 @@ class ScoreDefinitionViewSet(
         # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
         definition.refresh_from_db()
         self._update_definition_metadata(
-            definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
+            definition,
+            {
+                field: validated_data[field]
+                for field in ("name", "short_name", "description")
+                if field in validated_data
+            },
         )
         return definition
 
@@ -387,7 +419,7 @@ class ScoreDefinitionViewSet(
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Search scorers by name or description.",
+                description="Search scorers by name, short name, or description.",
                 examples=[OpenApiExample("Search scorer", value="quality")],
             ),
             OpenApiParameter(
@@ -449,7 +481,9 @@ class ScoreDefinitionViewSet(
     def versions(self, request: ValidatedRequest, **kwargs: object) -> Response:
         definition = self.get_object()
         page = _score_definition_version_page(definition, **request.validated_query_data)
-        return Response(ScoreDefinitionVersionPageSerializer(page).data)
+        data = ScoreDefinitionVersionPageSerializer(page).data
+        data["next"] = page_link(request, "cursor", page.next_cursor)
+        return Response(data)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,

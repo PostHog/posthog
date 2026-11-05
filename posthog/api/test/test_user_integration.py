@@ -16,6 +16,7 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 from structlog.testing import capture_logs
 
@@ -25,8 +26,9 @@ from posthog.api.github_callback.state import (
     parse_github_authorize_state_param,
     store_unified_authorize_state,
 )
-from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
+from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_oauth_authorize_url
 from posthog.api.user_integration import _has_unlinked_github_installations
+from posthog.credentials_service.callers import CredentialsCaller
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
@@ -1495,6 +1497,33 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         )
 
         self.assertEqual(mock_report.call_count, 0)
+
+
+class TestGithubOAuthAuthorizeUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("service_only", "", "service-id"),
+            ("service_overrides_settings", "old-id", "service-id"),
+            ("missing", "", ""),
+        ]
+    )
+    def test_client_id(self, _name: str, setting_value: str, service_value: str) -> None:
+        with (
+            self.settings(GITHUB_APP_CLIENT_ID=setting_value),
+            patch("posthog.api.github_callback.types.get_or_settings", return_value=service_value) as get_client_id,
+        ):
+            if service_value:
+                query = parse_qs(urlparse(github_oauth_authorize_url("test-state")).query)
+                assert query["client_id"] == [service_value]
+                assert query["state"] == ["test-state"]
+            else:
+                with self.assertRaises(ValidationError) as raised:
+                    github_oauth_authorize_url("test-state")
+                assert raised.exception.detail == [
+                    "GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing)."
+                ]
+
+        get_client_id.assert_called_once_with("GITHUB_APP_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
 
 
 class TestGithubUserFromCode(SimpleTestCase):

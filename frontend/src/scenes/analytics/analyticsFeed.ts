@@ -2,18 +2,33 @@ import api from 'lib/api'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import {
-    ANALYTICS_TYPES,
-    AnalyticsItem,
-    AnalyticsType,
-    AnalyticsTypeFilter,
-    fileSystemEntryToAnalytics,
-} from './analyticsUtils'
+import { ANALYTICS_TYPES, AnalyticsItem, AnalyticsType, fileSystemEntryToAnalytics } from './analyticsUtils'
 
-export const ANALYTICS_FEED_PAGE_SIZE = 50
+export const ANALYTICS_FEED_PAGE_SIZE = 20
+
+const ANALYTICS_ORDER_BYS = ['-created_at', 'created_at', '-last_viewed_at', 'last_viewed_at'] as const
+
+/** A column of the list, with a leading `-` for descending, as the file system API takes it. */
+export type AnalyticsOrderBy = (typeof ANALYTICS_ORDER_BYS)[number]
+
+export function isAnalyticsOrderBy(value: unknown): value is AnalyticsOrderBy {
+    return ANALYTICS_ORDER_BYS.includes(value as AnalyticsOrderBy)
+}
+
+export function parseAnalyticsOrderBy(orderBy: AnalyticsOrderBy): { id: string; desc: boolean } {
+    return { id: orderBy.replace('-', ''), desc: orderBy.startsWith('-') }
+}
+
+/** The order for a sorted column, or undefined for a column the list cannot sort on. */
+export function analyticsOrderByOfColumn({ id, desc }: { id: string; desc: boolean }): AnalyticsOrderBy | undefined {
+    const orderBy = `${desc ? '-' : ''}${id}`
+    return isAnalyticsOrderBy(orderBy) ? orderBy : undefined
+}
 
 export interface AnalyticsFeedQuery {
-    type: AnalyticsTypeFilter
+    /** The types to list; empty means every type. */
+    types: AnalyticsType[]
+    orderBy?: AnalyticsOrderBy
     search: string
     /** Creators' uuids; empty means anyone. The file system cannot filter on a uuid, so the rows are narrowed on the client. */
     createdBy: string[]
@@ -21,10 +36,12 @@ export interface AnalyticsFeedQuery {
     createdByMe: boolean
     /** Tag names a row must all carry. Like the creator, narrowed on the client. */
     tags: string[]
+    /** Leaves insights out of the list of every type. Picking the insight type still shows them. */
+    hideInsights?: boolean
 }
 
 export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
-    type: 'all',
+    types: [],
     search: '',
     createdBy: [],
     createdByMe: false,
@@ -65,12 +82,21 @@ export interface AnalyticsFeed {
 const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
 
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
-    const types = query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    const types = query.types.length
+        ? query.types
+        : ANALYTICS_TYPES.map((info) => info.type).filter((type) => !query.hideInsights || type !== 'insight')
     return query.tags.length ? types.filter((type) => TAGGABLE_ANALYTICS_TYPES.has(type)) : types
 }
 
 export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery, type: AnalyticsType): string {
-    return JSON.stringify([projectId, query.search.trim(), query.createdBy, [...query.tags].sort(), type])
+    return JSON.stringify([
+        projectId,
+        query.search.trim(),
+        query.createdBy,
+        [...query.tags].sort(),
+        type,
+        query.orderBy ?? '-created_at',
+    ])
 }
 
 /** Keeps the rows a source's API could not filter itself. */
@@ -86,7 +112,7 @@ export function fileSystemTypeParams(type: AnalyticsType): { type?: string; type
     return type === 'insight' ? { type__startswith: 'insight' } : { type }
 }
 
-/** One page of a type's rows from the project file system, newest first, with the row's space. */
+/** One page of a type's rows from the project file system, in the requested order, with the row's space. */
 export async function fetchAnalyticsSourcePage(
     _projectId: string,
     type: AnalyticsType,
@@ -99,21 +125,45 @@ export async function fetchAnalyticsSourcePage(
     const result = await api.fileSystem.list({
         ...fileSystemTypeParams(type),
         search: search || undefined,
-        orderBy: '-created_at',
+        orderBy: query.orderBy ?? '-created_at',
         includeTags: true,
         limit,
         offset,
     })
     const items = result.results.flatMap((entry: FileSystemEntry) => {
         const item = fileSystemEntryToAnalytics(entry, result.users ?? [])
-        return item && matchesAnalyticsQuery(item, query) ? [item] : []
+        if (!item || !matchesAnalyticsQuery(item, query)) {
+            return []
+        }
+        if (query.orderBy && parseAnalyticsOrderBy(query.orderBy).id === 'last_viewed_at') {
+            item.timestamp = entry.last_viewed_at ?? null
+        }
+        return [item]
     })
     return { items, fetched: result.results.length, hasMore: !!result.next && result.results.length > 0 }
 }
 
-export function analyticsTime(item: AnalyticsItem): number {
-    return item.timestamp ? new Date(item.timestamp).getTime() : 0
+export function analyticsTime(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery['orderBy']): number {
+    if (!item.timestamp) {
+        return -Infinity
+    }
+    const time = new Date(item.timestamp).getTime()
+    return orderBy && !parseAnalyticsOrderBy(orderBy).desc ? -time : time
 }
+
+function analyticsItemComesFirst(
+    first: AnalyticsItem,
+    second: AnalyticsItem,
+    orderBy?: AnalyticsFeedQuery['orderBy']
+): boolean {
+    const firstTime = analyticsTime(first, orderBy)
+    const secondTime = analyticsTime(second, orderBy)
+    if (firstTime !== secondTime) {
+        return firstTime > secondTime
+    }
+    return new Date(first.createdAt ?? 0).getTime() > new Date(second.createdAt ?? 0).getTime()
+}
+
 export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined)[]): {
     items: AnalyticsItem[]
     blocking: AnalyticsSourceState[]
@@ -135,8 +185,11 @@ export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined
             if (
                 positions[index] < states[index].items.length &&
                 (best === -1 ||
-                    analyticsTime(states[index].items[positions[index]]) >
-                        analyticsTime(states[best].items[positions[best]]))
+                    analyticsItemComesFirst(
+                        states[index].items[positions[index]],
+                        states[best].items[positions[best]],
+                        states[index].query?.orderBy
+                    ))
             ) {
                 best = index
             }
@@ -158,6 +211,7 @@ export function analyticsFeedFromSources(sources: (AnalyticsSourceState | undefi
         loading: sources.some((source) => !source || source.loading || source.refreshing),
         hasMore: blocking.length > 0,
         failedTypes: failed.map((source) => source.type),
-        loadFailed: initialized && failed.length === sources.length && items.length === 0,
+        // A tag filter on untaggable types leaves no sources at all, which is an empty list and not a failure.
+        loadFailed: initialized && sources.length > 0 && failed.length === sources.length && items.length === 0,
     }
 }

@@ -47,6 +47,8 @@ interface CommandBlockProps {
     /** Hide noise (`-y` flags, `@latest` version pins, `--project-id` targeting) from the
      *  displayed text to keep the block compact. The full `command` is still what gets copied. */
     condensed?: boolean
+    /** Show the command split over these lines, for a narrow column. The copy is still `command`. */
+    displayLines?: string[]
 }
 
 /** Strips display noise (`-y`, `@latest`, `--project-id=N`) from a command; copy the original, show this. */
@@ -67,12 +69,21 @@ export function CommandBlock({
     onCopy,
     silentCopy = false,
     condensed = false,
+    displayLines,
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
     const buttonRef = useRef<HTMLButtonElement>(null)
     const sizeStyle = SIZE_STYLES[size]
     const isStorybook = inStorybook() || inStorybookTestRunner()
-    const displayCommand = condensed ? condenseCommand(command) : command
+    const displayCommand = displayLines
+        ? displayLines.map((line) => (
+              <span key={line} className="block">
+                  {line}
+              </span>
+          ))
+        : condensed
+          ? condenseCommand(command)
+          : command
 
     const handleCopy = (): void => {
         void copyToClipboard(command, copyLabel, { silent: silentCopy })
@@ -100,10 +111,14 @@ export function CommandBlock({
             type="button"
             aria-label={ariaLabel}
         >
-            <IconTerminal className={cn(sizeStyle.icon, 'text-muted')} />
-            <span className="relative">
+            {/* A narrow column needs the width for the command more than for the terminal icon. */}
+            {!displayLines && <IconTerminal className={cn(sizeStyle.icon, 'text-muted')} />}
+            <span className={cn('relative', displayLines && 'min-w-0 [overflow-wrap:anywhere]')}>
                 <code
                     className={cn('!bg-transparent !p-0 !border-0 select-all', {
+                        // The rainbow gradient is clipped to the text of this element, which an inline
+                        // box cannot paint across block-level lines.
+                        'inline-block': !!displayLines,
                         'text-default': decoration === 'plain',
                         'rainbow-text': decoration === 'rainbow',
                         'rainbow-text-animating': decoration === 'rainbow' && !isStorybook,
@@ -114,7 +129,9 @@ export function CommandBlock({
                 {copyKey > 0 && (
                     <code
                         key={copyKey}
-                        className="CommandBlock__flash !bg-transparent !p-0 !border-0"
+                        className={cn('CommandBlock__flash !bg-transparent !p-0 !border-0', {
+                            'inline-block': !!displayLines,
+                        })}
                         aria-hidden="true"
                     >
                         {displayCommand}

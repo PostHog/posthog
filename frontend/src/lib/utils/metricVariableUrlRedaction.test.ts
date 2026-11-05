@@ -21,15 +21,19 @@ describe('redactMetricVariableUrl', () => {
             `https://us.posthog.com/login?next=${encodeURIComponent(`/dashboard/1?query_filters=${filters}`)}`,
             'https://us.posthog.com/login',
         ],
+        ['a BI selection', '/dashboard/1#bi_filter=%7B%22country%22%3A%22US%22%7D', '/dashboard/1'],
+        ['a BI redirect', '/login?next=%2Fdashboard%2F1%23bi_filter%3Dvalue', '/login'],
+        ['an autocaptured BI link', 'a:attr__href="/dashboard/1#bi_filter=value"', ''],
         ['a relative link', `/insights/abc?filters_override=${filters}`, '/insights/abc'],
         ['an element chain', `a:attr__href="/insights/abc?filters_override=${filters}"`, ''],
     ])('keeps only the path of %s', (_name, text, expected) => {
         expect(redactMetricVariableUrl(text)).toBe(expected)
     })
 
-    it('redacts every property of an event', () => {
-        const url = `https://us.posthog.com/dashboard/1?query_filters=${filters}`
-
+    it.each([
+        `https://us.posthog.com/dashboard/1?query_filters=${filters}`,
+        `https://us.posthog.com/dashboard/1#bi_filter=${encodeURIComponent(JSON.stringify({ record: { country: 'private_value' } }))}`,
+    ])('redacts every property of an event containing %s', (url) => {
         const event = redactMetricVariableUrls({
             event: '$pageview',
             properties: {

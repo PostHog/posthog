@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 from .schedule_helpers import schedule_client
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
-FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
 REPORT_USER_ACTION = "products.data_quality.backend.presentation.views.report_user_action"
 
 
@@ -63,9 +62,6 @@ class TestMetricCheckAPI(APIBaseTest):
         self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
         self.subject = {"subject_type": "metric", "subject_uuid": str(self.metric.id)}
         self.subject_query = f"subject_type=metric&subject_uuid={self.metric.id}"
-        flag = patch(FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def _create(self) -> dict:
         with self.captureOnCommitCallbacks(execute=True):
@@ -557,9 +553,6 @@ class TestMetricOutputSchemaAPI(ClickhouseTestMixin, APIBaseTest):
             },
             referenced_table_names=["events"],
         )
-        flag = patch(FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def test_returns_the_saved_metrics_output_columns_and_types(self) -> None:
         response = self.client.get(
@@ -585,9 +578,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/data_quality_checks"
         self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
         self.subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
-        flag = patch(FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
         check = self._create_check()
@@ -762,13 +752,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     def _pinned(self, *views: DataWarehouseSavedQuery) -> list[dict[str, str]]:
         return [{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(view.id)} for view in views]
-
-    def test_the_whole_surface_is_gated_on_the_feature_flag(self) -> None:
-        with patch(FLAG, return_value=False):
-            assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.post(f"{self.url}/", self._payload()).status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.get(f"{self.url}/check_types/").status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.get(self._gate_url()).status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand([("view",), ("table",)])
     def test_create_returns_the_fingerprint_and_re_creating_upserts(self, kind: str) -> None:
@@ -1497,6 +1480,31 @@ class TestDataQualityCheckAPI(APIBaseTest):
         editable_by_name = {row["name"]: row["editable"] for row in response.json()}
         assert "orders" in editable_by_name
         assert not any(editable_by_name.values())
+
+    def test_the_catalog_narrows_by_search_and_subject_type(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="Orders_daily", query={"kind": "HogQLQuery"})
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+
+        by_search = self.client.get(f"{self.url}/subjects/", {"search": "ORDERS", "subject_type": "view"})
+        assert by_search.status_code == status.HTTP_200_OK, by_search.content
+        assert [row["name"] for row in by_search.json()] == ["Orders_daily", "orders"]
+
+        events = self.client.get(f"{self.url}/subjects/", {"search": "events", "subject_type": "posthog_table"})
+        assert [(row["name"], bool(row["columns"])) for row in events.json()] == [("events", True)]
+
+        bare = self.client.get(f"{self.url}/subjects/", {"search": "events", "include_columns": "false"})
+        assert [(row["name"], row["columns"]) for row in bare.json()] == [("events", {})]
+
+    def test_the_catalog_pages_with_limit_and_offset(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+        everything = [row["id"] for row in self.client.get(f"{self.url}/subjects/").json()]
+
+        first = self.client.get(f"{self.url}/subjects/", {"limit": 2}).json()
+        second = self.client.get(f"{self.url}/subjects/", {"limit": 2, "offset": 2}).json()
+
+        assert [row["id"] for row in first + second] == everything[:4]
+        assert len(everything) > 4
+        assert self.client.get(f"{self.url}/subjects/", {"limit": 0}).status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

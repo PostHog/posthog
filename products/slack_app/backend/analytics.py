@@ -13,8 +13,9 @@ from typing import TYPE_CHECKING
 import structlog
 
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
 from posthog.ph_client import ph_background_capture
+
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def slack_event_props(integration: Integration, *, slack_user_id: str | None = None, **extra: object) -> dict:
+def slack_event_props(integration: WorkspaceIntegration, *, slack_user_id: str | None = None, **extra: object) -> dict:
     """The standard property bundle attached to every Slack app event, plus any ``extra`` props."""
     props: dict = {
         "integration_id": integration.id,
@@ -41,13 +42,13 @@ def slack_session_id(slack_team_id: str, channel: str, thread_ts: str) -> str:
     return f"{slack_team_id}:{channel}:{thread_ts}"
 
 
-def slack_distinct_id(integration: Integration, slack_user_id: str) -> str:
+def slack_distinct_id(integration: WorkspaceIntegration, slack_user_id: str) -> str:
     """The distinct id of a Slack user that no PostHog user has been resolved for yet."""
     return f"slack:{integration.integration_id}:{slack_user_id}"
 
 
 def capture_slack_event(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     event: str,
     *,
     slack_user_id: str | None = None,
@@ -85,7 +86,7 @@ def capture_slack_event(
         logger.warning("slack_analytics_capture_failed", slack_event=event, exc_info=True)
 
 
-def alias_slack_user(integration: Integration, slack_user_id: str, posthog_user: User) -> None:
+def alias_slack_user(integration: WorkspaceIntegration, slack_user_id: str, posthog_user: User) -> None:
     """Merge a Slack user's anonymous person into their PostHog user's person. Best-effort.
 
     Events captured before the Slack user was linked use ``slack_distinct_id``. After the merge,

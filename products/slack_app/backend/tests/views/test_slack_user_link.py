@@ -85,7 +85,7 @@ class TestAuthorizeView:
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
-                "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
+                "posthog.credentials_service.instance_settings.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
             ),
         ):
@@ -176,10 +176,12 @@ class TestCallbackView:
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
+            patch("products.slack_app.backend.views.slack_user_link.request_onboarding") as mock_refresh_card,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
         self._assert_settings_redirect_success(response)
+        assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
             previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
         )

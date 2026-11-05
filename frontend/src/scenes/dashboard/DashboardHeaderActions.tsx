@@ -4,15 +4,15 @@ import { router } from 'kea-router'
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,8 +22,15 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Dash
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
-import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import {
+    DashboardAddTileHandlers,
+    DashboardAddTileKey,
+    DashboardAddTileOption,
+    getDashboardAddTileOptions,
+    groupDashboardAddTileOptions,
+} from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
+import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -34,29 +41,31 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
-    'widget-preview': 'dashboard-add-widget-preview',
+    group: 'dashboard-add-tile-group',
 }
 
 export function getAddTileMenuItems({
     onBeforeSelect,
     ...handlers
 }: DashboardAddTileHandlers & { onBeforeSelect?: () => void }): LemonMenuItems {
-    const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
+    const toItem = (option: DashboardAddTileOption): LemonMenuItem => ({
         label: option.label,
         tag: option.tag,
-        tooltip: option.tooltip,
         onClick: () => {
             onBeforeSelect?.()
             option.onClick()
         },
         'data-attr': ADD_TILE_MENU_DATA_ATTRS[option.key],
-    }))
+    })
 
-    return [{ title: 'Content', items }]
+    return groupDashboardAddTileOptions(getDashboardAddTileOptions(handlers)).map(({ title, options }) => ({
+        title,
+        items: options.map(toItem),
+    }))
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles, tileGroupSectionsEnabled } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -64,9 +73,8 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openTextTileModal,
         openImageTileModal,
         openButtonTileModal,
+        addTileGroup,
     } = useActions(dashboardLogic)
-    const { push } = useActions(router)
-    const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null
@@ -99,13 +107,12 @@ export function DashboardAddTileButton(): JSX.Element | null {
             >
                 <LemonMenu
                     items={getAddTileMenuItems({
-                        dashboardWidgetsEnabled,
                         onAddInsight: openAddInsightModal,
                         onAddText: openTextTileModal,
                         onAddImage: openImageTileModal,
                         onAddButton: openButtonTileModal,
-                        push,
                         setAddWidgetModalOpen,
+                        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
                     })}
                     onVisibilityChange={(visible) => {
                         if (visible) {

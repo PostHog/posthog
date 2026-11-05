@@ -9,6 +9,7 @@ import type {
     OfflineScorerSummaryApi,
     OfflineScorerVersionReadApi,
 } from '../generated/api.schemas'
+import { offlineBreakdownValueLabel, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import {
     offlineBooleanPolarity,
     offlineCategoricalPassingRule,
@@ -238,10 +239,14 @@ export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone:
               .tz(timezone)
               .format('MMM D, YYYY')}`
         : ''
-    return `${page.results.length} of ${page.count} experiment/version results${span}${page.count > page.results.length ? ' · Partial history' : ''}`
+    return `${page.results.length} of ${page.count} history points${span}${page.count > page.results.length ? ' · Partial history' : ''}`
 }
 
-export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineTrendPanel[] {
+export function buildOfflineTrendPanels(
+    periods: OfflineTrendPeriod[],
+    combineVersions = false,
+    breakdown?: OfflineHistoryBreakdown
+): OfflineTrendPanel[] {
     const durations = periods.map((period) =>
         period.dateFrom && period.dateTo ? Date.parse(period.dateTo) - Date.parse(period.dateFrom) : null
     )
@@ -253,7 +258,9 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
         for (const point of period.points) {
             const { summary } = point
             const scorer = summary.scorer
-            const configuration = `${scorer.kind}:${JSON.stringify(scorer.config)}`
+            const configuration = combineVersions
+                ? `${scorer.definition_id}:${scorer.kind}`
+                : `${scorer.kind}:${JSON.stringify(scorer.config)}`
             const panelKey = `${configuration}:${elapsed ? 'overlay' : period.key}`
             let panel = panels.get(panelKey)
             if (!panel) {
@@ -272,6 +279,14 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                             : undefined,
                 }
                 panels.set(panelKey, panel)
+            } else if (
+                combineVersions &&
+                !(
+                    panel.passingRule?.operator === offlineNumericPassingRule(scorer)?.operator &&
+                    panel.passingRule?.threshold === offlineNumericPassingRule(scorer)?.threshold
+                )
+            ) {
+                panel.passingRule = null
             }
             const metrics =
                 scorer.kind === 'categorical'
@@ -288,12 +303,17 @@ export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineT
                           },
                       ]
             for (const metric of metrics) {
-                const key = `${period.key}:${scorer.id}:${metric.key}`
+                const key = JSON.stringify([
+                    period.key,
+                    scorer.id,
+                    metric.key,
+                    breakdown ? (point.breakdown_value ?? null) : null,
+                ])
                 let series = panel.series.find((candidate) => candidate.key === key)
                 if (!series) {
                     series = {
                         key,
-                        label: `${periods.length > 1 ? `${period.label} · ` : ''}v${scorer.version}${scorer.kind === 'categorical' ? ` · ${metric.label}` : ''}`,
+                        label: `${breakdown ? `${offlineBreakdownValueLabel(point.breakdown_value, breakdown)} · ` : ''}${periods.length > 1 ? `${period.label} · ` : ''}v${scorer.version}${scorer.kind === 'categorical' ? ` · ${metric.label}` : ''}`,
                         points: [],
                         shape: periodIndex === 0 ? 'circle' : 'square',
                     }
