@@ -17,6 +17,7 @@ from products.slack_app.backend.logic.onboarding.card import (
     edit_onboarding_message,
     plan_onboarding,
     post_onboarding_message,
+    remind_onboarding,
 )
 from products.slack_app.backend.logic.onboarding.interactivity import (
     handle_onboarding_action,
@@ -398,6 +399,26 @@ def test_a_step_set_elsewhere_keeps_its_number_and_shows_as_checked_in_the_threa
     assert ":white_check_mark: PostHog account linked" in edits["100.2"]
     assert ":white_check_mark: Your model: already set" in edits["100.2"]
     assert "▰▰▱  2/3 done" in edits["100.1"]
+
+
+@pytest.mark.django_db
+def test_a_stalled_thread_gets_one_reminder_that_names_the_waiting_step(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    _refresh(integration)
+    link_user(user)
+    _refresh(integration)
+    posts_before = slack_client.chat_postMessage.call_count
+
+    remind_onboarding(integration, SLACK_USER_ID)
+    remind_onboarding(integration, SLACK_USER_ID)
+
+    assert slack_client.chat_postMessage.call_count == posts_before + 1
+    reminder = _posts(slack_client)[-1]
+    assert reminder["thread_ts"] == "100.1"
+    assert reminder["text"].startswith(f"<@{SLACK_USER_ID}> Your PostHog setup is waiting at step 2 of 3, Your model.")
 
 
 @pytest.mark.django_db

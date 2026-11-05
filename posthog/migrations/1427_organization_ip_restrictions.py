@@ -8,7 +8,7 @@ from posthog.models.utils import uuid7
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1425_workload_trust_policy_request")]
+    dependencies = [("posthog", "1426_events_plan_deletion")]
 
     operations = [
         migrations.CreateModel(

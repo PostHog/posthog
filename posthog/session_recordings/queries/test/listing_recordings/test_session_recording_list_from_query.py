@@ -59,7 +59,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
@@ -82,7 +82,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(
+        action = create_action(
             team_id=team_id,
             name=name,
             steps_json=[
@@ -1022,9 +1022,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         entities_property: str,
     ) -> None:
         # API callers can omit the entity type or send one Entity rejects; both used to 500.
-        entity_id = (
-            Action.objects.create(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
-        )
+        entity_id = create_action(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
         raw_entity: dict[str, Any] = {"id": entity_id}
         if raw_type is not None:
             raw_entity["type"] = raw_type
@@ -1048,7 +1046,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # filter and an unknown id escaped as an uncaught Action.DoesNotExist.
         if action_exists:
             other_team = Team.objects.create(organization=self.organization)
-            action_id = Action.objects.create(team=other_team, name="other project action").id
+            action_id = create_action(team=other_team, name="other project action").id
         else:
             action_id = 0
 
@@ -1076,7 +1074,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filter_in_the_same_project_is_accepted(self) -> None:
         sibling_environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        action = Action.objects.create(team=sibling_environment, name="sibling environment action")
+        action = create_action(team=sibling_environment, name="sibling environment action")
 
         sub_query = ReplayFiltersEventsSubQuery(
             team=self.team, query=RecordingsQuery(actions=[{"id": action.id, "type": "actions"}])

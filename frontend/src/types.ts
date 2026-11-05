@@ -217,6 +217,7 @@ export enum AvailableFeature {
     SECONDARY_METRICS = 'secondary_metrics',
     STATISTICAL_ANALYSIS = 'statistical_analysis',
     PRODUCT_ANALYTICS_DATA_RETENTION = 'product_analytics_data_retention',
+    PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION = 'product_analytics_standard_data_retention',
     DASHBOARDS = 'dashboards',
     FUNNELS = 'funnels',
     GRAPHS_TRENDS = 'graphs_trends',
@@ -2452,7 +2453,15 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
-    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
+    usage_summary?: Record<
+        string,
+        {
+            usage?: number | null
+            limit?: number | null
+            todays_usage?: number | null
+            billing_start_date?: string
+        }
+    >
 
     custom_limits_usd?: {
         [key: string]: number | null
