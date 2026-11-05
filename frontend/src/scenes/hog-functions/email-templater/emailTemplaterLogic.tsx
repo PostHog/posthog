@@ -26,6 +26,7 @@ import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { humanList } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType, PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
@@ -261,16 +262,17 @@ export interface EmailTemplaterLogicProps {
     sandboxSenderAllowed?: boolean
 }
 
-function joinSenderNames(names: string[]): string {
-    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]
-}
-
-function sandboxSwitchDescription(replacedSenderNames: string[], hasCustomSenderDetails: boolean): string {
+function sandboxSwitchDescription(replacedSenderNames: string[], emailTemplate: EmailTemplate): string {
+    const from = senderFrom(emailTemplate)
+    const removed = [
+        from.email || from.name ? 'your custom sender' : '',
+        emailTemplate?.replyTo ? 'your Reply-To' : '',
+    ].filter(Boolean)
     return [
         replacedSenderNames.length > 1
-            ? `This replaces ${joinSenderNames(replacedSenderNames)} with the sandbox sender.`
+            ? `This replaces ${humanList(replacedSenderNames)} with the sandbox sender.`
             : '',
-        hasCustomSenderDetails ? 'This removes your custom sender and Reply-To.' : '',
+        removed.length > 0 ? `This removes ${humanList(removed)}.` : '',
         'The sandbox sender sends from its own address.',
     ]
         .filter(Boolean)
@@ -794,7 +796,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 )
                 LemonDialog.open({
                     title: 'Switch to the sandbox sender?',
-                    description: sandboxSwitchDescription(replacedSenderNames, values.hasCustomSenderDetails),
+                    description: sandboxSwitchDescription(replacedSenderNames, values.emailTemplate),
                     primaryButton: { children: 'Switch sender', onClick: selectSandbox },
                     secondaryButton: { children: 'Cancel' },
                 })

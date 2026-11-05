@@ -61,14 +61,20 @@ describe('messageAudienceWarnings', () => {
             senders: [unverified],
             expected: ["Verify the sender's domain before sending"],
         },
-        ...(['broadcast', 'workflow'] as const).map((destination) => ({
-            case: `only the sandbox sender (${destination})`,
-            destination,
+        {
+            case: 'only the sandbox sender (workflow)',
+            destination: 'workflow',
             senders: [sandbox],
             expected: [
                 'The sandbox sender only delivers to verified members of your organization. Set up your own email sender to reach this audience.',
             ],
-        })),
+        },
+        {
+            case: 'only the sandbox sender (broadcast), which cannot send broadcasts',
+            destination: 'broadcast',
+            senders: [sandbox],
+            expected: ['Set up an email sender before sending'],
+        },
         {
             case: 'only a sandbox sender kept after the flag was turned off',
             destination: 'workflow',
