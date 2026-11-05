@@ -1384,6 +1384,69 @@ export interface FeatureFlagCodeAnalysisResultApi {
     notes: string
 }
 
+/**
+ * * `analysis_not_ready` - Analysis not ready
+ * * `no_references` - No references
+ * * `not_stale` - Not stale
+ * * `unsupported_config` - Unsupported configuration
+ */
+export type CodeCleanupUnavailableReasonEnumApi =
+    (typeof CodeCleanupUnavailableReasonEnumApi)[keyof typeof CodeCleanupUnavailableReasonEnumApi]
+
+export const CodeCleanupUnavailableReasonEnumApi = {
+    AnalysisNotReady: 'analysis_not_ready',
+    NoReferences: 'no_references',
+    NotStale: 'not_stale',
+    UnsupportedConfig: 'unsupported_config',
+} as const
+
+export interface FeatureFlagCodeCleanupRunApi {
+    /** ID of the task that opens the cleanup pull request. */
+    task_id: string
+    /** Status of the cleanup run.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    run_status: TaskRunStatusEnumApi
+    /** Whether the run has finished, successfully or not. Stop polling once true. */
+    is_terminal: boolean
+    /**
+     * The draft pull request the run opened. Null while it runs, or when it found no code to remove.
+     * @nullable
+     */
+    pr_url: string | null
+    /**
+     * Why the run failed, when it failed.
+     * @nullable
+     */
+    error_message: string | null
+    /** Whether the requesting user can open the task. Hide the task link from everyone else. */
+    can_view_task: boolean
+}
+
+export interface FeatureFlagCodeCleanupApi {
+    /** Why a cleanup pull request can't be opened, or null when it can: `analysis_not_ready` (the analysis has no result yet), `no_references` (the analysis found no checks to remove), `not_stale` (the flag is still in use), or `unsupported_config` (the flag's configuration can't be read safely).
+     *
+     * * `analysis_not_ready` - Analysis not ready
+     * * `no_references` - No references
+     * * `not_stale` - Not stale
+     * * `unsupported_config` - Unsupported configuration */
+    unavailable_reason: CodeCleanupUnavailableReasonEnumApi | null
+    /**
+     * The outcome every user gets today, whose code the cleanup keeps by default: `enabled`, `disabled`, or a variant key. Null when users get different outcomes, so the caller must choose one.
+     * @nullable
+     */
+    suggested_outcome: string | null
+    /** Outcomes whose code the cleanup can keep. */
+    outcome_options: string[]
+    /** The flag's latest cleanup run, or null when none was requested. */
+    run: FeatureFlagCodeCleanupRunApi | null
+}
+
 export interface FeatureFlagCodeAnalysisApi {
     /** ID of the task that runs the analysis. */
     task_id: string
@@ -1411,6 +1474,8 @@ export interface FeatureFlagCodeAnalysisApi {
     can_view_task: boolean
     /** The flag's code paths, once the run completes. */
     result: FeatureFlagCodeAnalysisResultApi | null
+    /** Whether a draft pull request that removes the flag's checks can be opened, and its latest run. */
+    cleanup: FeatureFlagCodeCleanupApi
 }
 
 /**
@@ -1831,6 +1896,15 @@ export interface FeatureFlagSetActiveRequestApi {
 }
 
 export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
+export interface FeatureFlagCodeCleanupStartApi {
+    /**
+     * Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.
+     * @maxLength 400
+     * @nullable
+     */
+    keep_outcome?: string | null
+}
 
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**

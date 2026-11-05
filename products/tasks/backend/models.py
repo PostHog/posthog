@@ -462,7 +462,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
         CONTEXT_LAYER = "context_layer", "Context Layer"
-        # Read-only code analysis of a flag's branches. Reserved: only the feature flag code analysis endpoint creates these.
+        # Code analysis of a flag's branches, and the pull request that removes a stale flag. Reserved: only the
+        # feature flag code analysis endpoints create these.
         FEATURE_FLAGS = "feature_flags", "Feature Flags"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent

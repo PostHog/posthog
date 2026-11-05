@@ -8,18 +8,21 @@ import {
     featureFlagsAnalyzeCodeCreate,
     featureFlagsCodeAnalysisRetrieve,
     featureFlagsCodeAnalysisTargetRetrieve,
+    featureFlagsOpenCleanupPrCreate,
 } from './generated/api'
-import type { FeatureFlagCodeAnalysisApi } from './generated/api.schemas'
+import type { FeatureFlagCodeAnalysisApi, FeatureFlagCodeCleanupRunApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     featureFlagsAnalyzeCodeCreate: jest.fn(),
     featureFlagsCodeAnalysisRetrieve: jest.fn(),
     featureFlagsCodeAnalysisTargetRetrieve: jest.fn(),
+    featureFlagsOpenCleanupPrCreate: jest.fn(),
 }))
 
 const mockStart = featureFlagsAnalyzeCodeCreate as jest.Mock
 const mockRetrieve = featureFlagsCodeAnalysisRetrieve as jest.Mock
 const mockTarget = featureFlagsCodeAnalysisTargetRetrieve as jest.Mock
+const mockOpenCleanup = featureFlagsOpenCleanupPrCreate as jest.Mock
 
 const POLL_INTERVAL_MS = 5000
 
@@ -32,6 +35,7 @@ const analysis = (overrides: Partial<FeatureFlagCodeAnalysisApi> = {}): FeatureF
     error_message: null,
     can_view_task: true,
     result: null,
+    cleanup: { unavailable_reason: 'analysis_not_ready', suggested_outcome: null, outcome_options: [], run: null },
     ...overrides,
 })
 
@@ -41,12 +45,28 @@ const completed = analysis({
     result: { repository: 'example-org/example-repo', commit_sha: 'abc1234', references: [], notes: '' },
 })
 
+const cleanupRun = (overrides: Partial<FeatureFlagCodeCleanupRunApi> = {}): FeatureFlagCodeCleanupRunApi => ({
+    task_id: 'cleanup-task-1',
+    run_status: 'in_progress',
+    is_terminal: false,
+    pr_url: null,
+    error_message: null,
+    can_view_task: true,
+    ...overrides,
+})
+
+const staleWithCleanup = (run: FeatureFlagCodeCleanupRunApi | null): FeatureFlagCodeAnalysisApi => ({
+    ...completed,
+    cleanup: { unavailable_reason: null, suggested_outcome: 'enabled', outcome_options: ['enabled', 'disabled'], run },
+})
+
 describe('featureFlagCodeAnalysisLogic', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         initKeaTests()
         mockStart.mockReset()
         mockRetrieve.mockReset()
+        mockOpenCleanup.mockReset()
         mockTarget.mockReset().mockResolvedValue({
             repository: 'example-org/example-repo',
             source: 'single_repo',
@@ -127,5 +147,31 @@ describe('featureFlagCodeAnalysisLogic', () => {
 
         await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
         expect(logic.values.analysis?.is_terminal).toBe(true)
+    })
+
+    it('opens a cleanup PR for the suggested outcome and polls its run until it finishes', async () => {
+        mockRetrieve
+            .mockResolvedValueOnce(staleWithCleanup(null))
+            .mockResolvedValue(
+                staleWithCleanup(
+                    cleanupRun({ run_status: 'completed', is_terminal: true, pr_url: 'https://github.com/o/r/pull/1' })
+                )
+            )
+        mockOpenCleanup.mockResolvedValue(staleWithCleanup(cleanupRun()))
+
+        const logic = featureFlagCodeAnalysisLogic({ id: 1 })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.openCleanupPr()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(mockOpenCleanup).toHaveBeenCalledWith(expect.any(String), 1, { keep_outcome: 'enabled' })
+        expect(logic.values.isCleanupRunning).toBe(true)
+
+        await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        expect(logic.values.analysis?.cleanup.run?.pr_url).toBe('https://github.com/o/r/pull/1')
+
+        await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 10)
+        expect(mockRetrieve).toHaveBeenCalledTimes(2)
     })
 })

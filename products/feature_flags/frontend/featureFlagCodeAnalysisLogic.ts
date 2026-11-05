@@ -9,6 +9,7 @@ import {
     featureFlagsAnalyzeCodeCreate,
     featureFlagsCodeAnalysisRetrieve,
     featureFlagsCodeAnalysisTargetRetrieve,
+    featureFlagsOpenCleanupPrCreate,
 } from './generated/api'
 import type { FeatureFlagCodeAnalysisApi, FeatureFlagCodeAnalysisTargetApi } from './generated/api.schemas'
 
@@ -27,9 +28,14 @@ export interface featureFlagCodeAnalysisLogicValues {
     analysisLoadError: string | null
     analysisLoaded: boolean
     analysisLoading: boolean
+    cleanupError: string | null
+    cleanupOutcome: string | null
+    isCleanupRunning: boolean
     isRunning: boolean
+    openingCleanupPr: boolean
     pollingStopped: boolean
     repository: string | null
+    selectedCleanupOutcome: string | null
     selectedRepository: string | null
     startError: string | null
     startingAnalysis: boolean
@@ -69,11 +75,26 @@ export interface featureFlagCodeAnalysisLogicActions {
         target: FeatureFlagCodeAnalysisTargetApi
         payload?: any
     }
+    openCleanupPr: () => {
+        value: true
+    }
+    openCleanupPrConflict: () => {
+        value: true
+    }
+    openCleanupPrFailure: (error: string) => {
+        error: string
+    }
+    openCleanupPrSuccess: (analysis: FeatureFlagCodeAnalysisApi) => {
+        analysis: FeatureFlagCodeAnalysisApi
+    }
     pollingFailed: () => {
         value: true
     }
     reportGitHubLinkClicked: () => {
         value: true
+    }
+    selectCleanupOutcome: (outcome: string) => {
+        outcome: string
     }
     selectRepository: (repository: string) => {
         repository: string
@@ -102,6 +123,11 @@ export interface featureFlagCodeAnalysisLogicMeta {
             analysis: FeatureFlagCodeAnalysisApi | null
         ) => string | null
         isRunning: (analysis: FeatureFlagCodeAnalysisApi | null) => boolean
+        isCleanupRunning: (analysis: FeatureFlagCodeAnalysisApi | null) => boolean
+        cleanupOutcome: (
+            selectedCleanupOutcome: string | null,
+            analysis: FeatureFlagCodeAnalysisApi | null
+        ) => string | null
     }
 }
 
@@ -126,6 +152,11 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
         selectRepository: (repository: string) => ({ repository }),
         reportGitHubLinkClicked: true,
         pollingFailed: true,
+        selectCleanupOutcome: (outcome: string) => ({ outcome }),
+        openCleanupPr: true,
+        openCleanupPrSuccess: (analysis: FeatureFlagCodeAnalysisApi) => ({ analysis }),
+        openCleanupPrFailure: (error: string) => ({ error }),
+        openCleanupPrConflict: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -157,6 +188,7 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
     reducers({
         analysis: {
             startAnalysisSuccess: (_, { analysis }) => analysis,
+            openCleanupPrSuccess: (_, { analysis }) => analysis,
         },
         // `analysis` is null both before the first load and when the flag was never analyzed.
         analysisLoaded: [
@@ -196,6 +228,30 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
                 selectRepository: (_, { repository }) => repository,
             },
         ],
+        openingCleanupPr: [
+            false,
+            {
+                openCleanupPr: () => true,
+                openCleanupPrSuccess: () => false,
+                openCleanupPrFailure: () => false,
+                openCleanupPrConflict: () => false,
+            },
+        ],
+        cleanupError: [
+            null as string | null,
+            {
+                openCleanupPr: () => null,
+                openCleanupPrFailure: (_, { error }) => error,
+                startAnalysisSuccess: () => null,
+            },
+        ],
+        selectedCleanupOutcome: [
+            null as string | null,
+            {
+                selectCleanupOutcome: (_, { outcome }) => outcome,
+                startAnalysisSuccess: () => null,
+            },
+        ],
         // Polling gave up while the run may still be going, so the page offers a manual check.
         pollingStopped: [
             false,
@@ -203,6 +259,7 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
                 pollingFailed: () => true,
                 loadAnalysisSuccess: () => false,
                 startAnalysisSuccess: () => false,
+                openCleanupPrSuccess: () => false,
             },
         ],
     }),
@@ -220,6 +277,25 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
             (s) => [s.analysis],
             (analysis: FeatureFlagCodeAnalysisApi | null): boolean => !!analysis && !analysis.is_terminal,
         ],
+        isCleanupRunning: [
+            (s) => [s.analysis],
+            (analysis: FeatureFlagCodeAnalysisApi | null): boolean =>
+                !!analysis?.cleanup.run && !analysis.cleanup.run.is_terminal,
+        ],
+        // The suggested outcome is what every user gets today, so it is the default code to keep.
+        cleanupOutcome: [
+            (s) => [s.selectedCleanupOutcome, s.analysis],
+            (selectedCleanupOutcome: string | null, analysis: FeatureFlagCodeAnalysisApi | null): string | null => {
+                const cleanup = analysis?.cleanup
+                if (!cleanup) {
+                    return null
+                }
+                // A choice made against an earlier analysis may no longer be an option.
+                return selectedCleanupOutcome && cleanup.outcome_options.includes(selectedCleanupOutcome)
+                    ? selectedCleanupOutcome
+                    : cleanup.suggested_outcome
+            },
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => {
@@ -235,15 +311,10 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
             cache.disposables.dispose(POLL_KEY)
             cache.polling = false
         }
-        const followAnalysis = (analysis: FeatureFlagCodeAnalysisApi | null): void => {
-            if (!analysis?.is_terminal) {
-                if (analysis && !cache.polling) {
-                    startPolling()
-                }
-                return
-            }
-            // Report only runs this page watched finish, not a result loaded from an earlier visit.
-            if (cache.polling) {
+        // Report only runs this page watched finish, not results loaded from an earlier visit.
+        const reportFinishedRuns = (analysis: FeatureFlagCodeAnalysisApi): void => {
+            if (analysis.is_terminal && cache.watchingAnalysis) {
+                cache.watchingAnalysis = false
                 // pinned: analytics event names, renaming breaks dashboards
                 posthog.capture(
                     analysis.run_status === 'completed'
@@ -256,7 +327,32 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
                     }
                 )
             }
-            stopPolling()
+            const cleanupRun = analysis.cleanup.run
+            if (cleanupRun?.is_terminal && cache.watchingCleanup) {
+                cache.watchingCleanup = false
+                // pinned: analytics event name, renaming breaks dashboards
+                posthog.capture('feature flag code cleanup pr finished', {
+                    flag_id: props.id,
+                    run_status: cleanupRun.run_status,
+                    pr_opened: !!cleanupRun.pr_url,
+                })
+            }
+        }
+        const followAnalysis = (analysis: FeatureFlagCodeAnalysisApi | null): void => {
+            if (!analysis) {
+                stopPolling()
+                return
+            }
+            reportFinishedRuns(analysis)
+            const analysisRunning = !analysis.is_terminal
+            const cleanupRunning = !!analysis.cleanup.run && !analysis.cleanup.run.is_terminal
+            cache.watchingAnalysis = cache.watchingAnalysis || analysisRunning
+            cache.watchingCleanup = cache.watchingCleanup || cleanupRunning
+            if (!analysisRunning && !cleanupRunning) {
+                stopPolling()
+            } else if (!cache.polling) {
+                startPolling()
+            }
         }
 
         return {
@@ -301,9 +397,43 @@ export const featureFlagCodeAnalysisLogic = kea<featureFlagCodeAnalysisLogicType
             startAnalysisSuccess: ({ analysis }) => {
                 // A new run restarts tracking even if the previous one was still being watched.
                 stopPolling()
+                cache.watchingAnalysis = false
                 followAnalysis(analysis)
             },
             startAnalysisConflict: () => {
+                actions.loadAnalysis()
+            },
+            openCleanupPr: async () => {
+                const keepOutcome = values.cleanupOutcome
+                try {
+                    const analysis = await featureFlagsOpenCleanupPrCreate(
+                        String(values.currentProjectId),
+                        props.id,
+                        keepOutcome ? { keep_outcome: keepOutcome } : {}
+                    )
+                    // pinned: analytics event name, renaming breaks dashboards
+                    posthog.capture('feature flag code cleanup pr requested', {
+                        flag_id: props.id,
+                        kept_suggested_outcome: keepOutcome === values.analysis?.cleanup.suggested_outcome,
+                    })
+                    actions.openCleanupPrSuccess(analysis)
+                } catch (error) {
+                    // Another request already opened one, so show that run instead of failing.
+                    if (error instanceof ApiError && error.status === 409) {
+                        actions.openCleanupPrConflict()
+                        return
+                    }
+                    const detail =
+                        error instanceof ApiError && error.detail
+                            ? error.detail
+                            : "Couldn't open the cleanup pull request. Try again in a moment."
+                    actions.openCleanupPrFailure(detail)
+                }
+            },
+            openCleanupPrSuccess: ({ analysis }) => {
+                followAnalysis(analysis)
+            },
+            openCleanupPrConflict: () => {
                 actions.loadAnalysis()
             },
             reportGitHubLinkClicked: () => {

@@ -1143,6 +1143,27 @@ export const FeatureFlagsEnableCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved, and 409 when a cleanup
+ * pull request is already open or in progress.
+ */
+export const featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax = 400
+
+export const FeatureFlagsOpenCleanupPrCreateBody = /* @__PURE__ */ zod.object({
+    keep_outcome: zod
+        .string()
+        .max(featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax)
+        .nullish()
+        .describe(
+            'Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.'
+        ),
+})
+
+/**
  * Serve a feature flag to every user.
  *
  * Adds a release condition with no property filters at 100% and keeps the existing

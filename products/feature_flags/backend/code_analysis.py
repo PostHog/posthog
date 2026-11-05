@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Literal
+from uuid import UUID
 
 from django.db import connection, models, transaction
 
@@ -102,7 +103,16 @@ class CodeAnalysisStatus:
 class CodeAnalysisError(Exception):
     def __init__(
         self,
-        code: Literal["ai_not_approved", "ai_credits_exhausted", "no_repository", "already_running"],
+        code: Literal[
+            "ai_not_approved",
+            "ai_credits_exhausted",
+            "no_repository",
+            "already_running",
+            "cleanup_unavailable",
+            "cleanup_exists",
+            "outcome_required",
+            "invalid_outcome",
+        ],
         message: str,
     ) -> None:
         super().__init__(message)
@@ -113,6 +123,26 @@ def latest_code_analysis(flag: FeatureFlag) -> FeatureFlagCodeAnalysis | None:
     return (
         FeatureFlagCodeAnalysis.objects.filter(team_id=flag.team_id, feature_flag=flag).order_by("-created_at").first()
     )
+
+
+def latest_cleanup_analysis(flag: FeatureFlag) -> FeatureFlagCodeAnalysis | None:
+    """The newest analysis of the flag that started a cleanup pull request."""
+    return (
+        FeatureFlagCodeAnalysis.objects.filter(team_id=flag.team_id, feature_flag=flag, cleanup_task_id__isnull=False)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def lock_flag_code_work(flag: FeatureFlag) -> None:
+    """Serialize analysis and cleanup requests for one flag until the transaction ends.
+
+    One lock covers both, so a cleanup can't start while a new analysis is being created, or the reverse.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"feature_flag_code_analysis:{flag.id}"]
+        )
 
 
 def get_code_analysis_target(flag: FeatureFlag, requested_repository: str | None = None) -> CodeAnalysisTarget:
@@ -236,9 +266,7 @@ def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> tuple[str,
     return title, description
 
 
-def start_code_analysis(
-    flag: FeatureFlag, user: User, requested_repository: str | None = None
-) -> FeatureFlagCodeAnalysis:
+def require_ai_allowed(flag: FeatureFlag) -> None:
     if flag.team.organization.is_ai_data_processing_approved is not True:
         raise CodeAnalysisError(
             "ai_not_approved",
@@ -249,6 +277,12 @@ def start_code_analysis(
             "ai_credits_exhausted",
             "Your organization used all of its AI credits. Check your billing settings, then try again.",
         )
+
+
+def start_code_analysis(
+    flag: FeatureFlag, user: User, requested_repository: str | None = None
+) -> FeatureFlagCodeAnalysis:
+    require_ai_allowed(flag)
 
     target = get_code_analysis_target(flag, requested_repository=requested_repository)
     if target.repository is None:
@@ -261,16 +295,22 @@ def start_code_analysis(
     # The lock makes the running check and the new row one step, so two concurrent requests cannot both
     # start a billable run. The task's workflow starts on commit, so a rollback starts nothing.
     with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"feature_flag_code_analysis:{flag.id}"]
-            )
+        lock_flag_code_work(flag)
         previous = latest_code_analysis(flag)
         if previous is not None:
-            run = _latest_run(previous)
+            run = latest_run_for_task(previous.task_id, previous.team_id)
             if run is not None and not run.is_terminal:
                 raise CodeAnalysisError(
                     "already_running", "This flag is already being analyzed. Wait for it to finish, then try again."
+                )
+        # A new analysis row would hide a cleanup run that is still opening its pull request.
+        cleanup = latest_cleanup_analysis(flag)
+        if cleanup is not None and cleanup.cleanup_task_id is not None:
+            cleanup_run = latest_run_for_task(cleanup.cleanup_task_id, cleanup.team_id)
+            if cleanup_run is not None and not cleanup_run.is_terminal:
+                raise CodeAnalysisError(
+                    "already_running",
+                    "A cleanup pull request for this flag is being opened. Wait for it to finish, then try again.",
                 )
         created = tasks_facade.create_and_run_task(
             team=flag.team,
@@ -303,11 +343,11 @@ def _ai_credits_exhausted(flag: FeatureFlag) -> bool:
     return is_team_limited(flag.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
 
-def _latest_run(analysis: FeatureFlagCodeAnalysis) -> TaskRunDTO | None:
-    run = tasks_facade.get_latest_run_by_task([analysis.task_id]).get(str(analysis.task_id))
+def latest_run_for_task(task_id: UUID, team_id: int) -> TaskRunDTO | None:
+    run = tasks_facade.get_latest_run_by_task([task_id]).get(str(task_id))
     # get_latest_run_by_task filters by task id only. After a project transfer the row can point at a
     # task in the old team, so treat that run as absent rather than leaking it across teams.
-    if run is not None and run.team_id != analysis.team_id:
+    if run is not None and run.team_id != team_id:
         return None
     return run
 
@@ -316,7 +356,7 @@ def get_code_analysis_status(flag: FeatureFlag, user: User) -> CodeAnalysisStatu
     analysis = latest_code_analysis(flag)
     if analysis is None:
         return None
-    run = _latest_run(analysis)
+    run = latest_run_for_task(analysis.task_id, analysis.team_id)
     result: FlagCodeAnalysisResult | None = None
     run_status = run.status if run else "queued"
     error_message = run.error_message if run else None

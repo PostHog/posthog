@@ -17,6 +17,12 @@ from products.feature_flags.backend.code_analysis import (
     get_code_analysis_target,
     start_code_analysis,
 )
+from products.feature_flags.backend.code_cleanup import (
+    CodeCleanupUnavailableReason,
+    get_cleanup_availability,
+    get_cleanup_run,
+    start_code_cleanup,
+)
 from products.feature_flags.backend.models import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -27,6 +33,10 @@ _ERROR_STATUS = {
     "ai_credits_exhausted": status.HTTP_402_PAYMENT_REQUIRED,
     "no_repository": status.HTTP_400_BAD_REQUEST,
     "already_running": status.HTTP_409_CONFLICT,
+    "cleanup_unavailable": status.HTTP_400_BAD_REQUEST,
+    "cleanup_exists": status.HTTP_409_CONFLICT,
+    "outcome_required": status.HTTP_400_BAD_REQUEST,
+    "invalid_outcome": status.HTTP_400_BAD_REQUEST,
 }
 
 
@@ -122,6 +132,62 @@ class FeatureFlagCodeAnalysisResultSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagCodeCleanupRunSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the task that opens the cleanup pull request.")
+    run_status = serializers.ChoiceField(
+        choices=tasks_facade.TaskRunStatus.choices, help_text="Status of the cleanup run."
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished, successfully or not. Stop polling once true."
+    )
+    pr_url = serializers.URLField(
+        allow_null=True,
+        help_text="The draft pull request the run opened. Null while it runs, or when it found no code to remove.",
+    )
+    error_message = serializers.CharField(allow_null=True, help_text="Why the run failed, when it failed.")
+    can_view_task = serializers.BooleanField(
+        help_text="Whether the requesting user can open the task. Hide the task link from everyone else."
+    )
+
+
+class FeatureFlagCodeCleanupSerializer(serializers.Serializer):
+    unavailable_reason = serializers.ChoiceField(
+        choices=CodeCleanupUnavailableReason.choices,
+        allow_null=True,
+        help_text=(
+            "Why a cleanup pull request can't be opened, or null when it can: `analysis_not_ready` (the analysis "
+            "has no result yet), `no_references` (the analysis found no checks to remove), `not_stale` (the flag "
+            "is still in use), or `unsupported_config` (the flag's configuration can't be read safely)."
+        ),
+    )
+    suggested_outcome = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The outcome every user gets today, whose code the cleanup keeps by default: `enabled`, `disabled`, or "
+            "a variant key. Null when users get different outcomes, so the caller must choose one."
+        ),
+    )
+    outcome_options = serializers.ListField(
+        child=serializers.CharField(), help_text="Outcomes whose code the cleanup can keep."
+    )
+    run = FeatureFlagCodeCleanupRunSerializer(
+        allow_null=True, help_text="The flag's latest cleanup run, or null when none was requested."
+    )
+
+
+class FeatureFlagCodeCleanupStartSerializer(serializers.Serializer):
+    keep_outcome = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=400,
+        help_text=(
+            "Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. "
+            "Omit it to keep `cleanup.suggested_outcome`."
+        ),
+    )
+
+
 class FeatureFlagCodeAnalysisSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="ID of the task that runs the analysis.")
     repository = serializers.CharField(help_text="Repository the analysis reads, as `organization/repository`.")
@@ -140,9 +206,14 @@ class FeatureFlagCodeAnalysisSerializer(serializers.Serializer):
     result = FeatureFlagCodeAnalysisResultSerializer(
         allow_null=True, help_text="The flag's code paths, once the run completes."
     )
+    cleanup = FeatureFlagCodeCleanupSerializer(
+        help_text="Whether a draft pull request that removes the flag's checks can be opened, and its latest run."
+    )
 
 
-def _serialize_status(analysis_status: CodeAnalysisStatus) -> dict[str, Any]:
+def _serialize_status(flag: FeatureFlag, user: User, analysis_status: CodeAnalysisStatus) -> dict[str, Any]:
+    availability = get_cleanup_availability(flag, analysis_status)
+    run = get_cleanup_run(flag, user)
     return FeatureFlagCodeAnalysisSerializer(
         {
             "task_id": analysis_status.analysis.task_id,
@@ -153,6 +224,12 @@ def _serialize_status(analysis_status: CodeAnalysisStatus) -> dict[str, Any]:
             "error_message": analysis_status.error_message,
             "can_view_task": analysis_status.can_view_task,
             "result": analysis_status.result.model_dump() if analysis_status.result else None,
+            "cleanup": {
+                "unavailable_reason": availability.unavailable_reason,
+                "suggested_outcome": availability.suggested_outcome,
+                "outcome_options": list(availability.outcome_options),
+                "run": run,
+            },
         }
     ).data
 
@@ -188,10 +265,11 @@ class FeatureFlagCodeAnalysisMixin:
         """
         self._require_code_analysis_enabled(request)
         flag: FeatureFlag = self.get_object()  # type: ignore[attr-defined]
-        analysis_status = get_code_analysis_status(flag, cast(User, request.user))
+        user = cast(User, request.user)
+        analysis_status = get_code_analysis_status(flag, user)
         if analysis_status is None:
             raise exceptions.NotFound("This flag hasn't been analyzed yet.")
-        return Response(_serialize_status(analysis_status))
+        return Response(_serialize_status(flag, user, analysis_status))
 
     @validated_request(
         FeatureFlagCodeAnalysisStartSerializer,
@@ -218,7 +296,35 @@ class FeatureFlagCodeAnalysisMixin:
             return Response({"detail": str(error), "code": error.code}, status=_ERROR_STATUS[error.code])
         analysis_status = get_code_analysis_status(flag, user)
         assert analysis_status is not None
-        return Response(_serialize_status(analysis_status), status=status.HTTP_201_CREATED)
+        return Response(_serialize_status(flag, user, analysis_status), status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        FeatureFlagCodeCleanupStartSerializer,
+        responses={
+            201: FeatureFlagCodeAnalysisSerializer,
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="open_cleanup_pr", required_scopes=["feature_flag:write"])
+    def open_cleanup_pr(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """
+        Open a draft pull request that removes this stale flag's checks from the code.
+
+        An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+        opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+        when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+        `cleanup` on `code_analysis`), 403 when AI data processing is not approved, and 409 when a cleanup
+        pull request is already open or in progress.
+        """
+        self._require_code_analysis_enabled(request)
+        flag: FeatureFlag = self.get_object()  # type: ignore[attr-defined]
+        user = cast(User, request.user)
+        try:
+            start_code_cleanup(flag, user, keep_outcome=request.validated_data.get("keep_outcome") or None)
+        except CodeAnalysisError as error:
+            return Response({"detail": str(error), "code": error.code}, status=_ERROR_STATUS[error.code])
+        analysis_status = get_code_analysis_status(flag, user)
+        assert analysis_status is not None
+        return Response(_serialize_status(flag, user, analysis_status), status=status.HTTP_201_CREATED)
 
     @validated_request(
         query_serializer=FeatureFlagCodeAnalysisTargetQuerySerializer,

@@ -26,6 +26,8 @@ class FeatureFlagCodeAnalysis(TeamScopedRootMixin, UUIDModel):
     task_id = models.UUIDField()
     # GitHub repository (`org/repo`) the run analyzed, in GitHub's casing.
     repository = models.CharField(max_length=255)
+    # The Tasks run that opens a pull request removing the flag's checks found by this analysis.
+    cleanup_task_id = models.UUIDField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { featureFlagCodeAnalysisLogic } from './featureFlagCodeAnalysisLogic'
+import { FeatureFlagCodeCleanupPanel } from './FeatureFlagCodeCleanupPanel'
 import { FeatureFlagCodeReferenceCard } from './FeatureFlagCodeReferenceCard'
 import type { FeatureFlagCodeAnalysisApi } from './generated/api.schemas'
 
@@ -30,8 +31,19 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
         isRunning,
         startingAnalysis,
         startError,
+        cleanupOutcome,
+        isCleanupRunning,
+        openingCleanupPr,
+        cleanupError,
     } = useValues(logic)
-    const { loadAnalysis, startAnalysis, selectRepository, reportGitHubLinkClicked } = useActions(logic)
+    const {
+        loadAnalysis,
+        startAnalysis,
+        selectRepository,
+        reportGitHubLinkClicked,
+        selectCleanupOutcome,
+        openCleanupPr,
+    } = useActions(logic)
 
     if (!analysisLoaded && analysisLoadError) {
         return (
@@ -83,9 +95,11 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
         ? 'Connect GitHub to analyze this flag again'
         : isRunning
           ? 'An analysis is already running'
-          : !repository && target?.source === 'ambiguous'
-            ? 'Choose a repository first'
-            : undefined
+          : isCleanupRunning
+            ? 'Wait for the cleanup pull request to open'
+            : !repository && target?.source === 'ambiguous'
+              ? 'Choose a repository first'
+              : undefined
 
     const startButton = (label: string): JSX.Element => (
         <LemonButton
@@ -202,6 +216,15 @@ export function FeatureFlagCodeTab({ id }: { id: number }): JSX.Element {
                             <p className="m-0 text-secondary whitespace-pre-wrap">{result.notes}</p>
                         </div>
                     )}
+                    <FeatureFlagCodeCleanupPanel
+                        cleanup={analysis.cleanup}
+                        repository={analysis.repository}
+                        selectedOutcome={cleanupOutcome}
+                        opening={openingCleanupPr}
+                        error={cleanupError}
+                        onSelectOutcome={selectCleanupOutcome}
+                        onOpen={openCleanupPr}
+                    />
                     <div className="flex flex-wrap items-center gap-2">
                         {startButton('Analyze again')}
                         <span className="text-secondary text-sm">
