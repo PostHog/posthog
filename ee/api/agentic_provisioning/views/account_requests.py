@@ -112,6 +112,7 @@ class AccountRequestsView(ProvisioningAPIView):
 
         return Response(
             handle_new_user(
+                request._request,
                 request_id,
                 data,
                 email,

@@ -82,6 +82,7 @@ APIScopeObject = Literal[
     "integration",
     "interactive_run",
     "internal_run",
+    "knowledge_writer",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -155,6 +156,7 @@ APIScopeObject = Literal[
     "wizard_session",
     "wizard_run",
     "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
@@ -289,6 +291,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("messaging_preference", "write"),
     ("transactional_email", "read"),
     ("transactional_email", "write"),
+    # SDK prompt fetches by name and by list, so a service does not need a credential tied
+    # to one person's account. Publishing, labels and archiving stay closed to these keys.
+    ("llm_prompt", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
