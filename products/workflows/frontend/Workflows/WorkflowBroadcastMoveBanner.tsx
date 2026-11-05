@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -16,7 +17,8 @@ export function WorkflowBroadcastMoveBanner({ id }: { id: string }): JSX.Element
     const { originalWorkflow, hasUnsavedChanges, workflowUserAccessLevel } = useValues(workflowLogic)
     const { moving } = useValues(workflowBroadcastMoveLogic({ id }))
     const { moveToBroadcasts } = useActions(workflowBroadcastMoveLogic({ id }))
-    const show = canMoveToBroadcasts(originalWorkflow)
+    const { integrations } = useValues(integrationsLogic)
+    const show = canMoveToBroadcasts(originalWorkflow, integrations)
     const dismissKey = `workflow-broadcast-move-${id}`
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey }))
 
