@@ -30265,6 +30265,10 @@
                     "description": "Client provided name of the query",
                     "type": "string"
                 },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT or uses UNION."
+                },
                 "query": {
                     "type": "string"
                 },

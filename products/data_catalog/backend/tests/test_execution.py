@@ -84,7 +84,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
             ("over_the_limit", 1500, DEFAULT_DATA_CATALOG_RETURNED_ROWS, True),
         ]
     )
-    def test_long_series_is_not_truncated_at_the_api_default(
+    def test_long_series_continues_past_the_row_limit_with_offset(
         self, _name: str, row_count: int, expected_rows: int, expected_has_more: bool
     ) -> None:
         metric = upsert_metric(
@@ -92,7 +92,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
             user=self.user,
             name="long_series",
             description="d",
-            definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count})"},
+            definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count}) order by number"},
         )
 
         envelope = run_metric(team=self.team, metric=metric, user=self.user)
@@ -101,6 +101,18 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert len(envelope["results"]) == expected_rows
         assert envelope["has_more"] is expected_has_more
         assert envelope["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
+
+        rows = list(envelope["results"])
+        if envelope["next_offset"] is not None:
+            next_page = self.client.post(
+                f"/api/projects/{self.team.id}/data_catalog/metrics/long_series/run/",
+                {"offset": envelope["next_offset"]},
+                format="json",
+            ).json()
+            assert next_page["has_more"] is False
+            assert next_page["next_offset"] is None
+            rows += next_page["results"]
+        assert [row[0] for row in rows] == list(range(row_count))
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing
@@ -224,15 +236,18 @@ class TestMetricRunPreparation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("date_from", {"date_from": "-7d"}, "date_from"),
-            ("date_to", {"date_to": "-1d"}, "date_to"),
-            ("interval", {"interval": "week"}, "interval"),
+            ("date_from", _HOGQL, {"date_from": "-7d"}, "date_from"),
+            ("date_to", _HOGQL, {"date_to": "-1d"}, "date_to"),
+            ("interval", _HOGQL, {"interval": "week"}, "interval"),
+            ("offset_on_trends", _EVENTS_NODE, {"offset": 1000}, "offset"),
         ]
     )
-    def test_hogql_date_override_names_the_provided_field(self, _name: str, params: dict, expected_field: str) -> None:
+    def test_rejected_override_names_the_provided_field(
+        self, _name: str, definition: dict, params: dict, expected_field: str
+    ) -> None:
         # The rejection must point at whichever date param the caller actually sent, not always date_from.
         with self.assertRaises(ValidationError) as ctx:
-            prepare_execution_query(_HOGQL, **params)
+            prepare_execution_query(definition, **params)
         detail = cast(dict, ctx.exception.detail)
         assert expected_field in detail
 

@@ -59,6 +59,9 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
+OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE = (
+    "An offset only applies to a query without its own LIMIT or UNION. Put the OFFSET in the SQL instead."
+)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -408,13 +411,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         query = self._build_query()
 
         if self.is_query_service:
-            validate_user_query(query, team=self.team)
+            validate_user_query(query, team=self.team, requested_offset=self.query.offset)
 
         paginator = None
         if self.limit_context == LimitContext.SQL_ALERT:
             paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
         elif isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+            paginator = HogQLHasMorePaginator.from_limit_context(
+                limit_context=self.limit_context, offset=self.query.offset
+            )
+        elif self.query.offset:
+            raise ExposedHogQLError(OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE)
         func = cast(
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,

@@ -148,6 +148,17 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
 
+    @parameterized.expand(
+        [
+            ("own_limit", "SELECT number FROM numbers(10) ORDER BY number LIMIT 5"),
+            ("union", "SELECT 1 AS n UNION ALL SELECT 2 AS n"),
+        ]
+    )
+    def test_offset_without_default_row_limit_is_rejected(self, _name: str, sql: str) -> None:
+        runner = self._create_runner(HogQLQuery(query=sql, offset=3))
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
     @parameterized.expand([(3, False), (4, True)])
     def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
         query = HogQLQuery(query=f"SELECT arrayJoin(range({row_count + 2})) AS value ORDER BY value LIMIT 3 OFFSET 2")
@@ -540,12 +551,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("limit_by", "select event, timestamp from events limit 5 by event offset 10"),
             # OFFSET arrives via placeholder — proves hook runs after to_query() substitution.
             ("placeholder", "select event from events limit 10 offset {o}"),
+            ("offset_field", "select event from events"),
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_query_service_rejects_offset(self, _name, sql, _mock_flag):
         values = {"o": 50} if "{o}" in sql else None
-        runner = self._create_runner(HogQLQuery(query=sql, values=values))
+        offset = 50 if _name == "offset_field" else None
+        runner = self._create_runner(HogQLQuery(query=sql, values=values, offset=offset))
         runner.is_query_service = True
 
         with self.assertRaises(QueryError) as ctx:

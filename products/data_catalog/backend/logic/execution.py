@@ -64,6 +64,7 @@ def run_metric(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     interval: Optional[str] = None,
+    offset: Optional[int] = None,
     query_id: Optional[str] = None,
     request: "Request | None" = None,
 ) -> dict:
@@ -87,7 +88,9 @@ def run_metric(
             return _markdown_envelope(metric, is_drifted)
 
         try:
-            query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
+            query = prepare_execution_query(
+                metric.definition, date_from=date_from, date_to=date_to, interval=interval, offset=offset
+            )
         except ValidationError:
             run.record("rejected")
             raise
@@ -164,6 +167,7 @@ def prepare_execution_query(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     interval: Optional[str] = None,
+    offset: Optional[int] = None,
 ) -> dict:
     """The exact query handed to the engine: the stored definition, node kinds wrapped runnable,
     date/interval overrides applied."""
@@ -172,7 +176,18 @@ def prepare_execution_query(
         # A bare series node has no query runner of its own; run it as a single-series trends query.
         query = {"kind": "TrendsQuery", "series": [query]}
     _apply_date_params(query, date_from, date_to, interval)
+    _apply_offset(query, offset)
     return query
+
+
+def _apply_offset(query: dict, offset: Optional[int]) -> None:
+    if not offset:
+        return
+    if query.get("kind") != HOGQL_DEFINITION_KIND:
+        raise ValidationError(
+            {"offset": "Only HogQLQuery metrics return rows in pages. Narrow the window or the interval instead."}
+        )
+    query["offset"] = offset
 
 
 def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[str], interval: Optional[str]) -> None:
@@ -199,6 +214,9 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
 
 def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, is_drifted: bool) -> dict:
     row_limit = payload.get("limit")
+    next_offset = None
+    if row_limit is not None and payload.get("hasMore"):
+        next_offset = (payload.get("offset") or 0) + row_limit
     return {
         "status": metric.status,
         "is_drifted": is_drifted,
@@ -208,8 +226,9 @@ def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, i
         "columns": payload.get("columns"),
         "compiled_query": payload.get("hogql"),
         "query_status": payload.get("query_status"),
-        "has_more": row_limit is not None and bool(payload.get("hasMore")),
+        "has_more": next_offset is not None,
         "row_limit": row_limit,
+        "next_offset": next_offset,
         "posthog_url": _deep_link(team, prepared_query),
         "instructions": None,
     }
@@ -227,6 +246,7 @@ def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
         "query_status": None,
         "has_more": False,
         "row_limit": None,
+        "next_offset": None,
         "posthog_url": None,
         "instructions": (metric.definition or {}).get("markdown"),
     }
