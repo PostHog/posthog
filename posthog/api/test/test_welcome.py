@@ -1,3 +1,7 @@
+import json
+from datetime import timedelta
+
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
@@ -6,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.welcome import _RECENT_ACTIVITY_SCOPES, _probe_latest_activity_id, _recent_activity_queryset
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -154,6 +159,72 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["recent_activity"]), 1)
         self.assertEqual(data["recent_activity"][0]["entity_name"], "My insight")
+
+    @parameterized.expand([(1,), (40,)])
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
+    def test_recent_activity_query_keeps_global_order_and_bounds_each_scan(self, limit: int) -> None:
+        now = timezone.now()
+        team_ids = [self.team.id, self.team.id + 1]
+        rows = ActivityLog.objects.bulk_create(
+            [
+                ActivityLog(
+                    team_id=team_id,
+                    scope=scope,
+                    activity="updated",
+                    item_id=str(index),
+                    created_at=now - timedelta(seconds=index * 12 + team_index * 6 + scope_index),
+                    is_system=False,
+                    was_impersonated=False,
+                )
+                for team_index, team_id in enumerate(team_ids)
+                for scope_index, scope in enumerate(_RECENT_ACTIVITY_SCOPES)
+                for index in range(45)
+            ]
+        )
+        for overrides in [
+            {"team_id": self.team.id + 2},
+            {"scope": "Other"},
+            {"is_system": True},
+            {"is_system": None},
+            {"was_impersonated": True},
+            {"was_impersonated": None},
+            {"created_at": now - timedelta(days=31)},
+        ]:
+            ActivityLog.objects.create(
+                **{
+                    "team_id": self.team.id,
+                    "scope": "Insight",
+                    "activity": "updated",
+                    "created_at": now + timedelta(seconds=1),
+                    "is_system": False,
+                    "was_impersonated": False,
+                    **overrides,
+                }
+            )
+
+        since = now - timedelta(days=30)
+        queryset = _recent_activity_queryset(team_ids, since, limit).values_list("id", flat=True)
+        expected = [row.id for row in sorted(rows, key=lambda row: row.created_at, reverse=True)[:limit]]
+        with self.assertNumQueries(1):
+            self.assertEqual(list(queryset), expected)
+
+        plans = [json.loads(queryset.explain(analyze=True, format="json"))[0]["Plan"]]
+        bounded_scans = []
+        while plans:
+            node = plans.pop()
+            if node["Node Type"] == "Limit" and node["Actual Loops"] == 12:
+                bounded_scans.append(node["Actual Rows"])
+            plans.extend(node.get("Plans", []))
+        self.assertEqual(bounded_scans, [limit])
+
+        self.assertEqual(_probe_latest_activity_id(self.organization, team_ids, since), expected[0])
+        with self.assertNumQueries(0):
+            self.assertEqual(_probe_latest_activity_id(self.organization, team_ids, since), expected[0])
+
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
+    def test_recent_activity_query_with_no_accessible_teams(self) -> None:
+        with self.assertNumQueries(0):
+            self.assertEqual(list(_recent_activity_queryset([], timezone.now(), limit=40)), [])
 
     def test_recent_activity_insight_url_uses_short_id(self):
         ActivityLog.objects.create(

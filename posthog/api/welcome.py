@@ -1,9 +1,11 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.core.cache import cache
-from django.db.models import F
+from django.db.models import F, QuerySet
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
 import structlog
@@ -232,9 +234,39 @@ def _onboarding_signature(organization: Organization, accessible_team_ids: list[
     return hashlib.blake2s(signal.encode("utf-8"), digest_size=8).hexdigest()
 
 
+def _recent_activity_queryset(team_ids: list[int], since: datetime, limit: int) -> QuerySet[ActivityLog]:
+    if not team_ids:
+        return ActivityLog.objects.none()
+
+    # Fix both index prefixes so each scan can stop at its limit without sorting its history.
+    # A row below the top N in its team and scope cannot belong to the global top N.
+    activity_ids = RawSQL(
+        """
+        SELECT recent.id
+        FROM unnest(%s::integer[]) AS teams(team_id)
+        CROSS JOIN unnest(%s::text[]) AS scopes(scope)
+        CROSS JOIN LATERAL (
+            SELECT activity.id, activity.created_at
+            FROM posthog_activitylog AS activity
+            WHERE activity.team_id = teams.team_id
+              AND activity.scope = scopes.scope
+              AND activity.created_at >= %s
+              AND activity.is_system = false
+              AND activity.was_impersonated = false
+            ORDER BY activity.created_at DESC
+            LIMIT %s
+        ) AS recent
+        ORDER BY recent.created_at DESC
+        LIMIT %s
+        """,
+        [team_ids, _RECENT_ACTIVITY_SCOPES, since, limit, limit],
+    )
+    return ActivityLog.objects.filter(id__in=activity_ids).order_by("-created_at")
+
+
 def _probe_latest_activity_id(
     organization: Organization, accessible_team_ids: list[int], since: datetime
-) -> int | None:
+) -> UUID | None:
     """Look up the most recent relevant ActivityLog id, time-bucketed and briefly cached.
 
     The bucket floors the current time to _ACTIVITY_PROBE_BUCKET_SECONDS so the returned id
@@ -252,16 +284,7 @@ def _probe_latest_activity_id(
         return cached_probe if cached_probe != "none" else None
 
     latest_activity_id = (
-        ActivityLog.objects.filter(
-            team_id__in=accessible_team_ids,
-            scope__in=_RECENT_ACTIVITY_SCOPES,
-            created_at__gte=since,
-            is_system=False,
-            was_impersonated=False,  # matches idx_alog_team_scope_created partial index predicate
-        )
-        .order_by("-created_at")
-        .values_list("id", flat=True)
-        .first()
+        _recent_activity_queryset(accessible_team_ids, since, limit=1).values_list("id", flat=True).first()
     )
     # Cache for the remainder of the current bucket window (+ a small buffer).
     cache.set(
@@ -416,18 +439,8 @@ def _get_recent_activity(team_ids: list[int], since: datetime) -> list[dict[str,
         return []
 
     # Over-fetch to leave room for de-duping noisy autosave rows on the same entity.
-    # Filters match the idx_alog_team_scope_created partial index predicate (is_system=False AND
-    # was_impersonated=False) so the planner can use it on team_id__in lookups.
     raw_rows = list(
-        ActivityLog.objects.filter(
-            team_id__in=team_ids,
-            scope__in=_RECENT_ACTIVITY_SCOPES,
-            created_at__gte=since,
-            is_system=False,
-            was_impersonated=False,
-        )
-        .select_related("user")
-        .order_by("-created_at")[: _RECENT_ACTIVITY_MAX_ITEMS * 4]
+        _recent_activity_queryset(team_ids, since, limit=_RECENT_ACTIVITY_MAX_ITEMS * 4).select_related("user")
     )
 
     seen: set[tuple[str, str | None]] = set()
