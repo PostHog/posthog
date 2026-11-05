@@ -3,6 +3,11 @@ import { urls } from 'scenes/urls'
 
 import { registerIntegrationSetup } from './integrationSetupRegistry'
 
+const AwsKinesisSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/aws-kinesis/AwsKinesisSetupModal').then((module) => ({
+        default: module.AwsKinesisSetupModal,
+    }))
+)
 const AwsS3SetupModal = lazyWithRetry(() =>
     import('scenes/integrations/aws-s3/AwsS3SetupModal').then((module) => ({ default: module.AwsS3SetupModal }))
 )
@@ -145,6 +150,17 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'aws-kinesis',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new AWS Kinesis connection',
+        onClick: () => openModal('aws-kinesis'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <AwsKinesisSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

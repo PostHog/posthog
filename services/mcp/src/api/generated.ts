@@ -59550,6 +59550,7 @@ export namespace Schemas {
        * * `anthropic` - Anthropic
        * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
+       * * `aws-kinesis` - Aws Kinesis
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob

@@ -20,6 +20,7 @@ class IntegrationKind(StrEnum):
     ANTHROPIC = "anthropic"
     APNS = "apns"
     APPLE_ADS = "apple-ads"
+    AWS_KINESIS = "aws-kinesis"
     AWS_REDSHIFT = "aws-redshift"
     AWS_S3 = "aws-s3"
     AZURE_BLOB = "azure-blob"
@@ -86,6 +87,12 @@ class AppleAdsKind(KindAccessor):
     oauth = OAuthAccessor(kind="apple-ads")  # the default
     credentials = AuthAccessor(kind="apple-ads", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"apple-ads"}))
+
+
+class AwsKinesisKind(KindAccessor):
+    kind = "aws-kinesis"
+    credentials = AuthAccessor(kind="aws-kinesis", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"aws-kinesis"}))
 
 
 class AwsRedshiftKind(KindAccessor):
@@ -390,6 +397,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     anthropic = AnthropicKind()
     apns = ApnsKind()
     apple_ads = AppleAdsKind()
+    aws_kinesis = AwsKinesisKind()
     aws_redshift = AwsRedshiftKind()
     aws_s3 = AwsS3Kind()
     azure_blob = AzureBlobKind()
