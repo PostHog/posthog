@@ -2749,6 +2749,21 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_admitted_implementation_continues_after_limit_is_reached(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: accepted report",
+                description="Finish the accepted pipeline",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                continue_admitted_pipeline=True,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_dark_launch_emits_without_blocking(self, _mock_workflow):
         # Limited without enforcement must create the task and still emit the would-block
         # event, or the manual gate is invisible during the dark launch.

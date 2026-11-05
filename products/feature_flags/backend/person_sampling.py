@@ -14,6 +14,9 @@ from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 from posthog.schema_enums import PersonsArgMaxVersion
 
+# Above this, a GROUP BY goes to disk instead of failing the query on the memory limit.
+SPILL_GROUP_BY_AFTER_BYTES = 4 * 1024**3
+
 # 1-in-64 sample of the person keyspace. Sampling keys on person id (the dedup key), so every
 # version row of a sampled person lands in the sample and the argMax dedup stays exact within it.
 SAMPLE_MODULUS = 64
@@ -48,7 +51,7 @@ def bounded_memory_settings() -> HogQLGlobalSettings:
         # Left unset it inherits the cluster profile, which may accept partial results.
         timeout_overflow_mode="throw",
         optimize_aggregation_in_order=True,
-        max_bytes_before_external_group_by=4 * 1024**3,
+        max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
     )
 
 
@@ -60,7 +63,7 @@ def count_settings(sample_modulus: Optional[int]) -> HogQLGlobalSettings:
     if sample_modulus is not None:
         return HogQLGlobalSettings(
             timeout_overflow_mode="throw",
-            max_bytes_before_external_group_by=4 * 1024**3,
+            max_bytes_before_external_group_by=SPILL_GROUP_BY_AFTER_BYTES,
         )
     return bounded_memory_settings()
 

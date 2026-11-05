@@ -44,6 +44,7 @@ class TrialInboxReads:
             "count_only",
             "ordering",
             "sort",
+            "ranking_id",
             "limit",
             "offset",
             "format",
@@ -296,6 +297,8 @@ class TrialInboxReads:
                 include_source_metadata=include_source_metadata,
             )
             document["inbox_merge_key"] = None
+            document["personal_tier"] = None
+            document["personal_reason"] = None
             if document.get("status") not in statuses:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
