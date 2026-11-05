@@ -24,6 +24,11 @@ class TestJSONPropertyPushdown(BaseTest):
         wrapped = self._print(f"SELECT ifNull(properties.name, '') AS name FROM {table}")
         self.assertEqual(extract, wrapped)
 
+    def test_json_extract_string_on_a_join_to_events_is_not_rewritten(self):
+        printed = self._print("SELECT JSONExtractString(events.properties, 'probe') FROM raw_session_replay_events")
+        self.assertIn("JSONExtractString(", printed)
+        self.assertNotIn("properties___probe", printed)
+
     def test_whole_properties_access_still_aggregates_blob(self):
         printed = self._print("SELECT key, properties FROM groups")
         self.assertIn("argMax(groups.group_properties,", printed)
