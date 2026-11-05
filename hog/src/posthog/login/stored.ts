@@ -89,12 +89,18 @@ export async function logout(runtime: Runtime, host: Host): Promise<LoggedOut | 
         const record = loginFor(settings, host)
         const login = await readLogin(runtime, settings, host)
         if (!login) {
-            // The file entry can be gone while the record still names a keychain item left behind.
-            if (!record?.keychainLeftover) {
+            if (!record) {
                 return undefined
             }
-            await removeLogin(runtime, host, openStore(runtime, record.store))
-            return { revoked: null, revokeUrl: null, keychainLeftover: await removeKeychainLeftover(runtime, host) }
+            // The store can hold an item hog can't read, such as a key an older hog accepted, and
+            // the file entry can be gone while the record still names a keychain item left behind.
+            // Both are removed, so logout leaves no secret behind.
+            const removed = await removeLogin(runtime, host, openStore(runtime, record.store))
+            if (!removed && !record.keychainLeftover) {
+                return undefined
+            }
+            const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
+            return { revoked: null, revokeUrl: null, keychainLeftover: leftover }
         }
         const [outcome, removed] = await Promise.all([
             login.key.logout(runtime),

@@ -555,6 +555,18 @@ describe('hog auth login', () => {
         }
     )
 
+    test('logout removes a stored key hog can no longer read, such as one without the phx_ prefix', async () => {
+        const result = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files: KEYCHAIN_LOGIN.files,
+            keychain: { [EU]: JSON.stringify({ apiKey: 'unprefixedkey123' }) },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ status: 'logged_out' })
+        expect(result.keychain).toEqual({})
+    })
+
     test.each([
         ['revokes an OAuth login in PostHog before it removes it', 200, true],
         ['says when PostHog could not revoke the login, and still removes it', 503, false],
