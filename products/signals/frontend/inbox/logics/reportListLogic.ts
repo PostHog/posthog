@@ -330,10 +330,10 @@ export interface reportListLogicActions {
         errorObject?: any
     }
     loadCountSuccess: (
-        count: number,
+        count: number | null,
         payload?: void
     ) => {
-        count: number
+        count: number | null
         payload?: void
     }
     loadHasProjectClosedReports: (_: void) => void
@@ -622,6 +622,7 @@ export const reportListLogic = kea<reportListLogicType>([
                         return 0
                     }
                     const params = values.listApiParams
+                    const pageAtRequest = values.reportsResponse
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
@@ -630,9 +631,14 @@ export const reportListLogic = kea<reportListLogicType>([
                     })
                     // A newer count request for a changed query supersedes this one.
                     breakpoint()
-                    // A loaded section takes the new query's count from its first page and sends no
-                    // new count request, so a late count for the old query must not replace it.
-                    if (JSON.stringify(values.listApiParams) !== JSON.stringify(params)) {
+                    // A loaded section takes its count from its first page and sends no new count
+                    // request, so nothing else retires this one. Drop it when the query moved on, and
+                    // when a page landed while it was in flight, because that page carries the total
+                    // for the rows now on screen.
+                    if (
+                        JSON.stringify(values.listApiParams) !== JSON.stringify(params) ||
+                        values.reportsResponse !== pageAtRequest
+                    ) {
                         return values.count
                     }
                     return response.count
@@ -1038,6 +1044,12 @@ export const reportListLogic = kea<reportListLogicType>([
             // response carries the total, so a separate count would run the same COUNT(*) twice.
             if (values.isLoaded || values.reportsResponseLoading) {
                 actions.loadReports()
+                // Whether the project holds any closed report is a project-wide question that this
+                // section's page does not answer, and the `loadCount` listener that asks it does not
+                // run on this path. The Closed tab stays hidden until this check runs again.
+                if (props.sectionKey === 'closed') {
+                    actions.loadHasProjectClosedReports()
+                }
             } else {
                 actions.loadCount()
             }
