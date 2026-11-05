@@ -557,8 +557,7 @@ export class InstructionsFormatter {
                 ...(learnSection ? [learnSection] : []),
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
                 ...(claudeChat ? [] : this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection })),
-                // Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it inline.
-                ...(claudeChat ? [] : [QUERY_TOOL_ROUTING]),
+                ...(ctx.queryRoutingInline ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
