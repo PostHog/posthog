@@ -376,7 +376,7 @@ def validate_credentials(endpoint: str, key: str, database: str, api_version: st
                 "Azure Cosmos DB rejected the account key. Copy a key from the account's Keys page and try again.",
             )
         if status == 403:
-            return False, FORBIDDEN_MESSAGE + _error_description(error.response)
+            return False, FORBIDDEN_MESSAGE
         if status == 404:
             return False, f"No database named {database} exists in this account. Check the database name."
         return False, f"Azure Cosmos DB returned an error: {error}"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from django.core.cache import cache
 
@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     OAuthMixin,
     filter_integration_accounts,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base, helpers
 
@@ -132,7 +131,7 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
             raise ValidationError("integration_id must be an integer")
 
         try:
-            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+            source = base.SourceRegistry.get_source(source_type)
         except ValueError:
             raise ValidationError(f"Unknown source type: {source_type}")
 
@@ -202,7 +201,7 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
 
         source_type = data["source_type"]
         try:
-            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+            source = base.SourceRegistry.get_source(source_type)
         except ValueError:
             raise ValidationError(f"Unknown source type: {source_type}")
 

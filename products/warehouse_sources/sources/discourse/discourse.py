@@ -1,7 +1,7 @@
 import re
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     IncrementalConfig,
     OffsetPaginator,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -230,20 +231,16 @@ def _flatten_directory_item(item: dict[str, Any]) -> dict[str, Any]:
 _POST_CONTENT_FIELDS = ("excerpt", "edit_reason")
 
 
-def _public_activity_rows(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Reduce an activity page to public actions, without their post text.
+def _is_public_activity(row: dict[str, Any]) -> bool:
+    """`USER_ACTION_PUBLIC_TYPES` explains why the action types are narrowed here instead of in the request."""
+    return row.get("action_type") in USER_ACTION_PUBLIC_TYPES
 
-    `USER_ACTION_PUBLIC_TYPES` explains why the action types are narrowed here instead of in the
-    request, and `_POST_CONTENT_FIELDS` why the text is dropped.
-    """
-    rows: list[dict[str, Any]] = []
-    for row in batch:
-        if row.get("action_type") not in USER_ACTION_PUBLIC_TYPES:
-            continue
-        for field_name in _POST_CONTENT_FIELDS:
-            row.pop(field_name, None)
-        rows.append(row)
-    return rows
+
+def _without_post_content(row: dict[str, Any]) -> dict[str, Any]:
+    """`_POST_CONTENT_FIELDS` explains why the text is dropped."""
+    for field_name in _POST_CONTENT_FIELDS:
+        row.pop(field_name, None)
+    return row
 
 
 def _coerce_incremental_cursor(value: Any) -> Optional[int]:
@@ -340,7 +337,7 @@ def discourse_source(
             return
         resumable_source_manager.save_state(DiscourseResumeConfig(page=state.get("page"), before=state.get("before")))
 
-    def build_resource() -> Iterable[list[dict[str, Any]]]:
+    def build_resource() -> Resource:
         if endpoint_config.fanout is not None:
             return _fanout_resource(
                 endpoint_config=endpoint_config,
@@ -365,14 +362,14 @@ def discourse_source(
             initial_paginator_state=_flat_initial_state(endpoint_config, resume_config),
         )
 
-    def items() -> Iterator[list[dict[str, Any]]]:
+    def items() -> Resource:
         # Re-checked at run time (not just at source-create) in case the instance URL was edited
         # or now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         _check_host(base_url, team_id)
-        for batch in build_resource():
-            rows = _public_activity_rows(batch) if endpoint == "user_actions" else batch
-            if rows:
-                yield rows
+        resource = build_resource()
+        if endpoint == "user_actions":
+            resource.add_filter(_is_public_activity).add_map(_without_post_content)
+        return resource
 
     return SourceResponse(
         name=endpoint,
@@ -407,7 +404,7 @@ def _flat_resource(
     should_use_incremental_field: bool,
     resume_hook: Callable[[Optional[dict[str, Any]]], None],
     initial_paginator_state: Optional[dict[str, Any]],
-) -> Iterable[list[dict[str, Any]]]:
+) -> Resource:
     endpoint_dict: Endpoint = {
         "path": endpoint_config.path,
         **_RETRY_MALFORMED_BODY,
@@ -464,10 +461,10 @@ def _fanout_resource(
     incremental_field: Optional[str],
     resume_hook: Callable[[Optional[dict[str, Any]]], None],
     initial_paginator_state: Optional[dict[str, Any]],
-) -> Iterable[list[dict[str, Any]]]:
+) -> Resource:
     parent_config = DISCOURSE_ENDPOINTS[fanout.parent_name]
 
-    return build_dependent_resource(
+    resource = build_dependent_resource(
         endpoint_configs=DISCOURSE_ENDPOINTS,
         child_endpoint=endpoint_config.name,
         fanout=fanout,
@@ -486,6 +483,7 @@ def _fanout_resource(
         resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
     )
+    return cast(Resource, resource)
 
 
 def _get_session(api_key: str, api_username: str) -> requests.Session:

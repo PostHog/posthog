@@ -74,7 +74,7 @@ jobs:
 
             - name: Install dependencies
               # Standalone package: own lockfile, outside the root pnpm workspace, so ignore the workspace.
-              run: corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
+              run: npm install -g corepack@0.36.0 && corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
 
             - name: Lint
               run: pnpm lint
@@ -122,16 +122,16 @@ jobs:
         # master → posthog-ml-mirror-image-scrub via the master role; else → the -prs repo via the prs role.
         env:
             ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-ml-mirror-image-scrub' || 'posthog-ml-mirror-image-scrub-prs' }}
-            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE || secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
 
         steps:
             - name: Assert master publish role is configured
               if: github.ref == 'refs/heads/master'
               env:
-                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  MASTER_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |
                   if [[ -z "$MASTER_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
                     exit 1
                   fi
 

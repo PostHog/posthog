@@ -1,10 +1,11 @@
-import { IconInfo, IconRabbit, IconTortoise } from '@posthog/icons'
+import { IconInfo, IconPinFilled, IconRabbit, IconTortoise, IconX } from '@posthog/icons'
 import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataModelingSyncInterval } from '~/types'
 
+import { NodePinBlockerApi, NodePinDelayApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
@@ -62,6 +63,21 @@ export function modeDisabledReason(bounds?: SyncFrequencyBoundsApi | null): stri
     return (bounds && MODE_DISABLED_REASONS[bounds.frequency_mode]) || null
 }
 
+export interface CadencePin {
+    /** True when the pin is saved or the next save writes it. */
+    pinned: boolean
+    /** True when the next save changes the pin. */
+    pending: boolean
+    /** Downstream views that refresh more often than the pinned cadence. */
+    delayed: NodePinDelayApi[]
+    /** Per cadence, the downstream view a pin that slow would leave unable to meet its own cadence. */
+    blockedBy: Partial<Record<string, NodePinBlockerApi>>
+    /** Per cadence, the downstream views that would read older data if this view were pinned to it. */
+    delaysBy: Partial<Record<string, NodePinDelayApi[]>>
+    /** Per cadence, the cadence this view runs at once unpinned, which only the server can work out because other pins stop demand. */
+    unpinnedBy: Partial<Record<string, DataModelingSyncInterval>>
+}
+
 export interface SyncFrequencySelectProps {
     /** Bounds from the saved query. Undefined while loading, or on surfaces that don't fetch them. */
     bounds?: SyncFrequencyBoundsApi | null
@@ -73,6 +89,9 @@ export interface SyncFrequencySelectProps {
     /** Takes precedence over the mode's own reason, so access checks win over scheduling ones. */
     disabledReason?: string
     'data-attr'?: string
+    /** Set when the view has a DAG node, so a cadence slower than a downstream view can pin instead of being refused. */
+    pin?: CadencePin | null
+    onUnpin?: () => void
 }
 
 /**
@@ -88,16 +107,27 @@ export function SyncFrequencySelect({
     loading,
     disabledReason,
     'data-attr': dataAttr,
+    pin,
+    onUnpin,
 }: SyncFrequencySelectProps): JSX.Element {
-    const inherited = inheritedCadence(bounds, value)
-    const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
-    const options = buildOptions(bounds)
-    const explanation = buildExplanation(bounds, { omitCeiling: !!inherited })
+    const unpinning = pin && !pin.pinned && pin.pending ? unpinnedCadence(pin.unpinnedBy, pin.delaysBy, value) : null
+    const inherited = pin?.pinned || unpinning ? null : inheritedCadence(bounds, value)
+    const selected = unpinning?.cadence ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
+    const options = buildOptions(bounds, {
+        canPin: !!pin,
+        pinned: !!pin?.pinned,
+        pinBlockedBy: pin?.blockedBy,
+        pinDelays: pin?.delaysBy,
+        unpinnedBy: pin?.unpinnedBy,
+    })
+    const canUnpin = !!pin?.pinned && !pin.pending && !!onUnpin
     const modeReason = modeDisabledReason(bounds)
+    // A pin can make a cadence selectable that the bounds alone refuse, so the bar is only dead when its own options are.
+    const nothingSelectable = options.every((option) => option.disabledReason)
     const reason =
         disabledReason ??
         (loading ? 'Saving the new cadence.' : undefined) ??
-        unsatisfiableReason(bounds) ??
+        (nothingSelectable ? unsatisfiableReason(bounds) : null) ??
         modeReason ??
         undefined
 
@@ -123,29 +153,85 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
+                    value={selected}
                     onChange={(next) => {
-                        if (next !== value) {
+                        // Compare against what the bar shows: a saved cadence the scheduler overrides shows
+                        // the inherited one, and clicking the saved one again is how the view gets pinned to it.
+                        if (next !== selected) {
                             onChange(next)
+                        } else if (canUnpin) {
+                            onUnpin?.()
                         }
                     }}
-                    options={options}
+                    options={pin?.pinned ? withPinnedSegment(options, selected, { canUnpin }) : options}
                     disabledReason={reason}
                 />
                 <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
             </div>
-            {inherited && (
-                <span className="text-xs text-secondary max-w-prose">
-                    <WithUpstreamRule text={inherited.note} />
-                </span>
-            )}
-            {selectedSpeedUp && (
-                <span className="text-xs text-secondary max-w-prose">
-                    <WithUpstreamRule text={selectedSpeedUp} />
-                </span>
-            )}
-            {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
+            <CadenceNotes
+                notes={
+                    loading
+                        ? []
+                        : cadenceNotes({
+                              pin,
+                              selected,
+                              unpinning,
+                              inherited,
+                              speedUp: value && value !== 'never' ? speedUpWarning(bounds, value) : null,
+                          })
+                }
+                explanation={
+                    // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
+                    // With a pin on offer, a downstream view no longer caps how slow this view can go.
+                    buildExplanation(bounds, { omitCeiling: !!inherited || !!pin })
+                }
+            />
         </div>
+    )
+}
+
+interface CadenceNote {
+    key: string
+    text: string
+    /** True when the note leans on the upstream rule, so it links to the explanation. */
+    upstreamRule: boolean
+}
+
+/** The notes under the bar, in the order they apply: what the pin does, what an unpin does, what the scheduler overrides, what a pick speeds up. */
+function cadenceNotes({
+    pin,
+    selected,
+    unpinning,
+    inherited,
+    speedUp,
+}: {
+    pin?: CadencePin | null
+    selected?: DataModelingSyncInterval
+    unpinning: { note: string } | null
+    inherited: { note: string } | null
+    speedUp: string | null
+}): CadenceNote[] {
+    const notes: (CadenceNote | null)[] = [
+        pin?.pinned && selected
+            ? { key: 'pin', text: pinNote(selected, pin.delayed, { pending: pin.pending }), upstreamRule: false }
+            : null,
+        unpinning ? { key: 'unpinning', text: unpinning.note, upstreamRule: true } : null,
+        inherited ? { key: 'inherited', text: inherited.note, upstreamRule: true } : null,
+        speedUp ? { key: 'speed-up', text: speedUp, upstreamRule: true } : null,
+    ]
+    return notes.filter((note): note is CadenceNote => !!note)
+}
+
+function CadenceNotes({ notes, explanation }: { notes: CadenceNote[]; explanation: string | null }): JSX.Element {
+    return (
+        <>
+            {notes.map((note) => (
+                <span key={note.key} className="text-xs text-secondary max-w-prose">
+                    {note.upstreamRule ? <WithUpstreamRule text={note.text} /> : note.text}
+                </span>
+            ))}
+            {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
+        </>
     )
 }
 
@@ -170,6 +256,62 @@ export function speedUpWarning(
         ? 'Some upstream views'
         : `${plural ? 'Upstream views' : 'Upstream view'} ${named.join(', ')}${option.speeds_up_withheld ? ' and others' : ''}`
     return `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view.`
+}
+
+export function unpinnedCadence(
+    unpinnedBy: Partial<Record<string, DataModelingSyncInterval>>,
+    delaysBy: Partial<Record<string, { name: string }[]>>,
+    value: SyncFrequencyValue | null
+): { cadence: DataModelingSyncInterval; note: string } | null {
+    if (!value || value === 'never') {
+        return null
+    }
+    const cadence = unpinnedBy[value]
+    if (!cadence || cadence === value) {
+        return null
+    }
+    // The names only describe who reads older data under the pin. The cadence itself comes from the server.
+    const delayed = (delaysBy[value] ?? []).map((view) => view.name)
+    const who = !delayed.length
+        ? 'downstream views'
+        : delayed.length > 1
+          ? `downstream views ${delayed.join(', ')}`
+          : `downstream view ${delayed[0]}`
+    return {
+        cadence,
+        note: `Once you save, this view refreshes every ${CADENCE_LABELS[cadence]} to keep up with ${who}.`,
+    }
+}
+
+/**
+ * True when the view, once unpinned, would run faster than this cadence because a downstream view
+ * asks for it, which is when holding the cadence takes a pin. Read from the node bounds, which are
+ * calculated without this view's own pin, so a pinned view still tells.
+ */
+export function needsPin(unpinnedBy: CadencePin['unpinnedBy'] | undefined, cadence: SyncFrequencyValue): boolean {
+    if (cadence === 'never') {
+        return false
+    }
+    const unpinned = unpinnedBy?.[cadence]
+    return !!unpinned && ORDERED_CADENCES.indexOf(unpinned) < ORDERED_CADENCES.indexOf(cadence)
+}
+
+/** What a pin means for the downstream views, so nobody pins without seeing who reads older data. */
+export function pinNote(
+    cadence: DataModelingSyncInterval,
+    delayed: NodePinDelayApi[],
+    { pending }: { pending: boolean }
+): string {
+    const every = CADENCE_LABELS[cadence]
+    const lead = pending ? `Saving pins this view to refresh every ${every}` : `Pinned to refresh every ${every}`
+    if (!delayed.length) {
+        return `${lead}, even when downstream views need fresher data.`
+    }
+    const plural = delayed.length > 1
+    return (
+        `${lead}. ${plural ? 'Downstream views' : 'Downstream view'} ${delayed.map((view) => view.name).join(', ')} ` +
+        `${plural ? 'refresh' : 'refreshes'} more often, so ${plural ? 'they read' : 'it reads'} data up to ${every} old.`
+    )
 }
 
 const UPSTREAM_RULE =
@@ -212,12 +354,25 @@ export function inheritedCadence(
         cadence,
         note:
             `Refreshes every ${CADENCE_LABELS[cadence]} to keep up with ${consumer ? `downstream view ${consumer}` : 'a downstream view'}. ` +
-            `Your ${CADENCE_LABELS[value]} setting applies again if ${consumer ?? 'that view'} refreshes less often.`,
+            `Your ${CADENCE_LABELS[value]} setting applies again if downstream views refresh less often.`,
     }
 }
 
 export function buildOptions(
-    bounds?: SyncFrequencyBoundsApi | null
+    bounds?: SyncFrequencyBoundsApi | null,
+    {
+        canPin = false,
+        pinned = false,
+        pinBlockedBy = {},
+        pinDelays = {},
+        unpinnedBy,
+    }: {
+        canPin?: boolean
+        pinned?: boolean
+        pinBlockedBy?: Partial<Record<string, NodePinBlockerApi>>
+        pinDelays?: Partial<Record<string, { name: string }[]>>
+        unpinnedBy?: CadencePin['unpinnedBy']
+    } = {}
 ): LemonSegmentedButtonOption<DataModelingSyncInterval>[] {
     if (!bounds?.options.length) {
         return ORDERED_CADENCES.map((cadence) => segment(cadence))
@@ -225,11 +380,66 @@ export function buildOptions(
 
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
+        const stranded = pinBlockedBy[cadence]
+        // A pinned view has no consumer ceiling, so the bounds alone never mark a slower cadence as needing a pin.
+        if (canPin && stranded && (pinned || needsPin(unpinnedBy, cadence))) {
+            return {
+                ...segment(cadence),
+                disabledReason: `Can't pin: ${stranded.name ? `downstream view ${stranded.name}` : 'a downstream view'} reads fresh data only through this view`,
+            }
+        }
+        if (canPin && needsPin(unpinnedBy, cadence)) {
+            const delayed = pinDelays[cadence]?.map((view) => view.name) ?? []
+            const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
+            const who =
+                names.length > 1
+                    ? `Downstream views ${names.join(', ')} refresh`
+                    : names.length === 1
+                      ? `Downstream view ${names[0]} refreshes`
+                      : 'A downstream view refreshes'
+            return {
+                ...segment(cadence),
+                tooltip: `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`,
+            }
+        }
         return {
             ...segment(cadence),
             disabledReason: option.allowed ? undefined : blockedReason(option, bounds),
         }
     })
+}
+
+/**
+ * The pinned cadence carries a pin, which turns into an unpin cross while the segment is hovered.
+ * Clicking the selected segment unpins, so there is no button nested inside the segment's button.
+ */
+function pinnedSegment(
+    option: LemonSegmentedButtonOption<DataModelingSyncInterval>,
+    { canUnpin }: { canUnpin: boolean }
+): LemonSegmentedButtonOption<DataModelingSyncInterval> {
+    const cadence = option.value
+    return {
+        ...option,
+        label: (
+            <span className="inline-flex items-center gap-0.5">
+                {CADENCE_SEGMENTS[cadence]}
+                <IconPinFilled className={canUnpin ? '[li:hover_&]:hidden' : undefined} aria-hidden />
+                {canUnpin && <IconX className="hidden [li:hover_&]:inline" aria-hidden />}
+            </span>
+        ),
+        tooltip: canUnpin
+            ? `Pinned to every ${CADENCE_LABELS[cadence]}. Click to unpin.`
+            : `Pinned to every ${CADENCE_LABELS[cadence]} once you save.`,
+        'data-attr': canUnpin ? 'sync-frequency-unpin' : option['data-attr'],
+    }
+}
+
+function withPinnedSegment(
+    options: LemonSegmentedButtonOption<DataModelingSyncInterval>[],
+    selected: DataModelingSyncInterval | undefined,
+    { canUnpin }: { canUnpin: boolean }
+): LemonSegmentedButtonOption<DataModelingSyncInterval>[] {
+    return options.map((option) => (option.value === selected ? pinnedSegment(option, { canUnpin }) : option))
 }
 
 /** Abbreviated on the bar, spelled out on hover, so eight segments stay readable at one glance. */

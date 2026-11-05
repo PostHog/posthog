@@ -6,6 +6,7 @@ import functools
 import contextlib
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
@@ -17,10 +18,21 @@ import pyarrow as pa
 import aioboto3
 import pyarrow.parquet as pq
 from aiobotocore.config import AioConfig
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.sync import database_sync_to_async
+
+from products.cdp.backend.facade.models import HogFunction
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookFallback,
+    WebhookSourceManager,
+    WebhookState,
+)
 
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.close_old_connections"
@@ -170,32 +182,6 @@ class TestWebhookSourceManager:
             side_effect=mock_db_sync_to_async,
         ):
             assert await manager.webhook_enabled(webhook_only) is expected
-
-    @parameterized.expand(
-        [
-            ("no_hog_function", False, True, True, False, True),
-            ("has_hog_function", True, True, True, False, False),
-            ("initial_sync_not_complete", False, True, False, False, False),
-            ("reset_pipeline", False, True, True, True, False),
-            ("not_webhook", False, False, True, False, False),
-        ]
-    )
-    async def test_webhook_unregistered_conditions(
-        self, _name, has_webhook_function, is_webhook, initial_sync_complete, reset_pipeline, expected
-    ):
-        manager = _make_manager(reset_pipeline=reset_pipeline)
-
-        mock_schema = MagicMock()
-        mock_schema.is_webhook = is_webhook
-        mock_schema.initial_sync_complete = initial_sync_complete
-
-        results = iter([mock_schema, has_webhook_function])
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-            side_effect=lambda fn: AsyncMock(return_value=next(results)),
-        ):
-            assert await manager.webhook_unregistered() is expected
 
     async def test_list_parquet_files_filters_correctly(self):
         manager = _make_manager()
@@ -455,6 +441,90 @@ class TestWebhookSourceManager:
             tables = [table async for table in manager.get_items()]
 
         assert tables == []
+
+
+class TestWebhookStateAndFallbackStamp(BaseTest):
+    def _setup(
+        self, *, sync_type: str, initial_sync_complete: bool, webhook: str | None
+    ) -> tuple[ExternalDataSource, ExternalDataSchema, ExternalDataJob]:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        other_source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=sync_type,
+            initial_sync_complete=initial_sync_complete,
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            schema_snapshot={"name": "Customer", "sync_type": sync_type, "scheduled_full_refresh": True},
+        )
+        if webhook is not None:
+            HogFunction.objects.create(
+                team=self.team,
+                type="warehouse_source_webhook",
+                hog="return event",
+                enabled=webhook != "disabled",
+                deleted=webhook == "deleted",
+                inputs_schema=[{"key": "source_id", "type": "string"}],
+                inputs={"source_id": {"value": str(other_source.pk if webhook == "other_source" else source.pk)}},
+            )
+        return source, schema, job
+
+    @parameterized.expand(
+        [
+            ("no_webhook", "webhook", True, False, None, WebhookState.NO_WEBHOOK),
+            ("disabled_webhook", "webhook", True, False, "disabled", WebhookState.NO_WEBHOOK),
+            ("deleted_webhook", "webhook", True, False, "deleted", WebhookState.NO_WEBHOOK),
+            ("webhook_for_other_source", "webhook", True, False, "other_source", WebhookState.NO_WEBHOOK),
+            ("enabled_webhook", "webhook", True, False, "enabled", WebhookState.ACTIVE),
+            ("initial_sync_pending", "webhook", False, False, None, WebhookState.POLL),
+            ("reset_pipeline", "webhook", True, True, None, WebhookState.POLL),
+            ("not_webhook_sync", "incremental", True, False, None, WebhookState.POLL),
+        ]
+    )
+    def test_fallback_is_stamped_only_when_the_webhook_is_missing(
+        self,
+        _name: str,
+        sync_type: str,
+        initial_sync_complete: bool,
+        reset_pipeline: bool,
+        webhook: str | None,
+        expected_state: WebhookState,
+    ) -> None:
+        source, schema, job = self._setup(
+            sync_type=sync_type, initial_sync_complete=initial_sync_complete, webhook=webhook
+        )
+        inputs = _make_inputs(team_id=self.team.pk, schema_id=str(schema.id), reset_pipeline=reset_pipeline)
+        inputs.source_id = str(source.id)
+        inputs.job_id = str(job.id)
+        manager = WebhookSourceManager(inputs=inputs, logger=AsyncMock())
+
+        # The pool helper runs on another thread, whose connection can't see this test's transaction, and
+        # the read retry closes connections, which would close the test's own.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+                database_sync_to_async,
+            ),
+            patch(_CLOSE_CONNECTIONS_PATH),
+        ):
+            state = async_to_sync(manager.webhook_state)()
+            async_to_sync(manager.record_webhook_fallback)(WebhookFallback.INCREMENTAL)
+
+        job.refresh_from_db()
+        assert state is expected_state
+        assert manager.webhook_missing is (expected_state is WebhookState.NO_WEBHOOK)
+        expected_snapshot = {"name": "Customer", "sync_type": sync_type, "scheduled_full_refresh": True}
+        if expected_state is WebhookState.NO_WEBHOOK:
+            expected_snapshot["webhook_fallback"] = "incremental"
+        assert job.schema_snapshot == expected_snapshot
 
 
 class TestDbReadWithRetry:

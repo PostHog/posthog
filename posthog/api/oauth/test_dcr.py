@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import ipaddress
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
@@ -12,8 +11,7 @@ from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
-
-PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -45,7 +43,7 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IPS)
+    @mock_anti_ssrf_dns_lookup()
     def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
@@ -278,7 +276,6 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     def test_rate_limiting_enforced(self):
         """DCR endpoint should enforce rate limiting."""
-        from unittest.mock import patch
 
         # Mock the throttle to have a very low limit
         with patch("posthog.api.oauth.dcr.DCRBurstThrottle.rate", "2/minute"):

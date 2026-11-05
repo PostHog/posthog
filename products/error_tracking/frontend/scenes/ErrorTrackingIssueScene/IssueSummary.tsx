@@ -10,7 +10,7 @@ import {
     IconThumbsDown,
     IconThumbsUp,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -122,20 +122,9 @@ export function IssueSummarySection({
                         Generated <TZLabel time={summary.generated_at} />
                     </div>
                 </div>
-            ) : view === 'generating' ? (
-                <div className="px-2 py-2 flex flex-col gap-2" aria-busy="true">
-                    <span className="text-sm text-secondary">Summarizing this issue…</span>
-                    <LemonSkeleton className="h-3 w-full" />
-                    <LemonSkeleton className="h-3 w-4/5" />
-                    <LemonSkeleton className="h-3 w-3/5" />
-                </div>
             ) : (
                 <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-                    <span className="text-sm text-secondary min-w-0">
-                        {view === 'timed_out'
-                            ? 'The summary is taking longer than usual.'
-                            : "Couldn't load the summary."}
-                    </span>
+                    <span className="text-sm text-secondary min-w-0">Couldn't load the summary.</span>
                     <LemonButton
                         size="xsmall"
                         type="secondary"

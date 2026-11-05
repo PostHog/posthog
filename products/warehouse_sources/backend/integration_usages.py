@@ -3,6 +3,7 @@
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
     WAREHOUSE_SOURCE_USAGE_TYPE,
     SourceReferencingIntegration,
 )
@@ -12,7 +13,7 @@ from products.warehouse_sources.backend.logic.integration_references import list
 def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsage]:
     return [
         IntegrationUsage(
-            type=WAREHOUSE_SOURCE_USAGE_TYPE,
+            type=UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE if source.unreadable else WAREHOUSE_SOURCE_USAGE_TYPE,
             id=str(source.id),
             name=_name(source),
         )
@@ -21,5 +22,4 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 
 
 def _name(source: SourceReferencingIntegration) -> str:
-    name = f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type
-    return f"unreadable source: {name}" if source.unreadable else name
+    return f"{source.source_type} ({source.prefix})" if source.prefix else source.source_type

@@ -290,6 +290,7 @@ def _discover_workflow_names(
     project_slug: str,
     all_branches: bool,
     logger: FilteringBoundLogger,
+    safe_point: Callable[[], None],
 ) -> list[str]:
     """List the workflow names Insights knows for a project, from the workflow metrics listing.
     Always uses the widest reporting window so fan-out doesn't miss workflows that only ran
@@ -307,6 +308,8 @@ def _discover_workflow_names(
             name = item.get("name")
             if name and name not in names:
                 names.append(name)
+        # The names are parents, not rows, so the staged cursor still covers every row handed on.
+        safe_point()
     return names
 
 
@@ -384,6 +387,7 @@ def get_rows(
 
         # Mark the slug fully synced so a resume moves straight to the next one.
         resumable_source_manager.save_state(CircleciInsightsResumeConfig(slug=slug, slug_done=True))
+        resumable_source_manager.safe_point()
 
 
 def _project_workflow_metrics_rows(
@@ -413,6 +417,7 @@ def _project_workflow_metrics_rows(
             resumable_source_manager.save_state(
                 CircleciInsightsResumeConfig(slug=project_slug, next_page_token=next_token)
             )
+        resumable_source_manager.safe_point()
 
 
 def _project_workflow_fan_out_rows(
@@ -428,7 +433,9 @@ def _project_workflow_fan_out_rows(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
-    workflow_names = _discover_workflow_names(fetch_page, project_slug, all_branches, logger)
+    workflow_names = _discover_workflow_names(
+        fetch_page, project_slug, all_branches, logger, resumable_source_manager.safe_point
+    )
 
     params: dict[str, Any] = _endpoint_params(config, window, all_branches)
     if all_branches and not config.takes_branch_params:
@@ -479,6 +486,7 @@ def _project_workflow_fan_out_rows(
                         slug=project_slug, workflow_name=workflow_name, next_page_token=next_token
                     )
                 )
+            resumable_source_manager.safe_point()
 
 
 def _workflow_summary_row(data: dict[str, Any], project_slug: str, workflow_name: str) -> dict[str, Any]:
@@ -519,7 +527,9 @@ def _project_workflow_object_fan_out_rows(
     """Fan out over a project's workflows for endpoints that return a single object per workflow
     instead of a paginated listing, so resume granularity is one workflow."""
     config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
-    workflow_names = _discover_workflow_names(fetch_page, project_slug, all_branches, logger)
+    workflow_names = _discover_workflow_names(
+        fetch_page, project_slug, all_branches, logger, resumable_source_manager.safe_point
+    )
     params = _endpoint_params(config, window, all_branches)
 
     resume_workflow = slug_resume.workflow_name if slug_resume is not None else None
@@ -547,6 +557,7 @@ def _project_workflow_object_fan_out_rows(
         resumable_source_manager.save_state(
             CircleciInsightsResumeConfig(slug=project_slug, workflow_name=workflow_name)
         )
+        resumable_source_manager.safe_point()
 
 
 def _project_flaky_tests_rows(

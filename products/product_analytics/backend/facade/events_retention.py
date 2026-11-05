@@ -23,14 +23,28 @@ def project_events_retention_months(team: Team) -> int | None:
 
 
 def set_organization_events_retention(
-    organization: Organization, months: int | None, *, user: User, was_impersonated: bool
+    organization: Organization,
+    months: int | None,
+    *,
+    user: User,
+    was_impersonated: bool,
+    analytics_properties: dict[str, object] | None = None,
 ) -> None:
     """Set or clear the organization's window. Raises a Django ValidationError for a window outside the range."""
     events_retention.set_organization_events_retention(
-        organization, months, user=user, was_impersonated=was_impersonated
+        organization, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
     )
 
 
-def set_project_events_retention(team: Team, months: int | None, *, user: User, was_impersonated: bool) -> None:
+def set_project_events_retention(
+    team: Team,
+    months: int | None,
+    *,
+    user: User,
+    was_impersonated: bool,
+    analytics_properties: dict[str, object] | None = None,
+) -> None:
     """Set or clear the project's window. Raises a Django ValidationError for a window outside the range."""
-    events_retention.set_project_events_retention(team, months, user=user, was_impersonated=was_impersonated)
+    events_retention.set_project_events_retention(
+        team, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
+    )

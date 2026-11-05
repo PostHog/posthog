@@ -218,7 +218,11 @@ def _iter_pages(
 
 
 def _iter_repo_names(
-    session: requests.Session, owner_base_url: str, headers: dict[str, str], logger: FilteringBoundLogger
+    session: requests.Session,
+    owner_base_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CodecovResumeConfig],
 ) -> Iterator[str]:
     """Page through the owner's active repos and yield each name. Inactive repos (never
     received an upload) have no coverage data, so fanning out over them is wasted API cost."""
@@ -226,6 +230,8 @@ def _iter_repo_names(
     for results, _next_url in _iter_pages(session, url, headers, logger):
         for item in results:
             yield item["name"]
+        # The repo list holds parents, not rows, so the walk can stop here and restart.
+        resumable_source_manager.safe_point()
 
 
 def _get_top_level_rows(
@@ -256,6 +262,7 @@ def _get_top_level_rows(
             # merge dedupes on the primary key.
             if next_url:
                 resumable_source_manager.save_state(CodecovResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
 
 
 def _remaining_repos(
@@ -292,7 +299,9 @@ def _get_fan_out_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan out one paginated walk per repository, injecting the repo name onto every row (it
     feeds each endpoint's composite primary key)."""
-    repo_names = repositories or list(_iter_repo_names(session, owner_base_url, headers, logger))
+    repo_names = repositories or list(
+        _iter_repo_names(session, owner_base_url, headers, logger, resumable_source_manager)
+    )
 
     cutoff = _normalize_cutoff(db_incremental_field_last_value) if should_use_incremental_field else None
     params: dict[str, Any] = {**config.extra_params}
@@ -327,6 +336,7 @@ def _get_fan_out_rows(
                         # re-yields the last page rather than skipping it.
                         if next_url and not stop_after_this_page:
                             resumable_source_manager.save_state(CodecovResumeConfig(next_url=next_url, repo=repo))
+                    resumable_source_manager.safe_point()
                     if stop_after_this_page:
                         break
         except requests.HTTPError as exc:
@@ -340,6 +350,7 @@ def _get_fan_out_rows(
         # Advance the bookmark to the next repo so a crash between repos resumes correctly.
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(CodecovResumeConfig(next_url=None, repo=remaining[index + 1]))
+        resumable_source_manager.safe_point()
 
 
 def _iter_child_rows(
@@ -392,7 +403,9 @@ def _iter_parent_fan_out_batches(
 ) -> Iterator[tuple[list[dict[str, Any]], CodecovResumeConfig | None]]:
     """Yield (rows, state) per child response. `state` is set, with no rows, once every row of a
     parent page has been yielded: it is the position to resume from after that page."""
-    repo_names = repositories or list(_iter_repo_names(session, owner_base_url, headers, logger))
+    repo_names = repositories or list(
+        _iter_repo_names(session, owner_base_url, headers, logger, resumable_source_manager)
+    )
 
     parent_params: dict[str, Any] = {"page_size": PAGE_SIZE}
     child_params: dict[str, Any] = {**config.extra_params}

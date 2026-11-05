@@ -2,6 +2,21 @@ import { describe, expect, test } from 'bun:test'
 
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
+// hog logins for each host, the first one the last login.
+function storedLogins(...hosts: string[]): { files: Record<string, string>; keychain: Record<string, string> } {
+    const logins = Object.fromEntries(
+        hosts.map((host) => [host, { store: 'keychain', type: 'personal_api_key', projectId: '7', host }])
+    )
+    return {
+        files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins, host: hosts[0] }) },
+        keychain: Object.fromEntries(hosts.map((host) => [host, JSON.stringify({ apiKey: 'phx_test' })])),
+    }
+}
+
+function withConfig(stored: ReturnType<typeof storedLogins>, configHost: string): ReturnType<typeof storedLogins> {
+    return { ...stored, files: { ...stored.files, '/work/posthog.json': JSON.stringify({ host: configHost }) } }
+}
+
 const AGENT = { CLAUDECODE: '1' }
 const ENDPOINTS = 'https://ph.example.com/api/environments/7/endpoints/'
 
@@ -118,13 +133,10 @@ describe('global options', () => {
         expect(pull.json()).toMatchObject({ status: 'would_write' })
         expect(pull.files).toEqual({})
 
-        const logout = await runHog(['auth', 'logout'], {
-            env,
-            files: { '/home/test/.posthog/credentials.json': '{}' },
-        })
+        const logout = await runHog(['auth', 'logout'], { env, ...storedLogins('https://stored.example.com') })
         expect(logout.exitCode).toBe(2)
         expect(logout.error().code).toBe('dry_run_unsupported')
-        expect(logout.files).toEqual({ '/home/test/.posthog/credentials.json': '{}' })
+        expect(logout.files).toEqual(storedLogins('https://stored.example.com').files)
     })
 
     test.each([
@@ -143,14 +155,7 @@ describe('global options', () => {
     ])('%s', async (_name, configHost, env, host) => {
         const result = await runHog(['endpoints', 'list'], {
             env: { ...AGENT, ...env },
-            files: {
-                '/work/posthog.json': JSON.stringify({ host: configHost }),
-                '/home/test/.posthog/credentials.json': JSON.stringify({
-                    token: 'phx_test',
-                    env_id: '7',
-                    host: 'https://stored.example.com',
-                }),
-            },
+            ...withConfig(storedLogins('https://stored.example.com', 'https://env.example.com'), configHost),
             respond: () => ({ status: 200, body: { results: [] } }),
         })
 
@@ -160,14 +165,7 @@ describe('global options', () => {
     test('a posthog.json host never receives credentials stored for another host', async () => {
         const result = await runHog(['endpoints', 'list'], {
             env: AGENT,
-            files: {
-                '/work/posthog.json': JSON.stringify({ host: 'https://config.example.com' }),
-                '/home/test/.posthog/credentials.json': JSON.stringify({
-                    token: 'phx_test',
-                    env_id: '7',
-                    host: 'https://stored.example.com',
-                }),
-            },
+            ...withConfig(storedLogins('https://stored.example.com'), 'https://config.example.com'),
         })
 
         expect(result.error().code).toBe('host_mismatch')

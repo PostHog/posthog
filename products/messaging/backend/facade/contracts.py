@@ -38,6 +38,7 @@ class TransactionalEmailError(Exception):
     """A send the caller has to fix before retrying. `code` is stable for API clients."""
 
     code = "invalid"
+    attr: str | None = None
 
 
 class TemplateNotSendable(TransactionalEmailError):
@@ -96,6 +97,41 @@ class RecipientSuppressed(TransactionalEmailError):
 
 class RecipientUnreachable(TransactionalEmailError):
     code = "recipient_unreachable"
+
+
+class SenderNotVerified(TransactionalEmailError):
+    code = "sender_not_verified"
+
+
+class NamedSenderNotVerified(SenderNotVerified):
+    attr = "from"
+
+
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
+class ContentTooLarge(TransactionalEmailError):
+    code = "content_too_large"
+
+
+class InvalidRequest(TransactionalEmailError):
+    code = "invalid_request"
+
+
+@frozen
+class CodeEmail:
+    key: str
+    subject: str
+    html: str
+    text: str
+    sender: str | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
 
 
 class DeliveryUnavailable(Exception):

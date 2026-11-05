@@ -278,6 +278,10 @@ def _get_rows(
             window_end = min(cursor + timedelta(days=endpoint.window_days - 1), end_boundary)
             data = _fetch_window(session, headers, endpoint, target, cursor, window_end, units)
 
+            cursor = window_end + timedelta(days=1)
+            resumable_source_manager.save_state(
+                MeteostatResumeConfig(station_index=index, next_start=cursor.isoformat())
+            )
             if data:
                 rows = []
                 for row in data:
@@ -286,13 +290,8 @@ def _get_rows(
                     row[endpoint.date_field] = _parse_timestamp(row.get(endpoint.date_field))
                     rows.append(row)
                 yield rows
-
-            cursor = window_end + timedelta(days=1)
-            # Save AFTER yielding so a crash re-fetches (and merge dedupes) the last window
-            # instead of skipping it.
-            resumable_source_manager.save_state(
-                MeteostatResumeConfig(station_index=index, next_start=cursor.isoformat())
-            )
+            else:
+                resumable_source_manager.safe_point()
 
 
 def _get_snapshot_rows(
