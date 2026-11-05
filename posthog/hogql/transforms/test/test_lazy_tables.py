@@ -190,7 +190,10 @@ class _ProbeLazyTable(LazyTable):
 
 
 class TestVirtualFieldExports(SimpleTestCase):
-    def test_virtual_field_export_never_takes_the_name_of_another_export(self) -> None:
+    @parameterized.expand([("bare", "probe", "probe"), ("aliased", "probe AS p", "p")])
+    def test_virtual_field_export_never_takes_the_name_of_another_export(
+        self, _name: str, source: str, prefix: str
+    ) -> None:
         database = Database()
         database.tables.children["probe"] = TableNode(name="probe", table=_ProbeLazyTable())
         context = HogQLContext(
@@ -202,12 +205,13 @@ class TestVirtualFieldExports(SimpleTestCase):
         )
 
         with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
-            printed, _ = prepare_and_print_ast(parse_select("SELECT x, v.x, v___x FROM probe"), context, "clickhouse")
+            printed, _ = prepare_and_print_ast(
+                parse_select(f"SELECT {prefix}.x, {prefix}.v.x, {prefix}.v___x FROM {source}"), context, "clickhouse"
+            )
 
         values = re.findall(r"%\(hogql_val_\d+\)s AS (`?\w+`?)", printed)
         assert sorted(name.strip("`") for name in values) == ["v___x", "v___x_2", "x"]
-        outer = printed.split(" FROM ", 1)[0]
-        assert len(set(re.findall(r"probe\.(\w+)", outer))) == 3
+        assert printed.startswith(f"SELECT {prefix}.x, {prefix}.v___x_2 AS x, {prefix}.v___x AS v___x FROM")
 
     def test_virtual_field_read_through_a_wrapped_lazy_join_names_the_column_the_wrapper_exports(self) -> None:
         context = HogQLContext(

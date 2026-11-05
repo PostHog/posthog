@@ -348,6 +348,15 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
+            # Each scan exports its own property columns, so paths that join to one name in separate scans never share a column.
+            param(
+                "property_paths_of_one_name_in_separate_scans",
+                f"SELECT properties.a.b FROM events WHERE {MIXED} UNION ALL "
+                f"SELECT properties.a___b FROM events WHERE {MIXED}",
+                True,
+                True,
+                mode=ONLY,
+            ),
             # Mode 1 keeps a materialized property on events, so mode 2 shows which columns the union can read.
             param(
                 "property_in_a_string_materialized_column_on_mode_2",

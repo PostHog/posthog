@@ -501,7 +501,9 @@ class LazyTableResolver(TraversingVisitor):
         # Virtual-table fields take their own export name, which must not equal the name of any other export.
         export_names: dict[int, str] = {}
 
-        def export_name(accessed: dict[str, list[str | int]], field: ast.FieldType, chain: list[str | int]) -> str:
+        def allocate_export_name(
+            accessed: dict[str, list[str | int]], field: ast.FieldType, chain: list[str | int]
+        ) -> str:
             if not isinstance(field.table_type, ast.VirtualTableType):
                 return field.name
             base = "___".join(str(link) for link in chain)
@@ -631,7 +633,9 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[export_name(new_join.fields_accessed, field, chain)] = chain
+                            new_join.fields_accessed[allocate_export_name(new_join.fields_accessed, field, chain)] = (
+                                chain
+                            )
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -652,9 +656,9 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
                             new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
-                            new_table.fields_accessed[export_name(new_table.fields_accessed, field, lazy_chain)] = (
-                                lazy_chain
-                            )
+                            new_table.fields_accessed[
+                                allocate_export_name(new_table.fields_accessed, field, lazy_chain)
+                            ] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     # Widen mypy's view of the inner type: the annotated union is
                     # `TableType | LazyTableType`, but the LazyJoinType branch below is a
@@ -688,9 +692,9 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
                                 new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[export_name(new_join.fields_accessed, field, field_chain)] = (
-                                    field_chain
-                                )
+                                new_join.fields_accessed[
+                                    allocate_export_name(new_join.fields_accessed, field, field_chain)
+                                ] = field_chain
                     elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
@@ -712,7 +716,9 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                                 new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
-                                new_table.fields_accessed[export_name(new_table.fields_accessed, field, chain)] = chain
+                                new_table.fields_accessed[
+                                    allocate_export_name(new_table.fields_accessed, field, chain)
+                                ] = chain
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -935,7 +941,8 @@ class LazyTableResolver(TraversingVisitor):
                 continue
 
             if isinstance(field_or_property, ast.FieldType):
-                # A field already rebound to a wrapper subquery keeps the export name the wrapper gave it.
+                # A field still on its virtual table reads the export name allocated above.
+                # A field that a wrapper subquery already rebound keeps the name the wrapper gave it.
                 if isinstance(field_or_property.table_type, ast.VirtualTableType):
                     field_or_property.name = export_names.get(id(field_or_property), field_or_property.name)
                 field_or_property.table_type = table_type
