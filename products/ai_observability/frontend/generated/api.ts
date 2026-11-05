@@ -155,6 +155,8 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceAvailabilityApi,
+    TraceAvailabilityRequestApi,
     TraceClustersApi,
     TraceEvaluationResultsApi,
     TraceExportApi,
@@ -165,6 +167,7 @@ import type {
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceReviewStatusApi,
     TraceSearchResultsApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
@@ -941,6 +944,24 @@ export const aiObservabilityTracesPullRequestRetrieve = async (
     )
 }
 
+export const getAiObservabilityTracesReviewRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/review/`
+}
+
+/**
+ * The trace's human review with its scores ready to render, and the review queue the trace waits in.
+ */
+export const aiObservabilityTracesReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceReviewStatusApi> => {
+    return apiMutator<TraceReviewStatusApi>(getAiObservabilityTracesReviewRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityTracesSearchRetrieveUrl = (
     projectId: string,
     id: string,
@@ -1029,6 +1050,23 @@ export const aiObservabilityTracesSummaryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesAvailabilityCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/availability/`
+}
+
+export const aiObservabilityTracesAvailabilityCreate = async (
+    projectId: string,
+    traceAvailabilityRequestApi: TraceAvailabilityRequestApi,
+    options?: RequestInit
+): Promise<TraceAvailabilityApi> => {
+    return apiMutator<TraceAvailabilityApi>(getAiObservabilityTracesAvailabilityCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceAvailabilityRequestApi),
     })
 }
 
