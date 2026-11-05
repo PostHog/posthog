@@ -19,8 +19,10 @@
                 "backend/tasks/**",
                 "backend/logic/sql_editor_trino.py",
                 "backend/managed_ingress.py",
+                "backend/member_teams.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/signals.py"
             ],
             "outputs": [],
             "cache": true
