@@ -197,7 +197,9 @@ export function WorkflowMetricCard({
                     color={total === 0 ? colorIfZero : color}
                     change={previousLabel ? null : change}
                     goodDirection={METRICS_BAD_WHEN_RISING.has(name) ? 'down' : 'up'}
-                    formatValue={(v) => humanFriendlyNumber(v)}
+                    // The headline animates through fractional values while the pointer scrubs the
+                    // sparkline. These metrics are counts, so round to show only whole numbers.
+                    formatValue={(v) => humanFriendlyNumber(Math.round(v))}
                     sparklineHeight={SPARKLINE_HEIGHT}
                 >
                     <MetricHeader>
