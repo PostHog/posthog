@@ -2,6 +2,7 @@ import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
@@ -54,7 +55,17 @@ export const MAX_REGISTERED_PROGRAMS = 500
 
 type RegistryBindings = Required<
     Pick<HogvmNodeModule, 'registerProgram' | 'releaseProgram' | 'executeRegisteredSync' | 'executeRegisteredBatch'>
->
+> &
+    Pick<HogvmNodeModule, 'executeRegisteredSyncJson'>
+
+// JSON.stringify writes NaN and Infinity as null. Throw instead, so the invocation falls back to the
+// Node VM as it does when the napi conversion rejects them.
+function rejectNonFiniteNumbers(_key: string, value: unknown): unknown {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+        throw new Error(`non-finite number in globals: ${value}`)
+    }
+    return value
+}
 
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
@@ -101,7 +112,27 @@ export class RustVmExecutor {
         if (!registerProgram || !releaseProgram || !executeRegisteredSync || !executeRegisteredBatch) {
             return null
         }
-        return { registerProgram, releaseProgram, executeRegisteredSync, executeRegisteredBatch }
+        return {
+            registerProgram,
+            releaseProgram,
+            executeRegisteredSync,
+            executeRegisteredBatch,
+            executeRegisteredSyncJson: module_.executeRegisteredSyncJson,
+        }
+    }
+
+    private executeRegisteredSync(
+        registry: RegistryBindings,
+        invocation: CyclotronJobInvocationHogFunction
+    ): RustExecResult {
+        const handle = this.handleFor(registry, invocation.hogFunction.bytecode)
+        const options = { maxSteps: RUST_MAX_STEPS }
+        if (!registry.executeRegisteredSyncJson) {
+            return registry.executeRegisteredSync(handle, invocation.state.globals, options)
+        }
+        const globalsJson = JSON.stringify(invocation.state.globals, rejectNonFiniteNumbers)
+        const { resultJson, ...rest } = registry.executeRegisteredSyncJson(handle, globalsJson, options)
+        return resultJson === undefined ? rest : { ...rest, result: parseJSON(resultJson) }
     }
 
     private handleFor(registry: RegistryBindings, bytecode: unknown[]): number {
@@ -163,11 +194,7 @@ export class RustVmExecutor {
         try {
             const registry = this.registryOf(module_)
             rust = registry
-                ? registry.executeRegisteredSync(
-                      this.handleFor(registry, invocation.hogFunction.bytecode),
-                      invocation.state.globals,
-                      { maxSteps: RUST_MAX_STEPS }
-                  )
+                ? this.executeRegisteredSync(registry, invocation)
                 : module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
                       maxSteps: RUST_MAX_STEPS,
                   })
