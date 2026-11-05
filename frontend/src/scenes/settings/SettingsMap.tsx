@@ -20,7 +20,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
-import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
+import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
 import { AgentProjectInstructionsSettings } from 'scenes/settings/environment/AgentProjectInstructionsSettings'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -90,7 +90,6 @@ import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/s
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
-import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
 import {
     ActivityLogNotifications,
@@ -192,6 +191,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
+import { OtherIntegrationsSettings } from './project/OtherIntegrationsSettings'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
@@ -2142,6 +2142,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {
+                id: 'integration-gitlab',
+                title: 'GitLab integration',
+                description: 'Connect GitLab projects to create and link issues from PostHog.',
+                docsUrl: GitLab.docsUrl,
+                component: <GitLab.SettingsSection connectSurface="settings" />,
+                flag: 'WEB_GITLAB_INTEGRATION',
+                keywords: ['gitlab', 'git', 'repository', 'project', 'issue'],
+            },
+            {
                 id: 'integration-linear',
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
@@ -2154,32 +2163,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Other integrations',
                 description:
                     'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
-                component: (
-                    <IntegrationsList
-                        omitKinds={['slack', 'github', 'linear']}
-                        titleText=""
-                        emptyState={
-                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
-                                <p className="mb-1">No other integrations connected</p>
-                                <p className="text-xs text-muted text-balance mb-0">
-                                    These connect from the product area that uses them:{' '}
-                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
-                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
-                                    <Link
-                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
-                                    >
-                                        error tracking
-                                    </Link>{' '}
-                                    and{' '}
-                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
-                                        marketing analytics
-                                    </Link>
-                                    .
-                                </p>
-                            </div>
-                        }
-                    />
-                ),
+                component: <OtherIntegrationsSettings />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {
