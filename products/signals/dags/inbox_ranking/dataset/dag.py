@@ -2117,11 +2117,13 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
         # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
         # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
+        # 32Gi is a stopgap: the peak keeps growing with the inventory until the heavy steps stop
+        # running at the same time (#130394). Lower it again once the per-asset peaks show headroom.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
                     "requests": {"memory": "8Gi"},
-                    "limits": {"memory": "24Gi"},
+                    "limits": {"memory": "32Gi"},
                 }
             }
         },
