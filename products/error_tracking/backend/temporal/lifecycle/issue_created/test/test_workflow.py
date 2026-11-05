@@ -391,7 +391,7 @@ class TestRuleAssignmentNotification(BaseTest):
         self.produce_created_event = self.enterContext(
             patch(f"{ACTIVITIES_MODULE}.produce_issue_lifecycle_internal_event")
         )
-        self.flag_enabled = self.enterContext(patch(f"{ACTIVITIES_MODULE}.team_flag_enabled", return_value=True))
+        self.kill_switch = self.enterContext(patch(f"{ACTIVITIES_MODULE}.team_flag_explicitly_off", return_value=False))
         self.capture = self.enterContext(patch(f"{ACTIVITIES_MODULE}.ph_background_capture")).return_value
         self.capture_exception = self.enterContext(patch(f"{ACTIVITIES_MODULE}.posthoganalytics.capture_exception"))
         self.create_notification = self.enterContext(patch(f"{NOTIFICATIONS_MODULE}.create_notification"))
@@ -452,13 +452,15 @@ class TestRuleAssignmentNotification(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_assignee", "none", True, False),
-            ("flag_off", "current", False, True),
-            ("assignee_changed", "previous", True, True),
+            ("no_assignee", "none", False, False),
+            ("flag_off", "current", True, True),
+            ("assignee_changed", "previous", False, True),
         ]
     )
-    def test_notifies_nobody(self, expected_outcome: str, cymbal_assignee: str, flag_on: bool, captured: bool) -> None:
-        self.flag_enabled.return_value = flag_on
+    def test_notifies_nobody(
+        self, expected_outcome: str, cymbal_assignee: str, kill_switch_on: bool, captured: bool
+    ) -> None:
+        self.kill_switch.return_value = kill_switch_on
         _, current = self._assign_like_cymbal("user")
         previous = assignee_property({"type": "user", "id": self.user.id})
 

@@ -33,7 +33,7 @@ from products.error_tracking.backend.logic.severity_inference import (
     infer_severity,
     severity_inference_enabled,
 )
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
+from products.error_tracking.backend.logic.team_flags import team_flag_explicitly_off
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import merge_similar_fingerprints
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
@@ -420,7 +420,7 @@ def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmen
         return RuleAssignmentNotifyOutcome.NO_ASSIGNEE
     # Before the flag check, so the event counts every rule assignment, not only the ones that notify.
     _capture_auto_assigned(inputs, inputs.assignee)
-    if not team_flag_enabled(RULE_ASSIGNMENT_NOTIFY_FLAG, inputs.team_id):
+    if team_flag_explicitly_off(RULE_ASSIGNMENT_NOTIFY_FLAG, inputs.team_id):
         return RuleAssignmentNotifyOutcome.FLAG_OFF
 
     # notifications imports logic/lifecycle_events, which imports the Temporal package that loads this module.
