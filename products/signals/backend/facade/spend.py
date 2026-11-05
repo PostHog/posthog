@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from products.signals.backend.inbox_usage_query_runner import (
+from products.signals.backend.queries.inbox_usage_query_runner import (
     InboxUsageQueryRunner as InboxUsageQueryRunner,
     parse_usage_month as parse_usage_month,
 )
