@@ -74,13 +74,16 @@ export function useSearchHighlight(query: string | null, revealKey: number = 0):
         }
         const highlight = typeof CSS !== 'undefined' && CSS.highlights ? findOrCreateHighlight(CSS.highlights) : null
         let ranges: Range[] = []
+        let revealFrame = 0
         const mark = (): void => {
             ranges.forEach((range) => highlight?.delete(range))
             ranges = highlightRanges(element, query)
             ranges.forEach((range) => highlight?.add(range))
             if (ranges.length > 0 && revealedKey.current !== revealKey) {
                 revealedKey.current = revealKey
-                ranges[0].startContainer.parentElement?.scrollIntoView({ block: 'nearest' })
+                const target = ranges[0].startContainer.parentElement
+                // A cut block that holds the match opens on a re-render React runs after this effect, so the scroll waits a frame.
+                revealFrame = requestAnimationFrame(() => target?.scrollIntoView({ block: 'nearest' }))
             }
         }
         mark()
@@ -89,6 +92,7 @@ export function useSearchHighlight(query: string | null, revealKey: number = 0):
         observer.observe(element, { childList: true, subtree: true, characterData: true })
         return () => {
             observer.disconnect()
+            cancelAnimationFrame(revealFrame)
             ranges.forEach((range) => highlight?.delete(range))
         }
     }, [element, query, revealKey])

@@ -45,10 +45,29 @@ describe('toThreadMessages', () => {
         )
         expect(messages).toHaveLength(2)
         expect(messages[0].parts).toEqual([
-            { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: '{"total_usd":180}' },
+            { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: { total_usd: 180 } },
         ])
         expect(messages[0].isInternal).toBe(true)
         expect(messages[1]).toMatchObject({ role: 'assistant', isInternal: false })
+    })
+
+    it.each([
+        ['plain text', 'No invoice for that month.'],
+        ['a JSON scalar', '42'],
+        ['JSON whose integers would lose digits', '{"invoice_id":1234567890123456789}'],
+    ])('keeps a tool result that is %s as its exact text', (_name, content) => {
+        const [message] = toThreadMessages(
+            [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{ type: 'function', id: 'call-1', function: { name: 'lookup', arguments: '{}' } }],
+                },
+                { role: 'tool', tool_call_id: 'call-1', content },
+            ],
+            options('assistant', 'out', 'gen-1')
+        )
+        expect(message.parts).toEqual([{ kind: 'toolCall', name: 'lookup', args: {}, result: content }])
     })
 
     it('marks unmatched tool results as internal tool messages', () => {
@@ -166,7 +185,7 @@ describe('toThreadMessages', () => {
         expect(messages[1]).toMatchObject({
             isInternal: true,
             parts: [
-                { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: '{"total_usd":180}' },
+                { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: { total_usd: 180 } },
             ],
         })
     })

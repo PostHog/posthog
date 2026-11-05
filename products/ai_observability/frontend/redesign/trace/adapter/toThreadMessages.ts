@@ -35,6 +35,18 @@ function parseArguments(args: unknown): unknown {
     }
 }
 
+// JSON numbers past 2^53 lose digits when parsed, so a result with an id like that keeps its exact text.
+const UNSAFE_INTEGER = /\d{16,}/
+
+// Tools often return JSON as text, which reads better as the structure it encodes. Scalars stay as written.
+function parseToolResult(result: unknown): unknown {
+    if (typeof result === 'string' && UNSAFE_INTEGER.test(result)) {
+        return result
+    }
+    const parsed = parseArguments(result)
+    return isObject(parsed) || Array.isArray(parsed) ? parsed : result
+}
+
 // The normalizer passes some media items it has no recipe for through as their JSON text.
 function parseMediaItem(content: string): ContentItem | null {
     if (!content.startsWith('{')) {
@@ -136,14 +148,14 @@ export function toThreadMessages(
         const role = toRole(message.role)
         const { text, attachments } = contentParts(message, teamId)
 
-        // A tool call part holds its result as text only, so a result carrying media stays its own
+        // A tool call part cannot hold attachments, so a result carrying media stays its own
         // message and keeps its attachments.
         const pendingCall =
             role === 'tool' && message.tool_call_id && attachments.length === 0
                 ? pendingCalls.get(message.tool_call_id)
                 : undefined
         if (pendingCall && message.tool_call_id) {
-            pendingCall.result = text || message.content
+            pendingCall.result = parseToolResult(text || message.content)
             pendingCalls.delete(message.tool_call_id)
             return
         }

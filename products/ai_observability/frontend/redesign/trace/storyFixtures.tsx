@@ -226,6 +226,40 @@ export const FIXTURE_LONG_AGENT_OUTPUT: ThreadMessage[] = [
     ]),
 ]
 
+const SEAT_HISTORY = Array.from({ length: 24 }, (_, index) => ({
+    month: `2026-${String((index % 12) + 1).padStart(2, '0')}`,
+    seats: 4 + (index % 3),
+    note: 'Seat count from the billing snapshot taken on the first day of the month, before any proration.',
+}))
+
+/** An answer taller than any window: a preamble, a long report and a tool call with a long JSON result. */
+export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-answer', 'assistant', [
+    {
+        kind: 'text',
+        text: [
+            'You are a billing assistant. Answer in markdown, cite the invoice month, and never share card details.',
+            '',
+            '## Seat history',
+            '',
+            ...SEAT_HISTORY.map(({ month, seats }) => `- **${month}:** ${seats} seats, billed at the team plan rate.`),
+            '',
+            '## What changed',
+            '',
+            ...SEAT_HISTORY.slice(0, 12).map(
+                ({ month }) => `1. ${month}: the invoice shows one prorated line for the seat change.`
+            ),
+            '',
+            'The seat count changed at most once a month, so every invoice line matches one row above.',
+        ].join('\n'),
+    },
+    {
+        kind: 'toolCall',
+        name: 'lookup_seat_history',
+        args: { team: 'team-42', months: 24 },
+        result: { team: 'team-42', history: SEAT_HISTORY },
+    },
+])
+
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
