@@ -21,7 +21,7 @@ For example, capture derives the multipart body limit from its event cap.
 
 - Python reads this file at runtime. Core Django gets the values through `products.ai_observability.backend.facade.limits`.
 - Rust capture mirrors the keys it needs in `rust/capture/src/ai_event_limits.rs`.
-- The Node AI pipeline mirrors the keys it needs in `nodejs/src/ingestion/pipelines/ai/ai-event-limits.ts`.
+- The Node AI pipeline mirrors the keys it needs in `nodejs/src/ingestion/common/ai-event-limits.ts`.
 
 The Rust image build context is `rust/` and the Node build compiles from `nodejs/`, so neither can read this file at runtime.
 A key `k` is the constant `AI_<K>` in each mirror, for example `max_event_bytes_ceiling` is `AI_MAX_EVENT_BYTES_CEILING`.
@@ -36,5 +36,5 @@ A key `k` is the constant `AI_<K>` in each mirror, for example `max_event_bytes_
 
 1. Edit this file first.
 2. Update each mirror that carries the key. Its parity test fails until you do:
-   `cargo test -p capture --test ai_event_limits_parity` and `hogli test nodejs/src/ingestion/pipelines/ai/ai-event-limits.test.ts`.
+   `cargo test -p capture --test ai_event_limits_parity` and `hogli test nodejs/src/ingestion/common/ai-event-limits.test.ts`.
 3. A cap change also needs the deployment limits around it, such as the Kafka producer limit and the edge proxy body limit.

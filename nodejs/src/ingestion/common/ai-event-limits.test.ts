@@ -7,7 +7,7 @@ import { AI_INCLUDED_BYTES_PER_EVENT, AI_MAX_EVENT_BYTES_CEILING, AI_MEDIA_OFFLO
 
 const LIMITS_JSON = path.resolve(
     __dirname,
-    '../../../../../products/ai_observability/shared/crosslang/ai_event_limits.json'
+    '../../../../products/ai_observability/shared/crosslang/ai_event_limits.json'
 )
 
 describe('ai-event-limits', () => {
