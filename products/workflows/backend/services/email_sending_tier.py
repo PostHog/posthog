@@ -367,11 +367,7 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
 
 
 def own_sends(counts: dict[str, int]) -> int:
-    """Sends from the team's own senders.
-
-    The worker records each sandbox send's `email_sandbox_sent` in the same batch as its `email_sent`, so the two
-    always share a source and a day. The floor at zero only guards against a lost metric write.
-    """
+    """Sends from the team's own senders."""
     return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
 
 
