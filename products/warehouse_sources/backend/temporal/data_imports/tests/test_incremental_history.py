@@ -27,10 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     STAGED_ROW_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
-    make_logger,
-    needs_history_upsert,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 _TS = pa.timestamp("us", tz="UTC")
@@ -156,7 +153,6 @@ class TestStampHistoryBatch:
 
 
 class TestHistoryLaneWrites:
-    @needs_history_upsert
     @pytest.mark.asyncio
     async def test_staged_batches_become_versions_at_finalize(self, tmp_path: Path) -> None:
         with (

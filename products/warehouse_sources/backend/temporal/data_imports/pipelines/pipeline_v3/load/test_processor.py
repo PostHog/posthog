@@ -31,8 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
-    HISTORY_UPSERT_AVAILABLE,
-    HISTORY_UPSERT_SKIP_REASON,
     make_local_table_ref,
     make_logger,
 )
@@ -835,9 +833,6 @@ class TestHistoryLaneFinalBatch:
         _complete: MagicMock,
         mock_unfinished: MagicMock,
     ) -> None:
-        # A run with an unloaded batch is refused before the history write, so only the writing cases need it.
-        if not earlier_batch_unloaded and not HISTORY_UPSERT_AVAILABLE:
-            pytest.skip(HISTORY_UPSERT_SKIP_REASON)
         mock_unfinished.return_value = MagicMock(count=int(earlier_batch_unloaded), states=["failed"])
         ts = pa.timestamp("us", tz="UTC")
         batch = pa.table(
