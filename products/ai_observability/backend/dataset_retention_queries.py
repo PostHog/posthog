@@ -7,6 +7,7 @@ from django.db.models import (
     F,
     IntegerField,
     OuterRef,
+    Q,
     QuerySet,
     Subquery,
     Value,
@@ -40,6 +41,10 @@ class DatasetRetentionQuery:
         return (
             visible_datasets.select_related(None)
             .prefetch_related(None)
+            .filter(
+                Q(archived=True, last_used_at__lte=before - HISTORY_RETENTION - USAGE_REFRESH_INTERVAL)
+                | Q(archived=False, last_used_at__lte=before - ACTIVE_RETENTION - USAGE_REFRESH_INTERVAL)
+            )
             .annotate(
                 dataset_id=F("id"),
                 dataset_name=F("name"),
@@ -47,7 +52,6 @@ class DatasetRetentionQuery:
                 revision=Value(None, output_field=IntegerField()),
                 expires_at=cls.dataset_expiry(),
             )
-            .filter(expires_at__lte=before)
             .only("id", "name", "archived", "last_used_at")
             .order_by("expires_at", "id")
         )
@@ -61,7 +65,7 @@ class DatasetRetentionQuery:
             .filter(dataset_id=OuterRef("dataset_id"))
             .order_by("-revision")
         )
-        return (
+        revisions = (
             DatasetRevision.objects.for_team(team_id, canonical=True)
             .filter(dataset_id__in=visible_datasets.values("id"), expired_at__isnull=True, last_used_at__isnull=False)
             .alias(
@@ -81,7 +85,16 @@ class DatasetRetentionQuery:
                     cls.dataset_expiry("dataset__"),
                 ),
             )
-            .filter(expires_at__lte=before)
             .only("id", "dataset_id", "revision")
+            .order_by()
+        )
+        history_cutoff = before - HISTORY_RETENTION - USAGE_REFRESH_INTERVAL
+        expiring_datasets = cls.datasets(visible_datasets, before).order_by().values("id")
+        return (
+            revisions.filter(last_used_at__lte=history_cutoff)
+            .union(
+                revisions.filter(last_used_at__gt=history_cutoff, dataset_id__in=expiring_datasets),
+                all=True,
+            )
             .order_by("expires_at", "id")
         )

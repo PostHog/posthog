@@ -153,15 +153,26 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.data["expiring_soon"])
 
-    def test_retention_is_project_wide_paginated_and_includes_parent_expiry(self) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_retention_is_project_wide_paginated_and_includes_parent_expiry(
+        self, revision_also_expiring: bool, parent_usage_unknown: bool
+    ) -> None:
         active = self._create_dataset("Active dataset")
         archived = self._create_dataset("Archived dataset")
+        used = self._create_dataset("Used dataset")
         self._create_item(active["id"])
         self._create_item(active["id"])
+        self._create_item(used["id"])
+        self._create_item(used["id"])
         old = now()
         datasets = Dataset.objects.for_team(self.team.id, canonical=True)
         datasets.filter(id=active["id"]).update(last_used_at=old - timedelta(days=88))
         datasets.filter(id=archived["id"]).update(archived=True, last_used_at=old - timedelta(days=29))
+        datasets.filter(id=used["id"]).update(last_used_at=None if parent_usage_unknown else old)
+        dataset_revisions = DatasetRevision.objects.for_team(self.team.id, canonical=True)
+        dataset_revisions.filter(dataset_id=used["id"], revision=1).update(last_used_at=old - timedelta(days=29))
+        if revision_also_expiring:
+            dataset_revisions.filter(dataset_id=active["id"], revision=1).update(last_used_at=old - timedelta(days=29))
         other_team = Team.objects.create(organization=self.organization)
         Dataset.objects.for_team(other_team.id, canonical=True).create(
             team=other_team, name="Other project", last_used_at=old - timedelta(days=100)
@@ -169,14 +180,19 @@ class TestDatasetsApi(APIBaseTest):
         response = self.client.get(f"{self.datasets_url}retention/", {"limit": 1})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["datasets_count"], 2)
-        self.assertEqual(response.data["revisions_count"], 1)
+        self.assertEqual(response.data["revisions_count"], 2)
         self.assertEqual(response.data["results"][0]["dataset_id"], archived["id"])
         self.assertTrue(response.data["results"][0]["dataset_archived"])
         second_page = self.client.get(f"{self.datasets_url}retention/", {"limit": 1, "offset": 1})
         self.assertEqual([entry["dataset_id"] for entry in second_page.data["results"]], [active["id"]])
         revisions = self.client.get(f"{self.datasets_url}retention/", {"kind": "revisions"})
-        self.assertEqual(revisions.data["results"][0]["expires_at"], second_page.data["results"][0]["expires_at"])
-        self.assertEqual(revisions.data["results"][0]["revision"], 1)
+        self.assertCountEqual(
+            [(entry["dataset_id"], entry["revision"]) for entry in revisions.data["results"]],
+            [(used["id"], 1), (active["id"], 1)],
+        )
+        active_revision = next(entry for entry in revisions.data["results"] if entry["dataset_id"] == active["id"])
+        if not revision_also_expiring:
+            self.assertEqual(active_revision["expires_at"], second_page.data["results"][0]["expires_at"])
         self.assertEqual(
             self.client.post(
                 f"/api/projects/{self.team.id}/datasets/{Dataset.objects.for_team(other_team.id, canonical=True).get().id}/extend_retention/",
