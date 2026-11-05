@@ -1,4 +1,6 @@
-// pinned: widget keys are stored in team settings and in each user's saved layout. Renaming one resets it.
+import { TicketSidebarConfiguration } from '~/queries/schema/schema-general'
+
+// pinned: widget keys are stored in each user's saved layout on their account. Renaming one resets it.
 export type TicketSidebarWidgetKey =
     | 'related_groups'
     | 'staff_actions'
@@ -69,18 +71,12 @@ function isTicketSidebarWidgetKey(key: unknown): key is TicketSidebarWidgetKey {
     return typeof key === 'string' && WIDGETS_BY_KEY.has(key as TicketSidebarWidgetKey)
 }
 
-/** The stored shape. It can hold keys this version doesn't know, so it is typed loosely. */
-export interface StoredTicketSidebarLayout {
-    order?: string[]
-    hidden?: string[]
-}
-
 export interface TicketSidebarLayout {
     visible: TicketSidebarWidgetKey[]
     hidden: TicketSidebarWidgetKey[]
 }
 
-export function resolveTicketSidebarLayout(stored: StoredTicketSidebarLayout | null | undefined): TicketSidebarLayout {
+export function resolveTicketSidebarLayout(stored: TicketSidebarConfiguration | null | undefined): TicketSidebarLayout {
     const order = Array.from(new Set((stored?.order ?? []).filter(isTicketSidebarWidgetKey)))
     // A widget added after the layout was saved shows up instead of staying hidden forever.
     for (const { key } of TICKET_SIDEBAR_WIDGETS) {
@@ -97,7 +93,7 @@ export function resolveTicketSidebarLayout(stored: StoredTicketSidebarLayout | n
 
 export const DEFAULT_TICKET_SIDEBAR_LAYOUT: TicketSidebarLayout = resolveTicketSidebarLayout(null)
 
-export function storeTicketSidebarLayout(layout: TicketSidebarLayout): Required<StoredTicketSidebarLayout> {
+export function storeTicketSidebarLayout(layout: TicketSidebarLayout): Required<TicketSidebarConfiguration> {
     return { order: [...layout.visible, ...layout.hidden], hidden: [...layout.hidden] }
 }
 
