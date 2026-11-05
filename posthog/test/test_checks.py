@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from posthog.checks import (
     check_cron_schedules,
     check_encryption_salt_keys,
     check_object_storage_public_endpoint,
+    check_oidc_signing_key,
     check_product_db_routes,
     check_temporal_client_tls,
     check_trusted_proxies,
@@ -99,6 +101,18 @@ class TestProductDBRouteChecks(SimpleTestCase):
 class TestSettingWarnings(SimpleTestCase):
     @parameterized.expand(
         [
+            (
+                "oidc_key_set",
+                {"OAUTH2_PROVIDER": {**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": "key"}},
+                check_oidc_signing_key,
+                [],
+            ),
+            (
+                "oidc_key_missing",
+                {"OAUTH2_PROVIDER": {**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": ""}},
+                check_oidc_signing_key,
+                ["posthog.oauth.W001"],
+            ),
             ("ip_blocks_valid", {"ALLOWED_IP_BLOCKS": ["10.0.0.0/8", "192.168.1.5"]}, check_allowed_ip_blocks, []),
             (
                 "ip_blocks_invalid",
@@ -108,7 +122,7 @@ class TestSettingWarnings(SimpleTestCase):
             ),
             (
                 "trusted_proxies_valid",
-                {"TRUSTED_PROXIES": "10.0.0.1, 2001:db8::1", "TRUST_ALL_PROXIES": False},
+                {"TRUSTED_PROXIES": "10.0.0.1, 2001:db8::1,", "TRUST_ALL_PROXIES": False},
                 check_trusted_proxies,
                 [],
             ),
