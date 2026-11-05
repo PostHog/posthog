@@ -185,7 +185,6 @@ class TestSequenzyTimeFilter:
         [
             (NOW - dt.timedelta(days=1), "2026-06-14T12:00:00.000Z"),
             ("2026-06-14T12:00:00Z", "2026-06-14T12:00:00.000Z"),
-            # Clamped to stay inside the API's 90-day maximum range.
             (NOW - dt.timedelta(days=200), "2026-03-17T13:00:00.000Z"),
         ],
     )

@@ -11,7 +11,6 @@ from products.warehouse_sources.sources.sdk import (
 
 SEQUENZY_BASE_URL = "https://api.sequenzy.com/api/v1"
 
-# The API keeps 14 days of sent-email history; `days` accepts 1-14.
 EMAIL_SENDS_RETENTION_DAYS = 14
 
 # The event endpoints reject a `start`/`end` range longer than 90 days. Stay just inside it.
@@ -36,7 +35,6 @@ class SequenzyEndpointConfig:
     default_incremental_field: str | None = None
     event_time_range: bool = False
     resume_pages: bool = True
-    # Set on a child endpoint whose path takes one id per row of the parent endpoint.
     fanout: DependentEndpointConfig | None = None
     sort_mode: Literal["asc", "desc"] | None = "desc"
 
@@ -123,9 +121,8 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
         data_selector="emailSends",
         pagination="page",
         page_size=100,
-        # A send's status and engagement timestamps change after `createdAt`, so every run
-        # reads the whole retained window and the merge updates older rows. Oldest first, so
-        # sends that arrive mid-sync land on later pages.
+        # A send's status changes after `createdAt`, so every run reads the whole retained
+        # window and the merge updates older rows.
         params={"days": EMAIL_SENDS_RETENTION_DAYS, "sortField": "createdAt", "sortOrder": "asc"},
         partition_key="createdAt",
         incremental_fields=[_datetime_field("createdAt")],
@@ -202,10 +199,8 @@ ENDPOINTS_CONFIG: dict[str, SequenzyEndpointConfig] = {
 
 ENDPOINTS = tuple(ENDPOINTS_CONFIG.keys())
 
-# The API expires email sends and events, so these tables merge to keep older rows, and the
-# events take a server-side time filter. The other list endpoints have no created/updated
-# filter (subscribers only filter on `unsubscribedAt`, which covers opted-out contacts
-# alone), so they are full-refresh only.
+# The API expires email sends and events, so these tables merge to keep older rows. The other
+# list endpoints have no created/updated filter, so they are full-refresh only.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ENDPOINTS_CONFIG.items() if config.incremental_fields
 }

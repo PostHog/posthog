@@ -175,7 +175,6 @@ def sequenzy_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             should_use_incremental_field=should_use_incremental_field,
-            # The cursor is already bound into the request as the endpoint's time range.
             incremental_config_factory=lambda _field: None,
             page_size_param=None,
             parent_endpoint_extra={
