@@ -8,10 +8,10 @@ from posthog.dataclasses import frozen
 
 RAW_TRINO_MATERIALIZE_REASON = "Views that run raw Trino SQL cannot be materialized yet."
 RAW_TRINO_LINEAGE_REASON = "Views that run raw Trino SQL have no lineage, because only hosted Trino can parse them."
-RAW_TRINO_HOGQL_REFERENCE_REASON = "HogQL queries cannot reference a view that runs raw Trino SQL."
+RAW_TRINO_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs raw Trino SQL."
 CONNECTION_MATERIALIZE_REASON = "Views that run on a direct connection cannot be materialized yet."
 CONNECTION_LINEAGE_REASON = "Views that run on a direct connection have no lineage yet."
-CONNECTION_HOGQL_REFERENCE_REASON = "HogQL queries cannot reference a view that runs on a direct connection."
+CONNECTION_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs on a direct connection."
 
 _ANNOTATED_QUERY_KEYS = {
     "executionTarget": "engine_execution_target",
@@ -114,9 +114,10 @@ class ViewEngine:
         return self._capability(raw_trino=RAW_TRINO_LINEAGE_REASON, connection=CONNECTION_LINEAGE_REASON)
 
     @property
-    def referenceable_from_hogql(self) -> ViewCapability:
+    def referenceable_from_clickhouse(self) -> ViewCapability:
+        """Whether a HogQL query on ClickHouse can read the view by name."""
         return self._capability(
-            raw_trino=RAW_TRINO_HOGQL_REFERENCE_REASON, connection=CONNECTION_HOGQL_REFERENCE_REASON
+            raw_trino=RAW_TRINO_CLICKHOUSE_REFERENCE_REASON, connection=CONNECTION_CLICKHOUSE_REFERENCE_REASON
         )
 
     @property

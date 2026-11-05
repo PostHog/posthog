@@ -1670,8 +1670,8 @@ export interface ViewEngineCapabilitiesApi {
     materialize: ViewCapabilityApi
     /** Whether the view has lineage and a node in the data modeling DAG. */
     lineage: ViewCapabilityApi
-    /** Whether HogQL queries can read from this view by name. */
-    referenceable_from_hogql: ViewCapabilityApi
+    /** Whether HogQL queries on ClickHouse can read from this view by name. */
+    referenceable_from_clickhouse: ViewCapabilityApi
     /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
      *
      * * `clickhouse_probe` - ClickHouse probe

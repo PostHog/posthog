@@ -52,8 +52,8 @@ class ViewEngineCapabilitiesSerializer(serializers.Serializer):
     lineage = ViewCapabilitySerializer(
         source="has_lineage", help_text="Whether the view has lineage and a node in the data modeling DAG."
     )
-    referenceable_from_hogql = ViewCapabilitySerializer(
-        help_text="Whether HogQL queries can read from this view by name."
+    referenceable_from_clickhouse = ViewCapabilitySerializer(
+        help_text="Whether HogQL queries on ClickHouse can read from this view by name."
     )
     column_source = serializers.ChoiceField(
         choices=ViewColumnSource.choices,

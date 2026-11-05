@@ -2220,7 +2220,7 @@ class Database(BaseModel):
                         sq
                         for sq in all_saved_queries
                         if (is_managed_viewset_enabled or sq.managed_viewset_id is None)
-                        and sq.engine.referenceable_from_hogql.available
+                        and sq.engine.referenceable_from_clickhouse.available
                     ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):

@@ -3072,7 +3072,7 @@ class TestViewEngineFromQuery(SimpleTestCase):
     def test_from_query(self, _name: str, keys: dict, expected: ViewEngine, runs_on_posthog: bool) -> None:
         engine = ViewEngine.from_query({"kind": "HogQLQuery", "query": "SELECT 1", **keys})
         self.assertEqual(engine, expected)
-        for capability in (engine.can_materialize, engine.has_lineage, engine.referenceable_from_hogql):
+        for capability in (engine.can_materialize, engine.has_lineage, engine.referenceable_from_clickhouse):
             self.assertEqual(capability.available, runs_on_posthog)
         self.assertEqual(
             engine.column_source,

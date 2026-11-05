@@ -1573,20 +1573,20 @@ const isRawTrinoViewNode = (node: TreeDataItem): boolean => {
     return engine?.target === 'managed_trino' && engine.dialect === 'raw'
 }
 
-// The ClickHouse tree must not offer a view that HogQL cannot reference.
-const withoutViewsHogQLCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
+// The ClickHouse tree must not offer a view that a query on ClickHouse cannot reference.
+const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
     nodes.flatMap((node): TreeDataItem[] => {
-        if (viewEngineOf(node)?.capabilities.referenceable_from_hogql.available === false) {
+        if (viewEngineOf(node)?.capabilities.referenceable_from_clickhouse.available === false) {
             return []
         }
         if (!node.children?.length) {
             return [node]
         }
-        const children = withoutViewsHogQLCannotReference(node.children)
+        const children = withoutViewsClickHouseCannotReference(node.children)
         if (children.length > 0) {
             return [{ ...node, children }]
         }
-        // A folder or search section that held only views HogQL cannot reference goes away.
+        // A folder or search section that held only views ClickHouse cannot reference goes away.
         // The browsing Views section stays, with the same placeholder an empty section gets.
         if (node.record?.type === 'views' && !node.id.startsWith('search-')) {
             return [
@@ -3777,7 +3777,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
                     return filterMaterializedViewsByStatus(
-                        withoutViewsHogQLCannotReference(sourceData),
+                        withoutViewsClickHouseCannotReference(sourceData),
                         materializationStatusFilters
                     )
                 }
