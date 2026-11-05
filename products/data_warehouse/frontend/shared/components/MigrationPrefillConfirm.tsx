@@ -32,7 +32,7 @@ export function MigrationPrefillConfirm({
             <p className="font-semibold mb-1">Check where your credentials go</p>
             <p className="m-0 mb-2 text-sm">
                 {creator
-                    ? `${creator.first_name || creator.email} (${creator.email}) prepared this connection.`
+                    ? `${creator.first_name ? `${creator.first_name} (${creator.email})` : creator.email} prepared this connection.`
                     : 'A migration prepared this connection.'}{' '}
                 {trustNote}
             </p>

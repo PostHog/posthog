@@ -59813,6 +59813,8 @@ export namespace Schemas {
       type: string;
       /** Non-secret destination settings copied from Fivetran. */
       config: ProposedDestinationConfig;
+      /** The schemas Fivetran writes this connection into. Use another schema in the PostHog destination. */
+      vendor_schemas: string[];
     }
 
     export interface TablePair {

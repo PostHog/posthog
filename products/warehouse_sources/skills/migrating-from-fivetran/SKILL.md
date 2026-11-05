@@ -32,8 +32,8 @@ surprised halfway through.
 
 Never ask the user to paste a Fivetran key or any source secret into the chat. Every secret goes through a link.
 
-The connector notes (`references/connector-notes.md`, when this skill ships them) explain how PostHog matches Fivetran
-tables and hold a note for each connector that differs. Read them before the report when they are there.
+The connector notes (`references/connector-notes.md`) explain how PostHog matches Fivetran tables and hold a note for
+each connector that differs. Read them before the report.
 
 ## Workflow
 
@@ -79,11 +79,13 @@ project yet. Tell the user that and stop.
    run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with
    `migration_item_id` set to the item and `destination_type` set to its `proposal.destination.type`. The page fills
    in the connection settings it supports from Fivetran, so the user types only the secret. For any setting the page
-   leaves empty, tell the user the value from `proposal.destination`. The page does not set the schema. Then create
-   the destination with `external-data-destinations-create`: pass the link's `suggested_config` (database and the
-   `posthog_<prefix>` schema) as the target config, and the same `migration_item_id`. Creation fails if the saved
-   connection changed a prefilled setting. If the user chose "Set up a new destination instead" and connected another
-   server, leave `migration_item_id` out. Pass the new destination's id as `destination_ids` to apply.
+   leaves empty, tell the user the value from `proposal.destination`. The page does not set the schema. Poll
+   `external-data-destinations-connect-link-status` until it is `connected`, and confirm its `display_name` with the
+   user. Then create the destination with `external-data-destinations-create`: pass that `integration_id`, the link's
+   `suggested_config` (database and the `posthog_<prefix>` schema) as the target config, and the same
+   `migration_item_id`. Creation fails if the saved connection changed a prefilled setting. If the user chose "Set up
+   a new destination instead" and connected another server, leave `migration_item_id` out. Pass the new
+   destination's id as `destination_ids` to apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user

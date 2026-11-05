@@ -2,8 +2,10 @@ from collections import Counter
 from collections.abc import Sequence
 from uuid import UUID
 
-from django.db.models import Count
+from django.db.models import Count, QuerySet
 from django.utils import timezone
+
+from urllib3.util.retry import Retry
 
 from posthog.exceptions_capture import capture_exception
 
@@ -12,6 +14,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     WarehouseMigrationBusyError,
     WarehouseMigrationItemClaimedError,
     WarehouseMigrationKeyRejectedError,
+    WarehouseMigrationUnknownItemsError,
     WarehouseMigrationVendorUnreachableError,
 )
 from products.warehouse_sources.backend.migration.fivetran.client import (
@@ -27,13 +30,50 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 ITEM_COUNT_KEYS = ("as_is", "caveats", "unsupported", "applied", "skipped")
+_KEY_CHECK_TIMEOUT_SECONDS = (5.0, 15.0)
+
+
+def _migrations(team_id: int) -> QuerySet[WarehouseMigration]:
+    # The snapshot can be large and no endpoint returns it.
+    return WarehouseMigration.objects.for_team(team_id).defer("snapshot")
+
+
+def list_migrations(*, team_id: int, limit: int, offset: int) -> tuple[list[WarehouseMigration], int]:
+    """One page of the team's migrations, newest first, and the total count."""
+    migrations = _migrations(team_id)
+    return list(migrations.order_by("-created_at", "-id")[offset : offset + limit]), migrations.count()
+
+
+def get_migration(*, team_id: int, migration_id: UUID) -> WarehouseMigration | None:
+    return _migrations(team_id).filter(id=migration_id).first()
+
+
+def migration_exists(*, team_id: int, migration_id: UUID) -> bool:
+    return _migrations(team_id).filter(id=migration_id).exists()
+
+
+def delete_migration(*, team_id: int, migration_id: UUID) -> bool:
+    deleted, _ = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).delete()
+    return bool(deleted)
+
+
+def list_items(
+    *, team_id: int, migration_id: UUID, limit: int, offset: int
+) -> tuple[list[WarehouseMigrationItem], int] | None:
+    """One page of the migration's items and the total count. Returns None when the migration is not found."""
+    if not migration_exists(team_id=team_id, migration_id=migration_id):
+        return None
+    items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
+    page = items.select_related("created_by").order_by("verdict", "name", "id")[offset : offset + limit]
+    return list(page), items.count()
 
 
 def create_migration(*, team_id: int, user_id: int, provider: str, api_key: str, api_secret: str) -> WarehouseMigration:
     """Check the key against the vendor, store it, and start reading the account."""
     credentials = FivetranCredentials(api_key=api_key, api_secret=api_secret)
     try:
-        FivetranClient(credentials).get_account_info()
+        # One quick try: this runs inside the web request, and a client that times out sends the request again.
+        FivetranClient(credentials, retry=Retry(total=0), timeout=_KEY_CHECK_TIMEOUT_SECONDS).get_account_info()
     except FivetranAuthError as error:
         raise WarehouseMigrationKeyRejectedError() from error
     except FivetranAPIError as error:
@@ -83,8 +123,16 @@ def skip_items(
     item_ids: Sequence[UUID] | None,
     keep_item_ids: Sequence[UUID] | None,
 ) -> WarehouseMigrationBulkSkip:
-    """Skip the chosen items, or all but the kept ones."""
+    """Skip the chosen items, or all but the kept ones.
+
+    Raises `WarehouseMigrationUnknownItemsError` before skipping anything when an id is not an item of the
+    migration, since a mistyped kept id would otherwise skip the connection it meant to keep.
+    """
     items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
+    named = set(item_ids if item_ids is not None else keep_item_ids or [])
+    unknown = named - set(items.filter(id__in=named).values_list("id", flat=True))
+    if unknown:
+        raise WarehouseMigrationUnknownItemsError(sorted(unknown, key=str))
     chosen = items.filter(id__in=item_ids) if item_ids is not None else items.exclude(id__in=keep_item_ids or [])
     # The same conditional update as a single skip, so an apply that claimed an item keeps it.
     chosen.filter(status__in=(WarehouseMigrationItem.Status.PENDING, WarehouseMigrationItem.Status.FAILED)).update(
@@ -97,20 +145,22 @@ def skip_items(
     return WarehouseMigrationBulkSkip(skipped_item_ids=skipped, not_skipped_item_ids=not_skipped)
 
 
-def item_counts(migration: WarehouseMigration) -> dict[str, int]:
-    counts: Counter[str] = Counter()
+def item_counts(*, team_id: int, migration_ids: Sequence[UUID]) -> dict[UUID, dict[str, int]]:
+    """The item counts of each migration, from one query for the whole page."""
+    counts: dict[UUID, Counter[str]] = {migration_id: Counter() for migration_id in migration_ids}
     rows = (
-        WarehouseMigrationItem.objects.for_team(migration.team_id)
-        .filter(migration=migration)
-        .values("status", "verdict")
+        WarehouseMigrationItem.objects.for_team(team_id)
+        .filter(migration_id__in=migration_ids)
+        .values("migration_id", "status", "verdict")
         .annotate(count=Count("id"))
     )
     for row in rows:
-        counts[row["status"]] += row["count"]
+        counter = counts[row["migration_id"]]
+        counter[row["status"]] += row["count"]
         # Verdict counts cover only the connections still left to move.
         if row["status"] not in (WarehouseMigrationItem.Status.APPLIED, WarehouseMigrationItem.Status.SKIPPED):
-            counts[row["verdict"]] += row["count"]
-    return {key: counts[key] for key in ITEM_COUNT_KEYS}
+            counter[row["verdict"]] += row["count"]
+    return {migration_id: {key: counter[key] for key in ITEM_COUNT_KEYS} for migration_id, counter in counts.items()}
 
 
 def _start_crawl(migration: WarehouseMigration) -> None:

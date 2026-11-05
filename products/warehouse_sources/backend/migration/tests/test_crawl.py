@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 import requests_mock
 from parameterized import parameterized
@@ -13,9 +14,9 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.warehouse_sources.backend.migration.catalog import TableMatch
 from products.warehouse_sources.backend.migration.crawl import crawl_migration, mark_migration_failed
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL, FivetranAuthError
-from products.warehouse_sources.backend.migration.fivetran.planner import TableMatchLike
 from products.warehouse_sources.backend.migration.types import Verdict
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
@@ -28,7 +29,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 class _HubspotOnly:
     def match_source(self, provider: str, vendor_service: str) -> ExternalDataSourceType | None:
-        return ExternalDataSourceType.HUBSPOT if vendor_service == "hubspot" else None
+        return {"hubspot": ExternalDataSourceType.HUBSPOT, "instagram_business": ExternalDataSourceType.INSTAGRAM}.get(
+            vendor_service
+        )
 
     def match_destination(self, provider: str, vendor_service: str) -> str | None:
         return None
@@ -38,7 +41,7 @@ class _HubspotOnly:
 
     def match_tables(
         self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
-    ) -> tuple[TableMatchLike, ...]:
+    ) -> tuple[TableMatch, ...]:
         return ()
 
     def prefill_config(
@@ -51,14 +54,19 @@ def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"json": {"code": "Success", "data": data}}
 
 
-def _mock_account(m: requests_mock.Mocker, connection_ids: list[str], names: Mapping[str, str] | None = None) -> None:
+def _mock_account(
+    m: requests_mock.Mocker,
+    connection_ids: list[str],
+    names: Mapping[str, str] | None = None,
+    service: str = "hubspot",
+) -> None:
     m.get(f"{FIVETRAN_API_URL}/account/info", **_ok({"account_id": "acct_example", "account_name": "Example Co"}))
     m.get(f"{FIVETRAN_API_URL}/groups", **_ok({"items": []}))
     m.get(f"{FIVETRAN_API_URL}/connections", **_ok({"items": [{"id": cid} for cid in connection_ids]}))
     for cid in connection_ids:
         m.get(
             f"{FIVETRAN_API_URL}/connections/{cid}",
-            **_ok({"id": cid, "service": "hubspot", "schema": (names or {}).get(cid, cid), "sync_frequency": 360}),
+            **_ok({"id": cid, "service": service, "schema": (names or {}).get(cid, cid), "sync_frequency": 360}),
         )
         m.get(f"{FIVETRAN_API_URL}/connections/{cid}/schemas", status_code=404, json={"message": "Not found"})
 
@@ -82,13 +90,14 @@ class TestCrawlMigration(BaseTest):
 
     @parameterized.expand(
         [
-            ("applying", WarehouseMigrationItem.Status.APPLYING),
-            ("applied", WarehouseMigrationItem.Status.APPLIED),
-            ("skipped", WarehouseMigrationItem.Status.SKIPPED),
+            ("applying", WarehouseMigrationItem.Status.APPLYING, "conn_applied_2"),
+            ("applied", WarehouseMigrationItem.Status.APPLIED, "conn_applied_2"),
+            # A skipped item has no source, so its prefix stays free.
+            ("skipped", WarehouseMigrationItem.Status.SKIPPED, "conn_applied"),
         ]
     )
     def test_refresh_keeps_claimed_and_finished_items_and_replaces_the_rest(
-        self, _name: str, kept_status: WarehouseMigrationItem.Status
+        self, _name: str, kept_status: WarehouseMigrationItem.Status, new_prefix: str
     ) -> None:
         migration = self._migration()
         with requests_mock.Mocker() as m:
@@ -127,9 +136,9 @@ class TestCrawlMigration(BaseTest):
         assert items["conn_new"].verdict == Verdict.CAVEATS
         assert items["conn_new"].proposal is not None
         assert items["conn_new"].proposal["source_type"] == ExternalDataSourceType.HUBSPOT
-        assert items["conn_new"].proposal["prefix"] == "conn_applied_2"
+        assert items["conn_new"].proposal["prefix"] == new_prefix
 
-    @parameterized.expand([("auth_failed", True, "rejected the API key"), ("other_failure", False, "Try again")])
+    @parameterized.expand([("auth_message", True, "rejected the API key"), ("generic_message", False, "Try again")])
     def test_failed_crawl_is_marked_failed_once_retries_run_out(
         self, _name: str, auth_failed: bool, expected_error: str
     ) -> None:
@@ -151,6 +160,20 @@ class TestCrawlMigration(BaseTest):
         migration.refresh_from_db()
         assert migration.status == WarehouseMigration.Status.FAILED
         assert expected_error in migration.latest_error
+
+    @patch("products.warehouse_sources.backend.migration.crawl.posthog_feature_flag_enabled", return_value=False)
+    def test_source_flags_are_checked_once_for_the_user_who_started_the_migration(
+        self, flag_enabled: MagicMock
+    ) -> None:
+        migration = self._migration()
+        with requests_mock.Mocker() as m:
+            _mock_account(m, ["conn_a", "conn_b"], service="instagram_business")
+            crawl_migration(team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly())
+
+        flag_enabled.assert_called_once_with(
+            "dwh-instagram", str(self.user.distinct_id), organization_id=self.team.organization_id, team_id=self.team.pk
+        )
+        assert {item.verdict for item in self._items(migration).values()} == {Verdict.UNSUPPORTED}
 
     def test_the_default_catalog_plans_known_connectors(self) -> None:
         migration = self._migration()
