@@ -346,6 +346,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_grant_staff_to_google_workspace_members",
     "posthog.api.authentication.social_login_notification",
     # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
     # has to have run first

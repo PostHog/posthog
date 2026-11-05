@@ -183,7 +183,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
-        | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
@@ -489,7 +488,6 @@ export function createCdpCoreServices(
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
-            teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
         },
