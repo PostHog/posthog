@@ -191,20 +191,25 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(mock_context.wrap_socket.call_args.kwargs["server_hostname"], self.proxy_record.domain)
 
     @pytest.mark.asyncio
+    @patch("requests.adapters.HTTPAdapter.send")
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("127.0.0.1")})
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_refuses_a_domain_the_probe_cannot_validate(
-        self, mock_get_record, mock_create_connection
+        self, mock_get_record, mock_create_connection, _mock_resolve, mock_send
     ):
-        # A rebinding name answers one lookup with a public address and the next with an internal
-        # one, so the check has to refuse the name before it sends anything.
-        self.proxy_record.domain = "7f000001.08080808.rbndr.us"
+        # The patch sits on the requests transport, not on pinned_request, so the assertion also
+        # catches a test event that a plain requests call sends before the host check.
+        self.proxy_record.domain = "proxy.example.com"
         mock_get_record.return_value = self.proxy_record
+        mock_send.return_value = requests.Response()
+        mock_send.return_value.status_code = 200
 
         result = await check_proxy_is_live(self.input)
 
         self.assertEqual(result.errors, ["Proxy domain does not resolve to a public address"])
         self.assertEqual(result.warnings, [])
+        mock_send.assert_not_called()
         mock_create_connection.assert_not_called()
 
     @pytest.mark.asyncio
