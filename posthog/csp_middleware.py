@@ -81,6 +81,12 @@ EMBEDDABLE_PATH_PREFIXES = (
 EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
 
 
+# The cloud hosts a local app signs in against. Keep in sync with `OAUTH_REGIONS` in
+# `frontend/src/lib/utils/oauthClient.ts`, which exchanges the code at the region's `/oauth/token/`
+# and then sends every API call to that host.
+CLOUD_OAUTH_REGION_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+
+
 def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
@@ -309,6 +315,11 @@ class CSPMiddleware:
                 # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
                 # click-to-source request goes to it, and the policy refuses that request without this source.
                 connect_debug_url += " http://localhost:5678"
+            if settings.DEBUG:
+                # "Sign in with PostHog cloud" runs only under DEBUG (see `login_required` in
+                # posthog/views.py), and its token request and API calls go to the cloud region from
+                # the browser. Cloud pages already admit these hosts through `https://*.posthog.com`.
+                connect_debug_url += " " + " ".join(CLOUD_OAUTH_REGION_HOSTS)
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
