@@ -40,6 +40,8 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     PlanFloorUnavailableError,
     StaleScheduleError,
     TeamScheduleTeardownError,
+    _bootstrap_dag_best_effort,
+    _reconcile_dag_best_effort,
     apply_saved_query_frequency_anchor,
     apply_saved_query_frequency_target,
     bootstrap_dag_to_tiers,
@@ -849,21 +851,18 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("graph_read_fails", {"side_effect": RuntimeError("database down")}, False),
-            ("floor_unreadable", {"return_value": mock.Mock(plan_floor_evaluated=False)}, False),
-            ("graph_read_fails_after_a_failed_delete", {"side_effect": RuntimeError("database down")}, True),
+            ("graph_read_fails", {"side_effect": RuntimeError("database down")}),
+            ("floor_unreadable", {"return_value": mock.Mock(plan_floor_evaluated=False)}),
         ]
     )
-    def test_reconcile_queues_a_retry_when_it_cannot_confirm_its_write(self, _name, second_read, stale_tier):
+    def test_reconcile_queues_a_retry_when_it_cannot_confirm_its_write(self, _name, second_read):
         dag = self._dag_with_target()
         first_read = build_frequency_graph(dag)
-        listing = [tier_schedule_id(str(dag.id), H1)] if stale_tier else []
 
         with (
             mock.patch(f"{RECONCILE}.build_frequency_graph", **second_read) as read_graph,
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing(listing))),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
             mock.patch(f"{RECONCILE}.capture_exception"),
             mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
             self.captureOnCommitCallbacks(execute=True),
@@ -872,6 +871,30 @@ class TestMaybeReconcileDag(BaseTest):
 
         read_graph.assert_called_once()
         create.assert_awaited_once()
+        queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
+
+    @parameterized.expand(
+        [
+            ("save", lambda dag: _reconcile_dag_best_effort(dag)),
+            ("bootstrap", lambda dag: _bootstrap_dag_best_effort(dag)),
+        ]
+    )
+    def test_failed_delete_on_an_unconfirmed_write_queues_exactly_one_retry(self, _name, reconcile):
+        dag = self._dag_with_target()
+        first_read = build_frequency_graph(dag)
+        listing = self._temporal_listing([tier_schedule_id(str(dag.id), H1)])
+
+        with (
+            mock.patch(f"{RECONCILE}.build_frequency_graph", side_effect=[first_read, RuntimeError("database down")]),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=listing)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            reconcile(dag)
+
         queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
     def test_reconcile_command_tries_every_organization_then_fails(self):

@@ -165,7 +165,8 @@ def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery |
 
 def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     try:
-        reconcile_dag_schedules(dag)
+        if reconcile_dag_schedules(dag):
+            schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
     except Exception as error:
         logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
@@ -486,7 +487,9 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         logger.exception("Freshness schedule reconcile failed after a write", dag_id=str(dag.id), team_id=team.pk)
         capture_exception(error)
     logger.warning("Freshness schedule reconcile needs another run", dag_id=str(dag.id), team_id=team.pk)
-    schedule_dag_schedule_reconcile(str(dag.id), team.pk)
+    # Failed deletes go back to the caller, which retries on them, and a second chain would run beside its own.
+    if not failed_deletes:
+        schedule_dag_schedule_reconcile(str(dag.id), team.pk)
     return failed_deletes
 
 
@@ -534,7 +537,8 @@ def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
 
     promote_dag_view_nodes_to_matview(dag)
     seeded = persist_seed_targets(dag, default=default)
-    reconcile_dag_schedules(dag)
+    if reconcile_dag_schedules(dag):
+        schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
     return seeded
 
 
