@@ -29,7 +29,6 @@ from posthog.schema import (
     IntervalType,
     PropertyGroupsMode,
     SpanHealthStatus,
-    SpanPropertyFilter,
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
@@ -82,10 +81,7 @@ class _SpanAggregationMixin:
         limit_context: LimitContext
 
     def _extract_filters(self) -> None:
-        filters = split_span_filters(self.query.filterGroup)
-        self.span_filters: list[SpanPropertyFilter] = list(filters.span)
-        self.span_attribute_filters: list[SpanPropertyFilter] = list(filters.span_attribute)
-        self.resource_attribute_filters: list[SpanPropertyFilter] = list(filters.resource_attribute)
+        self.filters = split_span_filters(self.query.filterGroup)
 
     def validate_query_runner_access(self, user: "User") -> bool:
         from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -183,16 +179,7 @@ class _SpanAggregationMixin:
         # different range. We rebuild a smaller clause here that just covers filters,
         # and let `_build_query` add the time clause inline using its parameter.
         exprs: list[ast.Expr] = [ast.Placeholder(expr=ast.Field(chain=["filters"]))]
-        exprs.extend(
-            span_filter_exprs(
-                self.team,
-                service_names=self.query.serviceNames,
-                status_codes=None,
-                span_filters=self.span_filters,
-                span_attribute_filters=self.span_attribute_filters,
-                resource_attribute_filters=self.resource_attribute_filters,
-            )
-        )
+        exprs.extend(span_filter_exprs(self.team, self.filters, service_names=self.query.serviceNames))
         return ast.And(exprs=exprs)
 
     # --- subclass hooks ---

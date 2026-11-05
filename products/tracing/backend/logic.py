@@ -357,12 +357,10 @@ def split_span_filters(filter_group: PropertyGroupFilter | None) -> SpanFilters:
 
 def span_filter_exprs(
     team: "Team",
+    filters: SpanFilters,
     *,
     service_names: list[str] | None,
-    status_codes: list[int] | None,
-    span_filters: list[SpanPropertyFilter],
-    span_attribute_filters: list[SpanPropertyFilter],
-    resource_attribute_filters: list[SpanPropertyFilter],
+    status_codes: list[int] | None = None,
 ) -> list[ast.Expr]:
     """The WHERE conditions for a span query's filters, without its date range."""
     exprs: list[ast.Expr] = []
@@ -380,12 +378,14 @@ def span_filter_exprs(
                 placeholders={"statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in status_codes])},
             )
         )
-    for span_filter in span_filters:
-        translate_span_filter(span_filter)
-        exprs.append(property_to_expr(span_filter, team=team))
-    if span_attribute_filters:
-        exprs.append(property_to_expr(with_attribute_set_guards(span_attribute_filters), team=team))
-    for resource_filter in with_attribute_set_guards(resource_attribute_filters):
+    for span_filter in filters.span:
+        # Translated on a copy, so the caller's filters stay as the request sent them.
+        translated = span_filter.model_copy()
+        translate_span_filter(translated)
+        exprs.append(property_to_expr(translated, team=team))
+    if filters.span_attribute:
+        exprs.append(property_to_expr(with_attribute_set_guards(list(filters.span_attribute)), team=team))
+    for resource_filter in with_attribute_set_guards(list(filters.resource_attribute)):
         exprs.append(property_to_expr(resource_filter, team=team))
     return exprs
 
@@ -405,10 +405,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        filters = split_span_filters(self.query.filterGroup)
-        self.span_filters: list[SpanPropertyFilter] = list(filters.span)
-        self.span_attribute_filters: list[SpanPropertyFilter] = list(filters.span_attribute)
-        self.resource_attribute_filters: list[SpanPropertyFilter] = list(filters.resource_attribute)
+        self.filters = split_span_filters(self.query.filterGroup)
 
     @property
     def _unbounded_trace_lookup(self) -> bool:
@@ -439,12 +436,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         exprs.extend(
             span_filter_exprs(
-                self.team,
-                service_names=self.query.serviceNames,
-                status_codes=self.query.statusCodes,
-                span_filters=self.span_filters,
-                span_attribute_filters=self.span_attribute_filters,
-                resource_attribute_filters=self.resource_attribute_filters,
+                self.team, self.filters, service_names=self.query.serviceNames, status_codes=self.query.statusCodes
             )
         )
 
