@@ -6,7 +6,7 @@ import { LemonBanner, LemonModal, Spinner } from '@posthog/lemon-ui'
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { AccountProductUsagePeople } from './AccountProductUsagePeople'
-import { getLatestProductUsageColumn, getAccountProductUsagePeopleCell } from './accountProductUsagePeople'
+import { getLatestProductUsageColumn, getAccountProductUsagePeopleCell } from './accountProductUsagePeopleData'
 import { accountProductUsagePeopleLogic } from './accountProductUsagePeopleLogic'
 import { AccountProductUsageQualifications } from './AccountProductUsageQualifications'
 import { AccountProductUsageTable } from './AccountProductUsageTable'

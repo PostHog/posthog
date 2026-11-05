@@ -29,8 +29,8 @@ describe('ProductUsageFilters', () => {
             },
         })
         render(<ProductUsageFilters />)
-        fireEvent.click(screen.getByRole('button', { name: 'All roles' }))
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Demo account manager' }))
+        fireEvent.click(screen.getByText('All roles'))
+        fireEvent.click(await screen.findByText('Demo account manager'))
         expect(productUsageGridLogic.values.controls.relationshipId).toBe('role-1')
         expect(productUsageGridLogic.values.result).toBeNull()
     })

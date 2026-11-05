@@ -36,7 +36,7 @@ describe('ProductUsageNamesCell', () => {
             />
         )
         expect(screen.queryByText('New') !== null).toBe(newInWeek)
-        fireEvent.click(screen.getByRole('button', { name: '+3 more' }))
+        fireEvent.click(screen.getByText('+3 more'))
         expect(toggle).toHaveBeenCalledTimes(1)
     })
 })

@@ -7,7 +7,7 @@ import { NodeKind, type AccountsTableQueryResponse } from '~/queries/schema/sche
 import { initKeaTests } from '~/test/init'
 
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../Accounts/bookActivityMatrixMock'
-import { parseProductUsageControls } from './productUsageControls'
+import { parseProductUsageControls } from './productUsageControlValues'
 import { productUsageGridLogic } from './productUsageGridLogic'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))

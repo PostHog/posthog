@@ -4,8 +4,8 @@ import posthog from 'posthog-js'
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import type { DotMatrixProps } from '../../../../../frontend/src/lib/components/DotMatrix/types'
-import { getAccountProductUsageProps } from './accountProductUsage'
-import type { AccountProductUsageDatum, AccountProductUsageRow } from './accountProductUsage'
+import { getAccountProductUsageProps } from './accountProductUsageData'
+import type { AccountProductUsageDatum, AccountProductUsageRow } from './accountProductUsageData'
 import { AccountsEvents } from './constants'
 
 export interface AccountProductUsageLogicProps {

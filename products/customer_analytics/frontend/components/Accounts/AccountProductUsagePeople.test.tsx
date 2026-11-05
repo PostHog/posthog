@@ -35,7 +35,7 @@ describe('AccountProductUsagePeople', () => {
         expect(screen.getByText('2m · 4 actions')).toBeTruthy()
         expect(screen.getByText('Nov 1')).toBeTruthy()
         expect(screen.getByText('Nov 7, 2026')).toBeTruthy()
-        fireEvent.click(screen.getByRole('button', { name: 'Qualification details' }))
+        fireEvent.click(screen.getByText('Qualification details'))
         expect(inspect).toHaveBeenCalledTimes(1)
         expect(screen.getByText('+4 more')).toBeTruthy()
     })

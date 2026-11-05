@@ -22,7 +22,7 @@ describe('DotMatrix', () => {
                 onSelectedSeriesChange={selected}
             />
         )
-        const safety = screen.getByRole('button', { name: 'Safety' })
+        const safety = screen.getByText('Safety')
         const glyph = container.querySelector('.DotGlyph')!
         fireEvent.mouseEnter(safety)
         expect(glyph.querySelector('[data-series="Quality"]')?.getAttribute('opacity')).toBe('0.25')

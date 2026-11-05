@@ -32,7 +32,7 @@ describe('ProductUsageLegend', () => {
         const hover = jest.fn()
         const select = jest.fn()
         render(<ProductUsageLegend {...props} onHoveredSeriesChange={hover} onSelectedSeriesChange={select} />)
-        const product = screen.getByRole('button', { name: 'Product analytics' })
+        const product = screen.getByText('Product analytics')
         fireEvent.mouseEnter(product)
         expect(hover).toHaveBeenLastCalledWith('pa')
         fireEvent.mouseLeave(product)

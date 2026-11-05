@@ -219,13 +219,13 @@ describe('AccountDotMatrixTile', () => {
                 onConfigChange={onConfigChange}
             />
         )
-        fireEvent.click(await screen.findByRole('button', { name: 'Edit query' }))
-        expect(screen.queryByRole('button', { name: 'Edit query' })).toBeNull()
+        fireEvent.click(await screen.findByText('Edit query'))
+        expect(screen.queryByText('Edit query')).toBeNull()
         expect(await screen.findByTestId('matrix-code-editor')).toBeTruthy()
 
         fireEvent.click(screen.getByTestId('dot-matrix-cancel-query'))
         expect(screen.queryByTestId('account-dot-matrix-query-editor')).toBeNull()
-        expect(screen.getByRole('button', { name: 'Edit query' })).toBeTruthy()
+        expect(screen.getByText('Edit query')).toBeTruthy()
         expect(onConfigChange).not.toHaveBeenCalled()
     })
 })

@@ -1,6 +1,6 @@
 import type { BookActivityPerson } from '~/queries/schema/schema-general'
 
-import { getAccountProductUsagePeopleCell, getLatestProductUsageColumn } from './accountProductUsagePeople'
+import { getAccountProductUsagePeopleCell, getLatestProductUsageColumn } from './accountProductUsagePeopleData'
 import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 it('shows only the latest period top users with exact count, excluding other periods, products and accounts', () => {

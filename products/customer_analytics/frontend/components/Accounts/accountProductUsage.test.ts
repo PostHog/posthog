@@ -1,6 +1,6 @@
 import { normalizeDotMatrixData } from 'lib/components/DotMatrix/dotMatrixData'
 
-import { getAccountProductUsageProps } from './accountProductUsage'
+import { getAccountProductUsageProps } from './accountProductUsageData'
 import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 describe('accountProductUsage', () => {

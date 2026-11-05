@@ -37,7 +37,7 @@ import {
     getHogQLActivityMatrix,
     inferHogQLMatrixMapping,
 } from '../Accounts/hogqlActivityMatrix'
-import { parseProductUsageControls } from './productUsageControls'
+import { parseProductUsageControls } from './productUsageControlValues'
 import type {
     ProductUsageSource,
     ProductUsageLoadResult,

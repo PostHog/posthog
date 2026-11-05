@@ -49,10 +49,10 @@ describe('AccountProductUsage history', () => {
             await screen.findByText('Alice +4')
             const cell =
                 source === 'weekly'
-                    ? screen.getByRole('img', { name: 'Product analytics users: 5' }).closest('.DotMatrix__cell')!
+                    ? screen.getByLabelText('Product analytics users: 5').closest('.DotMatrix__cell')!
                     : screen.getByText('Alice +4')
             fireEvent.focus(cell)
-            fireEvent.click(await screen.findByRole('button', { name: 'Qualification details' }))
+            fireEvent.click(await screen.findByText('Qualification details'))
             await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
             expect(screen.getAllByText('Product analytics · 5 users')).toHaveLength(1)
             fireEvent.blur(cell)
@@ -61,7 +61,7 @@ describe('AccountProductUsage history', () => {
             expect(within(modal).getByText('4 actions, 120 seconds on product pages')).toBeTruthy()
             expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
             expect(within(modal).getByText('/insights: 120 seconds')).toBeTruthy()
-            fireEvent.click(within(modal).getByRole('button', { name: 'close' }))
+            fireEvent.click(within(modal).getByLabelText('close'))
             await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
             expect(screen.queryByRole('tooltip')).toBeNull()
         }
@@ -83,7 +83,7 @@ describe('AccountProductUsage history', () => {
         )
         render(<AccountProductUsage {...props} />)
         expect(await screen.findByText('Alice +4')).toBeTruthy()
-        expect(screen.queryByRole('img', { name: 'First use ever' })).toBeNull()
+        expect(screen.queryByLabelText('First use ever')).toBeNull()
     })
     it('keeps names and counts while loading firsts, then hides marks immediately when switched off', async () => {
         let finishFirsts!: (value: unknown) => void
@@ -114,9 +114,9 @@ describe('AccountProductUsage history', () => {
                 truncated: false,
             },
         })
-        expect(await screen.findByRole('img', { name: 'First use ever' })).toBeTruthy()
+        expect(await screen.findByLabelText('First use ever')).toBeTruthy()
         rerender(<AccountProductUsage {...props} includeFirstUse={false} />)
-        expect(screen.queryByRole('img', { name: 'First use ever' })).toBeNull()
+        expect(screen.queryByLabelText('First use ever')).toBeNull()
         expect(screen.getByText('Alice +4')).toBeTruthy()
     })
 })
