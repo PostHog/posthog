@@ -15,9 +15,8 @@ describe('Command', () => {
     beforeEach(() => {
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NEW_COMMAND_K_SEARCH, FEATURE_FLAGS.TODAY_RAIL_NAV], {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NEW_COMMAND_K_SEARCH], {
             [FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]: true,
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
         })
         commandLogic.mount()
     })
