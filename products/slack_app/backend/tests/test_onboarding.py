@@ -58,8 +58,9 @@ class TestOnboarding:
         assert onboarding.send_onboarding_dm(self.integration, "") is False
         client.chat_postMessage.assert_not_called()
 
+    @pytest.mark.parametrize("setup_thread_enabled", [False, True])
     @patch("posthog.models.integration.slack.WebClient")
-    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class):
+    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class, setup_thread_enabled):
         client = self._client(mock_webclient_class)
         self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
         self.integration.save()
@@ -67,11 +68,12 @@ class TestOnboarding:
         client.conversations_create.return_value = {"channel": {"id": "C_NEW"}}
         client.conversations_info.return_value = {"channel": {"id": "C_NEW"}}
 
-        onboarding.run_install_onboarding(self.integration)
+        with patch.object(onboarding, "is_slack_app_dm_setup_card_enabled", return_value=setup_thread_enabled):
+            onboarding.run_install_onboarding(self.integration)
 
         client.conversations_create.assert_called_once()
         client.conversations_invite.assert_called_once_with(channel="C_NEW", users="U_INSTALL")
-        assert client.chat_postMessage.called
+        assert client.chat_postMessage.called is not setup_thread_enabled
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")

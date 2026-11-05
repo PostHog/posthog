@@ -19,6 +19,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.feature_flags import is_slack_app_dm_setup_card_enabled
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
     _is_channel_member,
@@ -289,4 +290,7 @@ def run_install_onboarding(integration: WorkspaceIntegration) -> None:
         return
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
+    # The DM setup thread takes over the installer's setup, so this DM would be a second setup message.
+    if is_slack_app_dm_setup_card_enabled(integration):
+        return
     send_onboarding_dm(integration, installer)
