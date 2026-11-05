@@ -99,7 +99,6 @@ def test_a_nan_label_adds_no_gradient_and_no_loss() -> None:
 def test_a_report_weighs_one_in_the_loss_whatever_its_number_of_pairs() -> None:
     logits = torch.tensor([[2.0], [2.0], [2.0], [-1.0]])
     labels = torch.tensor([[1.0], [1.0], [1.0], [0.0]])
-    # Three pairs of report a at 1/3 each, one pair of report b at 1.
     weights = torch.tensor([[1 / 3], [1 / 3], [1 / 3], [1.0]])
 
     per_report = masked_binary_cross_entropy(torch.tensor([[2.0], [-1.0]]), torch.tensor([[1.0], [0.0]]))

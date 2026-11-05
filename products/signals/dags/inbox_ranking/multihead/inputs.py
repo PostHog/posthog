@@ -42,7 +42,6 @@ class PairTrainingConfig:
     # Dropout on the projected user offsets and their products with the report, apart from the
     # trunk's own dropout, because the user branch overfits first.
     user_dropout: float = 0.5
-    # The share of train days, newest first, that the validation split takes.
     validation_share: float = 0.15
     patience: int = 3
     max_epochs: int = 30

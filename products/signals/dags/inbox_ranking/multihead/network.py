@@ -186,7 +186,6 @@ class MultiHeadNetwork:
         self.config = config
         self.pair = pair
         self.user_columns = tuple(user_columns)
-        # The epochs the last fit kept: its best validation epoch when it stopped early.
         self.epochs_kept = 0
         # Every random draw (initialization, shuffle, dropout) comes from this seeded state, and the
         # global torch state stays as it was.
