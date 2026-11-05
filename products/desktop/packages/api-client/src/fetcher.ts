@@ -11,7 +11,6 @@ type ApiFetcherConfig = {
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
-  // Sent on every request so the server can tell which client each turn came from.
   taskClientProvenance?: string;
 };
 
