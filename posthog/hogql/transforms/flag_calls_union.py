@@ -10,7 +10,7 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
@@ -469,7 +469,7 @@ class _Aliases(CloningVisitor):
             declared.setdefault(name, (position, expr))
         return declared
 
-    def target(self, expr: ast.Expr, lambda_names: frozenset[str] = frozenset()) -> ast.Expr:
+    def target(self, expr: ast.Expr, lambda_names: Container[str] = frozenset()) -> ast.Expr:
         """The expression that `expr`, without its own alias, names through a chain of select aliases."""
         visible: float = math.inf
         expr = unwrap_alias(expr)
@@ -703,7 +703,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         if isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
             named = names[str(read.chain[0])]
             return read if named is None else named
-        return self.aliases.target(read, frozenset(names))
+        return self.aliases.target(read, names)
 
     def _check(self, expr: ast.Expr) -> None:
         values = compared_values(expr, lambda read: self.reader.column(self._resolve(read)) == ["event"])

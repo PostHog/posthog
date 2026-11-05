@@ -80,6 +80,16 @@ def _global_join(query: str) -> ast.SelectQuery:
     return select
 
 
+def _alias_flood() -> ast.SelectQuery:
+    # Work that grows with the square of the alias count turns this case into a hang.
+    select = _select(f"SELECT 1 FROM events WHERE {MIXED}")
+    aliases = ast.Tuple(exprs=[ast.Alias(alias=f"a{n}", expr=ast.Constant(value=n)) for n in range(150_000)])
+    select.select.append(
+        ast.Call(name="arrayMap", args=[ast.Lambda(args=["x"], expr=aliases), ast.Array(exprs=[ast.Constant(value=1)])])
+    )
+    return select
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
@@ -283,6 +293,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 ["persons", "events"],
                 [],
             ),
+            ("many_aliases_inside_one_lambda", _alias_flood(), [UNION], []),
             (
                 "alias_of_event_inside_a_lambda",
                 "SELECT count() FROM events "
