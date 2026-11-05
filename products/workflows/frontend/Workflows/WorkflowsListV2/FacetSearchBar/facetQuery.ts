@@ -59,8 +59,8 @@ export function normalizeFacetValue<TItem>(facet: FacetDefinition<TItem>, value:
     return facet.normalizeValue ? facet.normalizeValue(value) : value
 }
 
-/** Identifies a pill, so two pills only differ in case when their facet tells cases apart. */
-export function facetFilterKey<TItem>(filter: FacetFilter, facets: FacetDefinition<TItem>[]): string {
+/** Identifies a pill, so two pills only differ in case when their facet tells cases apart. Without facets, case never counts. */
+export function facetFilterKey<TItem>(filter: FacetFilter, facets: FacetDefinition<TItem>[] = []): string {
     const value = findFacet(facets, filter.facet)?.caseSensitive ? filter.value : filter.value.toLowerCase()
     return `${filter.negated ? '-' : ''}${filter.facet}:${value}`
 }

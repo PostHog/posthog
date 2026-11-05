@@ -3,6 +3,7 @@ import {
     FacetSearchValue,
     createFacetCounter,
     createFacetMatcher,
+    facetFilterKey,
     parseFacetQuery,
     serializeFacetQuery,
 } from './facetQuery'
@@ -64,6 +65,18 @@ describe('facetQuery', () => {
             { facet: 'folder', value: 'billing', negated: false },
             { facet: 'status', value: 'Active', negated: false },
         ])
+    })
+
+    it.each([
+        ['without facets, as saved views call it', undefined, 'folder:billing'],
+        ['when no facet tells cases apart', FACETS, 'folder:billing'],
+        [
+            'with a case-sensitive facet',
+            [{ key: 'folder', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] }],
+            'folder:Billing',
+        ],
+    ])('keys a pill %s', (_, facets: FacetDefinition<Item>[] | undefined, key) => {
+        expect(facetFilterKey({ facet: 'folder', value: 'Billing', negated: false }, facets)).toEqual(key)
     })
 
     it.each([
