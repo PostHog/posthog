@@ -1542,6 +1542,9 @@ describe('EmailService', () => {
                     }
                     jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier').mockResolvedValue(0)
                     invocation.queueMetadata = { attachmentLoadTries: priorTries }
+                    invocation.queueCreatedAt = DateTime.utc().minus({
+                        milliseconds: EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000,
+                    })
                     jest.spyOn(attachments, 'load').mockRejectedValue(
                         new Error('timeout exceeded when trying to connect')
                     )
