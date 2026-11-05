@@ -3,7 +3,7 @@ from django.db.models import F, QuerySet
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
-from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
+from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_MAX_HOLD, EmailHardBounce
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -59,7 +59,9 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
     with transaction.atomic():
         rows = MessageSuppression.objects.for_team(team_id).filter(identifier__in=identifiers)
         # The lock stops a complaint that lands during the check from being removed unconfirmed.
-        locked = list(rows.select_for_update().values_list("identifier", "source", "suppressed", "deleted"))
+        locked = list(
+            rows.order_by("identifier").select_for_update().values_list("identifier", "source", "suppressed", "deleted")
+        )
         complaints = sorted(
             identifier
             for identifier, source, suppressed, deleted in locked
@@ -94,8 +96,10 @@ def add_global_hard_bounces(emails: list[str]) -> None:
     """Add addresses to the global hard-bounce list that every team's sends skip. Keeps existing entries as they are."""
     identifiers = sorted({email.strip().lower() for email in emails if email.strip()})
     now = timezone.now()
-    # An existing row came from a real bounce and carries better times, so it wins.
+    # The source list keeps no bounce history, so each address gets the longest hold rather than the one-day hold of a
+    # single bounce. An existing row came from a real bounce and carries better times, so it wins.
+    first_bounced_at = now - GLOBAL_HARD_BOUNCE_MAX_HOLD
     EmailHardBounce.objects.bulk_create(
-        [EmailHardBounce(email=email, first_bounced_at=now, last_bounced_at=now) for email in identifiers],
+        [EmailHardBounce(email=email, first_bounced_at=first_bounced_at, last_bounced_at=now) for email in identifiers],
         ignore_conflicts=True,
     )

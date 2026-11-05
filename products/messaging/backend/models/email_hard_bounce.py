@@ -1,4 +1,9 @@
+from datetime import timedelta
+
 from django.db import models
+
+# The Node `EmailSuppressionService` holds a global entry for at most this long after its last bounce.
+GLOBAL_HARD_BOUNCE_MAX_HOLD = timedelta(days=14)
 
 
 class EmailHardBounce(models.Model):

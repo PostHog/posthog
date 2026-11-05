@@ -262,11 +262,15 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                         { identifiers, confirm_complaints: confirmComplaints }
                     )
                     lemonToast.success(
-                        removed.length === 1
-                            ? `${removed[0]} removed from the suppression list`
-                            : `${removed.length} addresses removed from the suppression list`
+                        removed.length === 0
+                            ? 'Already removed from the suppression list'
+                            : removed.length === 1
+                              ? `${removed[0]} removed from the suppression list`
+                              : `${removed.length} addresses removed from the suppression list`
                     )
-                    actions.loadSuppressions(values.currentPage)
+                    // Removing every row on the last page leaves that page empty, and the API rejects an empty page.
+                    const pageEmptied = removed.length >= (values.suppressions.results?.length ?? 0)
+                    actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
                     return removed
                 } catch (e) {
                     lemonToast.error('Failed to remove from the suppression list. Reload the list and try again.')
