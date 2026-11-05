@@ -55,15 +55,23 @@ describe('UsageRecordBatch', () => {
         expect(ingested[0].map((r) => r.teamId)).toEqual([2])
     })
 
-    it('keeps an aggregate record its own quantity and unit', async () => {
-        const b = new UsageRecordBatch(client, { unit: 'bytes', isTeamEnabled: () => true })
+    it('keeps a record its own quantity and unit, also after acknowledgements', async () => {
+        const b = new UsageRecordBatch(client, { unit: 'events', isTeamEnabled: () => true })
         b.add(1, 'logs_bytes', 'logs:1', 42, 'bytes')
         b.add(1, 'logs_records', 'logs:2', 3, 'records')
+        b.addAfterAcknowledgements([Promise.resolve({})], {
+            teamId: 1,
+            usageKey: 'ai_overage_bytes',
+            recordId: 'event:1',
+            quantity: 7,
+            unit: 'bytes',
+        })
         await b.flush()
 
         expect(ingested[0]).toEqual([
             expect.objectContaining({ usageKey: 'logs_bytes', quantity: 42, unit: 'bytes' }),
             expect.objectContaining({ usageKey: 'logs_records', quantity: 3, unit: 'records' }),
+            expect.objectContaining({ usageKey: 'ai_overage_bytes', quantity: 7, unit: 'bytes' }),
         ])
     })
 
@@ -87,9 +95,9 @@ describe('UsageRecordBatch', () => {
         const first = new Promise<object>((resolve) => (acknowledgeFirst = resolve))
         const second = new Promise<object>((resolve) => (acknowledgeSecond = resolve))
 
-        b.addAfterAcknowledgements([first], 1, 'events', 'uuid-1')
+        b.addAfterAcknowledgements([first], { teamId: 1, usageKey: 'events', recordId: 'uuid-1' })
         const sending = send(b)
-        b.addAfterAcknowledgements([second], 1, 'events', 'uuid-2')
+        b.addAfterAcknowledgements([second], { teamId: 1, usageKey: 'events', recordId: 'uuid-2' })
         acknowledgeFirst({})
         await new Promise((resolve) => setImmediate(resolve))
         acknowledgeSecond({})
@@ -129,7 +137,7 @@ describe('UsageRecordBatch', () => {
             new UsageRecordBatch({} as UsageIngestionClient, { unit: 'events', isTeamEnabled: () => false }),
         ],
     ])('flushes without waiting on acknowledgements for %s', async (_name, b) => {
-        b.addAfterAcknowledgements([new Promise(() => {})], 1, 'events', 'uuid-1')
+        b.addAfterAcknowledgements([new Promise(() => {})], { teamId: 1, usageKey: 'events', recordId: 'uuid-1' })
 
         await expect(b.flush()).resolves.toEqual([])
     })
