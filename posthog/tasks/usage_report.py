@@ -63,6 +63,7 @@ from posthog.usage_counters import (
 )
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.business_knowledge.backend.facade import api as business_knowledge_api
@@ -315,6 +316,10 @@ class UsageReportCounters:
 
     # AI observability
     ai_event_count_in_period: int
+    # Bytes of each AI event above the bytes its event price includes. The MB is floored per team, so an org's MB is
+    # the sum of its teams' floors, like logs_mb_in_period. The MB is the field to bill. The bytes are report-only.
+    ai_overage_bytes_in_period: int
+    ai_overage_mb_in_period: int
     ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
     ai_offline_eval_metric_count_in_period: int = dataclasses.field(default=0, kw_only=True)
 
@@ -1895,6 +1900,44 @@ def get_teams_with_ai_event_count_in_period(
     return [(team_id, max(0, count - sponsored_by_team.get(team_id, 0))) for team_id, count in base_counts]
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_overage_bytes_in_period(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report and usage counter contract, like the AI event count above.
+) -> list[tuple[int, int]]:
+    use_new = use_new_events_schema(None)
+    event_bytes_expr, _ = get_property_string_expr(
+        "events",
+        "$ai_event_bytes",
+        "'$ai_event_bytes'",
+        "properties",
+        use_new_events_schema=use_new,
+    )
+
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
+        return sync_execute(
+            f"""
+            SELECT team_id, sum(greatest(toInt64OrZero({event_bytes_expr}) - %(included_bytes)s, 0)) AS overage_bytes
+            FROM {events_read_table(use_new)}
+            WHERE startsWith(event, %(ai_event_prefix)s) AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+            HAVING overage_bytes > 0
+        """,
+            {
+                "begin": begin,
+                "end": end,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+                "included_bytes": get_ai_event_limits().included_bytes_per_event,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
@@ -3112,6 +3155,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
+        or report.ai_overage_bytes_in_period > 0
         or report.mcp_event_count_in_period > 0
         or report.business_knowledge_chunks_in_period > 0
         or report.business_knowledge_queries_in_period > 0
@@ -3518,6 +3562,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_not_modified_requests_count_in_period = all_data[
         "teams_with_local_evaluation_not_modified_requests_count_in_period"
     ].get(team.id, 0)
+    ai_overage_bytes_in_period = all_data["teams_with_ai_overage_bytes_in_period"].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3697,6 +3742,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_overage_bytes_in_period=ai_overage_bytes_in_period,
+        ai_overage_mb_in_period=int(ai_overage_bytes_in_period // 1_000_000),
         mcp_event_count_in_period=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
         business_knowledge_chunks_in_period=all_data["teams_with_business_knowledge_chunks_in_period"].get(team.id, 0),
         business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(

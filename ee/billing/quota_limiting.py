@@ -1378,6 +1378,7 @@ def update_all_orgs_billing_quotas(
                 UsageCounter.CDP_INVOCATIONS,
                 UsageCounter.SURVEY_RESPONSES,
                 UsageCounter.AI_EVENTS,
+                UsageCounter.AI_OVERAGE_BYTES,
                 UsageCounter.WORKFLOW_EMAILS,
                 UsageCounter.WORKFLOW_PUSH,
                 UsageCounter.WORKFLOW_INVOCATIONS,
@@ -1433,6 +1434,10 @@ def update_all_orgs_billing_quotas(
         "teams_with_rows_exported_in_period": dict(counter_report.counts[UsageCounter.ROWS_EXPORTED]),
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
+        "teams_with_ai_overage_mb_in_period": {
+            team_id: int(overage_bytes // 1_000_000)
+            for team_id, overage_bytes in counter_report.counts[UsageCounter.AI_OVERAGE_BYTES]
+        },
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),

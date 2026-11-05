@@ -35,6 +35,7 @@ class UsageCounter(StrEnum):
     SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
     # Ingested AIO events only. Offline usage is composed after organization attribution.
     AI_EVENTS = "teams_with_ai_event_count_in_period"
+    AI_OVERAGE_BYTES = "teams_with_ai_overage_bytes_in_period"
     EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
     FEATURE_FLAG_REQUESTS = "teams_with_decide_requests_count_in_period"
@@ -71,7 +72,9 @@ LEGACY_QUERY_NAMES = {
 # Temporal workers decode a plan's modes into UsageCounter, so a worker without a counter rejects any plan that names it.
 # During a rolling deploy or a rollback, older workers still run, so a new counter stays out of plans until every worker
 # can decode it. Usage reports v2 reads these counters from their legacy query specs meanwhile.
-PLAN_DEFERRED_COUNTERS = frozenset({UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS})
+PLAN_DEFERRED_COUNTERS = frozenset(
+    {UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, UsageCounter.AI_OVERAGE_BYTES}
+)
 
 
 class UsageCounterMode(StrEnum):
@@ -105,6 +108,7 @@ RECORD_USAGE_KEYS = {
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile_replay_recordings",
     UsageCounter.SURVEY_RESPONSES: "survey_responses",
     UsageCounter.AI_EVENTS: "ai_events",
+    UsageCounter.AI_OVERAGE_BYTES: "ai_overage_bytes",
     UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp_billable_invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature_flag_requests",
@@ -122,6 +126,7 @@ RECORD_USAGE_UNITS = {
     "mobile_replay_recordings": "recordings",
     "survey_responses": "events",
     "ai_events": "events",
+    "ai_overage_bytes": "bytes",
     "exceptions": "events",
     "cdp_billable_invocations": "invocations",
     "feature_flag_requests": "requests",
@@ -140,6 +145,7 @@ COUNTER_FLAG_NAMES = {
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile-billable-recordings",
     UsageCounter.SURVEY_RESPONSES: "survey-responses",
     UsageCounter.AI_EVENTS: "ai-events",
+    UsageCounter.AI_OVERAGE_BYTES: "ai-overage-bytes",
     UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp-invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature-flag-requests",
@@ -278,6 +284,7 @@ class UsageCounterService:
             UsageCounter.MOBILE_BILLABLE_RECORDINGS: usage_report.get_teams_with_mobile_billable_recording_count_in_period,
             UsageCounter.SURVEY_RESPONSES: usage_report.get_teams_with_survey_responses_count_in_period,
             UsageCounter.AI_EVENTS: usage_report.get_teams_with_ai_event_count_in_period,
+            UsageCounter.AI_OVERAGE_BYTES: usage_report.get_teams_with_ai_overage_bytes_in_period,
             UsageCounter.EXCEPTIONS: lambda begin, end: [
                 (team_id, count) for team_id, count in self._exceptions_query(begin, end)[1]
             ],
