@@ -631,7 +631,7 @@ class TeamAdmin(admin.ModelAdmin):
 
         hidden = (
             "Older events are hidden from queries."
-            if should_enforce_events_retention(team.pk)
+            if should_enforce_events_retention(team)
             else "Older events are not hidden yet, because enforcement is off for this team."
         )
         billing = f"{team.event_retention_months} months from the billing plan. {hidden}"
