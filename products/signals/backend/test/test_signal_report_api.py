@@ -1486,6 +1486,14 @@ class TestSignalReportListAPI(APIBaseTest):
             return_value=flag_result if isinstance(flag_result, bool) else False,
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
+            expected_monitoring = {str(monitoring.id)} if enabled else set()
+            filtered = self.client.get(self._list_url(status="monitoring"))
+            assert filtered.status_code == status.HTTP_200_OK
+            assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
+            filtered_count = self.client.get(self._list_url(status="monitoring", count_only="true"))
+            assert filtered_count.status_code == status.HTTP_200_OK
+            assert filtered_count.json()["count"] == len(expected_monitoring)
+
             for query in [{"status": "resolved"}, {"view": "resolved"}]:
                 response = self.client.get(self._list_url(**query))
                 assert response.status_code == status.HTTP_200_OK
@@ -1593,7 +1601,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("monitoring", "monitoring"),
+            ("monitoring_and_invalid", "monitoring,bogus_status"),
             ("garbage", "bogus_status"),
             ("mixed_valid_and_invalid", "ready,bogus_status"),
             ("deleted_not_filterable", "deleted"),

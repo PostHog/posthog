@@ -147,4 +147,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             is_favourite="Whether the attachment is marked as a favourite.",
         ),
     },
+    "Material": {
+        "description": "An inventory item, product, or labour rate that can be added to jobs.",
+        "docs_url": "https://developer.servicem8.com/reference/listmaterials",
+        "columns": _columns(
+            name="Name of the material, product, or labour rate.",
+            item_number="Item code for the material, unique within the account.",
+            item_description="Description of the material.",
+            price="Selling price; includes tax when price_includes_taxes is 1.",
+            cost="Purchase cost; includes tax when price_includes_taxes is 1.",
+            price_includes_taxes="Whether price and cost include tax (1) or exclude it (0).",
+            tax_rate_uuid="UUID of the tax rate applied to the material.",
+            quantity_in_stock="Current quantity of the material in stock.",
+            item_is_inventoried="Whether stock levels are tracked for the material.",
+            barcode="Barcode (UPC, EAN, or other format) of the material.",
+        ),
+    },
+    "TaxRate": {
+        "description": "A named tax rate (for example GST or VAT) applied to materials and invoices.",
+        "docs_url": "https://developer.servicem8.com/reference/listtaxrates",
+        "columns": _columns(
+            name="Name of the tax rate, such as GST or VAT.",
+            amount="Tax rate as a percentage, e.g. 10 for 10%.",
+            is_default_tax_rate="Whether this is the account's default tax rate.",
+        ),
+    },
+    "StaffTimeEvent": {
+        "description": "A staff clock-on, clock-off, or lunch-break event, separate from job check-ins.",
+        "docs_url": "https://developer.servicem8.com/reference/liststafftimeevents",
+        "columns": _columns(
+            staff_uuid="UUID of the staff member the event belongs to.",
+            timestamp="Event time in the account timezone (YYYY-MM-DD HH:MM:SS).",
+            event_name="Action recorded: CLOCK_ON, CLOCK_OFF, LUNCH_START, or LUNCH_END.",
+            source="Origin of the recorded event.",
+        ),
+    },
+    "Feedback": {
+        "description": "A customer feedback rating and comment, usually about a job.",
+        "docs_url": "https://developer.servicem8.com/reference/listfeedback",
+        "columns": _columns(
+            timestamp="Date and time the feedback was submitted.",
+            related_object="Type of object the feedback is about, usually job or vendor.",
+            related_object_uuid="UUID of the object the feedback is about.",
+            rating="Rating from 1 to 5; higher is more positive.",
+            comment="Text comment left with the feedback.",
+        ),
+    },
 }
