@@ -15,7 +15,7 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
@@ -1967,7 +1967,10 @@ return result`,
                     model: 'example/dual-model',
                     provider_key_id: keyId,
                 })
-                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    prompt: DEFAULT_JUDGE_PROMPT,
+                    judge_method: method,
+                })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
                     ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
                 )
