@@ -60,7 +60,16 @@ function isReadingKey(event: React.KeyboardEvent): boolean {
     )
 }
 
+function isFindShortcut(event: React.KeyboardEvent): boolean {
+    return (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f'
+}
+
 function blockEditingKeys(event: React.KeyboardEvent): void {
+    if (isFindShortcut(event)) {
+        // Monaco's find widget would open with typing blocked, so the browser's find bar opens instead.
+        event.stopPropagation()
+        return
+    }
     if (!isReadingKey(event)) {
         blockEditing(event)
     }

@@ -331,6 +331,7 @@ describe('view-only workflow', () => {
         ['moves by paragraph', { key: 'ArrowUp', altKey: true }],
         ['selects by paragraph', { key: 'ArrowDown', altKey: true, shiftKey: true }],
         ['tabs onward', { key: 'Tab' }],
+        ['finds on the page', { key: 'f', ctrlKey: true }],
     ])('lets a viewer who %s read a step field', (_, keyPress) => {
         renderForViewer(
             <ViewOnlyArea>
@@ -339,6 +340,22 @@ describe('view-only workflow', () => {
         )
 
         expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
+    })
+
+    it('opens the browser find bar instead of the code editor find for a viewer', () => {
+        const onEditorKey = jest.fn()
+        renderForViewer(
+            <ViewOnlyArea>
+                <div className="monaco-editor">
+                    <textarea aria-label="Code" onKeyDown={onEditorKey} />
+                </div>
+            </ViewOnlyArea>
+        )
+
+        const reachedDefault = fireEvent.keyDown(screen.getByLabelText('Code'), { key: 'f', metaKey: true })
+
+        expect(reachedDefault).toBe(true)
+        expect(onEditorKey).not.toHaveBeenCalled()
     })
 
     it('lets a viewer copy a webhook URL from a step', () => {
