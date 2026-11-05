@@ -630,7 +630,10 @@ export class EmailTrackingService {
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            logger.error('[EmailService] handleWebhook: SES webhook error', {
+                errorName: error.name,
+                errorMessage: error.message,
+            })
             throw error
         }
     }
