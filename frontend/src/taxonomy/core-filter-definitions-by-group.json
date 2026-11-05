@@ -1710,6 +1710,11 @@
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
             "label": "MCP error code"
         },
+        "$mcp_error_expected": {
+            "description": "The server marked this failed MCP tool call as an expected outcome, such as a rate limit or a not-found, that the agent is meant to handle. $mcp_is_error stays true on these calls. Failure rates exclude them. Only set on failed calls the server classified; absent means not expected.",
+            "label": "MCP error expected",
+            "type": "Boolean"
+        },
         "$mcp_error_field": {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
@@ -3757,6 +3762,11 @@
             "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
             "label": "MCP error code"
+        },
+        "$mcp_error_expected": {
+            "description": "The server marked this failed MCP tool call as an expected outcome, such as a rate limit or a not-found, that the agent is meant to handle. $mcp_is_error stays true on these calls. Failure rates exclude them. Only set on failed calls the server classified; absent means not expected.",
+            "label": "MCP error expected",
+            "type": "Boolean"
         },
         "$mcp_error_field": {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
@@ -5994,6 +6004,11 @@
             "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
             "label": "MCP error code"
+        },
+        "$mcp_error_expected": {
+            "description": "The server marked this failed MCP tool call as an expected outcome, such as a rate limit or a not-found, that the agent is meant to handle. $mcp_is_error stays true on these calls. Failure rates exclude them. Only set on failed calls the server classified; absent means not expected.",
+            "label": "MCP error expected",
+            "type": "Boolean"
         },
         "$mcp_error_field": {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
