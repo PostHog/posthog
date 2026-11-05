@@ -70,7 +70,7 @@ describe('SandboxSenderStateService', () => {
     })
 
     it.each([false, true])(
-        'starts no lookup after the five second budget and fails the pause gate when the database stays unavailable (fresh: %s)',
+        'fails the pause gate within the five second budget when the database stays unavailable (fresh: %s)',
         async (fresh) => {
             jest.useFakeTimers()
             jest.spyOn(Math, 'random').mockReturnValue(0)
@@ -81,7 +81,7 @@ describe('SandboxSenderStateService', () => {
                         return Promise.resolve({ rows: [] })
                     }
                     lookupStarts.push(performance.now())
-                    return new Promise((_resolve, reject) => setTimeout(() => reject(transient()), 2_300))
+                    return new Promise((_resolve, reject) => setTimeout(() => reject(transient()), 2_000))
                 })
                 const postgres = {
                     connect: () => Promise.resolve(idleClient()),
@@ -102,13 +102,16 @@ describe('SandboxSenderStateService', () => {
                     new SandboxSenderStateService(postgres, pubSub)
                 )
 
+                let settledAt: number | undefined
                 const gate = sender.pauseGate({ fresh })
+                void gate.then(() => (settledAt = performance.now()))
                 await jest.advanceTimersByTimeAsync(10_000)
                 await expect(gate).resolves.toBe('check_failed')
+                expect(settledAt! - lookupStarts[0]).toBeLessThanOrEqual(5_000)
                 const attempts = query.mock.calls.length
                 await jest.advanceTimersByTimeAsync(30_000)
                 expect(query.mock.calls).toHaveLength(attempts)
-                expect(lookupStarts.map((at) => at - lookupStarts[0])).toEqual([0, 2_550])
+                expect(lookupStarts.map((at) => at - lookupStarts[0])).toEqual([0, 2_250, 4_500])
             } finally {
                 jest.restoreAllMocks()
                 jest.useRealTimers()
