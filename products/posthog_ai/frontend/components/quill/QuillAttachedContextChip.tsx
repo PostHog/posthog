@@ -7,20 +7,19 @@ import { Chip, ChipClose, Tooltip, TooltipContent, TooltipTrigger } from '@posth
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import type { ContextChip } from '~/layout/ai/chatContextChips'
 
 import { contextItemPath, isOnContextItemPage } from '../../utils/contextItemLink'
 
 export interface QuillAttachedContextChipProps {
-    item: AttachedContextItem
-    label: string
+    chip: ContextChip
     onRemove?: () => void
 }
 
-/** A context chip in the quill composer: the close button removes the item, and the label opens its page. */
-export function QuillAttachedContextChip({ item, label, onRemove }: QuillAttachedContextChipProps): JSX.Element {
+export function QuillAttachedContextChip({ chip, onRemove }: QuillAttachedContextChipProps): JSX.Element {
+    const { label } = chip
     const { location } = useValues(router)
-    const path = contextItemPath(item)
+    const path = contextItemPath(chip)
     const onPage = path !== null && isOnContextItemPage(path, location.pathname)
 
     return (
@@ -52,7 +51,7 @@ export function QuillAttachedContextChip({ item, label, onRemove }: QuillAttache
                                 className="min-w-0 truncate text-inherit hover:underline"
                                 onClick={() => {
                                     // pinned: analytics event name
-                                    posthog.capture('posthog ai context chip opened', { type: item.type })
+                                    posthog.capture('posthog ai context chip opened', { type: chip.type })
                                 }}
                                 data-attr="posthog-ai-context-chip-link"
                             />

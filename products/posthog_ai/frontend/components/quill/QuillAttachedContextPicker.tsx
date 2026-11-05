@@ -19,9 +19,9 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { cn } from 'lib/utils/css-classes'
 
-import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { chatContextLogic } from '../../logics/chatContextLogic'
 import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
 import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 
@@ -29,12 +29,14 @@ export interface QuillAttachedContextPickerProps {
     open?: boolean
     onOpenChange?: (open: boolean) => void
     anchor?: RefObject<HTMLElement>
+    taskId?: string
 }
 
 export function QuillAttachedContextPicker({
     open: controlledOpen,
     onOpenChange,
     anchor,
+    taskId,
 }: QuillAttachedContextPickerProps = {}): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const open = controlledOpen ?? uncontrolledOpen
@@ -43,7 +45,8 @@ export function QuillAttachedContextPicker({
         onOpenChange?.(next)
     }
     const filterKey = `posthog-ai-context-picker-${useId()}`
-    const { hasContext } = useValues(attachedContextLogic)
+    const { chips } = useValues(chatContextLogic({ taskId }))
+    const hasContext = chips.length > 0
     const { handleTaxonomicFilterChange } = useActions(contextPickerLogic)
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
     if (todayRailEnabled && phoneLayout) {
@@ -85,7 +88,7 @@ export function QuillAttachedContextPicker({
                                 taxonomicGroupTypes={CONTEXT_PICKER_GROUP_TYPES}
                                 onChange={({ type }, value, item) => {
                                     if (value !== null) {
-                                        handleTaxonomicFilterChange(value, type, item)
+                                        handleTaxonomicFilterChange(value, type, item, taskId)
                                     }
                                     setOpen(false)
                                 }}
@@ -147,7 +150,7 @@ export function QuillAttachedContextPicker({
                         taxonomicGroupTypes={CONTEXT_PICKER_GROUP_TYPES}
                         onChange={({ type }, value, item) => {
                             if (value !== null) {
-                                handleTaxonomicFilterChange(value, type, item)
+                                handleTaxonomicFilterChange(value, type, item, taskId)
                             }
                             setOpen(false)
                         }}

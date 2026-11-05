@@ -13,7 +13,11 @@ export interface AttachedContextItem {
     type: string
     /** Resource identifier — entity id, short_id, $ai_trace_id, … */
     key?: string | number
-    pageId?: string | number
+    /**
+     * The id in the item's page URL, when it differs from `key` (a flag's context key is its name, and its page
+     * takes the numeric id). Null means the item has no page. Undefined means `key` is the page id.
+     */
+    pageId?: string | number | null
     /** Optional human-readable label. */
     label?: string
     /**
@@ -24,7 +28,12 @@ export interface AttachedContextItem {
     previewHtml?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
-    /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
+    /**
+     * Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either).
+     * A hidden item holds the state of the current page that tools act on, such as live editor state, so it keeps
+     * reaching a started chat as the user navigates. A visible item only reaches a chat when it starts or through the
+     * picker.
+     */
     hidden?: boolean
     /** Whether the user can dismiss the item from the composer. Defaults to true. */
     dismissible?: boolean
@@ -37,6 +46,9 @@ export interface AttachedContextItem {
      */
     dismissGroup?: string
 }
+
+/** A new chat's picks live under this key until its first send delivers them to the created task. */
+export const NEW_CHAT_KEY = ''
 
 /** Stable dedupe key for an attached context item: `${type}:${key ?? value}`. */
 export function attachedContextItemKey(item: AttachedContextItem): string {

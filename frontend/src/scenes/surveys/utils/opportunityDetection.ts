@@ -37,7 +37,7 @@ export function surveyOpportunityContextItems(
               {
                   type: 'insight',
                   key: insight.id,
-                  pageId: insight.short_id ?? '',
+                  pageId: insight.short_id ?? null,
                   label: funnelContext.insightName,
               },
               {

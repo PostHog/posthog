@@ -14,19 +14,20 @@ const meta: Meta<typeof QuillAttachedContextChip> = {
     render: () => (
         <div data-quill className="flex flex-wrap items-center gap-1 p-4">
             <QuillAttachedContextChip
-                item={{ type: 'feature_flag', key: 'new-checkout-flow', pageId: 12, label: 'new-checkout-flow' }}
-                label="new-checkout-flow"
+                chip={{
+                    id: 'feature_flag:new-checkout-flow',
+                    type: 'feature_flag',
+                    key: 'new-checkout-flow',
+                    pageId: 12,
+                    label: 'new-checkout-flow',
+                }}
                 onRemove={() => {}}
             />
             <QuillAttachedContextChip
-                item={{ type: 'experiment', key: 17, label: 'Checkout button color' }}
-                label="Checkout button color"
+                chip={{ id: 'experiment:17', type: 'experiment', key: 17, label: 'Checkout button color' }}
                 onRemove={() => {}}
             />
-            <QuillAttachedContextChip
-                item={{ type: 'text', value: 'Only count paid plans' }}
-                label="Only count paid plans"
-            />
+            <QuillAttachedContextChip chip={{ id: 'text:note', type: 'text', label: 'Only count paid plans' }} />
         </div>
     ),
 }
