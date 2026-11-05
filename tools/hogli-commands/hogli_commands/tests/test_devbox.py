@@ -29,6 +29,8 @@ from hogli_commands.devbox import (
     worktree as devbox_worktree,
 )
 
+# Captured at import, before the autouse fixture in conftest.py replaces it.
+_REAL_FORGET_HERDR_MACHINE = devbox_herdr.forget_machine
 runner = CliRunner()
 
 
@@ -1047,7 +1049,7 @@ class TestWorktreeAutoProvision:
         monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
         monkeypatch.setattr(
-            devbox_worktree.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+            devbox_herdr.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
         )
         herdr_calls: list[list[str]] = []
 
@@ -2943,6 +2945,54 @@ class TestDevboxOpenHerdr:
         assert result.exit_code == 1
         assert "Devbox 'devbox-test-user' is stopped. Start it with `hogli devbox:start`" in result.output
         assert calls == []
+
+    @pytest.mark.parametrize(
+        ("registered_worktree", "expected_warning"),
+        [
+            (None, "Sync is active for 'devbox-test-user'"),
+            ("/work/posthog-feature", "'devbox-test-user' mirrors the worktree at /work/posthog-feature"),
+        ],
+        ids=["standalone-box", "worktree-box"],
+    )
+    def test_sync_warning_points_a_worktree_box_at_its_worktree(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_calls: Callable[..., list[list[str]]],
+        running_workspace: Callable[[str], None],
+        registered_worktree: str | None,
+        expected_warning: str,
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[])
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda **kw: [{"name": "ph-x"}])
+        registry = (
+            {}
+            if registered_worktree is None
+            else {registered_worktree: devbox_config.WorktreeBoxRecord(workspace="devbox-test-user", git_dir="admin")}
+        )
+        monkeypatch.setattr(devbox_cli, "load_worktree_boxes", lambda: registry)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert expected_warning in result.output
+
+    def test_forgetting_a_deleted_box_removes_only_its_own_machine(
+        self, herdr_calls: Callable[..., list[list[str]]]
+    ) -> None:
+        calls = herdr_calls(
+            machines=[
+                {"name": "renamed-by-user", "target": "coder.devbox-test-user"},
+                {"name": "devbox-test-user-other", "target": "coder.devbox-test-user-other"},
+            ],
+            spaces=[],
+        )
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert [call for call in calls if call[:3] == ["hc", "machine", "rm"]] == [
+            ["hc", "machine", "rm", "renamed-by-user"]
+        ]
 
     def test_a_timed_out_hc_call_fails_with_a_message(
         self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
@@ -5213,13 +5263,14 @@ class TestDevboxLifecycleSyncIntegration:
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
         monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
         monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
+        monkeypatch.setattr(devbox_cli.herdr_app, "forget_machine", lambda name: calls.append(f"forget-herdr:{name}"))
 
         result = runner.invoke(cli, ["devbox:destroy"])
 
         assert result.exit_code == 0, result.output
         # terminate MUST run before delete: the remote endpoint disappearing
         # mid-sync produces noisy daemon errors otherwise.
-        assert calls == ["terminate", "delete"]
+        assert calls == ["terminate", "delete", "forget-herdr:devbox-test-user"]
 
     def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
