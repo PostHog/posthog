@@ -35,6 +35,10 @@ jobs:
             github.event.pull_request.base.ref == 'master' &&
             (github.event.action != 'edited' || github.event.changes.base.ref.from != '')
 
+        outputs:
+            action: ${{ steps.reviewer-action.outputs.action }}
+            matching_files: ${{ steps.reviewer-action.outputs.matching_files }}
+
         steps:
             - name: Determine reviewer action
               id: reviewer-action
@@ -94,9 +98,19 @@ jobs:
 
                   echo "action=none" >> "$GITHUB_OUTPUT"
 
+    # A separate job because GitHub resolves every action a job references during
+    # "Set up job", even for steps whose `if:` is false. Keeping the app-token action
+    # out of check-posthog-js means the common no-op run never downloads it.
+    update-review-request:
+        name: Update client libraries review request
+        needs: check-posthog-js
+        if: needs.check-posthog-js.outputs.action != 'none'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        steps:
             - name: Get app token
               id: app-token
-              if: steps.reviewer-action.outputs.action != 'none'
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/create-github-app-token@v3.1.1
               with:
@@ -104,13 +118,12 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Update client libraries review request
-              if: steps.reviewer-action.outputs.action != 'none'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
-                  REVIEWER_ACTION: ${{ steps.reviewer-action.outputs.action }}
-                  MATCHING_FILES: ${{ steps.reviewer-action.outputs.matching_files }}
+                  REVIEWER_ACTION: ${{ needs.check-posthog-js.outputs.action }}
+                  MATCHING_FILES: ${{ needs.check-posthog-js.outputs.matching_files }}
                   TEAM_REVIEWER: PostHog/client-libraries-approvers
                   TEAM_REVIEWER_SLUG: client-libraries-approvers
               run: |
