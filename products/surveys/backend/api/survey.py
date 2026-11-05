@@ -1,5 +1,6 @@
 import re
 import builtins
+import itertools
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -1133,6 +1134,16 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
         return data
 
 
+def _free_name_hint(name: str, project_id: int) -> str:
+    taken = set(
+        Survey.objects.filter(team__project_id=project_id, name__startswith=name).values_list("name", flat=True)
+    )
+    free_name = next(candidate for n in itertools.count(2) if (candidate := f"{name} ({n})") not in taken)
+    if len(free_name) > Survey._meta.get_field("name").max_length:
+        return "Use a different name."
+    return f'Use a different name, such as "{free_name}".'
+
+
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
@@ -1750,7 +1761,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self.context["request"].method == "POST"
             and Survey.objects.filter(name=data.get("name"), team__project_id=self.context["project_id"]).exists()
         ):
-            raise serializers.ValidationError("There is already a survey with this name.", code="unique")
+            raise serializers.ValidationError(
+                f"There is already a survey with this name. {_free_name_hint(data['name'], self.context['project_id'])}",
+                code="unique",
+            )
 
         existing_survey: Survey | None = self.instance
 
@@ -1761,7 +1775,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             .exclude(id=existing_survey.id)
             .exists()
         ):
-            raise serializers.ValidationError("There is already another survey with this name.", code="unique")
+            raise serializers.ValidationError(
+                f"There is already another survey with this name. {_free_name_hint(data['name'], self.context['project_id'])}",
+                code="unique",
+            )
 
         if data.get("targeting_flag_filters"):
             groups = (data.get("targeting_flag_filters") or {}).get("groups") or []
@@ -2692,7 +2709,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         self, date_from: str | None, date_to: str | None
     ) -> tuple[datetime | None, datetime | None]:
         try:
-            return validate_and_parse_dates(date_from, date_to)
+            return validate_and_parse_dates(date_from, date_to, self.team.timezone_info)
         except ValueError as exc:
             raise exceptions.ValidationError(str(exc)) from exc
 
@@ -2710,8 +2727,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get survey statistics from ClickHouse.
 
         Args:
-            date_from: Optional ISO timestamp for start date with timezone info
-            date_to: Optional ISO timestamp for end date with timezone info
+            date_from: Optional ISO timestamp or relative date (e.g. -7d) for start date with timezone info
+            date_to: Optional ISO timestamp or relative date for end date with timezone info
             survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
             exclude_archived: If True, exclude archived responses. Defaults to False (includes archived).
 
@@ -2734,15 +2751,15 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         parameters=[
             OpenApiParameter(
                 "date_from",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+                description="Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m",
             ),
             OpenApiParameter(
                 "date_to",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+                description="Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d",
             ),
             OpenApiParameter(
                 "include_per_question_stats",
@@ -2787,8 +2804,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get survey response statistics for a specific survey.
 
         Args:
-            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+            date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
             exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
             include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
@@ -2814,12 +2831,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         response_data["end_date"] = survey.end_date
 
         if include_per_question_stats:
-            try:
-                from_ts = datetime.fromisoformat(date_from) if date_from else None
-                to_ts = datetime.fromisoformat(date_to) if date_to else None
-            except ValueError:
-                from_ts = None
-                to_ts = None
+            from_ts, to_ts = self._validate_and_parse_dates(date_from, date_to)
             per_question = fetch_per_question_stats(survey=survey, team=self.team, since=from_ts, until=to_ts)
             response_data["per_question_stats"] = [
                 {
@@ -3070,15 +3082,15 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         parameters=[
             OpenApiParameter(
                 "date_from",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
+                description="Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m",
             ),
             OpenApiParameter(
                 "date_to",
-                OpenApiTypes.DATETIME,
+                OpenApiTypes.STR,
                 required=False,
-                description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
+                description="Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d",
             ),
         ],
         responses={
@@ -3099,8 +3111,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         """Get aggregated response statistics across all surveys.
 
         Args:
-            date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-            date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+            date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
 
         Returns:
             Aggregated statistics across all surveys including total counts and rates

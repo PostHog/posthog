@@ -9,8 +9,10 @@ sent response.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, TypedDict
+from zoneinfo import ZoneInfo
 
 from django.db.models import Min
 
@@ -22,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
+from posthog.utils import relative_date_parse
 
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
@@ -55,38 +58,49 @@ SurveyStats = TypedDict(
 )
 
 
-class _InvertedDateRangeError(ValueError):
-    """date_from is after date_to — kept distinct so its message survives the parse-error rewrite."""
+# relative_date_parse reads any unmatched string as "now", so only hand it inputs that are relative dates.
+RELATIVE_DATE = re.compile(r"-?\d*(?P<unit>[hdwmqy])(?:Start|End)?")
+CALENDAR_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def validate_and_parse_dates(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
-    """Parse ISO timestamps to UTC datetimes, raising on malformed input or inverted range.
+def _parse_date(value: str, timezone_info: ZoneInfo, *, is_end: bool) -> datetime:
+    """Follows insight date ranges: a start snaps to the start of its day, an end to the end of its day, except for hours."""
+    if relative := RELATIVE_DATE.fullmatch(value):
+        parsed = relative_date_parse(value, timezone_info, always_truncate=not is_end)
+        whole_days = relative["unit"] != "h"
+    else:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone_info)
+        whole_days = CALENDAR_DAY.fullmatch(value) is not None
+    if is_end and whole_days:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed.astimezone(UTC)
 
+
+def validate_and_parse_dates(
+    date_from: str | None, date_to: str | None, timezone_info: ZoneInfo
+) -> tuple[datetime | None, datetime | None]:
+    """Parse ISO timestamps, calendar days or relative dates (`-7d`, `-24h`, `mStart`) to UTC datetimes.
+
+    Naive and relative inputs are read in `timezone_info`, the project's timezone.
     Raises ``ValueError`` on parse failures and inverted ranges so callers in non-REST contexts
     (e.g. the dashboard widget) receive a standard Python exception. The REST viewset re-raises
     it as ``rest_framework.exceptions.ValidationError``.
     """
-    parsed_from = None
-    parsed_to = None
-
     try:
-        if date_from:
-            parsed_from = datetime.fromisoformat(date_from).astimezone(UTC)
-
-        if date_to:
-            parsed_to = datetime.fromisoformat(date_to).astimezone(UTC)
-
-        if parsed_from and parsed_to and parsed_from > parsed_to:
-            raise _InvertedDateRangeError("date_from must be before date_to")
-
-        return parsed_from, parsed_to
-
-    except _InvertedDateRangeError:
-        raise
-    except ValueError as exc:
+        parsed_from = _parse_date(date_from, timezone_info, is_end=False) if date_from else None
+        parsed_to = _parse_date(date_to, timezone_info, is_end=True) if date_to else None
+    except (ValueError, OverflowError) as exc:
         raise ValueError(
-            "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
+            "Invalid date format. Use an ISO 8601 timestamp with timezone (e.g. 2024-01-01T00:00:00Z) "
+            "or a relative date such as -7d, -24h or -1m."
         ) from exc
+
+    if parsed_from and parsed_to and parsed_from > parsed_to:
+        raise ValueError("date_from must be before date_to")
+
+    return parsed_from, parsed_to
 
 
 def _isoformat_utc_z(value: datetime | None) -> str | None:
@@ -207,12 +221,12 @@ def get_survey_stats(
     """Get survey statistics from ClickHouse.
 
     When `survey_id` is None, computes stats across all non-archived surveys for the team.
-    `date_from`/`date_to` are optional ISO timestamps; for a single survey they are clamped
+    `date_from`/`date_to` are optional ISO timestamps or relative dates; for a single survey they are clamped
     to the survey's own start/end window.
     """
-    parsed_from, parsed_to = validate_and_parse_dates(date_from, date_to)
-
     team = Team.objects.get(pk=team_id)
+    parsed_from, parsed_to = validate_and_parse_dates(date_from, date_to, team.timezone_info)
+
     # Bare events.person_id: no override join; merged persons count per pre-merge id.
     modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
     placeholders: dict[str, ast.Expr] = {
