@@ -34,16 +34,20 @@ def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> Slack
     )
 
 
-def _step_message(
-    ctx: OnboardingContext, step: OnboardingStepSpec, position: int, total: int
-) -> SlackAppOnboardingMessage:
+def _step_message(ctx: OnboardingContext, step: OnboardingStepSpec, position: int) -> SlackAppOnboardingMessage:
     # The mention makes the person follow the thread, so each new step reply notifies them.
     return SlackAppOnboardingMessage(
         kind="step",
         step=step.key,
-        text=f"Step {position} of {total}: {step.title}",
-        blocks=[context_block(f"<@{ctx.slack_user_id}> Step {position} of {total}"), *step.render(ctx)],
+        text=f"Step {position}: {step.title}",
+        blocks=[context_block(f"<@{ctx.slack_user_id}> Step {position}"), *step.render(ctx)],
     )
+
+
+def _progress(finished: int) -> str:
+    if finished == 0:
+        return "No steps done yet"
+    return "1 step done" if finished == 1 else f"{finished} steps done"
 
 
 def _summary_message(step: OnboardingStepSpec, ts: str, *, skipped: bool) -> SlackAppOnboardingMessage:
@@ -77,7 +81,11 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
     skipped_keys = state.skipped if state else ()
     skipped = [step for step in steps if step.skippable and step.key in skipped_keys and step not in done]
     pending = [step for step in steps if step not in done and step not in skipped]
-    progress = f"{len(steps) - len(pending)} of {len(steps)} steps done"
+    # Count only steps in this thread. A step done before it came up never shows, and the total has no
+    # fixed value, because the steps for admins apply only once the account link says who the person is.
+    step_ts = state.step_ts if state else {}
+    finished_in_thread = [step for step in steps if step.key in step_ts and step not in pending]
+    progress = _progress(len(finished_in_thread))
     status = _status(progress, pending, skipped)
 
     if state is None or state.root_ts is None:
@@ -100,7 +108,7 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
 
     if state.progress != progress:
         edits.append(_root_message(progress, ready=False, ts=state.root_ts))
-    current = _step_message(ctx, pending[0], len(steps) - len(pending) + 1, len(steps))
+    current = _step_message(ctx, pending[0], len(finished_in_thread) + 1)
     current_ts = state.step_ts.get(pending[0].key)
     if current_ts is None:
         return SlackAppOnboardingPlan(edits=edits, post=current, finished=False, status=status)

@@ -126,9 +126,9 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
 
     root, step = _posts(slack_client)
     assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
-    assert "0 of 3 steps done" in all_block_text(root["blocks"])
+    assert "No steps done yet" in all_block_text(root["blocks"])
     assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
-    assert f"<@{SLACK_USER_ID}> Step 1 of 3" in all_block_text(step["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 1" in all_block_text(step["blocks"])
     assert "Link your PostHog account" in all_block_text(step["blocks"])
     # The second refresh only renders the shown step again, which keeps its link fresh.
     assert list(_edits(slack_client)) == ["100.2"]
@@ -170,23 +170,23 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     edits_after_link = _edits(slack_client)
     update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, skip_step="model")
     assert plan_onboarding(integration, SLACK_USER_ID).status == (
-        "2 of 3 steps done · current step: replies_in_threads · skipped: model"
+        "2 steps done · current step: replies_in_threads · skipped: model"
     )
     set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.AUTO)
     capture.reset_mock()
     finished = _refresh(integration)
 
-    assert "Step 2 of 3" in all_block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
+    assert "Step 2" in all_block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
     assert ":white_check_mark: PostHog account linked" in edits_after_link["100.2"]
     assert "Link account" not in edits_after_link["100.2"]
-    assert "1 of 3 steps done" in edits_after_link["100.1"]
+    assert "1 step done" in edits_after_link["100.1"]
     ready = _posts(slack_client)[-1]
     edits = _edits(slack_client)
     assert finished is True
     assert ready["thread_ts"] == "100.1"
     assert "You skipped: Your model" in all_block_text(ready["blocks"])
     assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
-    assert "PostHog is set up" in edits["100.1"] and "3 of 3 steps done" in edits["100.1"]
+    assert "PostHog is set up" in edits["100.1"] and "2 steps done" in edits["100.1"]
     capture.assert_called_once_with(
         integration, "slack app onboarding completed", slack_user_id=SLACK_USER_ID, skipped_steps=["model"]
     )
@@ -322,7 +322,7 @@ def _skipped() -> tuple[str, ...]:
 
 @pytest.mark.django_db
 def test_a_workspace_admin_also_gets_the_workspace_steps_after_linking(
-    org_team_user, link_user, slack_workspace_admin: MagicMock
+    org_team_user, link_user, slack_workspace_admin: MagicMock, slack_client: MagicMock, capture: MagicMock
 ) -> None:
     org, team, user = org_team_user
     OrganizationMembership.objects.filter(user=user, organization=org).update(level=OrganizationMembership.Level.ADMIN)
@@ -330,12 +330,35 @@ def test_a_workspace_admin_also_gets_the_workspace_steps_after_linking(
     integration = _install(team, scope=ADMIN_SCOPES)
     slack_workspace_admin.return_value = True
 
-    before_link = plan_onboarding(integration, SLACK_USER_ID).status
+    _refresh(integration)
     link_user(user)
-    after_link = plan_onboarding(integration, SLACK_USER_ID).status
+    _refresh(integration)
 
-    assert before_link == "0 of 4 steps done · current step: link_account · skipped: none"
-    assert after_link == "1 of 7 steps done · current step: ai_consent · skipped: none"
+    assert plan_onboarding(integration, SLACK_USER_ID).status == (
+        "1 step done · current step: ai_consent · skipped: none"
+    )
+    second_step = all_block_text(_posts(slack_client)[-1]["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 2" in second_step and "Allow AI data processing" in second_step
+
+
+@pytest.mark.django_db
+def test_steps_done_before_the_thread_are_left_out_of_the_numbering(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    set_auto_model_choice(SLACK_TEAM_ID, SLACK_USER_ID, True)
+    set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.ASK)
+
+    _refresh(integration)
+    link_user(user)
+    finished = _refresh(integration)
+
+    root, link_step, ready = _posts(slack_client)
+    assert "No steps done yet" in all_block_text(root["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 1" in all_block_text(link_step["blocks"])
+    assert finished is True and ready["thread_ts"] == "100.1"
+    assert "1 step done" in _edits(slack_client)["100.1"]
 
 
 @pytest.mark.django_db
