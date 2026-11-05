@@ -254,5 +254,9 @@ describe('FacetSearchBar', () => {
         const selected = document.querySelector('[role="option"][aria-selected="true"]')!
         expect(input().getAttribute('aria-activedescendant')).toEqual(selected.id)
         expect(shown('facet-search-bar-hints')).toContain('Esc to close')
+
+        await user.clear(input())
+        await user.keyboard('sends:')
+        expect(document.querySelector('[role="option"] [title="Your trial ends"]')).not.toBeNull()
     })
 })

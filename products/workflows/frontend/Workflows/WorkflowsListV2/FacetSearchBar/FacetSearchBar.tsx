@@ -134,11 +134,17 @@ export function FacetSearchBar<TItem>({
                             onClick={() => applySuggestion(suggestion)}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
-                                <span className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}>
+                                <span
+                                    className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}
+                                    title={suggestion.kind === 'facet' ? undefined : suggestion.label}
+                                >
                                     {suggestion.label}
                                 </span>
                                 {suggestion.detail && (
-                                    <span className="text-secondary font-normal truncate shrink-[2]">
+                                    <span
+                                        className="text-secondary font-normal truncate shrink-[2]"
+                                        title={suggestion.detail}
+                                    >
                                         {suggestion.detail}
                                     </span>
                                 )}
