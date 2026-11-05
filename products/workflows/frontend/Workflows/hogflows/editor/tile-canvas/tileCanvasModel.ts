@@ -788,6 +788,8 @@ export const STEP_DRAG_DATA_TYPE = 'application/x-posthog-workflow-step'
 
 export const QUICK_ADD_ATTR = 'workflow-tile-quick-add'
 
+export const MOVING_STEP_ATTR = 'data-workflow-moving-step'
+
 export type PaletteItem<Command extends PaletteCommand = PaletteCommand> =
     | { kind: 'step'; key: string; section: string; label: string; description?: string; step: CreateActionType }
     | { kind: 'command'; key: string; section: string; label: string; description?: string; command: Command }

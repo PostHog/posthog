@@ -1,7 +1,7 @@
 import { getEdgeId } from '../../edgeId'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
 import { CanvasLayout } from './tileCanvasLayout'
-import { computeVisibleGraph, Point, QUICK_ADD_ATTR, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
+import { computeVisibleGraph, MOVING_STEP_ATTR, Point, QUICK_ADD_ATTR, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
@@ -112,14 +112,25 @@ describe('tileCanvasNodes', () => {
         describe('step drops on the canvas', () => {
             const aToB = getEdgeId({ from: 'a', to: 'b', type: 'continue' } as HogFlow['edges'][0])
 
-            const dragAt = (point: Point, types: string[], onPlus: boolean): StepDragEvent => {
-                const plus = document.createElement('button')
-                plus.setAttribute('data-attr', QUICK_ADD_ATTR)
-                const icon = plus.appendChild(document.createElement('span'))
+            type DropTarget = 'pane' | 'plus' | 'moving step' | 'canvas panel'
+
+            const releasedOver = (over: DropTarget): Element => {
+                const holder = document.createElement('div')
+                if (over === 'plus') {
+                    holder.setAttribute('data-attr', QUICK_ADD_ATTR)
+                } else if (over === 'moving step') {
+                    holder.setAttribute(MOVING_STEP_ATTR, '')
+                } else if (over === 'canvas panel') {
+                    holder.className = 'react-flow__panel'
+                }
+                return holder.appendChild(document.createElement('span'))
+            }
+
+            const dragAt = (point: Point, types: string[], over: DropTarget): StepDragEvent => {
                 return {
                     clientX: point.x,
                     clientY: point.y,
-                    target: onPlus ? icon : document.createElement('div'),
+                    target: releasedOver(over),
                     dataTransfer: { types, dropEffect: 'none' },
                     preventDefault: jest.fn(),
                 }
@@ -136,8 +147,22 @@ describe('tileCanvasNodes', () => {
                     name: 'keeps a drop on the + itself direct',
                     types: [STEP_DRAG_DATA_TYPE],
                     point: { x: 0, y: 50 },
-                    onPlus: true,
+                    over: 'plus' as const,
                     expected: { highlights: [aToB, null], drops: [{ to: 'b', snapped: false }] },
+                },
+                {
+                    name: 'cancels a move let go on the moving step itself',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 0, y: 150 },
+                    over: 'moving step' as const,
+                    expected: { highlights: [null], drops: [] },
+                },
+                {
+                    name: 'cancels a drag let go over the controls on the canvas',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 0, y: 150 },
+                    over: 'canvas panel' as const,
+                    expected: { highlights: [null], drops: [] },
                 },
                 {
                     name: 'refuses a step that no + can take',
@@ -161,7 +186,14 @@ describe('tileCanvasNodes', () => {
                 },
             ])(
                 '$name',
-                ({ types, point, onPlus = false, placeableEdgeKeys = null, isWaitingForStep = true, expected }) => {
+                ({
+                    types,
+                    point,
+                    over: target = 'pane' as DropTarget,
+                    placeableEdgeKeys = null,
+                    isWaitingForStep = true,
+                    expected,
+                }) => {
                     const setDropTargetEdgeKey = jest.fn()
                     const dropAt = jest.fn<void, [HogFlowEdge, boolean]>()
                     const canvas = {
@@ -173,10 +205,10 @@ describe('tileCanvasNodes', () => {
                         setDropTargetEdgeKey,
                         dropAt,
                     }
-                    const over = dragAt(point, types, onPlus)
+                    const over = dragAt(point, types, target)
 
                     handleStepDragOver(over, canvas)
-                    handleStepDrop(dragAt(point, types, onPlus), canvas)
+                    handleStepDrop(dragAt(point, types, target), canvas)
 
                     const accepted = expected.drops.length > 0
                     expect(over.preventDefault).toHaveBeenCalledTimes(accepted ? 1 : 0)

@@ -7,7 +7,7 @@ import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
 import { canMoveStep } from '../../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { hasStepMenu, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
+import { hasStepMenu, MOVING_STEP_ATTR, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
 import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
@@ -71,6 +71,7 @@ export function TileStepNode({
             onMouseMove={hover.onMouseMove}
             onMouseLeave={hover.onMouseLeave}
             data-attr={interactive ? 'workflow-tile-step' : undefined}
+            {...(movingNodeId === action.id ? { [MOVING_STEP_ATTR]: '' } : {})}
             draggable={draggable}
             onDragStart={
                 draggable
