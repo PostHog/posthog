@@ -146,6 +146,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    DenyWorkloadAccessToken,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -848,6 +849,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "and PostHog can no longer mint tokens for it; `connected` otherwise."
         )
     )
+    needs_webhook_reconnect = serializers.SerializerMethodField(
+        help_text=(
+            "Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app "
+            "had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it."
+        )
+    )
 
     class Meta:
         model = Integration
@@ -863,6 +870,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
         read_only_fields = [
             "id",
@@ -874,6 +882,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
 
     @extend_schema_field(serializers.BooleanField())
@@ -905,6 +914,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL).installation_unavailable()
             else "connected"
         )
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_needs_webhook_reconnect(self, obj: Integration) -> bool | None:
+        # A self-hosted instance may never set up the Linear app, and then no reconnect brings webhooks.
+        if obj.kind != "linear" or obj.auth_type != IntegrationAuthType.OAUTH or not settings.LINEAR_APP_WEBHOOK_SECRET:
+            return None
+        return LinearIntegration(obj).authorized_before_webhooks()
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -1587,6 +1603,23 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+_GITHUB_LINKING_ACTIONS = frozenset(
+    {"github_available_installations", "github_link_existing", "github_oauth_authorize"}
+)
+
+
+class DenyWorkloadTokenGitHubLinking(DenyWorkloadAccessToken):
+    """Linking reuses a GitHub installation from another project, or one the creator's personal GitHub
+    access can see. A workload token is confined to one project and has no personal access to lend."""
+
+    message = "Workload tokens can't link GitHub installations."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in _GITHUB_LINKING_ACTIONS:
+            return True
+        return super().has_permission(request, view)
+
+
 class IntegrationFilterSet(filters.FilterSet):
     kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
 
@@ -1645,7 +1678,11 @@ class IntegrationViewSet(
         "request_access",
         "push_tokens",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        DenyWorkloadTokenGitHubLinking,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1686,6 +1723,7 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
             PersonalConnectionRecentAuthPermission(),
+            DenyWorkloadTokenGitHubLinking(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
@@ -1694,6 +1732,12 @@ class IntegrationViewSet(
         if self.action == "refresh_github_repos":
             return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Importing devices writes person properties and tells which distinct IDs have a person.
+        if self.action == "push_tokens":
+            return ["integration:write", "person:write"]
+        return None
 
     def get_throttles(self):
         if self.action == "refresh_github_repos":
@@ -2849,17 +2893,35 @@ class IntegrationViewSet(
         },
         summary="Import push device tokens",
         description="Register existing device tokens, for example exported from another provider, on this push "
-        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no "
+        "person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for "
+        "the channel. Send dry_run first to see every failure without storing anything.",
     )
     @action(methods=["POST"], detail=True, url_path="push_tokens")
     def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        # Session users skip API scopes, and access control checks only the integration scope_object.
+        if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+            raise PermissionDenied("You need edit access to persons to import push devices.")
         integration = self.get_object()
         if not push_channel_app_id(integration):
             raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
-        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
+        data = request.validated_data
+        result = import_push_tokens(
+            integration,
+            data["subscriptions"],
+            integration.team.api_token,
+            dry_run=data["dry_run"],
+            create_missing_persons=data["create_missing_persons"],
+            import_id=data["import_id"],
+        )
         return Response(
             PushTokenImportResponseSerializer(
-                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+                {
+                    "imported": result.imported,
+                    "dry_run": result.dry_run,
+                    "failed": result.failed,
+                    "failed_distinct_ids": result.failed_distinct_ids,
+                }
             ).data
         )
 

@@ -1,7 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # Salesloft v2 resources. Endpoint set + incremental support mirror the canonical
 # Airbyte connector (`source-salesloft`), which is the authoritative reference for
@@ -15,6 +15,9 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 # payload actually carries `created_at` (some join/attachment resources do not).
 
 SALESLOFT_UPDATED_AT_FIELD = "updated_at"
+# Salesloft caps per_page at 100; larger pages keep us under the per-page rate-limit
+# cost penalties that escalate past page 100.
+PAGE_SIZE = 100
 
 
 @dataclass(frozen=False)
@@ -23,6 +26,15 @@ class SalesloftEndpointConfig:
     path: str
     incremental: bool = False
     partition_key: Optional[str] = None
+    # Set where the endpoint's default `sort_by` is not `updated_at` (tasks, activity_histories).
+    sort_by: Optional[str] = None
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = PAGE_SIZE
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return SALESLOFT_UPDATED_AT_FIELD if self.incremental else None
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
@@ -38,8 +50,8 @@ class SalesloftEndpointConfig:
         ]
 
 
-def _incremental(name: str, path: str) -> SalesloftEndpointConfig:
-    return SalesloftEndpointConfig(name=name, path=path, incremental=True, partition_key="created_at")
+def _incremental(name: str, path: str, sort_by: Optional[str] = None) -> SalesloftEndpointConfig:
+    return SalesloftEndpointConfig(name=name, path=path, incremental=True, partition_key="created_at", sort_by=sort_by)
 
 
 def _full_refresh(name: str, path: str, partition_key: Optional[str] = "created_at") -> SalesloftEndpointConfig:
@@ -51,6 +63,7 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
     "accounts": _incremental("accounts", "/accounts"),
     "account_stages": _incremental("account_stages", "/account_stages"),
     "actions": _incremental("actions", "/actions"),
+    "activity_histories": _incremental("activity_histories", "/activity_histories", sort_by="updated_at"),
     "cadences": _incremental("cadences", "/cadences"),
     "cadence_memberships": _incremental("cadence_memberships", "/cadence_memberships"),
     "call_data_records": _incremental("call_data_records", "/call_data_records"),
@@ -59,8 +72,10 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
     "emails": _incremental("emails", "/activities/emails"),
     "email_templates": _incremental("email_templates", "/email_templates"),
     "notes": _incremental("notes", "/notes"),
+    "opportunities": _incremental("opportunities", "/opportunities", sort_by="updated_at"),
     "people": _incremental("people", "/people"),
     "successes": _incremental("successes", "/successes"),
+    "tasks": _incremental("tasks", "/tasks", sort_by="updated_at"),
     "team_templates": _incremental("team_templates", "/team_templates"),
     # Full refresh (no reliable server-side timestamp filter; mostly reference/config data)
     "account_tiers": _full_refresh("account_tiers", "/account_tiers"),
@@ -83,6 +98,24 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
         "team_template_attachments", "/team_template_attachments", partition_key=None
     ),
     "users": _full_refresh("users", "/users"),
+    # Fan-out: Salesloft serves cadence stats one cadence at a time (`/cadence_stats/{id}`), and the
+    # payload carries no cadence id, so the parent id is injected as `cadence_id`.
+    "cadence_stats": SalesloftEndpointConfig(
+        name="cadence_stats",
+        path="/cadence_stats/{cadence_id}",
+        primary_keys=["cadence_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="cadences",
+            resolve_param="cadence_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "cadence_id"},
+            # A stable sort keeps page boundaries fixed while cadences are added during the walk.
+            parent_params={"per_page": PAGE_SIZE, "sort_by": "created_at", "sort_direction": "ASC"},
+            # A cadence deleted between the listing and its stats fetch 404s; skip it.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(SALESLOFT_ENDPOINTS.keys())

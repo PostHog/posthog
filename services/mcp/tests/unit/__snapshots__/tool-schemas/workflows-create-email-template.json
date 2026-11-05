@@ -1,17 +1,22 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "content": {
+            "additionalProperties": false,
             "description": "Template content keyed by channel. Replaced as a whole on update, not merged.",
             "properties": {
                 "email": {
                     "anyOf": [
                         {
+                            "additionalProperties": false,
                             "properties": {
                                 "design": {
+                                    "additionalProperties": {},
                                     "description": "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.",
                                     "properties": {
                                         "body": {
+                                            "additionalProperties": {},
                                             "properties": {
                                                 "footers": {
                                                     "items": {
@@ -67,6 +72,7 @@
                                     "type": "object"
                                 },
                                 "from": {
+                                    "additionalProperties": false,
                                     "description": "The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.",
                                     "properties": {
                                         "email": {

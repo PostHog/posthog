@@ -1,7 +1,8 @@
 import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, ScrollView, type TextInput, View } from 'react-native'
+import type { TextInputInstance, ViewInstance } from 'react-native'
+import { Keyboard, ScrollView, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useAuthStore } from '@/auth/authStore'
@@ -10,6 +11,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
@@ -19,19 +21,21 @@ import type { InboxItem, ReportView } from '@/model/types'
 import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { createStyles } from '@/ui/theme'
-import { useSceneDimensions } from '@/ui/useSceneDimensions'
+import { useOverlayFrame } from '@/ui/useOverlayFrame'
+import { useOverlayPane } from '@/ui/useOverlayPane'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { AiIncidentNotice } from './AiIncidentNotice'
 import { AttachMenuSheet } from './attachments/AttachMenuSheet'
 import { AttachmentChip } from './attachments/AttachmentChip'
 import type { AttachmentSource, PendingAttachment } from './attachments/types'
 import { releaseAttachments, useComposerAttachments } from './attachments/useComposerAttachments'
 import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
-import { CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
+import { CHAT_COMPACT_HEADER_HEIGHT, CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
@@ -75,6 +79,7 @@ interface ChatScreenProps {
     initialTaskId?: string
     initialRunId?: string
     source: ChatSheetSource
+    autoFocus?: boolean
     onBack: () => void
 }
 
@@ -91,21 +96,27 @@ export function ChatScreen({
     initialTaskId,
     initialRunId,
     source,
+    autoFocus = false,
     onBack,
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { height: sceneHeight, width: sceneWidth } = useSceneDimensions()
+    const pane = useOverlayPane()
+    const frame = useOverlayFrame()
+    const { height: sceneHeight, width: sceneWidth } = pane
     const compact = sceneHeight < 480 && sceneWidth >= 600
-    const headerHeight = compact ? 60 : CHAT_HEADER_HEIGHT
+    const headerHeight = compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT
     const now = useNow()
     const inbox = useInboxItems()
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
     const session = useSession(target)
     const scope = useProjectScope()
+    const { aiIncident } = usePostHogStatus(scope?.host)
+    const headerInset = pane.y === 0 ? insets.top + headerHeight : 0
+    const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
-    const blurTarget = useRef<View>(null)
+    const blurTarget = useRef<ViewInstance>(null)
     const archiveActions = useArchiveChat()
     const activeArchiveTarget = useRef(session.taskId)
     useEffect(() => {
@@ -192,7 +203,16 @@ export function ChatScreen({
     // The files of the direct send in flight. They stay in the composer until it settles, and a queued message
     // never takes them.
     const [sendingFileIds, setSendingFileIds] = useState<readonly string[]>([])
-    const input = useRef<TextInput>(null)
+    const input = useRef<TextInputInstance>(null)
+    const inputRef = useCallback(
+        (node: TextInputInstance | null) => {
+            input.current = node
+            if (autoFocus) {
+                node?.focus()
+            }
+        },
+        [autoFocus]
+    )
     const historyStatus = session.history.status
     const optionsDisabled =
         session.phase !== 'idle' || historyStatus !== 'idle' || session.isSending || session.decision !== undefined
@@ -260,7 +280,12 @@ export function ChatScreen({
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
     const canMention = attachedObject === null && attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
     const bottomInset = insets.bottom
-    const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
+    const keyboardStyle = useAnimatedStyle(() => ({
+        paddingBottom: Math.max(
+            pane.y + pane.height - frame.height - keyboard.height.value,
+            pane.y + pane.height >= frame.height ? bottomInset : 0
+        ),
+    }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
     const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
@@ -604,13 +629,31 @@ export function ChatScreen({
         <View style={styles.page} testID="chat-screen">
             <OverlayHost>
                 <View style={styles.page}>
-                    <BlurTargetView ref={blurTarget} style={styles.body}>
+                    <BlurTargetView
+                        ref={blurTarget}
+                        style={[
+                            styles.body,
+                            {
+                                position: 'absolute',
+                                left: pane.x + Math.max(0, (pane.width - READING_WIDTH) / 2),
+                                top: pane.y,
+                                width: Math.min(pane.width, READING_WIDTH),
+                                height: pane.height,
+                            },
+                        ]}
+                    >
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
+                            {aiIncident ? (
+                                <View style={{ paddingTop: headerInset }}>
+                                    <AiIncidentNotice incident={aiIncident} />
+                                </View>
+                            ) : null}
                             {showEmptyState ? (
                                 <ScrollView
                                     style={styles.empty}
-                                    contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + headerHeight }}
+                                    contentContainerStyle={{ flexGrow: 1, paddingTop: contentInset, paddingBottom: 16 }}
                                     keyboardShouldPersistTaps="handled"
+                                    keyboardDismissMode="on-drag"
                                 >
                                     <ChatEmptyState
                                         reportCount={attached.length}
@@ -621,7 +664,7 @@ export function ChatScreen({
                             ) : (
                                 <SessionThread
                                     session={session}
-                                    topInset={insets.top + headerHeight}
+                                    topInset={contentInset}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
                                         if (session.reconnect) session.reconnect()
@@ -676,7 +719,7 @@ export function ChatScreen({
                                             ) : null}
                                             <Composer
                                                 compact={compact}
-                                                ref={input}
+                                                ref={inputRef}
                                                 text={text}
                                                 onChangeText={changeText}
                                                 chips={chips}

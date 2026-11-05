@@ -25,6 +25,9 @@ class RubyGemsEndpointConfig:
     partition_key: Optional[str] = None
     should_sync_default: bool = True
     description: Optional[str] = None
+    # Ecosystem-wide feeds ignore the configured gem list and make the same requests for every source.
+    per_gem: bool = True
+    supports_incremental: bool = False
 
 
 RUBYGEMS_ENDPOINTS: dict[str, RubyGemsEndpointConfig] = {
@@ -45,6 +48,47 @@ RUBYGEMS_ENDPOINTS: dict[str, RubyGemsEndpointConfig] = {
         partition_key="created_at",
         description="Every published version of each configured gem, including per-version download "
         "counts, from GET /api/v1/versions/{name}.json.",
+    ),
+    "owners": RubyGemsEndpointConfig(
+        name="owners",
+        # Owner ids are global user ids, and one user can own many configured gems.
+        primary_keys=["gem_name", "id"],
+        description="Every owner and maintainer of each configured gem, from GET /api/v1/gems/{name}/owners.json.",
+    ),
+    "reverse_dependencies": RubyGemsEndpointConfig(
+        name="reverse_dependencies",
+        primary_keys=["gem_name", "dependent_name"],
+        description="Every gem whose latest version depends on a configured gem, from "
+        "GET /api/v1/gems/{name}/reverse_dependencies.json.",
+    ),
+    "latest_gems": RubyGemsEndpointConfig(
+        name="latest_gems",
+        primary_keys=["name"],
+        should_sync_default=False,
+        per_gem=False,
+        description="The 50 gems most recently added to RubyGems.org, across the whole ecosystem, from "
+        "GET /api/v1/activity/latest.json.",
+    ),
+    "just_updated_gems": RubyGemsEndpointConfig(
+        name="just_updated_gems",
+        # The feed has one row per pushed version, so a gem that ships several platforms in a row
+        # appears once per platform.
+        primary_keys=["name", "version", "platform"],
+        should_sync_default=False,
+        per_gem=False,
+        description="The 50 most recently pushed gem versions, across the whole ecosystem, from "
+        "GET /api/v1/activity/just_updated.json.",
+    ),
+    "timeframe_versions": RubyGemsEndpointConfig(
+        name="timeframe_versions",
+        primary_keys=["name", "number", "platform"],
+        incremental_fields=list(_CREATED_AT_INCREMENTAL_FIELDS),
+        partition_key="created_at",
+        should_sync_default=False,
+        per_gem=False,
+        supports_incremental=True,
+        description="Every gem version pushed to RubyGems.org, across the whole ecosystem, from "
+        "GET /api/v1/timeframe_versions.json. A first sync reads the last 7 days.",
     ),
 }
 

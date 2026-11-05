@@ -2518,11 +2518,13 @@ class TestMySQLSourceNonRetryableErrors:
         [
             "(3032, 'The server is currently in offline mode')",
             "OperationalError: (3032, 'The server is currently in offline mode')",
+            "(6400, 'The server is currently in offline mode since 2026-11-03 14:27:19.007589, reason: (HM) low disk space')",
         ],
     )
     def test_server_offline_mode_is_non_retryable(self, source, error_msg):
-        # A DB admin put the server into offline mode — only they can turn it back off, and
-        # every retry reconnects as the same non-admin user and fails identically until they do.
+        # A DB admin (3032) or the server's own health monitor (6400) put the server into offline
+        # mode — only an admin or a resolved resource problem turns it back off, and every retry
+        # reconnects to the same offline server and fails identically until then.
         non_retryable = source.get_non_retryable_errors()
         friendly = next(
             (message for pattern, message in non_retryable.items() if pattern in error_msg),

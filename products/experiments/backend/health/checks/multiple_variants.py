@@ -4,10 +4,19 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable, not_checked
+from products.experiments.backend.health.skips import (
+    RUNS_AFTER_LAUNCH,
+    CheckOutcome,
+    CheckPassed,
+    not_applicable,
+    not_checked,
+)
 
 # Some users get more than one ID in any experiment, for example one per device, so a low share is expected.
 # The share grows as users return and log in, so a lower line fires on a large part of all experiments. The cases
@@ -31,7 +40,14 @@ def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
         return None
     percentage = multiple / total * 100
     if percentage <= MULTIPLE_VARIANTS_SHARE_THRESHOLD:
-        return None
+        return CheckPassed(
+            measurement=ExperimentHealthMeasurement(
+                value=percentage,
+                threshold=MULTIPLE_VARIANTS_SHARE_THRESHOLD,
+                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                warns=ExperimentHealthMeasurementSide.ABOVE,
+            )
+        )
     # The flag gives every member of a group the same variant, so the causes of a person's several IDs do not apply.
     if exposures.counts_groups:
         title = "Many groups were exposed to multiple variants"

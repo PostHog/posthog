@@ -4,7 +4,12 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.rki_covid._config import RKICovidSourceConfig
-from products.warehouse_sources.sources.rki_covid.rki_covid import RKICovidAPIError, build_url, validate_connection
+from products.warehouse_sources.sources.rki_covid.rki_covid import (
+    ROW_BATCH_SIZE,
+    RKICovidAPIError,
+    build_url,
+    validate_connection,
+)
 from products.warehouse_sources.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
 from products.warehouse_sources.sources.rki_covid.source import RKICovidSource
 from products.warehouse_sources.sources.sdk.testing import (
@@ -112,6 +117,46 @@ class TestRKICovid:
             {"abbreviation": "BY", "id": 9, "name": "Bayern", "cases": 1, "date": "2026-07-19"},
             {"abbreviation": "BY", "id": 9, "name": "Bayern", "cases": 2, "date": "2026-07-20"},
         ]
+
+    @parameterized.expand(
+        [
+            ("states_deaths", "states_history_deaths", "abbreviation", "SH", "BY", "deaths"),
+            ("states_incidence", "states_history_incidence", "abbreviation", "SH", "BY", "weekIncidence"),
+            ("districts_cases", "districts_history_cases", "ags", "01001", "09162", "cases"),
+            ("districts_incidence", "districts_history_incidence", "ags", "01001", "09162", "weekIncidence"),
+        ]
+    )
+    def test_keyed_history_endpoints_request_their_path_and_key_rows_by_entity_and_day(
+        self, _name: str, endpoint: str, key_field: str, first_key: str, second_key: str, value_field: str
+    ) -> None:
+        # Both entities report the same day, so rows only stay unique if the entity key is injected.
+        body = {
+            "data": {
+                first_key: {"name": "first", "history": [{value_field: 1, "date": "2026-07-19T00:00:00.000Z"}]},
+                second_key: {"name": "second", "history": [{value_field: 2, "date": "2026-07-19T00:00:00.000Z"}]},
+            },
+            "meta": {},
+        }
+        result = _run(endpoint, [_ok(body)], history_days=7)
+        assert result.paths == [f"{RKI_COVID_ENDPOINTS[endpoint].path}/7"]
+        assert result.response is not None
+        assert result.response.primary_keys == [key_field, "date"]
+        assert result.rows == [
+            {key_field: first_key, "name": "first", value_field: 1, "date": "2026-07-19T00:00:00.000Z"},
+            {key_field: second_key, "name": "second", value_field: 2, "date": "2026-07-19T00:00:00.000Z"},
+        ]
+
+    def test_large_responses_are_yielded_in_bounded_batches_without_losing_rows(self) -> None:
+        districts = {
+            f"{n:05d}": {
+                "ags": f"{n:05d}",
+                "history": [{"cases": n, "date": f"2026-07-{day:02d}"} for day in (1, 2, 3)],
+            }
+            for n in range(ROW_BATCH_SIZE)
+        }
+        result = _run("districts_history_cases", [_ok({"data": districts, "meta": {}})])
+        assert [len(batch) for batch in result.items] == [ROW_BATCH_SIZE, ROW_BATCH_SIZE, ROW_BATCH_SIZE]
+        assert len({(row["ags"], row["date"]) for row in result.rows}) == 3 * ROW_BATCH_SIZE
 
     def test_states_yield_one_row_per_dict_value(self) -> None:
         body = {

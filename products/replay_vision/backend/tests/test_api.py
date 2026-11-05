@@ -1685,12 +1685,12 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("app", {}, "ai", "ai"),
-            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+            ("app", {}, "ai", "ai", "replay_filters"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard", "wizard"),
         ]
     )
     def test_create_reports_how_the_scanner_was_built(
-        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str, expected_entry_point: str
     ) -> None:
         # A metric comparing AI-built against hand-built scanners needs to know how the form was filled.
         #
@@ -1706,6 +1706,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "scanner_config": {"prompt": "did checkout complete?"},
                     "model": ScannerModel.GEMINI_3_8_FLASH,
                     "creation_method": claimed,
+                    "entry_point": "replay_filters",
                 },
                 format="json",
                 **headers,
@@ -1716,8 +1717,13 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
         ]
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
+        # An entry point experiment compares creation by the surface the person started from, so only
+        # the app can claim one: any other caller reports itself, whatever it sends.
+        self.assertEqual(created[0].kwargs["properties"]["entry_point"], expected_entry_point)
         # Telemetry only: it must not reach the model, whose constructor would reject it.
-        self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+        scanner = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertFalse(hasattr(scanner, "creation_method"))
+        self.assertFalse(hasattr(scanner, "entry_point"))
 
     def test_create_without_a_request_reports_the_declared_surface(self) -> None:
         # Max reaches the serializer directly, so there is no request to derive a surface from and
@@ -1755,13 +1761,14 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/",
-                data={"name": "renamed", "creation_method": "template"},
+                data={"name": "renamed", "creation_method": "template", "entry_point": "replay_filters"},
                 format="json",
             )
 
         self.assertEqual(resp.status_code, 200, resp.json())
         edited = [call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_edited"]
         self.assertNotIn("creation_method", edited[0].kwargs["properties"])
+        self.assertNotIn("entry_point", edited[0].kwargs["properties"])
 
     @parameterized.expand(
         [

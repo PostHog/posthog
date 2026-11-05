@@ -17,10 +17,12 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsEdit, UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     assign_credentials_reference,
-    shadow_compare,
-    shadow_compare_many,
+    preload_connection_fields,
+    read_connection_fields,
+    read_connection_fields_many,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import source_key
@@ -40,11 +42,11 @@ class SourceInputsStore:
     def load(source: ExternalDataSource) -> dict[str, Any]:
         """All inputs of the source: connection fields, sync settings and runtime state.
 
-        The result is a new dict, so a change to it has no effect until a write method saves it.
+        The result is a new dict, so a change to it has no effect until a write method saves it. With the
+        read flag on, the connection fields come from the credentials row of the source and the OAuth pointer
+        from its reference column, so the model field can hold other values.
         """
-        inputs = _decode(source.job_inputs)
-        shadow_compare(source, inputs)
-        return inputs
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -61,8 +63,32 @@ class SourceInputsStore:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        shadow_compare_many(sources, loaded)
-        return loaded
+        return read_connection_fields_many(sources, loaded)
+
+    @staticmethod
+    def preload(sources: Iterable[ExternalDataSource]) -> None:
+        """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
+        instances add no query. Use it before a loop that calls `load` once per table of a source."""
+        preload_connection_fields(sources)
+
+    @staticmethod
+    def load_stored(source: ExternalDataSource) -> dict[str, Any]:
+        """The decoded `job_inputs` as stored, never merged with the credentials row.
+
+        Only a tool that copies or checks the stored data should use it, such as the backfill. Raises
+        `UnreadableSourceInputsError` like `load`.
+        """
+        return _decode(source.job_inputs)
+
+    @staticmethod
+    def write_credentials_reference(source: ExternalDataSource, reference: IntegrationReference | None) -> None:
+        """Point the source at a credentials row, and change nothing else.
+
+        Only a tool that links existing sources to their rows should use it, such as the backfill. It never
+        copies fields to the row, never changes `job_inputs`, and does not change `updated_at`.
+        """
+        source.credentials_integration_id = None if reference is None else str(reference)
+        source.save(update_fields=["credentials_integration_id"])
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
@@ -143,6 +169,17 @@ class SourceInputsStore:
             SourceInputsStore.assign(source, inputs)
             source.save(force_insert=True)
         return source
+
+    @staticmethod
+    def discard_created(source: ExternalDataSource) -> None:
+        """Delete a source that `create` made when a later step of the same create fails.
+
+        One transaction deletes the source and its credentials row. The row stays when another object
+        uses it. Do not use this for a source that was in use: the store keeps the credentials rows of those.
+        """
+        with transaction.atomic():
+            source.delete()
+            WarehouseSourceCredentialsStore.discard(source)
 
     @staticmethod
     def update_runtime(

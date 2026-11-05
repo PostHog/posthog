@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 from parameterized import parameterized
@@ -62,6 +63,10 @@ class TestPagination:
             ("timesheet_attestations", "https://www.ruddr.io/api/workspace/timesheet-attestations"),
             ("task_categories", "https://www.ruddr.io/api/workspace/task-categories"),
             ("pipeline_activities", "https://www.ruddr.io/api/workspace/pipeline-activities"),
+            ("project_roles", "https://www.ruddr.io/api/workspace/project-roles"),
+            ("invoices", "https://www.ruddr.io/api/workspace/invoices"),
+            ("invoice_items", "https://www.ruddr.io/api/workspace/invoice-items"),
+            ("allocations", "https://www.ruddr.io/api/workspace/allocations"),
         ]
     )
     def test_request_targets_endpoint_path(self, endpoint: str, expected_url: str) -> None:
@@ -70,6 +75,51 @@ class TestPagination:
         result = _driver().run(endpoint, [_response([{"id": "1"}], has_more=False)])
 
         assert result.urls[0].split("?")[0] == expected_url
+
+
+class TestIncrementalRequests:
+    @parameterized.expand(
+        [
+            (
+                "datetime_watermark",
+                True,
+                dt.datetime(2025, 2, 5, 20, 47, 3, 284000, tzinfo=dt.UTC),
+                "2025-02-05T20:47:03.284Z",
+            ),
+            ("naive_datetime_watermark", True, dt.datetime(2025, 2, 5, 20, 47, 3), "2025-02-05T20:47:03.000Z"),
+            ("string_watermark", True, "2025-02-05T20:47:03.284Z", "2025-02-05T20:47:03.284Z"),
+            ("first_incremental_sync", True, None, None),
+            ("full_refresh_ignores_watermark", False, dt.datetime(2025, 2, 5, tzinfo=dt.UTC), None),
+        ]
+    )
+    def test_invoices_filter_on_modified_at_on_every_page(
+        self, _name: str, use_incremental: bool, last_value: Any, expected_filter: str | None
+    ) -> None:
+        result = _driver().run(
+            "invoices",
+            [_response(_full_page(0), has_more=True), _response([{"id": "999"}], has_more=False)],
+            should_use_incremental_field=use_incremental,
+            incremental_field="modifiedAt" if use_incremental else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        # The filter must stay on the cursor page too, or later pages walk back through all history.
+        assert result.params("modifiedAtOnAfter") == [expected_filter, expected_filter]
+        assert result.params("startingAfter") == [None, str(PAGE_SIZE - 1)]
+
+    def test_allocations_reject_modified_at_filter(self) -> None:
+        # Derived allocations have a null modifiedAt, so a modifiedAt filter would silently drop them.
+        result = _driver().run(
+            "allocations",
+            always(_response([])),
+            should_use_incremental_field=True,
+            incremental_field="modifiedAt",
+            db_incremental_field_last_value=dt.datetime(2025, 2, 5, tzinfo=dt.UTC),
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
 
 class TestErrorHandling:

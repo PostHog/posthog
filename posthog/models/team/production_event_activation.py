@@ -128,6 +128,7 @@ SERVER_SIDE_LIBS: Final[tuple[str, ...]] = (
     "posthog-python",
     "posthog-node",
     "posthog-php",
+    "posthog-laravel",
     "posthog-ruby",
     "posthog-go",
     "posthog-java",

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -436,6 +437,19 @@ export const ReplayVisionExpanded: Story = {
 export const ErrorTrackingExpanded: Story = {
     play: async ({ canvasElement }) => {
         const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Error tracking')
+        await userEvent.click(expandButton)
+    },
+}
+
+/** Product analytics opened with the all-alerts flag on: the choice between investigated alerts and every firing alert. */
+export const ProductAnalyticsAlertScope: Story = {
+    args: { productAnalyticsArmed: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Product analytics')
         await userEvent.click(expandButton)
     },
 }
