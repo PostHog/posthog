@@ -125,9 +125,9 @@ export const Running: Story = {
         view: 'run',
         run,
         tasks: [
-            task('Read the SDK setup', 'completed'),
-            task('Review event volume', 'running'),
-            task('Open a pull request', 'created'),
+            task('Audit the PostHog setup', 'completed'),
+            task('Build the audit dashboard', 'running'),
+            task('Open pull request: trim autocapture', 'created'),
         ],
     },
 }
@@ -138,6 +138,20 @@ export const Completed: Story = {
         run: { ...run, status: 'completed', stage: 'creating_artifacts', finished_at: '2026-09-23T10:02:30Z' },
         tasks: [],
         artifacts: [pullRequest],
+    },
+}
+
+export const Failed: Story = {
+    args: {
+        view: 'run',
+        run: {
+            ...run,
+            status: 'failed',
+            stage: 'executing_wizard',
+            finished_at: '2026-09-23T10:02:30Z',
+            error_message: 'The audit could not read the repository: the default branch has no package manifest.',
+        },
+        tasks: [task('Audit the PostHog setup', 'failed')],
     },
 }
 

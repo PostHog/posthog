@@ -11,7 +11,7 @@ import {
 } from '../../lib/wizardRunDisplay'
 import { wizardRunErrorDetails } from '../../lib/wizardRunErrorCatalog'
 import { WizardInstallRunArtifacts } from '../onboarding/components/WizardInstallRunArtifacts'
-import { WizardInstallRunProgress } from '../onboarding/components/WizardInstallRunProgress'
+import { WizardSpendAuditProgress } from './WizardSpendAuditProgress'
 
 function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly WizardRunTaskApi[] }): JSX.Element {
     if (wizardRunIsActive(run)) {
@@ -70,7 +70,7 @@ export function WizardSpendAuditRunView({
                 </span>
             </div>
 
-            {wizardRunIsActive(run) && <WizardInstallRunProgress run={run} tasks={tasks} />}
+            {run.status !== 'completed' && <WizardSpendAuditProgress run={run} tasks={tasks} />}
             <AuditOutcome run={run} tasks={tasks} />
             <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
             {error && (
