@@ -682,7 +682,9 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # Inside a lambda, the resolver binds an alias's name in the lambda's scope when it visits the alias. Later
         # uses of the name in that lambda resolve to the alias's expression, not to a select alias.
         if self.lambda_names is not None:
-            self.lambda_names = {**self.lambda_names, node.alias: self._resolve(node.expr)}
+            # Each lambda gets its own copy in `visit_lambda`, so a write here stays inside this lambda. Adding in place
+            # keeps a lambda with many aliases linear.
+            self.lambda_names[node.alias] = self._resolve(node.expr)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
