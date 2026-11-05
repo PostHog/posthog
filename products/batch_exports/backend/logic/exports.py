@@ -23,6 +23,7 @@ from posthog.models.integration import (
     SnowflakeIntegration,
     SnowflakeIntegrationError,
 )
+from posthog.models.integration.aws import AWS_ROLE_ARN_RE
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 from posthog.security.url_validation import (
@@ -226,7 +227,6 @@ def _reject_new_inline_copy_keys(
 
 def _check_redshift_copy_inputs(
     team_id: int,
-    instance: BatchExport | None,
     merged_config: dict[str, typing.Any],
     existing_config: dict[str, typing.Any],
 ) -> None:
@@ -249,17 +249,6 @@ def _check_redshift_copy_inputs(
         ("bucket_credentials", bucket_integration_id),
         ("authorization", authorization_integration_id),
     ):
-        # Sticky like the top-level integration: COPY credentials that reference an
-        # integration cannot drop back to inline values.
-        if (
-            instance is not None
-            and copy_integration_id is None
-            and _coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
-        ):
-            raise contracts.InvalidBatchExportDestinationError(
-                f"Cannot switch '{field_name}' from an integration to inline credentials. "
-                "Choose an AWS S3 integration, or omit the field to keep the current one."
-            )
         if copy_integration_id is None:
             continue
         # These ids live inside `config` rather than the team-scoped `integration`
@@ -281,6 +270,17 @@ def _check_redshift_copy_inputs(
         elif isinstance(authorization, str):
             if not authorization.strip():
                 raise contracts.InvalidBatchExportDestinationError("Missing required IAM role for 'COPY'")
+            # Only changed values are checked, so unrelated edits to existing exports keep saving.
+            # `default` is valid: the COPY statement runs `IAM_ROLE default`.
+            if (
+                authorization != existing_copy_inputs.get("authorization")
+                and authorization != "default"
+                and not AWS_ROLE_ARN_RE.match(authorization)
+            ):
+                raise contracts.InvalidBatchExportDestinationError(
+                    "Authorization for 'COPY' must be an IAM role ARN (arn:aws:iam::<account-id>:role/<name>), "
+                    "'default', or an AWS S3 integration ID."
+                )
         else:
             raise contracts.InvalidBatchExportDestinationError(
                 "Authorization for 'COPY' must be an IAM role ARN or an AWS S3 integration ID."
@@ -480,7 +480,7 @@ def validate_destination(
                 )
 
         if merged_config.get("mode") == "COPY":
-            _check_redshift_copy_inputs(team_id, instance, merged_config, existing_config)
+            _check_redshift_copy_inputs(team_id, merged_config, existing_config)
         _reject_new_inline_copy_keys(instance, merged_config, existing_config)
 
     if destination_type in (

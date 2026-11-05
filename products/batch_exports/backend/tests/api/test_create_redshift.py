@@ -175,7 +175,9 @@ def test_create_redshift_batch_export_validates_copy_inputs(
         assert "Missing required" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5])
+@pytest.mark.parametrize(
+    "authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5, "not-an-arn", "my-role"]
+)
 def test_create_redshift_batch_export_rejects_invalid_authorization_type(
     client: HttpClient,
     authorization: object,

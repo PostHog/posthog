@@ -178,13 +178,113 @@ def test_patching_redshift_batch_export_rejects_changed_inline_copy_credentials(
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     detail = response.json()["detail"]
     assert "AWS S3 integration" in detail
-    if previous_source == "integration":
-        assert f"Cannot switch '{field_name}' from an integration to inline credentials" in detail
-    else:
-        assert "Inline AWS access keys are no longer accepted" in detail
+    assert "Inline AWS access keys are no longer accepted" in detail
     assert all(value not in detail for value in credentials.values())
     destination.refresh_from_db()
     assert destination.config["copy_inputs"][field_name] == stored_value
+
+
+@pytest.mark.parametrize(
+    "new_authorization,expected_status",
+    [
+        ("arn:aws:iam::123456789012:role/new-copy-role", status.HTTP_200_OK),
+        ("default", status.HTTP_200_OK),
+        ("not-an-arn", status.HTTP_400_BAD_REQUEST),
+        ("arn:aws:iam::123:role/too-short-account", status.HTTP_400_BAD_REQUEST),
+    ],
+)
+def test_patching_redshift_batch_export_authorization_from_integration_to_iam_role(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+    new_authorization: str,
+    expected_status: int,
+) -> None:
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "test-staging-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": aws_s3_integration.id,
+        },
+        aws_redshift_integration.id,
+    )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"copy_inputs": {"authorization": new_authorization}},
+                "integration": destination.integration_id,
+            }
+        },
+    )
+    assert response.status_code == expected_status, response.json()
+
+    destination.refresh_from_db()
+    if expected_status == status.HTTP_200_OK:
+        assert destination.config["copy_inputs"]["authorization"] == new_authorization
+    else:
+        assert "must be an IAM role ARN" in response.json()["detail"]
+        assert int(destination.config["copy_inputs"]["authorization"]) == aws_s3_integration.id
+
+
+def test_can_patch_redshift_batch_export_with_unchanged_non_arn_iam_role(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "test-staging-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": "default",
+        },
+        aws_redshift_integration.id,
+    )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+    # Exports saved before ARN validation may hold any non-empty string.
+    destination.config["copy_inputs"]["authorization"] = "legacy-role-value"
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"table_name": "updated_events"},
+                "integration": destination.integration_id,
+            }
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination.refresh_from_db()
+    assert destination.config["table_name"] == "updated_events"
+    assert destination.config["copy_inputs"]["authorization"] == "legacy-role-value"
 
 
 def test_can_patch_redshift_batch_export_swapping_copy_integration(
