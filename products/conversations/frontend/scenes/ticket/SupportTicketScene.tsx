@@ -6,14 +6,15 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { conversationsTicketsAttachmentsCreate } from 'products/conversations/frontend/generated/api'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
@@ -33,6 +35,7 @@ import { ChatView } from '../../components/Chat/ChatView'
 import type { SimplifiedRepliesProps } from '../../components/ComposerHeader/ComposerHeader'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
+import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import {
@@ -142,6 +145,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContentLoading,
         fullEmailMessageId,
         composerPrefillAt,
+        composerInsertAt,
+        pendingComposerInsert,
         aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
@@ -169,11 +174,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
+        insertMacro,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
+    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
+    // Widget tickets stay images only until the widget can render file links.
+    const canAttachFiles =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS] &&
+        !!ticket &&
+        ticket.channel_source !== 'widget'
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -341,6 +353,26 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
                         composerPrefillAt={composerPrefillAt}
+                        composerInsertAt={composerInsertAt}
+                        composerInsertContent={pendingComposerInsert}
+                        enableMacros={macrosEnabled}
+                        onAttachFile={
+                            canAttachFiles
+                                ? (file) =>
+                                      conversationsTicketsAttachmentsCreate(String(getCurrentTeamId()), ticketId, {
+                                          file,
+                                      })
+                                : undefined
+                        }
+                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        macroPicker={
+                            macrosEnabled ? (
+                                <MacroPicker
+                                    disabledReason={sendDisabledReason}
+                                    onInsert={(macro) => insertMacro(macro, 'button')}
+                                />
+                            ) : undefined
+                        }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
                         onApplyAiDraft={applyAiDraft}

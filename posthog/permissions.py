@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -27,11 +28,12 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -744,13 +746,31 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return str(authenticator.access_token.scope or "").split()
-    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+    if isinstance(authenticator, IDJagAccessTokenAuthentication | WorkloadAccessTokenAuthentication):
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
+    """The legacy scope object that satisfied `required_scope` through LEGACY_SCOPE_FALLBACKS, or
+    None when the request's token holds `required_scope` itself."""
+    held = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
+    covered = scopes_covered_by_legacy_fallback(held, scopes_not_covered(held, [required_scope]))
+    legacy_scope = covered.get(required_scope)
+    return legacy_scope.split(":", 1)[0] if legacy_scope else None
+
+
+def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
+    """The given scopes that the request's token does not cover, sorted. Empty for session auth and
+    `*` keys, which carry the user's full authority."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return []
+    return sorted(scopes_not_covered(caller_scopes, scopes))
 
 
 CLIENT_ID_POSTHOG = "posthog"
@@ -776,6 +796,8 @@ def get_authenticator_client(authenticator) -> dict[str, str]:
         return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return {"credential_type": "oidc_workload", "client_id": "oidc_workload"}
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
     return {"credential_type": "other", "client_id": "other"}
@@ -813,6 +835,10 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
         # keeps it away from the other organizations the resolved user happens to belong to
         # (cross-org confused-deputy defense).
         return [authenticator.organization_id]
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        # A workload token acts as an owner, who belongs to the whole organization. The trust policy only
+        # covers the project the exchange named, so the token is confined to that organization and project.
+        return [authenticator.organization_id]
     return None
 
 
@@ -827,7 +853,7 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
-    if isinstance(authenticator, ExportRendererAuthentication):
+    if isinstance(authenticator, ExportRendererAuthentication | WorkloadAccessTokenAuthentication):
         return [authenticator.team_id]
     return None
 
@@ -835,12 +861,14 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
 LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
 
 
-def _capture_legacy_scope_fallback(request: Request, view: APIView, required_scope: str, legacy_scope: str) -> None:
+def _capture_legacy_scope_fallback(
+    request: Request, view: APIView | None, required_scope: str, legacy_scope: str
+) -> None:
     """Record that a legacy scope satisfied a required scope. The events show which credentials and
     OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
     client = get_authenticator_client(request.successful_authenticator)
     distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
-    view_name = type(view).__name__
+    view_name = type(view).__name__ if view is not None else "unknown"
     # At most one event per caller, client, scope and view each interval, because this runs on every request.
     throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
     if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
@@ -856,6 +884,21 @@ def _capture_legacy_scope_fallback(request: Request, view: APIView, required_sco
             "view": view_name,
         },
     )
+
+
+def scopes_missing_after_legacy_fallback(
+    request: Request, view: APIView | None, held_scopes: list[str], required_scopes: list[str]
+) -> list[str]:
+    """The required scopes that the held scopes do not cover, after LEGACY_SCOPE_FALLBACKS. When none
+    are missing, records each fallback use, so a hand-written scope check feeds the same migration
+    telemetry as APIScopePermission."""
+    missing_scopes = scopes_not_covered(held_scopes, required_scopes)
+    legacy_covered = scopes_covered_by_legacy_fallback(held_scopes, missing_scopes)
+    missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+    if not missing_scopes:
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+    return missing_scopes
 
 
 class APIScopePermission(ScopeBasePermission):
@@ -904,6 +947,9 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, IDJagAccessTokenAuthentication) and not key_scopes:
             self.message = "ID-JAG access token has no scopes and cannot access this resource"
             return False
+        if isinstance(authenticator, WorkloadAccessTokenAuthentication) and not key_scopes:
+            self.message = "Workload access token has no scopes and cannot access this resource"
+            return False
         if is_psak:
             psak_allowed_actions = getattr(view, "psak_allowed_actions", self.psak_allowed_actions)
             if self._get_action(request, view) not in psak_allowed_actions:
@@ -939,15 +985,13 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
-        legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
-        missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+        missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            return False
-
-        for required_scope, legacy_scope in legacy_covered.items():
-            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+            # A token type can answer with its own error, such as the policy link a workload token gets.
+            insufficient_scope_error = getattr(type(authenticator), "insufficient_scope_error", None)
+            if insufficient_scope_error is not None:
+                raise insufficient_scope_error(authenticator, view, required_scopes, missing_scopes)
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
 
@@ -1015,6 +1059,7 @@ class APIScopePermission(ScopeBasePermission):
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
             | IDJagAccessTokenAuthentication
+            | WorkloadAccessTokenAuthentication
             | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
@@ -1522,3 +1567,13 @@ class DenyMCPBuiltInAgentOAuth(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not is_mcp_built_in_agent_oauth_request(request)
+
+
+class DenyWorkloadAccessToken(BasePermission):
+    """For views that act on a person's own connections to other accounts. A workload token acts as the
+    organization owner without the owner minting it, so it must not reach the owner's connections."""
+
+    message = "Workload tokens can't use this endpoint, because it acts on a person's own connections."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)

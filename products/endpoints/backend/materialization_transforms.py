@@ -172,6 +172,14 @@ class VariableUsageInWhere:
     in_or: bool = False  # True when this usage sits inside an OR within the WHERE clause
 
 
+@frozen
+class VariableWhereUsages:
+    """Every supported WHERE usage of one variable, and whether it also appears in WHERE in a form the transform can't lift."""
+
+    usages: list[tuple[Optional[str], VariableUsageInWhere]]
+    seen_unmatched: bool
+
+
 RANGE_OPS = frozenset(
     {
         ast.CompareOperationOp.GtEq,
@@ -246,12 +254,14 @@ def get_reaggregation(func_name: str) -> AggregateReaggregation | None:
 
 
 def _is_aggregate(func_name: str) -> bool:
-    """Whether ``func_name`` resolves to a known aggregate, registered or combinator-derived.
-
-    ``find_hogql_aggregation`` only covers names in the registry; combinator-derived names
-    (``sumIf``, ``maxIf``, ``countArrayIf``, …) live outside it and need ``_strip_combinators``.
-    """
-    return find_hogql_aggregation(func_name) is not None or _strip_combinators(func_name) is not None
+    sorted_suffixes = sorted(COMBINATORS.keys(), key=len, reverse=True)
+    name = func_name
+    while find_hogql_aggregation(name) is None:
+        suffix = next((s for s in sorted_suffixes if name.lower().endswith(s.lower()) and len(name) > len(s)), None)
+        if suffix is None:
+            return False
+        name = name[: -len(suffix)]
+    return True
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
@@ -357,12 +367,13 @@ def _materializable_variable(
     variables_dict: dict[str, Any],
 ) -> tuple[Optional[MaterializableVariable], Optional[str]]:
     """Build one variable's materialization info, or the reason it can't be materialized."""
-    all_usages, reason = _variable_usages(ast_node, placeholder)
+    where_usages, reason = _variable_usages(ast_node, placeholder)
     if reason is not None:
         return None, reason
 
+    all_usages = where_usages.usages
     cte_names = {cte for cte, _ in all_usages}
-    reason = _usage_rejection(all_usages) or _context_rejection(cte_names)
+    reason = _usage_rejection(where_usages) or _context_rejection(cte_names)
     if reason is not None:
         return None, reason
 
@@ -397,31 +408,41 @@ def _materializable_variable(
 
 def _variable_usages(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
-) -> tuple[list[tuple[Optional[str], VariableUsageInWhere]], Optional[str]]:
+) -> tuple[VariableWhereUsages, Optional[str]]:
     """Every WHERE usage of one variable, or the reason its usage can't be read."""
+    no_usages = VariableWhereUsages(usages=[], seen_unmatched=False)
     try:
         return find_all_variable_usages(ast_node, placeholder), None
     except VariableInHavingClauseError:
-        return [], "Variable used in HAVING clause are not supported for materialization."
+        return no_usages, "Variable used in HAVING clause are not supported for materialization."
     except VariableComparedToPlaceholderExprError:
         return (
-            [],
+            no_usages,
             "Variable compared against an expression containing another variable is not supported for materialization",
         )
     except ValueError as e:
         capture_exception(e)
-        return [], "Invalid variable usage in WHERE clause."
+        return no_usages, "Invalid variable usage in WHERE clause."
 
 
-def _usage_rejection(all_usages: list[tuple[Optional[str], VariableUsageInWhere]]) -> Optional[str]:
+def _usage_rejection(where_usages: VariableWhereUsages) -> Optional[str]:
     """Reasons a variable's WHERE usages can't collapse into one materialized key column."""
-    if not all_usages:
-        return "Variable not used in WHERE clause"
-
+    all_usages = where_usages.usages
     # A variable nested in an OR can't be lifted into a single materialized key column:
     # removing its predicate (as the transform does) would change the result set.
     if any(usage.in_or for _, usage in all_usages):
         return "Variables in OR conditions are not supported for materialization"
+
+    # The transform removes the whole predicate and filters `column <op> value` at read time,
+    # so any other use of the variable would be silently dropped.
+    if where_usages.seen_unmatched:
+        return (
+            "Variable must be compared directly to a column, for example column = {variables.name}. "
+            "Using a variable inside another function or expression in WHERE is not supported for materialization."
+        )
+
+    if not all_usages:
+        return "Variable not used in WHERE clause"
 
     # A variable compared against more than one column has no single bucket key to
     # materialize on (the transform would silently keep only the first usage).
@@ -1086,16 +1107,16 @@ def find_variable_in_where(
 
 def find_all_variable_usages(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
-) -> list[tuple[Optional[str], VariableUsageInWhere]]:
+) -> VariableWhereUsages:
     """Find all usages of a variable in WHERE clauses, including inside CTEs.
 
-    Returns list of (cte_name, usage) tuples. cte_name is None for top-level query.
+    Each usage is a (cte_name, usage) tuple, where cte_name is None for the top-level query.
     """
     if not isinstance(ast_node, ast.SelectQuery):
-        return []
+        return VariableWhereUsages(usages=[], seen_unmatched=False)
     finder = VariableInWhereFinder(placeholder)
     finder.visit(ast_node)
-    return finder.all_results
+    return VariableWhereUsages(usages=finder.all_results, seen_unmatched=finder.seen_unmatched_in_where)
 
 
 class VariableInWhereFinder(TraversingVisitor):
@@ -1105,7 +1126,9 @@ class VariableInWhereFinder(TraversingVisitor):
         super().__init__()
         self.target = target_placeholder
         self.all_results: list[tuple[Optional[str], VariableUsageInWhere]] = []
+        self.seen_unmatched_in_where = False
         self.in_where = False
+        self._removable_compare_ids: set[int] = set()
         self._or_depth = 0
         self._current_cte_name: Optional[str] = None
 
@@ -1130,10 +1153,14 @@ class VariableInWhereFinder(TraversingVisitor):
                 self._current_cte_name = prev_cte
 
         if node.where:
-            prev_in_where, prev_or_depth = self.in_where, self._or_depth
+            prev_in_where, prev_or_depth, prev_removable = self.in_where, self._or_depth, self._removable_compare_ids
             self.in_where, self._or_depth = True, 0
+            # Mirrors MaterializationTransformer._remove_variable_from_where: it only removes a
+            # comparison that is the whole WHERE or a direct term of a top-level AND.
+            terms = node.where.exprs if isinstance(node.where, ast.And) else [node.where]
+            self._removable_compare_ids = {id(term) for term in terms if isinstance(term, ast.CompareOperation)}
             self.visit(node.where)
-            self.in_where, self._or_depth = prev_in_where, prev_or_depth
+            self.in_where, self._or_depth, self._removable_compare_ids = prev_in_where, prev_or_depth, prev_removable
 
     def visit_or(self, node: ast.Or):
         # Only OR nesting within a WHERE clause matters for materialization.
@@ -1158,7 +1185,22 @@ class VariableInWhereFinder(TraversingVisitor):
             field_side = node.right
             variable_side = node.left
 
-        if not field_side:
+        if not isinstance(field_side, ast.Field | ast.Call):
+            # Flag without descending: a full visit would record comparisons inside subqueries as usages here.
+            finder = VariablePlaceholderFinder()
+            finder.visit(node)
+            if any(p.chain == self.target.chain for p in finder.variable_placeholders):
+                self.seen_unmatched_in_where = True
+            return
+
+        if isinstance(field_side, ast.Call) and _contains_placeholder(field_side):
+            raise VariableComparedToPlaceholderExprError()
+
+        # Only single-argument wrappers can be reapplied to the value at read time. An OR is left
+        # to record its usage, so the OR rejection message wins.
+        is_removable = self._or_depth > 0 or id(node) in self._removable_compare_ids
+        if not is_removable or not self._is_wrapped_target(variable_side):
+            self.seen_unmatched_in_where = True
             return
 
         wrapper_fns = self._extract_wrapper_fns(variable_side)
@@ -1178,8 +1220,6 @@ class VariableInWhereFinder(TraversingVisitor):
                 )
             )
         elif isinstance(field_side, ast.Call):
-            if _contains_placeholder(field_side):
-                raise VariableComparedToPlaceholderExprError()
             column_chain = self._extract_column_chain_from_call(field_side)
             self.all_results.append(
                 (
@@ -1194,6 +1234,16 @@ class VariableInWhereFinder(TraversingVisitor):
                     ),
                 )
             )
+
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.in_where and node.chain == self.target.chain:
+            self.seen_unmatched_in_where = True
+
+    def _is_wrapped_target(self, node: Optional[ast.Expr]) -> bool:
+        """Whether the node is the target placeholder, optionally inside single-argument calls."""
+        while isinstance(node, ast.Call) and len(node.args) == 1:
+            node = node.args[0]
+        return isinstance(node, ast.Placeholder) and node.chain == self.target.chain
 
     def _contains_target_placeholder(self, node: ast.Expr) -> bool:
         """Check if an expression is or contains the target placeholder (e.g. inside toDate(...))."""
@@ -1692,6 +1742,19 @@ def replace_breakdown_sentinels_in_query(hogql_query: dict) -> dict:
     return {**hogql_query, "query": query_text}
 
 
+def _has_variable_placeholders(hogql_query: dict[str, Any]) -> bool:
+    query_str = hogql_query.get("query")
+    if not isinstance(query_str, str) or not query_str:
+        return False
+    try:
+        ast_node = parse_select(query_str)
+    except Exception:
+        return False
+    finder = VariablePlaceholderFinder()
+    finder.visit(ast_node)
+    return bool(finder.variable_placeholders)
+
+
 def build_endpoint_hogql(
     insight_query: dict,
     team: Team,
@@ -1711,9 +1774,12 @@ def build_endpoint_hogql(
     )
 
     if insight_query.get("variables"):
-        can_materialize, _reason, variable_infos = analyze_variables_for_materialization(
+        can_materialize, reason, variable_infos = analyze_variables_for_materialization(
             insight_query, bucket_overrides=bucket_overrides
         )
+        # Untransformed placeholders can't resolve at materialization time, so the run would fail.
+        if not can_materialize and _has_variable_placeholders(insight_query):
+            raise MaterializationNotSupportedError(reason)
         if can_materialize and variable_infos:
             hogql_query = transform_query_for_materialization(
                 hogql_query,

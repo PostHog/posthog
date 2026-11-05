@@ -172,6 +172,35 @@ export const RestingSummary: Story = {
     },
 }
 
+// A status tile: `MetricValue` takes `style` (or a `text-*` color class), so a threshold color tints the
+// headline without a root prop. `color` tints only the sparkline.
+export const ValueColor: Story = {
+    render: () => {
+        const theme = useChartTheme()
+        return (
+            <Card flush className="h-[320px] w-[360px]">
+                <Metric
+                    data={[0.8, 1.1, 0.9, 1.6, 2.4, 3.1, 4.2]}
+                    labels={['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']}
+                    theme={theme}
+                    color="#f04438"
+                    goodDirection="down"
+                    sparklineFill
+                    formatValue={(v) => `${v.toFixed(1)}%`}
+                >
+                    <MetricHeader>
+                        <MetricTitle>Error rate</MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" style={{ color: '#f04438' }} />
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline />
+                </Metric>
+            </Card>
+        )
+    },
+}
+
 // `changeTooltip` spells out the comparison on hover (needs a `TooltipProvider` at the app root —
 // supplied here by the story decorator).
 export const WithTooltip: Story = {

@@ -103,6 +103,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 return
 
             task_run.status = input.status
+            if (
+                input.status == TaskRun.Status.FAILED
+                and input.error_type
+                and not (task_run.state or {}).get("failure_error_type")
+            ):
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={"failure_error_type": input.error_type}
+                )
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
@@ -195,7 +203,7 @@ def complete_signal_spend(run_id: str) -> None:
         complete_task_spend(
             team_id=run.team_id,
             run_id=run_id,
-            report_id=str(run.task.signal_report_id) if run.task.signal_report_id else None,
+            report_id=str(run.task.signal_report_source_id) if run.task.signal_report_source_id else None,
         )
 
 

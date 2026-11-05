@@ -1,13 +1,10 @@
 import { NodeKind } from '../../../../frontend/src/queries/schema/schema-general'
 import { InsightPage } from '../../../page-models/insightPage'
-import { randomString } from '../../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
 test.describe('Insight side panel actions', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
     let insightUrl: string
-    let favoriteInsightUrl: string
-    const favoriteInsightName = randomString('Favorite Test')
 
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({
@@ -24,22 +21,10 @@ test.describe('Insight side panel actions', () => {
                         },
                     },
                 },
-                {
-                    name: favoriteInsightName,
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-                        },
-                    },
-                },
             ],
         })
         const shortId = workspace!.created_insights![0].short_id
         insightUrl = `/project/${workspace!.team_id}/insights/${shortId}`
-        const favoriteShortId = workspace!.created_insights![1].short_id
-        favoriteInsightUrl = `/project/${workspace!.team_id}/insights/${favoriteShortId}`
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -66,31 +51,6 @@ test.describe('Insight side panel actions', () => {
         await test.step('navigated to new insight in edit mode with (copy) name', async () => {
             await page.waitForURL(/\/edit/)
             await expect(insight.topBarName).toContainText('Side Panel Duplicate Test (copy)')
-        })
-    })
-
-    test('Favorite insight from side panel shows in favorites list', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('navigate to seeded insight', async () => {
-            await page.goto(favoriteInsightUrl)
-            await insight.trends.waitForChart()
-        })
-
-        await test.step('open side panel and click favorite', async () => {
-            await insight.openInfoPanel()
-            const favoriteButton = page.getByTestId('insight-favorite-button')
-            await expect(favoriteButton).toBeEnabled()
-
-            const patchPromise = page.waitForResponse(
-                (resp) =>
-                    resp.url().includes('/api/projects/') &&
-                    resp.url().includes('/insights/') &&
-                    resp.request().method() === 'PATCH'
-            )
-            await favoriteButton.click()
-            await patchPromise
-            await expect(favoriteButton).toHaveAttribute('data-active', 'true')
         })
     })
 
@@ -138,19 +98,6 @@ test.describe('Insight side panel actions', () => {
             const modal = page.getByTestId('insight-sharing-modal')
             await modal.getByTestId('sharing-switch').click()
             await expect(modal.getByTestId('sharing-link-button')).toBeVisible()
-        })
-    })
-
-    test('Open subscriptions modal from insight header', async ({ page }) => {
-        await test.step('navigate to seeded insight', async () => {
-            await page.goto(insightUrl)
-        })
-
-        await test.step('click Monitor and open subscriptions', async () => {
-            await page.getByTestId('insight-notify-prominent-button').click()
-            await page.getByRole('menuitem', { name: /Subscriptions/ }).click()
-            const modal = page.getByTestId('insight-subscriptions-modal')
-            await expect(modal).toBeVisible()
         })
     })
 

@@ -9,11 +9,7 @@ from django.conf import settings
 
 from modal.exception import TimeoutError as ModalTimeoutError
 
-from products.tasks.backend.constants import (
-    DEFAULT_SANDBOX_WORKING_DIR,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-)
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
@@ -238,8 +234,7 @@ class TestModalSandboxDirectorySnapshotMount:
             SandboxConfig(
                 name="test",
                 template=SandboxTemplate.DEFAULT_BASE,
-                snapshot_external_id="im-dir",
-                snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+                resume_snapshot_external_id="im-dir",
                 snapshot_mount_path=mount_path,
             )
         )
@@ -251,8 +246,17 @@ class TestModalSandboxDirectorySnapshotMount:
             fake_sandbox.mount_image.assert_not_called()
             assert sandbox.config.snapshot_restored is False
 
-    @pytest.mark.parametrize("snapshot_kind", [SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM])
-    def test_wedged_restore_falls_back_to_base_image(self, patched_modal, mocker, snapshot_kind):
+    @pytest.mark.parametrize(
+        "restore",
+        [
+            {
+                "resume_snapshot_external_id": "im-snap",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            },
+            {"snapshot_external_id": "im-snap"},
+        ],
+    )
+    def test_wedged_restore_falls_back_to_base_image(self, patched_modal, mocker, restore):
         snapshot_image = MagicMock()
         mocker.patch("modal.Image.from_id", return_value=snapshot_image)
         wedged = MagicMock()
@@ -266,13 +270,11 @@ class TestModalSandboxDirectorySnapshotMount:
             SandboxConfig(
                 name="test",
                 template=SandboxTemplate.DEFAULT_BASE,
-                snapshot_external_id="im-snap",
-                snapshot_kind=snapshot_kind,
-                snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+                **restore,
             )
         )
 
-        if snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
+        if "resume_snapshot_external_id" in restore:
             wedged.mount_image.assert_called_once_with(DEFAULT_SANDBOX_WORKING_DIR, snapshot_image)
         else:
             wedged.mount_image.assert_not_called()

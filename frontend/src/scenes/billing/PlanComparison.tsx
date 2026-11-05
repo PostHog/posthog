@@ -10,6 +10,8 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -21,8 +23,7 @@ import {
     BillingProductV2Type,
 } from '~/types'
 
-import { convertLargeNumberToWords, getProration, isCompanionProduct } from './billing-utils'
-import { billingLogic } from './billingLogic'
+import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 

@@ -96,6 +96,9 @@ export interface HighlightValueFormatApi {
  * * `routine` - You open this often
  * * `dashboard` - On a dashboard you open often
  * * `key_metric` - Project key metric
+ * * `popular` - Opened often in this project
+ * * `watched` - You get updates on this
+ * * `built` - You created or edited this
  */
 export type HighlightMetricReasonEnumApi =
     (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
@@ -104,6 +107,9 @@ export const HighlightMetricReasonEnumApi = {
     Routine: 'routine',
     Dashboard: 'dashboard',
     KeyMetric: 'key_metric',
+    Popular: 'popular',
+    Watched: 'watched',
+    Built: 'built',
 } as const
 
 export interface HighlightMoverApi {
@@ -153,11 +159,14 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
-    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.
+    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
-     * * `key_metric` - Project key metric */
+     * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this */
     reason: HighlightMetricReasonEnumApi | null
     /**
      * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -186,6 +195,55 @@ export interface HighlightMetricApi {
     previous_value: number | null
     /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
     movers: HighlightMoverApi[]
+}
+
+/**
+ * * `pending` - Loading
+ * * `ready` - Ready
+ * * `empty` - No data
+ * * `error` - Could not load
+ */
+export type PulseSlotStatusEnumApi = (typeof PulseSlotStatusEnumApi)[keyof typeof PulseSlotStatusEnumApi]
+
+export const PulseSlotStatusEnumApi = {
+    Pending: 'pending',
+    Ready: 'ready',
+    Empty: 'empty',
+    Error: 'error',
+} as const
+
+export interface PulseSlotApi {
+    /** Why this number is selected, when known before its value arrives.
+     *
+     * * `routine` - You open this often
+     * * `dashboard` - On a dashboard you open often
+     * * `key_metric` - Project key metric
+     * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this */
+    reason?: HighlightMetricReasonEnumApi | null
+    /** Stable key of the selected number. */
+    key: string
+    /** Title available before the number is computed. */
+    name: string
+    /** Loading state of this number.
+     *
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load */
+    status: PulseSlotStatusEnumApi
+    /**
+     * Path to the source, relative to the project.
+     * @nullable
+     */
+    url: string | null
+    /** Measurement interval, when known.
+     *
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: CalendarUnitEnumApi | null
 }
 
 /**
@@ -276,7 +334,7 @@ export interface HighlightPinApi {
 }
 
 export interface HighlightsApi {
-    /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+    /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
      *
      * * `computing` - Computing
      * * `ready` - Ready
@@ -293,6 +351,11 @@ export interface HighlightsApi {
     refresh_at: string
     /** Key metrics of the project from its settings. */
     pulse: HighlightMetricApi[]
+    /**
+     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+     * @nullable
+     */
+    pulse_slots?: PulseSlotApi[] | null
     /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
     items: HighlightItemApi[]
     /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -596,6 +659,13 @@ export interface ReportPageApi {
      * @nullable
      */
     last_seen: string | null
+}
+
+export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean
 }
 
 export type TodayReportsKeyClausesRetrieveParams = {

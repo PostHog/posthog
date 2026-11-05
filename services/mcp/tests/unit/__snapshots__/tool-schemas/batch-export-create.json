@@ -848,6 +848,17 @@
                                 }
                             ]
                         },
+                        "materializeRepeatedCTEs": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag."
+                        },
                         "mergeFederatedAggregateJoins": {
                             "anyOf": [
                                 {

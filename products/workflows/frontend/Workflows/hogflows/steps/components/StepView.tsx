@@ -9,6 +9,7 @@ import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
+import { StepImportNotesTooltipBadge } from '../../../import/StepImportNotesTooltipBadge'
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
@@ -245,6 +246,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     </div>
                 )}
             </div>
+            {logicProps.id ? <StepImportNotesTooltipBadge workflowId={logicProps.id} stepId={action.id} /> : null}
             {hasValidationError || hasValidationWarning ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />

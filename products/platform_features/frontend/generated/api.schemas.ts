@@ -7,11 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface InternalFeedbackResponseApi {
-    /** True when the feedback reached Slack. */
-    success: boolean
-}
-
 /**
  * * `1` - member
  * * `8` - administrator
@@ -476,6 +471,70 @@ export interface OrganizationMemberGithubLoginApi {
     github_login: string | null
 }
 
+/**
+ * * `dashboard` - Dashboard
+ * * `insight` - Insight
+ * * `notebook` - Notebook
+ * * `recording` - Session recording
+ * * `subscription` - Subscription
+ * * `alert` - Alert
+ */
+export type MemberOffboardingResourceKindEnumApi =
+    (typeof MemberOffboardingResourceKindEnumApi)[keyof typeof MemberOffboardingResourceKindEnumApi]
+
+export const MemberOffboardingResourceKindEnumApi = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Recording: 'recording',
+    Subscription: 'subscription',
+    Alert: 'alert',
+} as const
+
+export interface MemberOffboardingResourceApi {
+    /** Opaque identifier used to update this resource during offboarding. */
+    id: string
+    /** Identifier accepted by the resource’s own API. */
+    resource_id: string
+    /** The kind of public object or automated delivery.
+     *
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert */
+    kind: MemberOffboardingResourceKindEnumApi
+    /** The resource's display name. */
+    name: string
+    /** Project containing the resource. */
+    team_id: number
+    /** Name of the project containing the resource. */
+    project_name: string
+    /**
+     * When the subscription was created, if applicable.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * Subscription delivery channel: email, slack, or teams.
+     * @nullable
+     */
+    destination_type?: string | null
+    /**
+     * Subscription recipients, Slack channels, or safe webhook host.
+     * @nullable
+     */
+    destination?: string | null
+    /** Whether all active public links require a password. */
+    password_protected: boolean
+    /**
+     * Project-scoped path to open the resource in PostHog.
+     * @nullable
+     */
+    url: string | null
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string
@@ -830,6 +889,58 @@ export interface WelcomeResponseApi {
     is_organization_first_user: boolean
 }
 
+/**
+ * * `session` - session
+ * * `personal_api_key` - personal_api_key
+ * * `oauth` - oauth
+ * * `project_secret_key` - project_secret_key
+ * * `team_secret_token` - team_secret_token
+ * * `id_jag` - id_jag
+ * * `oidc_workload` - oidc_workload
+ * * `internal_jwt` - internal_jwt
+ * * `service_jwt` - service_jwt
+ * * `internal_api_secret` - internal_api_secret
+ * * `scim` - scim
+ * * `vercel` - vercel
+ * * `partner` - partner
+ * * `sharing_access_token` - sharing_access_token
+ * * `sharing_password` - sharing_password
+ * * `widget_token` - widget_token
+ * * `billing_service` - billing_service
+ * * `gateway_agent` - gateway_agent
+ * * `export_renderer` - export_renderer
+ * * `webhook` - webhook
+ * * `cross_region_signature` - cross_region_signature
+ * * `unattributed` - unattributed
+ */
+export type ActivityLogCredentialTypeEnumApi =
+    (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
+
+export const ActivityLogCredentialTypeEnumApi = {
+    Session: 'session',
+    PersonalApiKey: 'personal_api_key',
+    Oauth: 'oauth',
+    ProjectSecretKey: 'project_secret_key',
+    TeamSecretToken: 'team_secret_token',
+    IdJag: 'id_jag',
+    OidcWorkload: 'oidc_workload',
+    InternalJwt: 'internal_jwt',
+    ServiceJwt: 'service_jwt',
+    InternalApiSecret: 'internal_api_secret',
+    Scim: 'scim',
+    Vercel: 'vercel',
+    Partner: 'partner',
+    SharingAccessToken: 'sharing_access_token',
+    SharingPassword: 'sharing_password',
+    WidgetToken: 'widget_token',
+    BillingService: 'billing_service',
+    GatewayAgent: 'gateway_agent',
+    ExportRenderer: 'export_renderer',
+    Webhook: 'webhook',
+    CrossRegionSignature: 'cross_region_signature',
+    Unattributed: 'unattributed',
+} as const
+
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -854,6 +965,36 @@ export interface ActivityLogApi {
     client?: string | null
     /** @nullable */
     ip_address?: string | null
+    /** Kind of credential that authenticated the request that made the change. 'unattributed' means the request recorded no credential. Null for changes made outside a request, such as background jobs, and for entries recorded before PostHog stored the credential.
+     *
+     * * `session` - session
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `project_secret_key` - project_secret_key
+     * * `team_secret_token` - team_secret_token
+     * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
+     * * `internal_jwt` - internal_jwt
+     * * `service_jwt` - service_jwt
+     * * `internal_api_secret` - internal_api_secret
+     * * `scim` - scim
+     * * `vercel` - vercel
+     * * `partner` - partner
+     * * `sharing_access_token` - sharing_access_token
+     * * `sharing_password` - sharing_password
+     * * `widget_token` - widget_token
+     * * `billing_service` - billing_service
+     * * `gateway_agent` - gateway_agent
+     * * `export_renderer` - export_renderer
+     * * `webhook` - webhook
+     * * `cross_region_signature` - cross_region_signature
+     * * `unattributed` - unattributed */
+    readonly credential_type: ActivityLogCredentialTypeEnumApi | null
+    /**
+     * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+     * @nullable
+     */
+    readonly credential_id: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -1100,6 +1241,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1269,26 +1411,6 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
-export type InternalFeedbackCreateBody = {
-    /**
-     * What the person wants to tell the developers.
-     * @maxLength 4000
-     */
-    comment: string
-    /**
-     * URL of the page the feedback is about.
-     * @maxLength 2000
-     */
-    page_url: string
-    /**
-     * CSS selector of the element the person selected. Empty for feedback about the whole page.
-     * @maxLength 1000
-     */
-    element_identifier?: string
-    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-    screenshot?: Blob
-}
-
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1365,6 +1487,10 @@ export type RolesRoleMembershipsListParams = {
 }
 
 export type ActivityLogListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
     /**
      * Filter by the ID of the affected resource.
      * @minLength 1
@@ -1446,6 +1572,8 @@ export type ActivityLogListParams = {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -1472,6 +1600,7 @@ export type ActivityLogListParams = {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -1563,6 +1692,8 @@ export const ActivityLogListScope = {
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
+    WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1589,6 +1720,7 @@ export const ActivityLogListScope = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1667,6 +1799,8 @@ export const ActivityLogListScope = {
  * * `PersonalAPIKey` - PersonalAPIKey
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
+ * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+ * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
  * * `AccountView` - AccountView
@@ -1693,6 +1827,7 @@ export const ActivityLogListScope = {
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `TicketMacro` - TicketMacro
  * * `KnowledgeSource` - KnowledgeSource
  * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
@@ -1772,6 +1907,8 @@ export const ActivityLogListScopesItem = {
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
+    WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1798,6 +1935,7 @@ export const ActivityLogListScopesItem = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1830,6 +1968,10 @@ export type AdvancedActivityLogsListParams = {
      * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
     /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */

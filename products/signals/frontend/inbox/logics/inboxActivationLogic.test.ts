@@ -27,7 +27,6 @@ describe('Inbox activation progress', () => {
         jest.setSystemTime(ACTIVATED_AT)
         stateReads = 0
         state = {
-            variant: 'test-github',
             completed_at: new Date(ACTIVATED_AT).toISOString(),
             draft: null,
             jobs: { scout: 'pending', recommendations: 'started' },
@@ -95,11 +94,11 @@ describe('Inbox activation progress', () => {
     })
 
     it.each([
-        ['a failed recommendation generation', 'test-github', { scout: 'started', recommendations: 'failed' }],
-        ['guided setup without background jobs', 'test-ui', undefined],
-    ] as const)('stops polling %s without showing the previous batch', async (_name, variant, jobs) => {
+        ['a failed recommendation generation', { scout: 'started', recommendations: 'failed' }],
+        ['a completed setup without a jobs record', undefined],
+    ] as const)('stops polling %s without showing the previous batch', async (_name, jobs) => {
         await settle()
-        state = { ...state, variant, jobs }
+        state = { ...state, jobs }
         await jest.advanceTimersByTimeAsync(10_000)
         await settle()
         expect(logic.values.savedState?.jobs?.recommendations).toBe(jobs?.recommendations)

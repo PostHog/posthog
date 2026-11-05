@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import {
+    appliedInboxSearch,
     buildSignalReportListOrdering,
     buildSignalReportListSortParams,
     filterSearchParams,
@@ -70,6 +71,17 @@ describe('inboxFiltersLogic', () => {
         })
     })
 
+    describe('appliedInboxSearch', () => {
+        it.each([
+            ['', undefined],
+            [' ai ', undefined],
+            [' api ', 'api'],
+            ['checkout crash', 'checkout crash'],
+        ])('applies %p as %p', (input, expected) => {
+            expect(appliedInboxSearch(input)).toBe(expected)
+        })
+    })
+
     describe('filter URL params', () => {
         // Keeps shared links clean: a default view must not carry any filter params.
         it('omits all default filters from the URL', () => {
@@ -108,6 +120,11 @@ describe('inboxFiltersLogic', () => {
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
             ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
+            [
+                'monitoring status only',
+                { ...DEFAULT_STATE, stateFilter: ['outcome-monitoring'] },
+                { state: 'outcome-monitoring' },
+            ],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -124,17 +141,18 @@ describe('inboxFiltersLogic', () => {
             expect(
                 parseFilterSearchParams({
                     scope: 'teammate:not-a-uuid',
-                    source: 'error_tracking,bogus_source',
+                    // `logs` has no entry in the old toolbar list, but the Source filter can offer it.
+                    source: 'error_tracking,logs,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })
             ).toEqual({
                 ...DEFAULT_STATE,
-                sourceProductFilter: ['error_tracking'],
+                sourceProductFilter: ['error_tracking', 'logs'],
                 priorityFilter: ['P1'],
-                stateFilter: ['monitoring'],
+                stateFilter: ['monitoring', 'closed'],
             })
         })
 
@@ -268,6 +286,123 @@ describe('inboxFiltersLogic', () => {
                 priorityFilter: ['P1'],
                 searchQuery: 'checkout',
             })
+        })
+
+        // The API combines `source_product` and `scout` as AND, so a leftover value from the other
+        // dimension would silently narrow the list to reports that match both.
+        it.each([
+            [{ kind: 'source_product', value: 'logs' }, ['logs'], [], 'logs', undefined],
+            [{ kind: 'scout', value: 'my-custom-scout' }, [], ['my-custom-scout'], undefined, 'my-custom-scout'],
+            [null, [], [], undefined, undefined],
+        ] as const)(
+            'replaces the whole source selection with %p and keeps the other filters',
+            (selection, sourceProductFilter, scoutFilter, sourceParam, scoutParam) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+                logic.actions.setFilters({
+                    ...DEFAULT_STATE,
+                    sourceProductFilter: ['error_tracking', 'github'],
+                    scoutFilter: ['signals-scout-error-tracking'],
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+
+                logic.actions.setSourceFilter(selection)
+
+                expect(logic.values).toMatchObject({
+                    sourceProductFilter,
+                    scoutFilter,
+                    activeSourceProductFilter: sourceProductFilter,
+                    activeScoutFilter: scoutFilter,
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+                expect(router.values.searchParams.source).toBe(sourceParam)
+                expect(router.values.searchParams.scout).toBe(scoutParam)
+                expect(router.values.searchParams.priority).toBe('P1')
+            }
+        )
+
+        it('ignores a stored source selection while the flag is off and reloads when the flag changes', async () => {
+            logic.actions.setFilters({ ...DEFAULT_STATE, scoutFilter: ['my-custom-scout'] })
+
+            expect(logic.values).toMatchObject({
+                scoutFilter: ['my-custom-scout'],
+                activeScoutFilter: [],
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+            })
+                .toDispatchActions(['sourceFilterAvailabilityChanged'])
+                .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
+        })
+
+        it('preserves a monitoring URL selection while hiding it until monitoring is enabled', async () => {
+            router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.visibleStateFilter).toEqual([])
+            expect(router.values.searchParams.state).toBe('outcome-monitoring')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            })
+
+            expect(logic.values.visibleStateFilter).toEqual(['outcome-monitoring'])
+        })
+
+        it.each([
+            ['the default view', () => {}, null, 0],
+            ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],
+            [
+                'a different window under a ranking sort',
+                () => {
+                    logic.actions.setSort('ranking_fix', 'desc')
+                    logic.actions.setCreatedWindow('14d')
+                },
+                '14d',
+                1,
+            ],
+            ['a 7 day window under a non-ranking sort', () => logic.actions.setCreatedWindow('7d'), '7d', 1],
+            [
+                'status, priority and source',
+                () => {
+                    logic.actions.toggleState('resolved')
+                    logic.actions.setPriorityFilter(['P1'])
+                    logic.actions.setSourceFilter({ kind: 'scout', value: 'my-custom-scout' })
+                },
+                null,
+                3,
+            ],
+            [
+                'a reset under a ranking sort',
+                () => {
+                    logic.actions.setSort('ranking_fix', 'desc')
+                    logic.actions.setCreatedWindow('24h')
+                    logic.actions.setPriorityFilter(['P1'])
+                    logic.actions.clearFilters()
+                },
+                '7d',
+                0,
+            ],
+        ] as const)('counts non-default report filters for %s', (_name, act, createdWindow, count) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.INBOX_MODEL_SORT, FEATURE_FLAGS.INBOX_TIME_WINDOW, FEATURE_FLAGS.INBOX_SOURCE_FILTER],
+                {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+                    [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                }
+            )
+
+            act()
+
+            expect(logic.values).toMatchObject({ createdWindow, nonDefaultReportFilterCount: count })
         })
 
         it.each([

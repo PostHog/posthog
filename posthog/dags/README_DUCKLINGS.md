@@ -22,6 +22,48 @@ Duckling RDS Catalog (PostgreSQL)
 - **ClickHouse EC2 role**: Allowed in duckling bucket policy for direct S3 writes
 - **Dagster IRSA role**: Can assume duckling cross-account roles for DuckDB registration
 
+### Registration through Trino
+
+Organizations with the `managed-warehouse-trino-import-registration` flag register the events, persons, and groups backfills through the organization's Trino catalog instead of duckgres.
+The ClickHouse export is the same, except that it casts each column to the Parquet type that DuckLake writes for its Trino column, because `add_files` refuses any type conversion.
+An export-only run (`skip_ducklake_registration: true`) writes the same types, so `add_files` can register its files later.
+ClickHouse lists the files it exported, because nothing else on the path can list the duckling bucket.
+Each export writes under a new file prefix, so a retry never overwrites a file that DuckLake has already registered.
+A Trino backfill connects through the normal Trino hostname.
+Set `use_trino_canary: true` in the run config to connect through the canary hostname instead, which needs `MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` to be set. Without it, the run fails.
+The flag `managed-warehouse-trino-canary` does not apply to backfills.
+A run with `register_through_trino: true` registers through Trino even when the organization is not on the flag, and scheduled runs keep following the flag.
+Before each statement that removes rows from the base `events`, `persons` or `groups` table, Trino checks that no other team has rows in the range it removes, and the run refuses otherwise.
+A team without a control-plane row cannot fall back to a base table that another team of the organization writes, so its backfill fails instead.
+
+One `add_files` call registers the files of an export and removes the rows they replace in a single DuckLake snapshot:
+
+- A daily export replaces the rows of its UTC day, by `timestamp` for events and by `_timestamp` for persons and groups.
+- A full persons or groups export replaces the whole table.
+- An export with no files deletes the rows it would replace.
+- With `cleanup_existing_partition_data: false`, the files are added and no rows are removed.
+
+Tables that duckgres created can hold unsigned columns, which Trino shows as other types, so `add_files` refuses the export's files.
+Daily and other Trino runs refuse such a table and fail with a message.
+To change an organization over:
+
+1. Run `duckling_trino_conversion_job` for the team, with `dry_run: true` first.
+   It widens the columns that DuckLake can widen in place, such as groups `group_type_index`, and reports the tables that still need a rebuild.
+   It fails when the events table needs a rebuild, because no snapshot run can rebuild events.
+2. A column that DuckLake cannot widen, such as persons `person_version`, needs a full backfill with `rebuild_mismatched_table: true`.
+   Run it with the organization on the Trino flag or with `register_through_trino: true`, and without `skip_schema_validation`, because the validation finds the mismatch.
+   The run replaces the table after the export and keeps the columns that the export does not write.
+   Readers see an empty table until the run registers the files, and a run that fails after the rebuild leaves the table empty until the next full backfill.
+
+The duckgres path accepts the converted layout, so turning the flag off still works.
+
+The call has an import ID, so a retry after a lost response adds nothing.
+A statement that fails for a transient reason, such as a DuckLake commit conflict, a lost coordinator, or a cluster fault, runs again up to four times.
+Readers never see a day without rows or with two copies of it, so this path needs no delete-then-register replay.
+Day and table replacements remove rows without a team filter, so the Trino path refuses to replace rows in the shared `events`, `persons`, and `groups` tables, or to drop them with `delete_tables: true` or rebuild them.
+Trino-created tables have no year/month/day partitioning.
+Each file holds one day, so file statistics still prune reads.
+
 ## Jobs and Sensors
 
 ### Events Backfill
@@ -171,6 +213,7 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
+    use_trino_canary: bool = False            # Trino path only: connect through the canary hostname
     events_parquet_row_group_size_bytes: int = 536_870_912  # Events only; 512 MiB
     target_rows_per_file: int = 5_000_000      # Target rows per exported file
     max_s3_file_fanout: int = 256              # Maximum before the automatic buffer-budget limit

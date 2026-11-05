@@ -7,6 +7,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
+import { bridgeHiddenNodes, nodesWithHubs } from './lineageHiddenNodes'
+import { modelsLineageLogic } from './modelsLineageLogic'
 import { ModelsLineageTab } from './ModelsLineageTab'
 
 function mockNode(
@@ -26,9 +28,6 @@ function mockEdge(id: string, sourceId: string, targetId: string): DataModelingE
         id,
         source_id: sourceId,
         target_id: targetId,
-        properties: {},
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
     }
 }
 
@@ -205,6 +204,47 @@ export const Full: Story = {
 export const Canvas: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls showMinimap interactive />
+    ),
+}
+
+const HIDDEN_TYPES_NODES: DataModelingNode[] = [
+    mockNode({ id: 'orders', name: 'orders', type: 'table' }),
+    mockNode({ id: 'customers', name: 'customers', type: 'table' }),
+    mockNode({ id: 'payments', name: 'payments', type: 'table' }),
+    mockNode({ id: 'enriched_orders', name: 'enriched_orders', type: 'matview' }),
+    mockNode({ id: 'orders_api', name: 'orders_api', type: 'endpoint' }),
+    mockNode({ id: 'revenue_api', name: 'revenue_api', type: 'endpoint' }),
+    mockNode({ id: 'churn_api', name: 'churn_api', type: 'endpoint' }),
+    mockNode({ id: 'weekly_orders', name: 'weekly_orders', type: 'metric', metric_id: 'metric-weekly' }),
+    mockNode({ id: 'revenue_summary', name: 'revenue_summary', type: 'view', user_tag: 'finance' }),
+    mockNode({ id: 'monthly_report', name: 'monthly_report', type: 'matview' }),
+    mockNode({ id: 'forecast_api', name: 'forecast_api', type: 'endpoint' }),
+]
+const HIDDEN_TYPES_EDGES: DataModelingEdge[] = [
+    ...['orders', 'customers', 'payments'].map((source) => mockEdge(`${source}-hub`, source, 'enriched_orders')),
+    ...['orders_api', 'revenue_api', 'churn_api', 'weekly_orders'].map((target) =>
+        mockEdge(`hub-${target}`, 'enriched_orders', target)
+    ),
+    mockEdge('orders-summary', 'orders', 'revenue_summary'),
+    mockEdge('summary-report', 'revenue_summary', 'monthly_report'),
+    mockEdge('report-forecast', 'monthly_report', 'forecast_api'),
+]
+const HIDDEN_TYPES_VISIBLE_IDS = new Set(
+    HIDDEN_TYPES_NODES.filter((node) => ['table', 'view', 'endpoint'].includes(node.type)).map((node) => node.id)
+)
+const HIDDEN_TYPES_BRIDGING = bridgeHiddenNodes(
+    HIDDEN_TYPES_EDGES,
+    new Set(HIDDEN_TYPES_NODES.map((node) => node.id)),
+    HIDDEN_TYPES_VISIBLE_IDS
+)
+
+export const HiddenNodeTypes: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={nodesWithHubs(HIDDEN_TYPES_NODES, HIDDEN_TYPES_VISIBLE_IDS, HIDDEN_TYPES_BRIDGING.hubNodeIds)}
+            edges={HIDDEN_TYPES_BRIDGING.edges}
+            variant="canvas"
+        />
     ),
 }
 
@@ -474,6 +514,7 @@ export const SelectorFocus: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByText('revenue_summary')
+        modelsLineageLogic.actions.nodeDragStopped('4', { x: 100000, y: 100000 })
         const search = canvas.getByPlaceholderText('Search, or +name for upstream')
         fireEvent.change(search, { target: { value: 'revenue_summary+' } })
         await canvas.findByText('4 models · downstream')
@@ -488,6 +529,13 @@ export const SelectorFocus: Story = {
                 const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
                 if (!graph || graph.querySelectorAll('.react-flow__node').length !== 4) {
                     throw new Error('A downstream selector must keep only its lineage cone visible')
+                }
+                if (Object.keys(modelsLineageLogic.values.nodePositions).length > 0) {
+                    throw new Error('A lineage filter must clear positions from the previous graph')
+                }
+                const model = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')
+                if (!model || model.style.transform.includes('100000')) {
+                    throw new Error('A lineage filter must place distant nodes in the new layout')
                 }
             },
             { timeout: VIEWPORT_SETTLE_MS }

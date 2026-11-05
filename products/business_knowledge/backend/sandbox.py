@@ -13,12 +13,13 @@ from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
-from .constants import BK_MCP_SCOPES
+from . import task_profiles
+from .constants import BK_MCP_SCOPES, DOCS_SEARCH_TOOL
 from .github_repos import repository_tools_enabled
 from .logic import KnowledgeSearchResult, get_always_on_context
 
@@ -32,43 +33,7 @@ BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 BK_REPO_SEARCH_TOOL = "business-knowledge-repositories-search"
 BK_REPO_FILE_TOOL = "business-knowledge-repositories-file-retrieve"
-DOCS_SEARCH_TOOL = "docs-search"
 BK_DISPLAY_TOOLS = frozenset({BK_SEARCH_TOOL, BK_WINDOW_TOOL, BK_REPO_SEARCH_TOOL, BK_REPO_FILE_TOOL})
-# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
-# injected instructions, so hide anything that reads the asker's own data.
-BK_HIDDEN_TOOLS = [
-    DOCS_SEARCH_TOOL,
-    "user-get",
-    "user-home-settings-get",
-    "llma-personal-spend",
-    "reminder-get",
-    "reminders-list",
-    "project-get",
-    "mcp-connections-list",
-    "mcp-connection-tools-list",
-    "tasks-list",
-    "tasks-retrieve",
-    "tasks-runs-list",
-    "tasks-runs-retrieve",
-    "tasks-runs-session-logs-retrieve",
-    "tasks-artifacts-list",
-    "tasks-config-list",
-    "tasks-me-config-list",
-    "tasks-models-retrieve",
-    "channel-list",
-    "channel-retrieve",
-    "channel-instructions-retrieve",
-    "inbox-reports-list",
-    "inbox-reports-retrieve",
-    "inbox-report-artefacts-list",
-    "inbox-report-artefacts-retrieve",
-    "inbox-report-checks-list",
-    "inbox-report-checks-retrieve",
-    "inbox-source-configs-list",
-    "inbox-source-configs-retrieve",
-    "task-context-wiki-channel-resolve",
-    "task-context-wiki-page-retrieve",
-]
 _RECOGNIZED_TOOLS = BK_DISPLAY_TOOLS | {DOCS_SEARCH_TOOL}
 # A follow-up run is a new process. These pins live on the previous run, not on the task.
 _RESUMED_RUN_STATE_KEYS = (
@@ -233,11 +198,6 @@ def open_sandbox_task_ids(*, team_id: int, user_id: int) -> set[UUID]:
     )
 
 
-def _distinct_id_for(user_id: int) -> str:
-    distinct_id = User.objects.filter(pk=user_id).values_list("distinct_id", flat=True).first()
-    return str(distinct_id)
-
-
 def start_sandbox_run(
     *,
     team: Team,
@@ -252,40 +212,37 @@ def start_sandbox_run(
     its own lock. The default allows one open run per person. `on_admitted` runs in the same
     transaction, so a playground turn is stored with the task or not at all.
     """
-    origin = tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE
     with transaction.atomic():
         if admit is None:
             _admit_one_run_per_owner(team.id, user_id)
         else:
             admit()
+        network = task_profiles.BUSINESS_KNOWLEDGE.network
         env_id = tasks_facade.upsert_internal_sandbox_env(
             team.id,
             BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
             private=False,
             internal=True,
-            allowed_domains=[],
-            include_default_domains=False,
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
         always_on = format_always_on_context(get_always_on_context(team.id))
         created = tasks_facade.create_and_run_task(
             team=team,
             title=_title_for(question),
-            description=build_sandbox_prompt(
-                question, always_on, repo_tools=repository_tools_enabled(team, _distinct_id_for(user_id))
-            ),
-            origin_product=origin,
+            description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
+            profile=task_profiles.BUSINESS_KNOWLEDGE,
             user_id=user_id,
-            repository=None,
-            create_pr=False,
-            internal=True,
             sandbox_environment_id=str(env_id),
-            posthog_mcp_scopes=BK_MCP_SCOPES,
-            model=SANDBOX_MODEL,
-            runtime_adapter=SANDBOX_RUNTIME_ADAPTER,
-            output_schema=SandboxAnswer,
+            options=TaskRunOptions(
+                model=SANDBOX_MODEL,
+                adapter=SANDBOX_RUNTIME_ADAPTER,
+                mcp_scopes=BK_MCP_SCOPES,
+                output_schema=SandboxAnswer.model_json_schema(),
+            ),
             extra_run_state={
-                "mcp_exclude_tools": BK_HIDDEN_TOOLS,
+                "mcp_exclude_tools": list(task_profiles.BUSINESS_KNOWLEDGE.mcp_exclude_tools),
                 "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
             },
         )

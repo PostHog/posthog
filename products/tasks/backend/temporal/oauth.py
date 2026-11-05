@@ -77,13 +77,16 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> SandboxOAuthApplication:
-    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
-    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
-        return "posthog_ai"
     if (
         task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
         and (state or {}).get("billing_product") == "posthog_ai"
     ):
+        return "posthog_ai"
+    profile = task.stored_profile
+    if profile is not None:
+        return cast(SandboxOAuthApplication, profile.oauth_app.value)
+    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
+    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
@@ -190,6 +193,7 @@ def create_oauth_access_token(
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
     run_state: dict[str, Any] | None = None,
+    run_id: UUID | str | None = None,
 ) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
@@ -211,12 +215,9 @@ def create_oauth_access_token(
         "application": _oauth_application_for_task(task, run_state),
         "sandbox_task_id": task.id,
     }
-    if task.origin_product in {
-        Task.OriginProduct.SIGNALS_SCOUT,
-        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        Task.OriginProduct.SUPPORT_REPLY,
-        Task.OriginProduct.WORKFLOW,
-    } and is_builtin_agent_enforcement_enabled(task.team_id):
+    if Task.mcp_agent_key_for(task.origin_product, task.stored_profile) is not None and (
+        is_builtin_agent_enforcement_enabled(task.team_id)
+    ):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
         # origin fails closed instead of inheriting its creator's connections.
@@ -228,8 +229,19 @@ def create_oauth_access_token(
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
-    if run_uses_own_subscription(run_state):
-        token_options["withhold_scopes"] = sorted(SUBSCRIPTION_RUN_WITHHELD_SCOPES)
+    withheld = set(SUBSCRIPTION_RUN_WITHHELD_SCOPES) if run_uses_own_subscription(run_state) else set()
+    if "internal_run:write" in resolve_scopes(scopes):
+        # Flat scopes regain shared internal grants when resolved again during minting.
+        withheld.update(RESEARCH_WITHHELD_SCOPES)
+    if withheld:
+        token_options["withhold_scopes"] = sorted(withheld)
+    if task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and run_id is not None:
+        from products.signals.backend.facade.monitoring import (  # noqa: PLC0415 -- avoids loading Signals during Tasks startup
+            monitoring_scout_can_submit,
+        )
+
+        if monitoring_scout_can_submit(team_id=task.team_id, task_id=task.id, task_run_id=run_id):
+            token_options["include_monitoring_result_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
@@ -265,6 +277,9 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes == "signals_research":
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+        elif scopes == "signals_assessment":
+            # Runtime uploads are bound to this run; the separately minted MCP token stays read-only.
+            scopes = [*resolve_scopes(scopes), "internal_run:write"]
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))
@@ -312,6 +327,7 @@ def create_oauth_access_token_for_run(
             user=actor_user,
             allow_task_creator_fallback=not is_slack_interaction_state(state),
             run_state=state,
+            run_id=run_id,
         )
         if run_id is not None:
             run = TaskRun.objects.select_for_update().get(
@@ -358,6 +374,7 @@ def create_oauth_access_token_for_user(
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
+    include_monitoring_result_scope: bool = False,
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
 ) -> str:
@@ -374,6 +391,8 @@ def create_oauth_access_token_for_user(
             token_options["include_interactive_run_scope"] = True
         if include_slack_run_scope:
             token_options["include_slack_run_scope"] = True
+        if include_monitoring_result_scope:
+            token_options["include_monitoring_result_scope"] = True
         if withhold_scopes:
             token_options["withhold_scopes"] = list(withhold_scopes)
         return _create_oauth_access_token_for_user(user, team_id, **token_options)

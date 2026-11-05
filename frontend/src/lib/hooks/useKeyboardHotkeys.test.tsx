@@ -149,14 +149,21 @@ describe('useKeyboardHotkeys', () => {
         expect(mockPosthog.capture).not.toHaveBeenCalled()
     })
 
-    it('does not run or capture while typing in an input', () => {
+    it.each([
+        ['an input', '<input data-target />'],
+        [
+            'an EditContext Monaco editor',
+            '<div class="monaco-editor"><div class="native-edit-context" tabindex="0" data-target></div></div>',
+        ],
+    ])('does not run or capture while typing in %s', (_, markup) => {
         const action = jest.fn()
         renderHook(() => useKeyboardHotkeys({ k: { action } }))
 
-        const input = document.createElement('input')
-        document.body.appendChild(input)
-        press('k', {}, input)
-        input.remove()
+        const host = document.createElement('div')
+        host.innerHTML = markup
+        document.body.appendChild(host)
+        press('k', {}, host.querySelector('[data-target]') as Element)
+        host.remove()
 
         expect(action).not.toHaveBeenCalled()
         expect(mockPosthog.capture).not.toHaveBeenCalled()

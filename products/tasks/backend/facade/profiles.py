@@ -56,6 +56,34 @@ class GithubAccess(StrEnum):
     WRITE = "write"
 
 
+class NetworkAccess(StrEnum):
+    TRUSTED = "trusted"
+    FULL = "full"
+    CUSTOM = "custom"
+
+
+class ContractCheck(StrEnum):
+    PUBLIC_OPTIONS = "public_options"
+    RUNTIMES = "runtimes"
+    SANDBOX_TEMPLATES = "sandbox_templates"
+    MCP_SCOPES = "mcp_scopes"
+    GITHUB_ACCESS = "github_access"
+    IDLE_MINUTES = "idle_minutes"
+    DRIVE = "drive"
+
+
+class SourceKind(StrEnum):
+    SIGNAL_REPORT = "signal_report"
+    HOG_FLOW = "hog_flow"
+    LOOP = "loop"
+
+
+@frozen
+class TaskSource:
+    kind: SourceKind
+    id: str
+
+
 @frozen
 class WarmPolicy:
     """Lets a profile start a sandbox before the first message arrives, so the first reply is fast."""
@@ -71,12 +99,23 @@ class WarmPolicy:
 
 
 @frozen
+class NetworkPolicy:
+    levels: tuple[NetworkAccess, ...]
+    allowed_domains: tuple[str, ...] = ()
+    include_default_domains: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.levels:
+            raise TaskProfileError("A network policy needs at least one level")
+
+
+@frozen
 class TaskProfile:
     """The limits and defaults for one kind of task.
 
     Each product defines its own profiles and registers them when its app loads, so the tasks
     product never imports another product. A task keeps its profile for its whole life. Values
-    that change per call go in RunOptions, which can only choose from or narrow what the profile
+    that change per call go in TaskRunOptions, which can only choose from or narrow what the profile
     allows.
     """
 
@@ -88,12 +127,12 @@ class TaskProfile:
     origin_product: str
     # True lets callers create this kind of task through the public task API.
     public: bool
-    # The RunOptions fields a public API caller may set. The server refuses any other field from
+    # The TaskRunOptions fields a public API caller may set. The server refuses any other field from
     # a public caller.
     public_options: frozenset[str]
-    # The kind of row that started the task, such as "signal_report". The server checks that the
-    # row exists in the caller's team. None means the task has no source row.
-    source_kind: str | None
+    # The kind of row that starts every task on this profile, such as SIGNAL_REPORT. Task creation
+    # refuses a source of any other kind. None means the task takes no source.
+    source_kind: SourceKind | None
 
     # True shows the task in task lists, personal channel filing, auto-archive, the MCP task filter
     # and the Desktop staff toggle. Automated work such as loops and scouts is unlisted.
@@ -122,6 +161,8 @@ class TaskProfile:
     runtimes: tuple[str, ...]
     # The sandbox templates a task may boot from. The first one is the default.
     sandbox_templates: tuple[str, ...]
+    # A user-picked sandbox environment overrides this, so it covers internal environments and runs without one.
+    network: NetworkPolicy
     # True applies the creator's and the team's default model settings to each run.
     inherit_user_defaults: bool
     # True also installs the creator's personal MCP servers. It has no effect when
@@ -131,12 +172,13 @@ class TaskProfile:
     # gets that agent's MCP servers instead of its creator's MCP store connections. None means the
     # task uses its creator's connections.
     mcp_agent: str | None
-    # The widest PostHog MCP scope preset the agent can get. RunOptions.mcp_scopes can narrow it
+    # The widest PostHog MCP scope preset the agent can get. TaskRunOptions.mcp_scopes can narrow it
     # but never widen it.
     mcp_scopes: PosthogMcpScopes
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
     # servers included.
     mcp_store_servers: bool
+    mcp_exclude_tools: tuple[str, ...]
     # The OAuth application that mints the sandbox's PostHog tokens. The LLM gateway pins billing
     # products per application, so a token from a shared application is valid for every product on
     # it. A product with its own billing needs its own application.
@@ -145,11 +187,15 @@ class TaskProfile:
     # attaches it only when the task has a repository. NEVER attaches none. Use NEVER for tasks
     # that read text members wrote, because a token there turns planted text into repository access.
     github_resolution: GithubResolution
+    github_access: GithubAccess
     # True lets runs open pull requests as the creator through their personal GitHub installation.
     # A creator without a usable installation falls back to the bot. False always uses the bot.
     user_authorable_prs: bool
-    # Who authors pull requests when the run does not set RunOptions.pr_authorship_mode.
+    # Who authors pull requests when the run does not set TaskRunOptions.pr_authorship_mode.
     default_pr_authorship: PrAuthorship
+    # True lets a run open a pull request when it finishes. A caller can still turn it off for one
+    # run. False means runs never open one, whatever the caller passes.
+    create_pr: bool
     # True gives the agent a finish tool that moves the task to done.
     finish_tool: bool
     # True moves the task to done when a turn closes, including a failed turn. Use it for work that
@@ -157,7 +203,7 @@ class TaskProfile:
     done_on_turn_close: bool
 
     # How long the sandbox stays up after a turn closes, in case someone replies. After that the
-    # task snapshots, releases the sandbox and goes idle. RunOptions.idle_minutes can lower it.
+    # task snapshots, releases the sandbox and goes idle. TaskRunOptions.idle_minutes can lower it.
     idle_minutes: int
     # How long an open turn may go without an agent heartbeat. After that the run fails, so a retry
     # can pick the task back up.
@@ -183,6 +229,8 @@ class TaskProfile:
     # wake and snapshots the task.
     finish_in_flight: bool
 
+    enforced_checks: frozenset[ContractCheck] = frozenset()
+
 
 @frozen
 class Repository:
@@ -193,11 +241,11 @@ class Repository:
 
 
 @frozen
-class RunOptions:
+class TaskRunOptions:
     """Per-call settings for one task, checked against its TaskProfile.
 
-    A public API caller can only set the fields in TaskProfile.public_options. None or an empty
-    tuple means the profile's default.
+    A public API caller can only set the fields in TaskProfile.public_options. A field left at its
+    default falls back to the profile's value.
     """
 
     # "acp" or "pi". It must be one of TaskProfile.runtimes and cannot change after create.
@@ -222,9 +270,9 @@ class RunOptions:
     github_access: GithubAccess | None = None
     # It can narrow TaskProfile.mcp_scopes but never widen it.
     mcp_scopes: PosthogMcpScopes | None = None
-    # The MCP servers to install, by ID. Only server callers can set it. The profile must have an
-    # mcp_agent.
-    mcp_server_ids: tuple[str, ...] = ()
+    # The MCP servers to install, by ID. An empty tuple allows no servers. Only server callers can set
+    # it. The profile must have an mcp_agent.
+    mcp_server_ids: tuple[str, ...] | None = None
     # Context window size for models that support the 1M window.
     context_window: str | None = None
     # Fast mode for models that support it.
@@ -249,6 +297,14 @@ class TaskProfileError(ValueError):
     pass
 
 
+class TaskRunOptionsError(ValueError):
+    pass
+
+
+class TaskSourceError(ValueError):
+    pass
+
+
 # Tasks stored without a profile and SQL filters only know a task's origin_product, so every profile
 # that shares an origin must agree on these fields.
 _ORIGIN_SCOPED_FIELDS = (
@@ -261,13 +317,21 @@ _ORIGIN_SCOPED_FIELDS = (
     "warm",
 )
 
+MAX_MCP_EXCLUDE_TOOLS = 32
+
 _profiles: dict[str, TaskProfile] = {}
 
 
 def register_task_profile(profile: TaskProfile) -> None:
+    if len(profile.mcp_exclude_tools) > MAX_MCP_EXCLUDE_TOOLS:
+        raise TaskProfileError(f"Task profile {profile.key!r} hides more than {MAX_MCP_EXCLUDE_TOOLS} MCP tools")
     existing = _profiles.get(profile.key)
     if existing is not None and existing != profile:
         raise TaskProfileError(f"Task profile {profile.key!r} is already registered with different values")
+    if (profile.github_access == GithubAccess.NONE) != (profile.github_resolution == GithubResolution.NEVER):
+        raise TaskProfileError(
+            f"Task profile {profile.key!r} must set github_access to none exactly when github_resolution is never"
+        )
     for other in _profiles.values():
         if other.key == profile.key or other.origin_product != profile.origin_product:
             continue
@@ -292,6 +356,10 @@ def get_task_profile(key: str) -> TaskProfile:
         raise TaskProfileError(f"Unknown task profile {key!r}") from None
 
 
+def find_task_profile(key: str | None) -> TaskProfile | None:
+    return _profiles.get(key) if key else None
+
+
 def task_profiles() -> tuple[TaskProfile, ...]:
     return tuple(_profiles.values())
 
@@ -308,3 +376,11 @@ def resolve_task_origin(
     if internal is not None and internal == profile.listed:
         raise TaskProfileError(f"internal={internal} does not match task profile {profile.key!r}")
     return TaskOrigin(origin_product=profile.origin_product, internal=not profile.listed, profile_key=profile.key)
+
+
+def check_task_source(*, profile: TaskProfile | None, source: TaskSource | None) -> None:
+    if profile is None:
+        return
+    kind = source.kind if source is not None else None
+    if kind != profile.source_kind:
+        raise TaskSourceError(f"Task profile {profile.key!r} takes source {profile.source_kind}, got {kind}")

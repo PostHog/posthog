@@ -315,6 +315,33 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
         assert response["Location"] == expected_location
 
 
+class TestAgentDiscoveryFiles(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("llms_txt_on_cloud", "/llms.txt", "US", 200),
+            ("llms_txt_on_local_dev", "/llms.txt", "LOCAL", 200),
+            ("llms_txt_on_hobby", "/llms.txt", None, 404),
+            ("ai_catalog", "/ai-catalog.json", "US", 404),
+            ("well_known_ai_catalog", "/.well-known/ai-catalog.json", "US", 404),
+        ]
+    )
+    def test_agent_discovery_files_do_not_fall_through_to_the_app(
+        self, _name: str, request_path: str, region: str | None, expected_status: int
+    ) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        with override_settings(CLOUD_DEPLOYMENT=region, SITE_URL="https://us.example.com"):
+            response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            body = response.content.decode()
+            assert body.startswith("# ")
+            assert "](https://mcp.posthog.com/mcp)" in body
+            assert "](https://us.example.com/settings/user-api-keys)" in body
+
+
 class TestConditionalRoutes(SimpleTestCase):
     @parameterized.expand(list(product([False, True], [False, True], ["US", "EU"])))
     def test_route_gates_and_precedence(self, debug: bool, test: bool, region: str) -> None:

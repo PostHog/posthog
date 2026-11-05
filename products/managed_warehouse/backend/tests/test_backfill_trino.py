@@ -1,0 +1,403 @@
+from __future__ import annotations
+
+from contextlib import nullcontext
+from datetime import date
+from typing import TYPE_CHECKING, cast
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+from trino.exceptions import Http503Error, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
+
+from products.managed_warehouse.backend.backfill_trino import (
+    ADD_FILES_MAX_FILES,
+    BACKFILL_TRINO_PRINCIPAL,
+    TrinoBackfillCatalog,
+)
+from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+)
+
+if TYPE_CHECKING:
+    from trino.dbapi import Connection
+
+COLUMNS = {"team_id": "bigint", "timestamp": "timestamp(6) with time zone", "person_version": "bigint"}
+
+
+class _Cursor:
+    def __init__(self, connection: _FakeTrino) -> None:
+        self._connection = connection
+        self._rows: list[list[object]] = []
+
+    def execute(self, statement: str) -> None:
+        self._connection.statements.append(statement)
+        if self._connection.failures and (failure := self._connection.failures.pop(0)) is not None:
+            raise failure
+        self._rows = self._connection.rows_for(statement)
+
+    def fetchall(self) -> list[list[object]]:
+        return self._rows
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeTrino:
+    catalog = "warehouse"
+
+    def __init__(
+        self,
+        columns: dict[str, str] | None = None,
+        failures: list[Exception | None] | None = None,
+        other_team_rows: bool | list[bool] = False,
+    ) -> None:
+        self.statements: list[str] = []
+        self.failures = failures or []
+        self._columns = columns or {}
+        self._other_team_rows = other_team_rows
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self)
+
+    def rows_for(self, statement: str) -> list[list[object]]:
+        if "information_schema.columns" in statement:
+            return [[name, data_type] for name, data_type in self._columns.items()]
+        if "EXECUTE add_files" in statement:
+            return [["added_data_files", 2]]
+        if statement.startswith("SELECT 1 FROM"):
+            rows = self._other_team_rows
+            return [[1]] if (rows.pop(0) if isinstance(rows, list) else rows) else []
+        return []
+
+
+def _catalog(
+    columns: dict[str, str] | None = None,
+    failures: list[Exception | None] | None = None,
+    team_id: int | None = None,
+    other_team_rows: bool | list[bool] = False,
+) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
+    connection = _FakeTrino(columns, failures, other_team_rows)
+    return TrinoBackfillCatalog(cast("Connection", connection), team_id=team_id), connection
+
+
+def _changes(connection: _FakeTrino) -> list[str]:
+    return [statement for statement in connection.statements if not statement.startswith("SELECT")]
+
+
+@pytest.mark.parametrize("canary", [False, True])
+def test_the_backfill_connection_uses_the_canary_host_only_when_asked(canary: bool) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.connect_managed_warehouse_trino",
+        return_value=nullcontext(MagicMock(catalog="example_catalog")),
+    ) as connect:
+        with connect_backfill_catalog("org-1", canary=canary):
+            pass
+
+    connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=canary)
+
+
+class TestRegisterFiles:
+    @parameterized.expand(
+        [
+            (
+                "day",
+                DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+                "replace_range_column => 'timestamp', replace_range_start => '2024-01-31 00:00:00+00', "
+                "replace_range_end => '2024-02-01 00:00:00+00'",
+            ),
+            ("table", DuckLakeTableReplacement(), "replace => true"),
+            ("append", None, ""),
+        ]
+    )
+    def test_registers_all_files_in_one_snapshot_with_the_replacement(
+        self, _name: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None, options: str
+    ) -> None:
+        catalog, connection = _catalog()
+
+        added = catalog.register_files(
+            "events_team_7",
+            ["s3://bucket/backfill/a.parquet", "s3://bucket/backfill/it's.parquet"],
+            import_id="run1_ab12",
+            replacement=replacement,
+        )
+
+        assert added == 2
+        [statement] = connection.statements
+        assert statement.startswith(
+            'ALTER TABLE "warehouse"."posthog"."events_team_7" EXECUTE add_files('
+            "files => ARRAY['s3://bucket/backfill/a.parquet', 's3://bucket/backfill/it''s.parquet'], "
+            "import_id => 'run1_ab12', allow_missing => true"
+        )
+        assert statement.endswith(f", {options})" if options else "allow_missing => true)")
+
+    @parameterized.expand(
+        [
+            (
+                "register_day",
+                lambda c: c.register_files(
+                    "events",
+                    ["s3://b/f.parquet"],
+                    import_id="i",
+                    replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1)),
+                ),
+            ),
+            (
+                "register_table",
+                lambda c: c.register_files(
+                    "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+                ),
+            ),
+            (
+                "delete_day",
+                lambda c: c.delete_rows("groups", DuckLakeDayReplacement(column="_timestamp", day=date(2024, 1, 1))),
+            ),
+            ("delete_table", lambda c: c.delete_rows("events", DuckLakeTableReplacement())),
+        ]
+    )
+    def test_refuses_to_replace_rows_in_a_table_other_teams_share(self, _name: str, action) -> None:
+        catalog, connection = _catalog()
+
+        with pytest.raises(ValueError, match="shared"):
+            action(catalog)
+
+        assert connection.statements == []
+
+    @parameterized.expand(
+        [
+            (f"{name}_{'other_team_rows' if other_team_rows else 'own_rows_only'}", action, in_day, other_team_rows)
+            for other_team_rows in (False, True)
+            for name, action, in_day in (
+                (
+                    "register_table",
+                    lambda c: c.register_files(
+                        "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+                    ),
+                    False,
+                ),
+                (
+                    "delete_day",
+                    lambda c: c.delete_rows("events", DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1))),
+                    True,
+                ),
+                ("rebuild", lambda c: c.replace_table("persons", COLUMNS), False),
+                (
+                    "drop",
+                    lambda c: c.ensure_table(
+                        "events", COLUMNS, drop_first=True, create_if_missing=False, validate=False
+                    ),
+                    False,
+                ),
+            )
+        ]
+    )
+    def test_changes_a_base_table_only_when_no_other_team_has_rows_in_the_range(
+        self, _name: str, action, in_day: bool, other_team_rows: bool
+    ) -> None:
+        catalog, connection = _catalog(COLUMNS, team_id=7, other_team_rows=other_team_rows)
+
+        with pytest.raises(ValueError, match="shared") if other_team_rows else nullcontext():
+            action(catalog)
+
+        [probe] = [statement for statement in connection.statements if statement.startswith("SELECT 1 FROM")]
+        assert '"team_id" <> 7' in probe
+        assert ("TIMESTAMP '2024-01-01 00:00:00 UTC'" in probe) == in_day
+        assert bool(_changes(connection)) != other_team_rows
+
+    def test_refuses_more_files_than_one_call_registers(self) -> None:
+        catalog, connection = _catalog()
+        files = [f"s3://bucket/f{index}.parquet" for index in range(ADD_FILES_MAX_FILES + 1)]
+
+        with pytest.raises(ValueError, match="max_s3_file_fanout"):
+            catalog.register_files("events_team_7", files, import_id="i", replacement=None)
+
+        assert connection.statements == []
+
+
+class TestDeleteRows:
+    @parameterized.expand(
+        [
+            (
+                "day",
+                DuckLakeDayReplacement(column="_timestamp", day=date(2024, 12, 31)),
+                'DELETE FROM "warehouse"."posthog"."persons_team_7" '
+                "WHERE \"_timestamp\" >= TIMESTAMP '2024-12-31 00:00:00 UTC' "
+                "AND \"_timestamp\" < TIMESTAMP '2025-01-01 00:00:00 UTC'",
+            ),
+            ("table", DuckLakeTableReplacement(), 'DELETE FROM "warehouse"."posthog"."persons_team_7"'),
+        ]
+    )
+    def test_deletes_the_rows_an_empty_export_replaces(
+        self, _name: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement, expected: str
+    ) -> None:
+        catalog, connection = _catalog()
+
+        catalog.delete_rows("persons_team_7", replacement)
+
+        assert connection.statements == [expected]
+
+
+class TestEnsureTable:
+    def test_creates_the_schema_and_table_with_the_column_types(self) -> None:
+        catalog, connection = _catalog(COLUMNS)
+
+        catalog.ensure_table("events_team_7", COLUMNS, drop_first=True, create_if_missing=True, validate=True)
+
+        assert connection.statements[:3] == [
+            'DROP TABLE IF EXISTS "warehouse"."posthog"."events_team_7"',
+            'CREATE SCHEMA IF NOT EXISTS "warehouse"."posthog"',
+            'CREATE TABLE IF NOT EXISTS "warehouse"."posthog"."events_team_7" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint)',
+        ]
+
+    def test_rebuilds_the_table_with_the_export_types_and_keeps_other_columns(self) -> None:
+        catalog, connection = _catalog({**COLUMNS, "person_version": "decimal(20,0)", "added_later": "varchar"})
+
+        catalog.replace_table("events_team_7", COLUMNS)
+
+        assert connection.statements[-1] == (
+            'CREATE OR REPLACE TABLE "warehouse"."posthog"."events_team_7" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint, '
+            '"added_later" varchar)'
+        )
+
+    @parameterized.expand(
+        [
+            (f"{name}_{table}", table, action)
+            for table in ("events", "persons", "groups")
+            for name, action in (
+                (
+                    "drop",
+                    lambda catalog, table: catalog.ensure_table(
+                        table, COLUMNS, drop_first=True, create_if_missing=True, validate=True
+                    ),
+                ),
+                ("rebuild", lambda catalog, table: catalog.replace_table(table, COLUMNS)),
+            )
+        ]
+    )
+    def test_refuses_to_drop_or_rebuild_a_table_other_teams_share(self, _name: str, table: str, action) -> None:
+        catalog, connection = _catalog(COLUMNS)
+
+        with pytest.raises(ValueError, match="shared"):
+            action(catalog, table)
+
+        assert _changes(connection) == []
+
+    @parameterized.expand(
+        [
+            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None, None),
+            (
+                "missing_column",
+                {"team_id": "bigint", "timestamp": "timestamp(6) with time zone"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            (
+                "unsigned_column",
+                {**COLUMNS, "person_version": "decimal(20,0)"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            ("missing_table", {}, ValueError, "does not exist"),
+        ]
+    )
+    def test_validates_that_exported_files_match_the_table(
+        self, _name: str, actual: dict[str, str], error: type[Exception] | None, message: str | None
+    ) -> None:
+        catalog, _ = _catalog(actual)
+
+        def ensure() -> None:
+            catalog.ensure_table("events_team_7", COLUMNS, drop_first=False, create_if_missing=False, validate=True)
+
+        if error is None:
+            ensure()
+            return
+        with pytest.raises(error, match=message) as raised:
+            ensure()
+        # A rebuild must not create a table that does not exist, so a missing table is not a layout mismatch.
+        assert (raised.type is DuckLakeTableLayoutError) == (error is DuckLakeTableLayoutError)
+
+
+def _query_error(error_class: type[TrinoQueryError], name: str, error_type: str) -> TrinoQueryError:
+    return error_class({"errorName": name, "errorType": error_type, "message": name}, "query-1")
+
+
+def _register(catalog: TrinoBackfillCatalog) -> int:
+    return catalog.register_files(
+        "events_team_7",
+        ["s3://bucket/backfill/a.parquet"],
+        import_id="run1_ab12",
+        replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+    )
+
+
+@patch("tenacity.nap.time.sleep")
+class TestTransientFailures:
+    @parameterized.expand(
+        [
+            ("commit_conflict", _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL")),
+            (
+                "concurrent_modification",
+                _query_error(TrinoExternalError, "DUCKLAKE_CONCURRENT_MODIFICATION", "EXTERNAL"),
+            ),
+            ("commit_retries_exhausted", _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_FAILED", "EXTERNAL")),
+            ("cluster_out_of_memory", _query_error(TrinoQueryError, "CLUSTER_OUT_OF_MEMORY", "INSUFFICIENT_RESOURCES")),
+            ("worker_lost", _query_error(TrinoQueryError, "TOO_MANY_REQUESTS_FAILED", "INTERNAL_ERROR")),
+            ("connection_lost", TrinoConnectionError("failed to fetch: connection reset")),
+            ("gateway_unavailable", Http503Error("error 503: service unavailable")),
+        ]
+    )
+    def test_repeats_a_statement_that_failed_for_a_transient_reason(
+        self, _sleep, _name: str, failure: Exception
+    ) -> None:
+        catalog, connection = _catalog(failures=[failure])
+
+        assert _register(catalog) == 2
+
+        assert len(connection.statements) == 2
+        assert connection.statements[0] == connection.statements[1]
+
+    @parameterized.expand(
+        [
+            ("import_id_reused", _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR")),
+            ("file_types_differ", _query_error(TrinoExternalError, "DUCKLAKE_BAD_DATA", "EXTERNAL")),
+        ]
+    )
+    def test_raises_a_statement_error_without_repeating_the_statement(
+        self, _sleep, _name: str, failure: Exception
+    ) -> None:
+        catalog, connection = _catalog(failures=[failure])
+
+        with pytest.raises(type(failure)):
+            _register(catalog)
+
+        assert len(connection.statements) == 1
+
+    def test_raises_the_last_transient_failure_after_bounded_attempts(self, _sleep) -> None:
+        failures: list[Exception | None] = [
+            _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL") for _ in range(10)
+        ]
+        catalog, connection = _catalog(failures=failures)
+
+        with pytest.raises(TrinoExternalError):
+            _register(catalog)
+
+        assert 1 < len(connection.statements) < 10
+
+    def test_checks_the_rows_again_when_a_base_table_change_retries(self, _sleep) -> None:
+        conflict = _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL")
+        catalog, connection = _catalog(team_id=7, failures=[None, conflict], other_team_rows=[False, True])
+
+        with pytest.raises(ValueError, match="shared"):
+            catalog.register_files(
+                "events",
+                ["s3://bucket/backfill/a.parquet"],
+                import_id="run1_ab12",
+                replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+            )
+
+        assert [statement.split()[0] for statement in connection.statements] == ["SELECT", "ALTER", "SELECT"]

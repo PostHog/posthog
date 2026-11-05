@@ -86,6 +86,8 @@ export interface RawPostgresPersonRepository {
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
 
+    readPerson(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<InternalPerson | undefined>
+
     /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(
         teamId: number,

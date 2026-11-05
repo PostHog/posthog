@@ -77,7 +77,8 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
             // Ignore typing on inputs (default behavior); except Esc key
             const isDOMInput =
                 IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase()) ||
-                (event.target as HTMLElement).isContentEditable
+                (event.target as HTMLElement).isContentEditable ||
+                (event.target as HTMLElement).closest('.monaco-editor') !== null
             if (key !== 'Escape' && (isDOMInput || isToolbarInput(event, IGNORE_INPUTS))) {
                 return
             }

@@ -13,6 +13,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ActivityClientTag } from './ActivityClientTag'
+import { ActivityLogDescription } from './ActivityLogDescription'
 import { ActivityLogDiff } from './ActivityLogDiff'
 import { ACTIVITY_SEARCH_PARAM } from './activityLogLogic'
 import { AgentAttribution } from './AgentAttribution'
@@ -72,7 +73,11 @@ function ExpandedDetails({
 
 function RowSummary({ logItem, isExpanded }: { logItem: HumanizedActivityLogItem; isExpanded: boolean }): JSX.Element {
     if (!logItem.summary) {
-        return <div className="ActivityLogRow__description">{logItem.description}</div>
+        return (
+            <div className="ActivityLogRow__description">
+                <ActivityLogDescription logItem={logItem} />
+            </div>
+        )
     }
 
     return (
@@ -185,7 +190,8 @@ function RowActor({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Eleme
                 <ProfilePicture
                     showName={false}
                     user={{
-                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
+                        first_name:
+                            logItem.isSystem || logItem.wasImpersonated || !logItem.email ? logItem.name : undefined,
                         email: logItem.email ?? undefined,
                     }}
                     type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}

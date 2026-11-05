@@ -322,8 +322,6 @@ export const claudeCodePluginSession: SampleTraceFixture = {
     header: {
         name: 'seo fixes',
         hasError: false,
-        olderHref: '/older',
-        newerHref: null,
         backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {

@@ -102,6 +102,30 @@ describe("WorkspaceMetadataService.markViewed", () => {
   });
 });
 
+describe("WorkspaceMetadataService.markUnread", () => {
+  const activityAt = new Date("2025-12-31T12:00:00.000Z").getTime();
+  const justBefore = new Date(activityAt - 1).toISOString();
+
+  it("puts the last view just before the activity on the workspace row", () => {
+    const { service, repo } = createService();
+    repo.findByTaskId.mockReturnValue({ taskId: "t1" });
+
+    service.markUnread("t1", activityAt);
+
+    expect(repo.updateLastViewedAt).toHaveBeenCalledWith("t1", justBefore);
+  });
+
+  it("records the unread state in task_metadata for a rowless task", () => {
+    const { service, repo, metadataRepo } = createService();
+    repo.findByTaskId.mockReturnValue(undefined);
+
+    service.markUnread("t1", activityAt);
+
+    expect(repo.updateLastViewedAt).not.toHaveBeenCalled();
+    expect(metadataRepo.findByTaskId("t1")?.lastViewedAt).toBe(justBefore);
+  });
+});
+
 describe("WorkspaceMetadataService.markActivity", () => {
   it("uses the current time when the last viewed time is in the past", () => {
     const { service, repo } = createService();

@@ -1,7 +1,7 @@
 import re
 from collections.abc import Callable
 from datetime import UTC
-from typing import ClassVar, Literal, Self, Union
+from typing import Any, ClassVar, Literal, Self, Union, cast
 from uuid import UUID, uuid4
 
 from django.core.cache import cache as django_cache
@@ -349,7 +349,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             "ReadDataToolArgs",
             __base__=BaseModel,
             query=(
-                ReadDataKind,
+                cast(Any, ReadDataKind),
                 Field(discriminator="kind"),
             ),
         )
@@ -452,6 +452,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             insight_id=artifact_or_insight_id,
             insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
             insight_short_id=result.model.short_id if isinstance(result, ModelArtifactResult) else None,
+            saved_query=result.model.query if isinstance(result, ModelArtifactResult) else None,
         )
 
         # The agent wants to read the schema, just return it
@@ -754,6 +755,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     short_id=insight.short_id,
                     db_id=insight.id,
                     layout=tile.layouts,
+                    saved_query=insight.query,
                 )
             )
 
@@ -880,8 +882,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if experiment is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
-        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
-        return await context.format_experiment(experiment)
+        await self.check_object_access(
+            context.object_access_ref(experiment), "viewer", resource="experiment", action="read"
+        )
+        return context.format_experiment(experiment)
 
     async def _read_account(self, account_id: str | None, external_id: str | None) -> str:
         if account_id is None and external_id is None:

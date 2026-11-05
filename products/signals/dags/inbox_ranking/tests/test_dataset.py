@@ -1,3 +1,4 @@
+import json
 import datetime
 from typing import Any
 
@@ -25,6 +26,7 @@ from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag, queries
 from products.signals.dags.inbox_ranking.dataset.dag import (
+    ACTIVITY_SUMMARY_VECTORS_SCHEMA,
     EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
@@ -33,6 +35,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     assemble_model_rows,
     assemble_user_interaction_rows,
     label_provenance_ok,
+    merge_activity_summary_vectors,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
     IMPRESSIONS_SQL,
@@ -402,8 +405,20 @@ def _embedding_row(report_id: str, **overrides):
     }
 
 
+REPORT_CONTENT_COLUMNS = {
+    "chart_count": 2,
+    "metric_count": 1,
+    "suggested_prompt_count": 3,
+    "tag_count": 4,
+    "content_revision_count": 5,
+    "corroboration_count": 6,
+    "user_authored": True,
+    "already_addressed": False,
+}
+
+
 def test_assemble_model_rows_spine_and_join():
-    state = [_state_row("r1"), _state_row("r2")]
+    state = [_state_row("r1", **REPORT_CONTENT_COLUMNS), _state_row("r2")]
     embeddings = [
         _embedding_row("r1"),
         _embedding_row("r2", embedding_small=None, is_tombstone=True),
@@ -431,6 +446,7 @@ def test_assemble_model_rows_spine_and_join():
     assert rows["r1"]["has_embedding"] is True
     assert rows["r1"]["open_count"] == 4
     assert rows["r1"]["label_provenance_ok"] is True
+    assert {column: rows["r1"][column] for column in REPORT_CONTENT_COLUMNS} == REPORT_CONTENT_COLUMNS
     assert rows["r2"]["has_embedding"] is False
     assert rows["r2"]["embedding_small"] is None
     assert rows["r2"]["open_count"] == 0
@@ -541,6 +557,7 @@ class TestSpineInclusion(BaseTest):
         promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
         born_visible = self._report(SignalReport.Status.READY)
         monitoring = self._report(SignalReport.Status.MONITORING)
+        closed = self._report(SignalReport.Status.CLOSED)
         promoted_after_cutoff = self._report(SignalReport.Status.READY, promoted_at=AFTER_SNAPSHOT_END)
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
@@ -551,7 +568,7 @@ class TestSpineInclusion(BaseTest):
             for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
         }
 
-        assert in_spine == {promoted, born_visible, monitoring}
+        assert in_spine == {promoted, born_visible, monitoring, closed}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 
@@ -584,6 +601,82 @@ class TestSpineInclusion(BaseTest):
         assert written["table"].column("report_id").to_pylist() == [consenting]
         assert metadata["excluded_no_training_consent_reports"].value == 2
         assert metadata["excluded_no_training_consent_teams"].value == 2
+
+    def _state_snapshot(self) -> dict[str, dict[str, Any]]:
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+        written: dict[str, Any] = {}
+        with (
+            patch.object(dag, "skip_unconfigured", lambda context: False),
+            patch.object(dag, "tag_dagster_queries", lambda context, query_type: None),
+            patch.object(dag, "labels_team", lambda: self.team),
+            patch.object(dag, "hogql_rows", lambda *args, **kwargs: []),
+            patch.object(dag, "s3_client", lambda: None),
+            patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
+            dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
+        ):
+            dag.inbox_report_state(context)
+        return {row["report_id"]: row for row in written["table"].to_pylist()}
+
+    def test_state_snapshot_counts_report_content_without_failing_on_a_value_that_is_not_a_list(self):
+        populated = self._report(SignalReport.Status.READY)
+        SignalReport.objects.filter(id=populated).update(
+            charts=[{"id": "c1"}, {"id": "c2"}],
+            metrics=[{"id": "m1"}],
+            suggested_prompts=["a", "b", "c"],
+            tags=["x", "y"],
+            content_revision_count=3,
+            corroboration_count=4,
+            user_authored=True,
+        )
+        empty = self._report(SignalReport.Status.READY)
+        not_a_list = self._report(SignalReport.Status.READY)
+        SignalReport.objects.filter(id=not_a_list).update(charts={"id": "c1"}, metrics="metric", suggested_prompts=7)
+
+        rows = self._state_snapshot()
+
+        counts = ("chart_count", "metric_count", "suggested_prompt_count", "tag_count")
+        counters = ("content_revision_count", "corroboration_count")
+        assert {column: rows[populated][column] for column in (*counts, *counters, "user_authored")} == {
+            "chart_count": 2,
+            "metric_count": 1,
+            "suggested_prompt_count": 3,
+            "tag_count": 2,
+            "content_revision_count": 3,
+            "corroboration_count": 4,
+            "user_authored": True,
+        }
+        for report_id in (empty, not_a_list):
+            assert {column: rows[report_id][column] for column in (*counts, *counters)} == dict.fromkeys(
+                (*counts, *counters), 0
+            )
+            assert rows[report_id]["user_authored"] is False
+
+    @parameterized.expand(
+        [
+            ("latest_pre_cutoff_artefact_wins", [(True, T1, None), (False, T2, None)], False),
+            ("edited_after_the_cutoff_is_unknown", [(True, T1, None), (False, T2, AFTER_SNAPSHOT_END)], None),
+            ("created_after_the_cutoff_is_ignored", [(True, T1, None), (False, AFTER_SNAPSHOT_END, None)], True),
+            ("a_value_that_is_not_a_boolean_is_unknown", [("yes", T1, None)], None),
+            ("no_artefact_is_unknown", [], None),
+        ]
+    )
+    def test_state_snapshot_reads_already_addressed_as_of_the_cutoff(self, _name, artefacts, expected):
+        report_id = self._report(SignalReport.Status.READY)
+        # The current value must never leak into a past snapshot.
+        SignalReport.objects.filter(id=report_id).update(latest_already_addressed=True)
+        for already_addressed, created_at, updated_at in artefacts:
+            artefact = SignalReportArtefact.objects.create(
+                team=self.team,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content=json.dumps({"actionability": "immediately_actionable", "already_addressed": already_addressed}),
+            )
+            SignalReportArtefact.objects.filter(id=artefact.id).update(
+                created_at=created_at, updated_at=updated_at or created_at
+            )
+
+        assert self._state_snapshot()[report_id]["already_addressed"] is expected
 
 
 class TestReviewerSnapshot(BaseTest):
@@ -1250,7 +1343,14 @@ def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
 
 
 @pytest.mark.parametrize(
-    "asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings, dag.inbox_signal_embeddings]
+    "asset",
+    [
+        dag.inbox_report_embeddings,
+        dag.inbox_report_title_embeddings,
+        dag.inbox_signal_embeddings,
+        dag.inbox_activity_summary_vectors,
+        dag.inbox_activity_summary_profile_vectors,
+    ],
 )
 @pytest.mark.parametrize("consent_team_ids", [frozenset({2, 7}), frozenset()])
 def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch, asset, consent_team_ids):
@@ -1261,6 +1361,79 @@ def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch,
     else:
         assert "params" not in written
     assert written["table"].num_rows == 0
+
+
+@pytest.mark.parametrize(
+    "asset,table,rendering",
+    [
+        (dag.inbox_activity_summary_vectors, "inbox_activity_summary_vectors", "summary_text"),
+        (dag.inbox_activity_summary_profile_vectors, "inbox_activity_summary_profile_vectors", "summary_profile"),
+    ],
+)
+def test_activity_summary_vectors_read_the_day_and_parse_the_user_from_the_document_id(
+    monkeypatch, asset, table, rendering
+):
+    generated_at = datetime.datetime(2026, 7, 29, 23, 50)
+    written = _run_embeddings_asset(
+        monkeypatch,
+        asset,
+        [
+            (2, "41:2026-07-29", generated_at, [0.5, 0.25], datetime.datetime(2026, 7, 30, 0, 5), 6, 7, "m", "live"),
+            (2, "not-a-user:2026-07-29", generated_at, [0.1], generated_at, 6, 7, "m", "backfill"),
+        ],
+    )
+
+    assert (written["params"]["window_start"], written["params"]["window_end"]) == (
+        datetime.datetime(2026, 7, 29),
+        datetime.datetime(2026, 7, 30),
+    )
+    assert written["params"]["document_types"] == ["activity_summary"]
+    assert written["params"]["rendering"] == rendering
+    assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
+    assert written["table"].schema == ACTIVITY_SUMMARY_VECTORS_SCHEMA
+    assert written["table"].to_pylist() == [
+        {
+            "team_id": 2,
+            "user_id": 41,
+            "document_id": "41:2026-07-29",
+            "generated_date": SNAPSHOT_DATE,
+            "generated_at": generated_at.replace(tzinfo=datetime.UTC),
+            "embedding_small": [0.5, 0.25],
+            "embedding_inserted_at": datetime.datetime(2026, 7, 30, 0, 5, tzinfo=datetime.UTC),
+            "prompt_version": 6,
+            "render_version": 7,
+            "model": "m",
+            "source": "live",
+        }
+    ]
+
+
+def test_an_activity_vectors_re_run_keeps_expired_rows_and_drops_teams_without_consent():
+    def vectors(rows: list[tuple[int, str, float]]) -> pa.Table:
+        return pa.Table.from_pylist(
+            [
+                {
+                    "team_id": team_id,
+                    "user_id": int(document_id.split(":")[0]),
+                    "document_id": document_id,
+                    "generated_date": SNAPSHOT_DATE,
+                    "embedding_small": [value],
+                }
+                for team_id, document_id, value in rows
+            ],
+            schema=ACTIVITY_SUMMARY_VECTORS_SCHEMA,
+        )
+
+    existing = vectors([(2, "1:2026-07-29", 0.1), (2, "2:2026-07-29", 0.2), (7, "3:2026-07-29", 0.3)])
+    fresh = vectors([(2, "1:2026-07-29", 0.9), (2, "4:2026-07-29", 0.4)])
+
+    merged = merge_activity_summary_vectors(existing, fresh, frozenset({2}))
+
+    assert sorted(zip(merged.column("document_id").to_pylist(), merged.column("embedding_small").to_pylist())) == [
+        ("1:2026-07-29", [pytest.approx(0.9)]),
+        ("2:2026-07-29", [pytest.approx(0.2)]),
+        ("4:2026-07-29", [pytest.approx(0.4)]),
+    ]
 
 
 def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
@@ -1275,7 +1448,10 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_user_vectors,
             dag.inbox_engagement_export,
+            dag.inbox_activity_summary_vectors,
+            dag.inbox_activity_summary_profile_vectors,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1284,7 +1460,10 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.USER_VECTORS_TABLE,
         dag.ENGAGEMENT_EXPORT,
+        dag.ACTIVITY_SUMMARY_VECTORS_TABLE,
+        dag.ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

@@ -1454,6 +1454,30 @@ class TestStagedIncrementalCursor:
 
     @parameterized.expand(
         [
+            # A run that read only above the stored watermark saw none of the older rows of the table.
+            # Its oldest row as the earliest value makes the next run read the whole table below it again.
+            ("a_forward_only_run_sets_no_earliest_value", {"incremental_field_last_value": 90}, None),
+            ("the_first_run_sets_the_earliest_value", {}, 5),
+            (
+                "a_backfill_below_the_stored_earliest_value_advances_it",
+                {"incremental_field_last_value": 90, "incremental_field_earliest_value": 40},
+                5,
+            ),
+        ]
+    )
+    def test_promote_sets_the_earliest_value_unless_the_watermark_has_none(
+        self, _name: str, stored: dict[str, Any], expected_earliest: int | None
+    ) -> None:
+        schema = self._make_schema(
+            **stored, incremental_staged={"run_uuid": "run-1", "last_value": 99, "earliest_value": 5}
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 99
+        assert schema.sync_type_config.get("incremental_field_earliest_value") == expected_earliest
+
+    @parameterized.expand(
+        [
             ("older_epoch_keeps_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00+00:00", 1767225600),
             ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
             ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),

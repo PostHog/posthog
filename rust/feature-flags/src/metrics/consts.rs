@@ -425,6 +425,9 @@ pub const FLAG_REQUEST_BLOCKED_COUNTER: &str = "flags_request_blocked_total";
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
+// One count per /flags request, labeled `outcome` and `needs_persons`.
+pub const FLAG_REQUEST_OUTCOME_COUNTER: &str = "flags_request_outcome_total";
+
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 

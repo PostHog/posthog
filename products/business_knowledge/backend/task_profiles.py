@@ -1,7 +1,10 @@
 from products.tasks.backend.facade.profiles import (
     AccessGate,
     DrivePolicy,
+    GithubAccess,
     GithubResolution,
+    NetworkAccess,
+    NetworkPolicy,
     OAuthApp,
     PrAuthorship,
     Read,
@@ -9,7 +12,7 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
-from .constants import BK_MCP_SCOPES, MAX_OPEN_RUNS_PER_OWNER
+from .constants import BK_HIDDEN_TOOLS, BK_MCP_SCOPES, MAX_OPEN_RUNS_PER_OWNER
 
 BUSINESS_KNOWLEDGE = TaskProfile(
     key="business_knowledge",
@@ -26,15 +29,19 @@ BUSINESS_KNOWLEDGE = TaskProfile(
     warm=None,
     runtimes=("acp",),
     sandbox_templates=("default_base",),
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,)),
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_agent=None,
     mcp_scopes=BK_MCP_SCOPES,
     mcp_store_servers=False,
+    mcp_exclude_tools=BK_HIDDEN_TOOLS,
     oauth_app=OAuthApp.ARRAY,
-    github_resolution=GithubResolution.ALWAYS,
+    github_resolution=GithubResolution.WITH_REPOSITORY,
+    github_access=GithubAccess.WRITE,
     user_authorable_prs=False,
     default_pr_authorship=PrAuthorship.BOT,
+    create_pr=False,
     finish_tool=False,
     done_on_turn_close=False,
     idle_minutes=30,
