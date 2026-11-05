@@ -7,3 +7,11 @@ class KnowledgeUsageByTeam:
 
     chunks: list[tuple[int, int]]
     queries: list[tuple[int, int]]
+
+
+@frozen
+class KnowledgeHit:
+    document_title: str
+    heading_path: str
+    url: str
+    content: str

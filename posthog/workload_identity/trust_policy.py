@@ -3,17 +3,19 @@ token.
 
 A policy hands out tokens that act as the organization owner, so it is a standing credential. Only an
 organization admin or owner can read or write one, and writes need a browser session with recent
-authentication, so no token can create or widen a policy.
+authentication, so no token can create or widen a policy. Any member can ask for a policy through a request.
 """
 
 import json
+import functools
 from typing import Any, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,17 +24,27 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.oauth import OAuthApplication
 from posthog.models.workload_trust_policy import (
     CONDITION_VALUE_MAX_LENGTH,
     CONDITIONS_MAX_BYTES,
     WorkloadTrustPolicy,
+    WorkloadTrustPolicyRequest,
     workload_trust_policy_grantable_scopes,
+    workload_trust_policy_request_url,
     workload_trust_policy_scopes_not_grantable,
 )
-from posthog.permissions import OrganizationAdminReadPermissions, TimeSensitiveActionPermission
+from posthog.organization_caching import get_cached_organization_membership
+from posthog.permissions import (
+    OrganizationAdminReadPermissions,
+    TimeSensitiveActionPermission,
+    get_organization_from_view,
+    get_required_organization_membership,
+)
+from posthog.rate_limit import WorkloadTrustPolicyRequestBurstThrottle, WorkloadTrustPolicyRequestSustainedThrottle
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
@@ -41,6 +53,8 @@ from posthog.workload_identity.providers import (
     get_workload_provider_by_issuer,
     normalize_issuer,
 )
+
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
@@ -167,25 +181,6 @@ class CIScopeListField(serializers.ListField):
 
 
 class WorkloadConditionsSerializerMixin(serializers.Serializer):
-    def validate_issuer(self, value: str) -> str:
-        provider = get_workload_provider_by_issuer(value)
-        if provider is None:
-            raise serializers.ValidationError("This issuer isn't a supported workload provider.")
-        return normalize_issuer(provider.issuer)
-
-    def validate_subject_name(self, value: str) -> str:
-        return _validate_exact_value(value, FALLBACK_SUBJECT_NAME_LABEL)
-
-    def validate_subject(self, value: str) -> str:
-        return _validate_exact_value(value, FALLBACK_SUBJECT_LABEL)
-
-    @extend_schema_field(WorkloadClaimLabelsSerializer)
-    def get_claim_labels(self, instance: Any) -> dict[str, Any]:
-        return workload_claim_labels(instance.issuer)
-
-
-class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
-    name = serializers.CharField(max_length=200, help_text="A name that says what the policy is for.")
     issuer = serializers.CharField(
         max_length=255,
         help_text="The OIDC issuer of the workload provider, from the list of supported providers.",
@@ -215,6 +210,30 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
     claim_labels = serializers.SerializerMethodField(
         help_text="How the provider names the subject, the subject name and each condition claim, for display."
     )
+
+    def get_provider(self, instance: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> str | None:
+        provider = get_workload_provider_by_issuer(instance.issuer)
+        return provider.key if provider else None
+
+    def validate_issuer(self, value: str) -> str:
+        provider = get_workload_provider_by_issuer(value)
+        if provider is None:
+            raise serializers.ValidationError("This issuer isn't a supported workload provider.")
+        return normalize_issuer(provider.issuer)
+
+    def validate_subject_name(self, value: str) -> str:
+        return _validate_exact_value(value, FALLBACK_SUBJECT_NAME_LABEL)
+
+    def validate_subject(self, value: str) -> str:
+        return _validate_exact_value(value, FALLBACK_SUBJECT_LABEL)
+
+    @extend_schema_field(WorkloadClaimLabelsSerializer)
+    def get_claim_labels(self, instance: Any) -> dict[str, Any]:
+        return workload_claim_labels(instance.issuer)
+
+
+class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
+    name = serializers.CharField(max_length=200, help_text="A name that says what the policy is for.")
     scopes = CIScopeListField(
         help_text=(
             "The scopes every token minted under this policy carries. Scopes that manage credentials or access "
@@ -244,10 +263,6 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
             "updated_at",
         ]
         read_only_fields = ["id", "provider", "claim_labels", "created_by", "created_at", "updated_at"]
-
-    def get_provider(self, policy: WorkloadTrustPolicy) -> str | None:
-        provider = get_workload_provider_by_issuer(policy.issuer)
-        return provider.key if provider else None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = validate_workload_trust_conditions(attrs, instance=self.instance)
@@ -309,6 +324,24 @@ class WorkloadProvidersResponseSerializer(serializers.Serializer):
     )
 
 
+def notify_admins_of_policy_change(
+    team_id: int, policy_id: str, name: str, change: WorkloadTrustPolicyChange, actor_user_id: int | None
+) -> None:
+    # The change already happened, so a broker outage must not turn it into an error response.
+    transaction.on_commit(
+        lambda: send_workload_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
+    )
+
+
+class DenyWorkloadAccessToken(BasePermission):
+    """A workload token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
+
+    message = "Workload tokens can't use workload trust policy endpoints."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
 class NotImpersonatedWritePermission(BasePermission):
     """A policy is a standing credential that acts as the owner, so staff impersonating a member can read
     policies but not change them, or ask for them."""
@@ -340,6 +373,7 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = WorkloadTrustPolicySerializer
     lookup_field = "id"
     permission_classes = [
+        DenyWorkloadAccessToken,
         BrowserSessionWritePermission,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
@@ -351,28 +385,16 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         policy = serializer.save(created_by=self.request.user)
-        self._notify_admins(policy, "created")
+        notify_admins_of_policy_change(self.team_id, str(policy.pk), policy.name, "created", self.request.user.pk)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         policy = serializer.save()
-        self._notify_admins(policy, "updated")
+        notify_admins_of_policy_change(self.team_id, str(policy.pk), policy.name, "updated", self.request.user.pk)
 
     def perform_destroy(self, instance: WorkloadTrustPolicy) -> None:
         policy_id, name = str(instance.pk), instance.name
         instance.delete()
-        self._notify_admins_of(policy_id, name, "deleted")
-
-    def _notify_admins(self, policy: WorkloadTrustPolicy, change: WorkloadTrustPolicyChange) -> None:
-        self._notify_admins_of(str(policy.pk), policy.name, change)
-
-    def _notify_admins_of(self, policy_id: str, name: str, change: WorkloadTrustPolicyChange) -> None:
-        team_id = self.team_id
-        actor_user_id = cast(User, self.request.user).pk
-        # The change already happened, so a broker outage must not turn it into an error response.
-        transaction.on_commit(
-            lambda: send_workload_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id),
-            robust=True,
-        )
+        notify_admins_of_policy_change(self.team_id, policy_id, name, "deleted", self.request.user.pk)
 
     @extend_schema(responses={200: WorkloadProvidersResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["workload_trust_policy:read"], pagination_class=None)
@@ -384,3 +406,259 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
         return Response(WorkloadProvidersResponseSerializer(payload).data)
+
+
+def requesting_application(request: Request) -> OAuthApplication | None:
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return authenticator.access_token.application
+    return None
+
+
+class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
+    name = serializers.CharField(max_length=200, help_text="The name the policy gets once approved.")
+    provider_name = serializers.SerializerMethodField(help_text="The display name of the workload provider, or null.")
+    scopes = CIScopeListField(help_text="The scopes the policy's tokens would carry.")
+    status = serializers.SerializerMethodField(help_text="Where the request stands. A request expires after 24 hours.")
+    requested_via = serializers.SerializerMethodField(
+        help_text="The name of the OAuth app the request came through, or null for other credentials."
+    )
+    requested_via_verified = serializers.SerializerMethodField(
+        help_text="Whether PostHog verified the OAuth app the request came through, or null for other credentials."
+    )
+    approval_url = serializers.SerializerMethodField(help_text="The link to send to an admin to approve the request.")
+    can_approve = serializers.SerializerMethodField(
+        help_text="Whether the current user's role lets them approve the request, in the browser."
+    )
+    approvers = serializers.SerializerMethodField(
+        help_text="Names of the organization admins and owners who can approve, when the current user cannot."
+    )
+    risky_scopes = serializers.SerializerMethodField(
+        help_text="What each risky scope in the request lets a token do, keyed by scope. Show it before approving."
+    )
+    requested_by = UserBasicSerializer(read_only=True, allow_null=True)
+    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
+    policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
+
+    class Meta:
+        model = WorkloadTrustPolicyRequest
+        fields = [
+            "id",
+            "name",
+            "issuer",
+            "provider",
+            "provider_name",
+            "subject_name",
+            "subject",
+            "conditions",
+            "claim_labels",
+            "scopes",
+            "risky_scopes",
+            "status",
+            "approval_url",
+            "can_approve",
+            "approvers",
+            "requested_by",
+            "requested_via",
+            "requested_via_verified",
+            "created_at",
+            "expires_at",
+            "resolved_by",
+            "resolved_at",
+            "policy_id",
+        ]
+        read_only_fields = [
+            "id",
+            "provider",
+            "provider_name",
+            "claim_labels",
+            "risky_scopes",
+            "status",
+            "approval_url",
+            "can_approve",
+            "approvers",
+            "requested_by",
+            "requested_via",
+            "requested_via_verified",
+            "created_at",
+            "expires_at",
+            "resolved_by",
+            "resolved_at",
+            "policy_id",
+        ]
+        extra_kwargs = {
+            "created_at": {"help_text": "When the request was made."},
+            "expires_at": {"help_text": "When a pending request stops being approvable."},
+            "resolved_at": {"help_text": "When an admin approved or rejected the request."},
+        }
+
+    def get_requested_via(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
+        application = policy_request.requested_via_application
+        return application.name if application else None
+
+    def get_requested_via_verified(self, policy_request: WorkloadTrustPolicyRequest) -> bool | None:
+        application = policy_request.requested_via_application
+        return bool(application.is_verified or application.is_first_party) if application else None
+
+    def get_provider_name(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
+        provider = get_workload_provider_by_issuer(policy_request.issuer)
+        return provider.name if provider else None
+
+    @extend_schema_field(serializers.ChoiceField(choices=WorkloadTrustPolicyRequest.Status.choices))
+    def get_status(self, policy_request: WorkloadTrustPolicyRequest) -> str:
+        return policy_request.effective_status
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_risky_scopes(self, policy_request: WorkloadTrustPolicyRequest) -> dict[str, str]:
+        return {scope: RISKY_SCOPE_WARNINGS[scope] for scope in policy_request.scopes if scope in RISKY_SCOPE_WARNINGS}
+
+    def get_approval_url(self, policy_request: WorkloadTrustPolicyRequest) -> str:
+        return workload_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))
+
+    def get_can_approve(self, policy_request: WorkloadTrustPolicyRequest) -> bool:
+        return bool(self.context["can_approve"])
+
+    def get_approvers(self, policy_request: WorkloadTrustPolicyRequest) -> list[str]:
+        return [] if self.context["can_approve"] else self.context["approvers"]()
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return validate_workload_trust_conditions(attrs)
+
+
+class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
+    """Approving or rejecting a request needs an organization admin or owner in a browser session. Asking
+    for a policy is open to every member, so the check applies to the resolving actions only."""
+
+    message = (
+        "Only an organization admin or owner can approve or reject a workload trust policy request, in the PostHog app."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in WorkloadTrustPolicyRequestViewSet.RESOLVING_ACTIONS:
+            return True
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return False
+        membership = get_required_organization_membership(request, get_organization_from_view(view))
+        return membership.level >= OrganizationMembership.Level.ADMIN
+
+
+def resolve_workload_trust_policy_request(
+    *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
+) -> WorkloadTrustPolicyRequest:
+    """Approve or reject a pending request. Approving creates the policy from the request's own values,
+    checked again against today's rules, in the same transaction that marks the request approved."""
+    with transaction.atomic():
+        policy_request = WorkloadTrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
+        if policy_request.effective_status != WorkloadTrustPolicyRequest.Status.PENDING:
+            raise serializers.ValidationError(f"This request is {policy_request.effective_status} and can't change.")
+        if approve:
+            policy_serializer = WorkloadTrustPolicySerializer(
+                data={
+                    field: getattr(policy_request, field)
+                    for field in ("name", "issuer", "subject_name", "subject", "conditions", "scopes")
+                },
+                context=policy_serializer_context,
+            )
+            policy_serializer.is_valid(raise_exception=True)
+            policy_request.policy = policy_serializer.save(created_by=resolver)
+        policy_request.status = (
+            WorkloadTrustPolicyRequest.Status.APPROVED if approve else WorkloadTrustPolicyRequest.Status.REJECTED
+        )
+        policy_request.resolved_by = resolver
+        policy_request.resolved_at = timezone.now()
+        policy_request.save()
+    return policy_request
+
+
+@extend_schema(extensions={"x-product": "core"})
+class WorkloadTrustPolicyRequestViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    RESOLVING_ACTIONS = frozenset({"approve", "reject"})
+
+    scope_object = "workload_trust_policy_request"
+    queryset = WorkloadTrustPolicyRequest.objects.unscoped()
+    serializer_class = WorkloadTrustPolicyRequestSerializer
+    lookup_field = "id"
+    permission_classes = [
+        DenyWorkloadAccessToken,
+        NotImpersonatedWritePermission,
+        TimeSensitiveActionPermission,
+        WorkloadTrustPolicyRequestResolutionPermission,
+    ]
+    # Asking for a policy grants nothing, so it never needs a fresh login. Approving and rejecting do.
+    time_sensitive_exclude_actions = ["create"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return (
+            WorkloadTrustPolicyRequest.objects.all()
+            .select_related("requested_by", "resolved_by", "requested_via_application")
+            .order_by("-created_at")
+        )
+
+    def get_throttles(self) -> list[Any]:
+        if self.action == "create":
+            return [WorkloadTrustPolicyRequestBurstThrottle(), WorkloadTrustPolicyRequestSustainedThrottle()]
+        return super().get_throttles()
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        organization_id = self.organization.id
+        membership = get_cached_organization_membership(organization_id, cast(User, self.request.user))
+        context["can_approve"] = membership is not None and membership.level >= OrganizationMembership.Level.ADMIN
+
+        @functools.cache
+        def approvers() -> list[str]:
+            memberships = (
+                OrganizationMembership.objects.filter(
+                    organization_id=organization_id,
+                    level__gte=OrganizationMembership.Level.ADMIN,
+                    user__is_active=True,
+                )
+                .select_related("user")
+                .order_by("-level", "joined_at")
+            )
+            # Name only the admins this reader could see in the members list, when the organization hides it.
+            visible_membership_ids = restricted_visible_membership_ids(self.organization, cast(User, self.request.user))
+            if visible_membership_ids is not None:
+                memberships = memberships.filter(id__in=visible_membership_ids)
+            return [membership.user.get_full_name() or membership.user.email for membership in memberships]
+
+        context["approvers"] = approvers
+        return context
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        serializer.save(
+            team=self.team,
+            requested_by=self.request.user,
+            requested_via_application=requesting_application(self.request),
+        )
+
+    def _resolve(self, approve: bool) -> Response:
+        policy_request = self.get_object()
+        resolved = resolve_workload_trust_policy_request(
+            team_id=policy_request.team_id,
+            request_id=str(policy_request.pk),
+            approve=approve,
+            resolver=cast(User, self.request.user),
+            policy_serializer_context=self.get_serializer_context(),
+        )
+        if resolved.policy is not None:
+            notify_admins_of_policy_change(
+                self.team_id, str(resolved.policy.pk), resolved.policy.name, "created", self.request.user.pk
+            )
+        return Response(self.get_serializer(resolved).data)
+
+    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
+    def approve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._resolve(approve=True)
+
+    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
+    def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._resolve(approve=False)

@@ -23,7 +23,7 @@ the request while previously loaded pages remain visible. The load-more retry re
 
 | Domain                           | Module                                                                   | Endpoints                                                                                                                                                                                                                                                                                                                                                                         | Notes                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | [AUTH.md](AUTH.md)                                                                |
+| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | Account and organization membership                                               |
 | OAuth                            | `src/auth/oauth.ts`                                                      | `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`                                                                                                                                                                                                                                                                                                                               | PKCE public client                                                                |
 | Inbox and reports                | `src/api/reports.ts`                                                     | `signals/reports/?view=for_you&sort=priority`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/`                                                                                                                                                                                                               | [DATA.md](DATA.md)                                                                |
 | Today                            | `src/api/today.ts`                                                       | `today/reports/{id}/page/`                                                                                                                                                                                                                                                                                                                                                        | 403 or 404 means the project lacks Today; the report screen shows signals instead |
@@ -42,7 +42,7 @@ the request while previously loaded pages remain visible. The load-more retry re
 time, the request is canceled and the caller gets a timeout error. Reviewer edits load artefact pages until the latest
 reviewer assignment is found before sending the replacement list, so GitHub-only reviewers remain assigned.
 
-OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`, listed in [AUTH.md](AUTH.md#scopes).
+OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`.
 
 ### Error tracking and replay scopes
 
@@ -58,7 +58,7 @@ The app asks for five more scopes for the Errors and Sessions screens. Views, th
 
 `session_recording:write` is never requested: the phone does not change or delete recordings.
 `ERRORS_SCOPES` and `REPLAY_SCOPES` in `src/api/scopeErrors.ts` hold the same lists, and `useFeatureAccess('errors' | 'replay')` reads them.
-A server that drops a scope (the OAuth application's ceiling, see [AUTH.md](AUTH.md#server-side-ceiling)) gets the feature's "isn't available yet" state, not a broken screen.
+A server that drops a scope (the OAuth application's ceiling) gets the feature's "isn't available yet" state, not a broken screen.
 
 ## Error tracking
 

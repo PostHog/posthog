@@ -35,7 +35,7 @@ export function PinButton({ target, match }: PinButtonProps): ReactElement {
     const actions = usePinActions()
     const { pins } = usePins()
     const key = shortcutMatchKey(match.kind, match.ref)
-    const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.type, pin.ref) === key)
+    const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.kind, pin.ref) === key)
     const pinned = Boolean(pinView)
     const { toast, show, hide } = useToasts()
     // Undo runs after the list changed, so it reads the latest pin, not the one from the render that showed the toast.
