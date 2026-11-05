@@ -70,4 +70,14 @@ describe('reportLinkScope', () => {
         rerender({})
         expect(result.current).toBe('elsewhere')
     })
+
+    test('drops the browser offer once the screen opens a report of its own project', () => {
+        useAuthStore.setState(AUTH)
+        const { result, rerender } = renderHook((link: ReportLink) => useReportLinkScope(link), {
+            initialProps: { projectId: 2, host: 'eu.posthog.com' },
+        })
+        expect(result.current).toBe('elsewhere')
+        rerender({ projectId: null, host: null })
+        expect(result.current).toBe('ready')
+    })
 })

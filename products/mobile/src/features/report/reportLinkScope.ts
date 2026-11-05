@@ -47,7 +47,11 @@ export function reportLinkScope(link: ReportLink, auth: ScopeAuth): ReportLinkSc
     return auth.accountError !== null ? 'unverified' : 'elsewhere'
 }
 
-/** Switches to the link's project before the report loads. The first decided scope holds, so it never switches back. */
+/**
+ * Switches to the link's project before the report loads. The first decided scope holds for that link, so it never
+ * switches back. A different link starts over, because the route keeps the screen mounted when the inbox pane
+ * selects another report.
+ */
 export function useReportLinkScope(link: ReportLink): ReportLinkScope {
     const demo = useDataMode() === 'demo'
     const auth = useAuthStore(
@@ -60,8 +64,10 @@ export function useReportLinkScope(link: ReportLink): ReportLinkScope {
             accountError: state.accountError,
         }))
     )
-    const settled = useRef<ReportLinkScope | null>(null)
-    const scope = demo ? 'ready' : (settled.current ?? reportLinkScope(link, auth))
+    const key = `${link.projectId ?? ''}@${link.host ?? ''}`
+    const settled = useRef<{ key: string; scope: ReportLinkScope } | null>(null)
+    const remembered = settled.current?.key === key ? settled.current.scope : null
+    const scope = demo ? 'ready' : (remembered ?? reportLinkScope(link, auth))
     const switchTo = scope === 'pending' && auth.projects.some((p) => p.id === link.projectId) ? link.projectId : null
 
     useEffect(() => {
@@ -73,9 +79,9 @@ export function useReportLinkScope(link: ReportLink): ReportLinkScope {
     // `pending` and `unverified` both wait on a load, so a later account reload still decides them.
     useEffect(() => {
         if (scope === 'ready' || scope === 'elsewhere') {
-            settled.current = scope
+            settled.current = { key, scope }
         }
-    }, [scope])
+    }, [key, scope])
 
     return scope
 }
