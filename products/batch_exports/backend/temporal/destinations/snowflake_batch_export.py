@@ -1192,8 +1192,9 @@ class SnowflakeClient:
             SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
                 perform this operation.
         """
+        # use TRY_PARSE_JSON to prevent the whole COPY failing on one malformed value
         select_fields = ", ".join(
-            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
+            f"TRY_PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
             else f"$1:{_quote_snowflake_identifier(field.name)}"
             for field in table
