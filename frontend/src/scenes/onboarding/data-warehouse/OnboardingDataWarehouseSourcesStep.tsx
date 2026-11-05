@@ -11,7 +11,6 @@ import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic
 import { OnboardingStep } from '../OnboardingStep'
 
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
-    const { flowVariant } = useValues(onboardingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     return (
@@ -24,7 +23,7 @@ export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = (
         >
             <InlineSourceSetup
                 onComplete={() => {
-                    reportOnboardingStepCompleted(OnboardingStepKey.LINK_DATA, flowVariant)
+                    reportOnboardingStepCompleted(OnboardingStepKey.LINK_DATA)
                     goToNextStep()
                 }}
                 featured

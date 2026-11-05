@@ -98,6 +98,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
+        'outcome-monitoring': useSectionState('outcome-monitoring'),
         resolved: useSectionState('resolved'),
         closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
