@@ -753,6 +753,11 @@ class TestFinestTimeBucket(SimpleTestCase):
         [
             ("no_bucket", "select count() from events", None),
             (
+                "filter_bucket_is_not_a_result_bucket",
+                "select count() from events where timestamp >= toStartOfMonth(now())",
+                None,
+            ),
+            (
                 "relative_window_is_not_a_bucket",
                 "select count() from events where timestamp > now() - interval 1 hour",
                 None,
@@ -825,6 +830,12 @@ class TestHogQLQueryRunnerStaleness(BaseTest):
         [
             ("no_bucket_fresh_after_ten_minutes", "select count() from events", timedelta(minutes=10), False),
             ("no_bucket_stale_after_seven_hours", "select count() from events", timedelta(hours=7), True),
+            (
+                "filter_bucket_stale_after_seven_hours",
+                "select count() from events where timestamp >= toStartOfMonth(now())",
+                timedelta(hours=7),
+                True,
+            ),
             (
                 "hourly_stale_after_an_hour",
                 "select toStartOfHour(timestamp) as h, count() from events group by h",

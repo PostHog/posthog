@@ -86,6 +86,19 @@ class TimeBucketCollector(TraversingVisitor):
         self.buckets: set[str] = set()
         self.filter_interval = filter_interval
 
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for cte in (node.ctes or {}).values():
+            self.visit(cte)
+        self.visit(node.select_from)
+        for expr in node.select:
+            self.visit(expr)
+        for expr in node.group_by or []:
+            self.visit(expr)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        self.visit(node.table)
+        self.visit(node.next_join)
+
     def visit_call(self, node: ast.Call) -> None:
         bucket = self._bucket_of(node)
         if bucket:
