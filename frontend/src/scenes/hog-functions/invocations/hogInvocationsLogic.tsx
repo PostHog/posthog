@@ -308,15 +308,21 @@ export const resolveDateRange = (filters: {
 /**
  * Inline date predicate for the inner subquery's WHERE clause. `filtersOverride`
  * doesn't bind to a timestamp field on `hog_invocation_results` (no marker on
- * the schema), so we apply the window directly. UTC + the CH DateTime64 literal
- * format keeps partition pruning working.
+ * the schema), so we apply the window directly.
+ *
+ * The window matches a run by its start. Every lifecycle row of a run shares
+ * `first_scheduled_at`, so the run collapses to its final status in one range. There is
+ * no `scheduled_at` bound, because a run with a delay step writes rows on later days and
+ * a rescheduled row can land before the run's start. Keep this in step with the history
+ * API and the rerun paginator, which match the same window, so that the list, the chart,
+ * the rerun count and a rerun all select the same runs.
  */
 export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof hogql.raw> => {
     const { start, end } = resolveDateRange(filters)
     // Format the window bounds in the team tz — NOT UTC — or the filter is shifted
     // by the team's offset for any non-UTC project. Mirrors `toAbsoluteClickhouseTimestamp`.
     const fmt = (d: dayjs.Dayjs): string => d.tz(teamTimezone()).format('YYYY-MM-DD HH:mm:ss.SSS')
-    return hogql.raw(`AND scheduled_at >= '${fmt(start)}' AND scheduled_at < '${fmt(end)}'`)
+    return hogql.raw(`AND first_scheduled_at >= '${fmt(start)}' AND first_scheduled_at < '${fmt(end)}'`)
 }
 
 /**
@@ -352,7 +358,7 @@ export const parentClauseFor = (props: HogInvocationsLogicProps): ReturnType<typ
  * Optional predicate restricting to invocations that logged an error/warning entry. Uses a
  * `log_entries` subquery (resolved server-side, so no client-side id list) keyed by the same
  * source the per-row logs use. Deliberately not date-scoped: a bounce/complaint can land after
- * the run's scheduled window, and the outer `scheduled_at` filter already constrains which
+ * the run's scheduled window, and the outer run-start filter already constrains which
  * invocations appear. Returns an empty clause when the filter is off.
  */
 export const problemClauseFor = (
@@ -378,7 +384,7 @@ export const problemClauseFor = (
  * (e.g. the "Bounced" tile carries WARN/ERROR so it doesn't also match the INFO "Email sent to
  * bounce@…" log); manual searches leave it unset and match any level. The message subquery is
  * deliberately not date-scoped — a bounce/complaint can land after the run's scheduled window, and
- * the outer `scheduled_at` filter already bounds which invocations appear. Empty when no search.
+ * the outer run-start filter already bounds which invocations appear. Empty when no search.
  */
 export const buildSearchClause = (
     props: HogInvocationsLogicProps,
