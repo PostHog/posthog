@@ -35,7 +35,7 @@ export function RepositoryProjectCell({
     const name = entry.full_name
     const savingReason = busyRepositories.includes(name) ? 'Saving…' : undefined
     const takeable = canTakeFromOtherProject(entry, installation)
-    const canInclude = canEdit && (entry.owner === 'none' || takeable)
+    const canInclude = entry.owner === 'none' ? canEdit || installation?.scope === 'selected' : canEdit && takeable
     const canRemove = canEdit && entry.in_project && entry.selected && installation?.scope !== 'all'
     // An exception row puts the switch on the line of its select, so each row keeps one draft control.
     const draftsOnStatusLine = entry.in_project && entry.exception === null
@@ -66,20 +66,23 @@ export function RepositoryProjectCell({
     } else if (entry.exception === null) {
         // A row on the project rule carries no text, only the project icon: the project default above says the rest once.
         const projectRule = FLASH_FOR_OPTIONS.find((option) => option.value === projectFlashFor)?.label
-        const addExceptionButton = canEdit ? (
-            <LemonButton
-                size="xsmall"
-                type="secondary"
-                icon={<IconPlus />}
-                tooltip="Add an exception, starting from the project default"
-                aria-label={`Add exception for ${name}`}
-                onClick={() => addException(entry)}
-                disabledReason={savingReason}
-                data-attr="review-hog-repository-add-exception"
-            >
-                Exception
-            </LemonButton>
-        ) : null
+        // Below "everyone" the button turns the repository on, which any member may do. At "everyone" an
+        // exception can only narrow the repository, so only admins get the button.
+        const turnsOn = projectFlashFor !== 'everyone'
+        const addExceptionButton =
+            turnsOn || canEdit ? (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    aria-label={turnsOn ? `Turn on automatic reviews for ${name}` : `Add exception for ${name}`}
+                    onClick={() => addException(entry)}
+                    disabledReason={savingReason}
+                    data-attr="review-hog-repository-add-exception"
+                >
+                    {turnsOn ? 'Turn on' : 'Exception'}
+                </LemonButton>
+            ) : null
         status = (
             <>
                 <Tooltip title={`Follows the project default: ${projectRule?.toLowerCase()}`}>
