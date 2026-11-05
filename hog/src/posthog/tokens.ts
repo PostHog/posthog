@@ -35,27 +35,55 @@ function tokenProblem(value: string, name: string, rule: string): string {
         : `This doesn't look like ${name}: it must ${rule}.`
 }
 
+// For a token that starts with its prefix: what is wrong with the rest of it.
+function bodyProblem(value: string, prefix: string, noun: string): string | undefined {
+    const body = value.slice(prefix.length)
+    if (body === '') {
+        return `The ${noun} is cut off: nothing follows ${prefix}.`
+    }
+    return TOKEN_BODY.test(body)
+        ? undefined
+        : `The ${noun} has characters a token can't have, such as a space or a quote. Copy it again.`
+}
+
 function tokenSchema(kind: TokenKind): z.ZodString {
     const { prefix, name } = TOKEN_KINDS[kind]
     const noun = name.replace(/^an? /, '')
     return z.string({ error: `The ${noun} must be text.` }).check((ctx) => {
         const value = ctx.value
-        const body = value.slice(prefix.length)
-        const problem = !value.startsWith(prefix)
-            ? tokenProblem(value, name, `start with ${prefix}`)
-            : body === ''
-              ? `The ${noun} is cut off: nothing follows ${prefix}.`
-              : !TOKEN_BODY.test(body)
-                ? `The ${noun} has characters a token can't have, such as a space or a quote. Copy it again.`
-                : undefined
+        const problem = value.startsWith(prefix)
+            ? bodyProblem(value, prefix, noun)
+            : tokenProblem(value, name, `start with ${prefix}`)
         if (problem) {
             ctx.issues.push({ code: 'custom', input: value, message: problem })
         }
     })
 }
 
+// PostHog also accepts a custom project token without the prefix, so only an empty token or one
+// with another kind's prefix fails.
+function projectTokenProblem(value: string): string | undefined {
+    const { prefix, name } = TOKEN_KINDS.projectToken
+    if (value.startsWith(prefix)) {
+        return bodyProblem(value, prefix, 'project token')
+    }
+    const other = PREFIX_NAMES[value.slice(0, 4)]
+    if (other) {
+        return `This is ${other}, not ${name}.`
+    }
+    return value === '' ? 'The project token is empty.' : undefined
+}
+
 export const PersonalApiKeySchema = tokenSchema('personalApiKey').brand<'PersonalApiKey'>()
-export const ProjectTokenSchema = tokenSchema('projectToken').brand<'ProjectToken'>()
+export const ProjectTokenSchema = z
+    .string({ error: 'The project token must be text.' })
+    .check((ctx) => {
+        const problem = projectTokenProblem(ctx.value)
+        if (problem) {
+            ctx.issues.push({ code: 'custom', input: ctx.value, message: problem })
+        }
+    })
+    .brand<'ProjectToken'>()
 export const ProjectSecretApiKeySchema = tokenSchema('projectSecretApiKey').brand<'ProjectSecretApiKey'>()
 export const TeamSecretTokenSchema = tokenSchema('teamSecretToken').brand<'TeamSecretToken'>()
 export const OAuthAccessTokenSchema = tokenSchema('oauthAccessToken').brand<'OAuthAccessToken'>()
