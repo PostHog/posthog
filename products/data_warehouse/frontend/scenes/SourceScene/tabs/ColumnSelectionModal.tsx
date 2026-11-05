@@ -66,6 +66,8 @@ interface UseColumnSelectionResult {
     isSyncKey: (name: string) => boolean
     toggleMask: (name: string) => void
     missingMasked: string[]
+    /** The schema whose saved selection and masks the state holds, once the reset effect has run. */
+    loadedSchemaId: string | null
     suggestedColumns: string[]
     maskSuggested: () => void
     persistedSelection: () => string[] | null
@@ -87,12 +89,14 @@ function useColumnSelection(
     const [selected, setSelected] = useState<Set<string> | null>(null)
     const [masked, setMasked] = useState<Set<string>>(new Set())
     const [filter, setFilter] = useState('')
+    const [loadedSchemaId, setLoadedSchemaId] = useState<string | null>(null)
 
     useEffect(() => {
         const current = schema?.enabled_columns
         setSelected(Array.isArray(current) ? new Set(current) : null)
         setMasked(new Set(schema?.masked_columns ?? []))
         setFilter('')
+        setLoadedSchemaId(schema?.id ?? null)
         // Stable serialized key: the array ref changes on every poll even with identical contents,
         // which would otherwise wipe out in-progress edits.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +225,7 @@ function useColumnSelection(
         isSyncKey,
         toggleMask,
         missingMasked,
+        loadedSchemaId,
         suggestedColumns,
         maskSuggested,
         persistedSelection,
@@ -289,6 +294,7 @@ export function ColumnSelectionPicker({
         isSyncKey,
         toggleMask,
         missingMasked,
+        loadedSchemaId,
         suggestedColumns,
         maskSuggested,
         persistedSelection,
@@ -304,11 +310,11 @@ export function ColumnSelectionPicker({
     // Once per schema: later edits change the count but are not a new suggestion.
     const reportedSchemaId = useRef<string | null>(null)
     useEffect(() => {
-        if (suggestedCount > 0 && schema && reportedSchemaId.current !== schema.id) {
+        if (suggestedCount > 0 && schema && loadedSchemaId === schema.id && reportedSchemaId.current !== schema.id) {
             reportedSchemaId.current = schema.id
             posthog.capture('warehouse column sensitivity suggested', { suggested_count: suggestedCount })
         }
-    }, [schema, suggestedCount])
+    }, [schema, suggestedCount, loadedSchemaId])
 
     const onMaskSuggested = (): void => {
         posthog.capture('warehouse suggested columns masked', { masked_count: suggestedColumns.length })

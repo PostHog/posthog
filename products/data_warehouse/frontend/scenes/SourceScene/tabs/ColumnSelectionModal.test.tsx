@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -87,6 +88,19 @@ describe('ColumnSelectionPicker', () => {
             expect(screen.queryByText(label) !== null).toBe(chips.includes(label))
         }
         expect(screen.queryByText('Mask suggested columns') !== null).toBe(enabled)
+    })
+
+    test('reports the suggestion count from the saved masks', () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        renderPicker({
+            primary_key_columns: ['email'],
+            incremental_field: 'last_login_ip',
+            masked_columns: ['phone'],
+            available_columns: SENSITIVE_COLUMNS,
+        })
+
+        const suggested = capture.mock.calls.filter(([event]) => event === 'warehouse column sensitivity suggested')
+        expect(suggested).toEqual([['warehouse column sensitivity suggested', { suggested_count: 2 }]])
     })
 
     test.each<[string, Partial<ColumnSelectionTarget>, string[]]>([
