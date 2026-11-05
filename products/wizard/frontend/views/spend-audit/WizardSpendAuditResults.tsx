@@ -1,12 +1,12 @@
 import posthog from 'posthog-js'
 
 import { IconGithub, IconNotebook } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import type { WizardRunApi, WizardRunArtifactApi } from '../../generated/api.schemas'
+import type { WizardRunApi, WizardRunArtifactApi, WizardSpendProjectionItemApi } from '../../generated/api.schemas'
 import { WizardSpendAuditCreatedList } from './WizardSpendAuditCreatedList'
 import type { WizardRunNotebookArtifact } from './wizardSpendAuditResultsLogic'
 
@@ -16,9 +16,15 @@ type WizardRunPullRequestArtifact = Extract<WizardRunArtifactApi, { artifact_typ
 // The modal shows the largest few; the notebook lists every recommendation.
 const VISIBLE_RECOMMENDATIONS = 3
 
+// Savings are estimates, so cents would claim a precision the audit does not have.
+function formatDollars(amount: number): string {
+    return humanFriendlyCurrency(Math.round(amount), 0)
+}
+
 function formatRange(low: number, high: number): string {
-    const lowText = humanFriendlyCurrency(Math.round(low))
-    return Math.round(low) === Math.round(high) ? lowText : `${lowText} to ${humanFriendlyCurrency(Math.round(high))}`
+    const lowText = formatDollars(low)
+    const highText = formatDollars(high)
+    return lowText === highText ? lowText : `${lowText} to ${highText}`
 }
 
 function Headline({ projection }: { projection: WizardRunSpendProjectionArtifact | null }): JSX.Element {
@@ -48,10 +54,26 @@ function Headline({ projection }: { projection: WizardRunSpendProjectionArtifact
                 <p className="m-0 text-xs text-muted">
                     About {Math.round((projection.saving_monthly.low / baseline) * 100)} to{' '}
                     {Math.round((projection.saving_monthly.high / baseline) * 100)}% of your projected bill of{' '}
-                    {humanFriendlyCurrency(Math.round(baseline))}
+                    {formatDollars(baseline)}
                 </p>
             )}
         </>
+    )
+}
+
+function Recommendation({ item }: { item: WizardSpendProjectionItemApi }): JSX.Element {
+    return (
+        <li className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+                <div className="text-sm ph-no-capture">{item.title}</div>
+                <div className="text-xs text-muted">
+                    {item.fixed_in === 'pr' ? 'In the pull request' : 'In settings'}
+                </div>
+            </div>
+            <span className="shrink-0 text-sm tabular-nums">
+                {formatRange(item.saving_monthly.low, item.saving_monthly.high)}/mo
+            </span>
+        </li>
     )
 }
 
@@ -75,28 +97,20 @@ export function WizardSpendAuditResults({
     const recommendations = (projection?.items ?? []).slice(0, VISIBLE_RECOMMENDATIONS)
 
     return (
-        <div className="mt-3 flex flex-col gap-3" data-attr="wizard-spend-audit-results">
+        <div className="mt-3 flex flex-col gap-4" data-attr="wizard-spend-audit-results">
             <div className="flex flex-col gap-1">
                 <Headline projection={projection} />
             </div>
 
             {recommendations.length > 0 && (
-                <ul className="m-0 list-none space-y-1 p-0">
+                <ul className="m-0 list-none space-y-2 p-0">
                     {recommendations.map((item) => (
-                        <li key={item.id} className="flex min-w-0 items-center gap-2 text-xs">
-                            <LemonTag size="small">{item.fixed_in === 'pr' ? 'Pull request' : 'Settings'}</LemonTag>
-                            <span className="min-w-0 flex-1 truncate ph-no-capture">{item.title}</span>
-                            <span className="shrink-0 tabular-nums text-muted">
-                                {formatRange(item.saving_monthly.low, item.saving_monthly.high)}/mo
-                            </span>
-                        </li>
+                        <Recommendation key={item.id} item={item} />
                     ))}
                 </ul>
             )}
 
-            {!pullRequest && <p className="m-0 text-xs text-muted">No code changes needed.</p>}
-
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 {notebook && (
                     <LemonButton
                         type="primary"
@@ -109,7 +123,7 @@ export function WizardSpendAuditResults({
                         Open notebook
                     </LemonButton>
                 )}
-                {pullRequest && (
+                {pullRequest ? (
                     <LemonButton
                         type={notebook ? 'secondary' : 'primary'}
                         size="small"
@@ -121,6 +135,8 @@ export function WizardSpendAuditResults({
                     >
                         Review pull request
                     </LemonButton>
+                ) : (
+                    <span className="text-xs text-muted">No code changes needed.</span>
                 )}
             </div>
 
