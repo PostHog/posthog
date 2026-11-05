@@ -9,6 +9,7 @@ Progress/maturity scoring lives in maturity.py instead.
 from __future__ import annotations
 
 import re
+import ast
 import json
 import shlex
 from abc import ABC, abstractmethod
@@ -16,7 +17,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .ast_helpers import module_import_targets
+from .ast_helpers import ast_parse_safe, module_import_targets
 from .crossings import driven_wiring_locations, facade_shape_use, facade_wiring_use, recorded_facade_shape_rows
 from .isolation import (
     GARAGE_PREFIXES,
@@ -1359,6 +1360,143 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+# A string shaped like a Django system check ID: dotted words, then a level letter and three digits.
+_SYSTEM_CHECK_ID_RE = re.compile(r"^[A-Za-z_][\w.]*\.[A-Z]\d{3}$")
+_REGISTER_FUNCTIONS = {("django.core.checks", "register"), ("posthog.checks", "register_check")}
+
+
+def _register_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """Local names bound to a check register function, and to the django.core.checks module."""
+    register_names: set[str] = set()
+    checks_module_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if (node.module, alias.name) in _REGISTER_FUNCTIONS:
+                    register_names.add(bound)
+                elif (node.module, alias.name) == ("django.core", "checks"):
+                    checks_module_names.add(bound)
+        elif isinstance(node, ast.Import):
+            checks_module_names.update(
+                alias.asname or alias.name for alias in node.names if alias.name == "django.core.checks"
+            )
+    return register_names, checks_module_names
+
+
+def _registers_system_check(tree: ast.Module) -> bool:
+    """Whether the module registers a Django system check, through Django or posthog.checks."""
+    register_names, checks_module_names = _register_bindings(tree)
+
+    def _is_register(func: ast.expr) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id in register_names
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "register"
+            and ast.unparse(func.value) in checks_module_names
+        )
+
+    return any(
+        (isinstance(node, ast.Call) and _is_register(node.func))
+        or (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and any(_is_register(decorator) for decorator in node.decorator_list)
+        )
+        for node in ast.walk(tree)
+    )
+
+
+def _system_check_ids(tree: ast.Module) -> list[str]:
+    return sorted(
+        {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and _SYSTEM_CHECK_ID_RE.match(node.value)
+        }
+    )
+
+
+def _ready_imports_checks(apps_path: Path, product: str) -> bool:
+    """Whether an AppConfig.ready() in apps.py imports the product's backend/checks.py."""
+    tree = ast_parse_safe(apps_path) if apps_path.exists() else None
+    if tree is None:
+        return False
+    backend = f"products.{product}.backend"
+    for class_node in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+        for ready in (n for n in class_node.body if isinstance(n, ast.FunctionDef) and n.name == "ready"):
+            for node in ast.walk(ready):
+                if isinstance(node, ast.Import) and any(a.name == f"{backend}.checks" for a in node.names):
+                    return True
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                names = {a.name for a in node.names}
+                if node.level == 0 and (
+                    node.module == f"{backend}.checks" or (node.module == backend and "checks" in names)
+                ):
+                    return True
+                if node.level == 1 and (node.module == "checks" or (node.module is None and "checks" in names)):
+                    return True
+    return False
+
+
+class SystemChecksCheck(ProductCheck):
+    """A product's Django system checks live in backend/checks.py, which apps.py ready() imports.
+
+    Django only runs a check whose module has been imported, so a check anywhere else, or a
+    checks.py that ready() never imports, is silently never run. IDs follow the scheme in
+    posthog/checks.py, with the product name as the area.
+    """
+
+    label = "system checks"
+
+    @staticmethod
+    def _misplaced_registrations(backend_dir: Path) -> list[str]:
+        problems: list[str] = []
+        for path in sorted(backend_dir.rglob("*.py")):
+            rel = path.relative_to(backend_dir)
+            if rel == Path("checks.py") or {"__pycache__", "test", "tests"}.intersection(rel.parts):
+                continue
+            if path.name.startswith("test_") or path.name.endswith("_test.py"):
+                continue
+            tree = ast_parse_safe(path)
+            if tree is not None and _registers_system_check(tree):
+                problems.append(
+                    f"backend/{rel.as_posix()} registers a Django system check: move it to backend/checks.py"
+                )
+        return problems
+
+    @staticmethod
+    def _checks_module_problems(ctx: CheckContext) -> list[str]:
+        tree = ast_parse_safe(ctx.backend_dir / "checks.py")
+        prefix = f"posthog.{ctx.name}."
+        problems = [
+            f"backend/checks.py uses check ID {check_id!r}, which must start with {prefix!r}"
+            for check_id in (_system_check_ids(tree) if tree is not None else [])
+            if not check_id.startswith(prefix)
+        ]
+        if not _ready_imports_checks(ctx.backend_dir / "apps.py", ctx.name):
+            problems.append(
+                "backend/checks.py is never imported by apps.py ready(), so Django never registers its checks"
+            )
+        return problems
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        if not ctx.backend_dir.exists():
+            return CheckResult(skip=True)
+
+        problems = self._misplaced_registrations(ctx.backend_dir)
+        if (ctx.backend_dir / "checks.py").exists():
+            problems.extend(self._checks_module_problems(ctx))
+
+        if problems:
+            return CheckResult(
+                lines=[f"✗ {len(problems)} problem(s)"] + [f"  → {p}" for p in problems],
+                issues=problems,
+            )
+        return CheckResult(lines=["✓ ok"])
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1372,4 +1510,5 @@ CHECKS: list[ProductCheck] = [
     FacadeShapeCheck(),
     WiringInterfaceCheck(),
     OrphanedTestFilesCheck(),
+    SystemChecksCheck(),
 ]
