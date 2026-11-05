@@ -7,10 +7,18 @@ from posthog.dataclasses import frozen
 from products.wizard.backend.facade.contracts import (
     WizardRunArtifactDTO,
     WizardRunGitDiffArtifactDTO,
+    WizardRunNotebookArtifactDTO,
     WizardRunPullRequestArtifactDTO,
+    WizardRunSpendProjectionArtifactDTO,
+    WizardSpendProjection,
 )
 from products.wizard.backend.facade.enums import WizardRunArtifactType
-from products.wizard.backend.logic.artifacts.mappers import pull_request_metadata_to_record, record_to_artifact
+from products.wizard.backend.logic.artifacts.mappers import (
+    notebook_metadata_to_record,
+    pull_request_metadata_to_record,
+    record_to_artifact,
+    spend_projection_metadata_to_record,
+)
 from products.wizard.backend.models import WizardRun, WizardRunArtifact
 
 
@@ -85,6 +93,59 @@ def upsert_pull_request(
         raise ValueError("Expected a pull request artifact")
 
     return result
+
+
+def upsert_notebook(
+    *, team_id: int, run_id: UUID, short_id: str, dashboard_ids: tuple[int, ...], insight_ids: tuple[int, ...]
+) -> WizardRunNotebookArtifactDTO:
+    artifact = _upsert_metadata_artifact(
+        team_id=team_id,
+        run_id=run_id,
+        artifact_type=WizardRunArtifactType.NOTEBOOK,
+        metadata=notebook_metadata_to_record(short_id, dashboard_ids, insight_ids),
+    )
+
+    if not isinstance(artifact, WizardRunNotebookArtifactDTO):
+        raise ValueError("Expected a notebook artifact")
+
+    return artifact
+
+
+def upsert_spend_projection(
+    *, team_id: int, run_id: UUID, projection: WizardSpendProjection
+) -> WizardRunSpendProjectionArtifactDTO:
+    artifact = _upsert_metadata_artifact(
+        team_id=team_id,
+        run_id=run_id,
+        artifact_type=WizardRunArtifactType.SPEND_PROJECTION,
+        metadata=spend_projection_metadata_to_record(projection),
+    )
+
+    if not isinstance(artifact, WizardRunSpendProjectionArtifactDTO):
+        raise ValueError("Expected a spend projection artifact")
+
+    return artifact
+
+
+def _upsert_metadata_artifact(
+    *, team_id: int, run_id: UUID, artifact_type: WizardRunArtifactType, metadata: dict[str, object]
+) -> WizardRunArtifactDTO:
+    with transaction.atomic():
+        WizardRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        artifact, _ = WizardRunArtifact.objects.for_team(team_id).update_or_create(
+            run_id=run_id,
+            type=artifact_type.value,
+            defaults={
+                "team_id": team_id,
+                "storage_path": None,
+                "external_url": None,
+                "metadata": metadata,
+                "size_bytes": None,
+                "content_hash": None,
+            },
+        )
+
+    return record_to_artifact(artifact)
 
 
 def get_pull_request_url(team_id: int, run_id: UUID) -> str | None:

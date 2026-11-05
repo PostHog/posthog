@@ -12,8 +12,9 @@ import {
 import { wizardRunErrorDetails } from '../../lib/wizardRunErrorCatalog'
 import { WizardInstallRunArtifacts } from '../onboarding/components/WizardInstallRunArtifacts'
 import { WizardSpendAuditProgress } from './WizardSpendAuditProgress'
+import { WizardSpendAuditResults } from './WizardSpendAuditResults'
 
-function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly WizardRunTaskApi[] }): JSX.Element {
+function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly WizardRunTaskApi[] }): JSX.Element | null {
     if (wizardRunIsActive(run)) {
         return (
             <p className="mt-3 mb-0 text-xs text-muted">
@@ -35,12 +36,8 @@ function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly Wizar
     if (run.status === 'cancelled') {
         return <p className="mt-3 mb-0 text-xs text-muted">This audit was canceled. Run it again when you're ready.</p>
     }
-    return (
-        <p className="mt-3 mb-0 text-xs">
-            The audit is complete. The notebook lists the settings to change. If the agent opened a pull request, review
-            it before you merge it.
-        </p>
-    )
+    // A finished audit shows its results, notebook and pull request in WizardSpendAuditResults.
+    return null
 }
 
 export function WizardSpendAuditRunView({
@@ -77,7 +74,11 @@ export function WizardSpendAuditRunView({
 
             {run.status !== 'completed' && <WizardSpendAuditProgress run={run} tasks={tasks} />}
             <AuditOutcome run={run} tasks={tasks} />
-            <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
+            {run.status === 'completed' ? (
+                <WizardSpendAuditResults run={run} artifacts={artifacts} />
+            ) : (
+                <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
+            )}
             {error && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-danger">
                     <span>{error}</span>
