@@ -159,6 +159,7 @@ describe('sandbox email content', () => {
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
         '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
         '<html><body style="mask-image:linear-gradient(black 0 40px,transparent 40px)"><p>Visible message</p></body></html>',
+        `<html ${manyAttributes(64)}><body ${manyAttributes(64)}><p>Visible message</p></body></html>`,
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
         const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
         const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
@@ -328,6 +329,7 @@ describe('sandbox email content', () => {
             null,
             null,
         ],
+        ['<body><![if !mso]><div style="display:none"><![if mso]><![endif]></div><![endif]><p>Hello</p>', null, null],
         [
             `<body><p>${'Hello '.repeat(12_500)}</p>`,
             null,
