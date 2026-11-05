@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useContext, useEffect, useState } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -48,9 +48,9 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey, isCompleting } = useValues(onboardingLogic)
+    const { hasNextStep, hasPreviousStep, currentStepProductKey, isCompleting } = useValues(onboardingLogic)
 
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const footerStart = useContext(OnboardingStepFooterStartContext)
 
@@ -111,6 +111,17 @@ export const OnboardingStep = ({
                 {children}
                 <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
                     {footerStart && <div className="mr-auto">{footerStart}</div>}
+                    {hasPreviousStep && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconArrowLeft />}
+                            onClick={goToPreviousStep}
+                            disabledReason={pendingAdvance || isCompleting ? 'Completing…' : undefined}
+                            data-attr="onboarding-back"
+                        >
+                            Back
+                        </LemonButton>
+                    )}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?

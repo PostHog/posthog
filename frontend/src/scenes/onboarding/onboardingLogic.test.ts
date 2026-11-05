@@ -404,6 +404,35 @@ describe('onboardingLogic — flow composition', () => {
     })
 
     describe('navigation', () => {
+        it('keeps step transitions in browser history and restores earlier steps on Back', async () => {
+            router.actions.push('/onboarding/product_analytics?step=configure:product_analytics&with=web_analytics')
+            await expectLogic(logic).toMatchValues({ stepId: 'configure:product_analytics' })
+            await expectLogic(logic, () => logic.actions.goToNextStep()).toMatchValues({
+                stepId: 'session_replay:product_analytics',
+            })
+
+            expect(router.values.lastMethod).toBe('PUSH')
+            expect(router.values.searchParams).toMatchObject({
+                step: 'session_replay:product_analytics',
+                with: 'web_analytics',
+            })
+
+            await expectLogic(logic, () => {
+                router.actions.locationChanged({
+                    method: 'POP',
+                    pathname: '/onboarding/product_analytics',
+                    search: '?step=configure:product_analytics&with=web_analytics',
+                    searchParams: { step: 'configure:product_analytics', with: 'web_analytics' },
+                    hash: '',
+                    hashParams: {},
+                    url: '/onboarding/product_analytics?step=configure:product_analytics&with=web_analytics',
+                })
+            }).toMatchValues({ stepId: 'configure:product_analytics' })
+
+            expect(logic.values.secondaryProductKeys).toEqual([ProductKey.WEB_ANALYTICS])
+            expect(logic.values.visitedStepIds).toContain('session_replay:product_analytics')
+        })
+
         it('goToNextStep advances to the next descriptor by id', async () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
             await expectLogic(logic, () => {

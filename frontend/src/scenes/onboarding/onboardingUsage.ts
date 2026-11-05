@@ -39,3 +39,11 @@ export function reportOnboardingStepSkipped(stepKey: OnboardingStepKey, productK
         ...ONBOARDING_EVENT_PROPS,
     })
 }
+
+export function reportOnboardingStepBack(stepKey: OnboardingStepKey, productKey: string): void {
+    posthog.capture('onboarding step back', {
+        step_key: stepKey,
+        product_key: productKey,
+        ...ONBOARDING_EVENT_PROPS,
+    })
+}
