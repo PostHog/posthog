@@ -1295,9 +1295,9 @@ class AccountNotebookSerializer(DataclassSerializer):
 
 
 class AccountNotebookUpdateSerializer(serializers.Serializer):
-    """Partial update of an account notebook: title and tags only. Content is edited in the notebook itself."""
+    """Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+    since a note's title comes from its first line."""
 
-    title = serializers.CharField(max_length=256, required=False, allow_blank=True, allow_null=True)
     tags = serializers.ListField(
         child=serializers.CharField(max_length=255),
         required=False,

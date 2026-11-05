@@ -279,6 +279,19 @@ tools:
             created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of
             tag names, shared with account tags) to tag the note at creation time.
         feature_flag: customer-analytics-csp
+    accounts-notebooks-destroy:
+        operation: accounts_notebooks_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete account notebook
+        description: |
+            Permanently delete an account notebook by its `short_id`.
+        feature_flag: customer-analytics-csp
     accounts-notebooks-list:
         operation: accounts_notebooks_list
         enabled: true
@@ -293,9 +306,9 @@ tools:
         description: >
             List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the
             notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array,
-            e.g. `["renewal","risk"]`) to keep notebooks carrying any of those tags, `search` for full text, and
-            `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending)
-            to sort.
+            e.g. `["renewal","risk"]`) to keep notebooks carrying any of those tags, `created_by` (user IDs) to keep
+            notebooks by those authors, `search` for full text, and `ordering` (`title`, `created_at`,
+            `last_modified_at`, `created_by`, each with a `-` prefix for descending) to sort.
         feature_flag: customer-analytics-csp
     accounts-notebooks-partial-update:
         operation: accounts_notebooks_partial_update
@@ -306,11 +319,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Update account notebook tags or title
+        title: Update account notebook tags
         description: >
-            Update an account notebook's `title` or `tags` by its `short_id`. `tags` replaces the whole tag set, so read
-            the notebook first and send the full list to add one. Fields left out are untouched. Content is not edited
-            here, use `notebooks-partial-update` for that.
+            Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the
+            notebook first and send the full list to add one. The title and content are not edited here: a note's
+            title comes from its first line, so use `notebooks-partial-update` to change the content.
         feature_flag: customer-analytics-csp
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve

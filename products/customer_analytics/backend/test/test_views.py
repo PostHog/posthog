@@ -1356,6 +1356,21 @@ class TestAccountNotebookViewSet(APIBaseTest):
         notebook = Notebook.objects.get(short_id=data["short_id"])
         self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), ["renewal", "risk"])
 
+    def test_create_without_tags_returns_empty_tags(self):
+        # The "New note" button and any MCP caller that does not tag.
+        response = self.client.post(self.endpoint_base, {"title": "Plain note", "text_content": "notes"}, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], [])
+
+    def test_empty_tags_filter_means_no_filter(self):
+        self._link_internal_notebook(title="Plain")
+
+        response = self.client.get(self.endpoint_base, {"tags": "[]"})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual([row["title"] for row in response.json()["results"]], ["Plain"])
+
     def test_list_includes_tags(self):
         notebook = self._link_internal_notebook(title="Tagged")
         self._tag(notebook, "risk")
@@ -1385,34 +1400,48 @@ class TestAccountNotebookViewSet(APIBaseTest):
         response = self.client.get(f"{self.endpoint_base}?tags=risk")
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
-    def test_partial_update_sets_tags_and_title(self):
+    def test_partial_update_replaces_tags(self):
         notebook = self._link_internal_notebook(title="Before")
         self._tag(notebook, "old")
 
         response = self.client.patch(
             f"{self.endpoint_base}{notebook.short_id}/",
-            {"title": "After", "tags": ["Risk", "risk", "renewal"]},
+            {"tags": ["Risk", "risk", "renewal"]},
             format="json",
         )
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        data = response.json()
-        self.assertEqual(data["title"], "After")
-        self.assertEqual(data["tags"], ["renewal", "risk"])
+        self.assertEqual(response.json()["tags"], ["renewal", "risk"])
         self.assertFalse(Tag.objects.filter(team=self.team, name="old").exists())
-        notebook.refresh_from_db()
-        self.assertEqual(notebook.last_modified_by, self.user)
 
-    def test_partial_update_leaves_omitted_fields_untouched(self):
+    def test_partial_update_does_not_rename(self):
+        # A note's displayed title comes from its first line, so a title set here would disagree
+        # with the heading the moment the note is opened. Renaming happens in the note itself.
         notebook = self._link_internal_notebook(title="Keep me")
         self._tag(notebook, "risk")
 
-        response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"title": "Renamed"}, format="json")
+        response = self.client.patch(
+            f"{self.endpoint_base}{notebook.short_id}/", {"title": "Renamed", "tags": ["risk"]}, format="json"
+        )
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        data = response.json()
-        self.assertEqual(data["title"], "Renamed")
-        self.assertEqual(data["tags"], ["risk"])
+        self.assertEqual(response.json()["title"], "Keep me")
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Keep me")
+
+    def test_list_filters_by_created_by(self):
+        other_user = User.objects.create_and_join(self.organization, "account-note-author@posthog.com", None)
+        self._link_internal_notebook(title="Mine", created_by=self.user)
+        self._link_internal_notebook(title="Theirs", created_by=other_user)
+
+        response = self.client.get(f"{self.endpoint_base}?created_by={self.user.id}")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual([n["title"] for n in response.json()["results"]], ["Mine"])
+
+    def test_list_rejects_malformed_created_by(self):
+        response = self.client.get(f"{self.endpoint_base}?created_by=alice")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
     def test_partial_update_of_notebook_on_other_account_is_404(self):
         other_account = Account.objects.unscoped().create(team=self.team, name="Other")
@@ -3105,6 +3134,19 @@ class TestAccountNotesViewSet(APIBaseTest):
 
         by_title = self.client.get(f"{self.endpoint_base}?ordering=title").json()["results"]
         self.assertEqual([row["short_id"] for row in by_title], [plain.short_id, risky.short_id])
+
+    def test_list_sorts_by_author(self):
+        # Saved views carry one ordering across the team tab and the account tab, so both take the author sort.
+        zoe = User.objects.create_and_join(self.organization, "zoe@posthog.com", None, first_name="Zoe")
+        adam = User.objects.create_and_join(self.organization, "adam@posthog.com", None, first_name="Adam")
+        by_zoe = self._link_note(title="By Zoe", created_by=zoe)
+        by_adam = self._link_note(title="By Adam", created_by=adam)
+
+        ascending = self.client.get(f"{self.endpoint_base}?ordering=created_by").json()["results"]
+        descending = self.client.get(f"{self.endpoint_base}?ordering=-created_by").json()["results"]
+
+        self.assertEqual([row["short_id"] for row in ascending], [by_adam.short_id, by_zoe.short_id])
+        self.assertEqual([row["short_id"] for row in descending], [by_zoe.short_id, by_adam.short_id])
 
     def test_list_hides_notes_of_accounts_the_caller_cannot_read(self):
         visible = self._link_note(title="Visible")

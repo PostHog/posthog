@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { IconChevronDown, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -14,11 +13,14 @@ import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
+
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
 import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
 import { AccountNotesViewSelector } from './AccountNotesViewSelector'
+import { NotesCreatedByFilter } from './NotesCreatedByFilter'
 import { NotesTagsFilter } from './NotesTagsFilter'
 
 export function AccountNotesTabContent(): JSX.Element {
@@ -34,6 +36,7 @@ export function AccountNotesTabContent(): JSX.Element {
         tagsFilter,
         sorting,
         pagination,
+        updatingNoteShortId,
     } = useValues(accountNotesLogic)
     const {
         setSearch,
@@ -43,8 +46,11 @@ export function AccountNotesTabContent(): JSX.Element {
         setTagsFilter,
         setOrdering,
         reportFilterChange,
+        updateNoteTags,
     } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const hasFilters =
         !!search ||
@@ -105,16 +111,26 @@ export function AccountNotesTabContent(): JSX.Element {
             title: 'Tags',
             key: 'tags',
             render: function Render(_, note) {
-                return note.tags.length > 0 ? (
-                    <ObjectTags tags={note.tags} staticOnly data-attr="account-note-tags" />
-                ) : (
-                    <span className="text-muted">No tags</span>
+                const tags = [...note.tags]
+                // The title column takes 100% of the width, so the cell holds its own minimum to keep tags on one line.
+                return (
+                    <div className="min-w-60">
+                        <ObjectTags
+                            tags={tags}
+                            onChange={(newTags) => updateNoteTags(note, newTags)}
+                            onEdit={loadTagsIfNeeded}
+                            saving={updatingNoteShortId === note.short_id || tagsLoading}
+                            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+                            data-attr="account-note-tags"
+                        />
+                    </div>
                 )
             },
         },
         {
             title: 'Created by',
             key: 'created_by',
+            sorter: true,
             render: function Render(_, note) {
                 const user = note.created_by
                 if (!user) {
@@ -171,7 +187,7 @@ export function AccountNotesTabContent(): JSX.Element {
                     }}
                     data-attr="account-notes-tags-filter"
                 />
-                <CreatedByPicker
+                <NotesCreatedByFilter
                     value={createdByFilter}
                     onChange={(userIds) => {
                         setCreatedByFilter(userIds)
@@ -219,44 +235,6 @@ export function AccountNotesTabContent(): JSX.Element {
                             : "No account notes yet. Create notes from an account's Notes tab."
                     }
                     nouns={['note', 'notes']}
-                />
-            )}
-        </div>
-    )
-}
-
-function CreatedByPicker({ value, onChange }: { value: number[]; onChange: (userIds: number[]) => void }): JSX.Element {
-    const buttonLabel =
-        value.length === 0
-            ? 'Created by anyone'
-            : value.length === 1
-              ? 'Created by 1 person'
-              : `Created by ${value.length} people`
-    return (
-        <div className="flex gap-1 items-center" data-attr="account-notes-created-by-filter">
-            <LemonDropdown
-                closeOnClickInside={false}
-                overlay={
-                    <div className="p-2 min-w-64">
-                        <MemberSelectMultiple
-                            idKey="id"
-                            value={value}
-                            onChange={(users) => onChange(users.map((user) => user.id))}
-                        />
-                    </div>
-                }
-            >
-                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                    {buttonLabel}
-                </LemonButton>
-            </LemonDropdown>
-            {value.length > 0 && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconX />}
-                    onClick={() => onChange([])}
-                    tooltip="Clear created-by filter"
                 />
             )}
         </div>

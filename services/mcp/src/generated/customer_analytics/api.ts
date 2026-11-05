@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 74 enabled ops
+ * PostHog API - MCP 75 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -314,6 +314,10 @@ export const AccountsNotebooksListParams = () => zod.object({
 })
 
 export const AccountsNotebooksListQueryParams = () => zod.object({
+    created_by: zod
+        .array(zod.number())
+        .optional()
+        .describe('Only return notebooks created by these user IDs (repeat the param per user).'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
@@ -372,7 +376,7 @@ export const AccountsNotebooksRetrieveParams = () => zod.object({
 })
 
 /**
- * Update the title or tags of an account notebook. Fields left out stay as they are.
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
  */
 export const AccountsNotebooksPartialUpdateParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
@@ -384,19 +388,28 @@ export const AccountsNotebooksPartialUpdateParams = () => zod.object({
     short_id: zod.string(),
 })
 
-export const accountsNotebooksPartialUpdateBodyTitleMax = 256
-
 export const accountsNotebooksPartialUpdateBodyTagsItemMax = 255
 
 export const AccountsNotebooksPartialUpdateBody = () => zod
     .object({
-        title: zod.string().max(accountsNotebooksPartialUpdateBodyTitleMax).nullish(),
         tags: zod
             .array(zod.string().max(accountsNotebooksPartialUpdateBodyTagsItemMax))
             .optional()
             .describe("Replaces the notebook's tags. Omit to leave them untouched."),
     })
-    .describe('Partial update of an account notebook: title and tags only. Content is edited in the notebook itself.')
+    .describe(
+        "Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,\nsince a note's title comes from its first line."
+    )
+
+export const AccountsNotebooksDestroyParams = () => zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
 
 export const AccountsRelationshipsListParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),

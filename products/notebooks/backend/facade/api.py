@@ -320,10 +320,13 @@ def list_account_notebooks(
     search: str | None = None,
     order: str | None = None,
     tags: Iterable[str] | None = None,
+    created_by_ids: Iterable[int] | None = None,
 ) -> list[contracts.AccountNotebook]:
     return [
         _to_account_notebook(notebook)
-        for notebook in logic.list_account_notebooks(account_id, search=search, order=order, tags=tags)
+        for notebook in logic.list_account_notebooks(
+            account_id, search=search, order=order, tags=tags, created_by_ids=created_by_ids
+        )
     ]
 
 
@@ -336,13 +339,9 @@ def update_account_notebook(
     account_id: str | UUID,
     short_id: str,
     *,
-    title: str | None = None,
     tags: Iterable[str] | None = None,
-    last_modified_by_id: int | None = None,
 ) -> contracts.AccountNotebook | None:
-    notebook = logic.update_account_notebook(
-        account_id, short_id, title=title, tags=tags, last_modified_by_id=last_modified_by_id
-    )
+    notebook = logic.update_account_notebook(account_id, short_id, tags=tags)
     return _to_account_notebook(notebook) if notebook is not None else None
 
 

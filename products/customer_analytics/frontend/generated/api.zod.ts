@@ -432,21 +432,20 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Update the title or tags of an account notebook. Fields left out stay as they are.
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
  */
-export const accountsNotebooksPartialUpdateBodyTitleMax = 256
-
 export const accountsNotebooksPartialUpdateBodyTagsItemMax = 255
 
 export const AccountsNotebooksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        title: zod.string().max(accountsNotebooksPartialUpdateBodyTitleMax).nullish(),
         tags: zod
             .array(zod.string().max(accountsNotebooksPartialUpdateBodyTagsItemMax))
             .optional()
             .describe("Replaces the notebook's tags. Omit to leave them untouched."),
     })
-    .describe('Partial update of an account notebook: title and tags only. Content is edited in the notebook itself.')
+    .describe(
+        "Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,\nsince a note's title comes from its first line."
+    )
 
 export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     .object({

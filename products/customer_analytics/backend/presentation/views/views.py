@@ -2441,6 +2441,14 @@ class AccountNotebookViewSet(
                 enum=sorted(ALLOWED_ORDERING),
                 description="Sort by creation date, last modification, author or title. Defaults to '-created_at'.",
             ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.INT,
+                many=True,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notebooks created by these user IDs (repeat the param per user).",
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -2453,6 +2461,7 @@ class AccountNotebookViewSet(
             search=request.query_params.get("search", "").strip() or None,
             order=ordering,
             tags=_parse_tags_param(request),
+            created_by_ids=_parse_int_ids_param(request, "created_by") or None,
         )
         if notebooks is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2464,7 +2473,7 @@ class AccountNotebookViewSet(
     @extend_schema(
         request=AccountNotebookUpdateSerializer,
         responses={200: AccountNotebookSerializer},
-        description="Update the title or tags of an account notebook. Fields left out stay as they are.",
+        description="Replace the tags of an account notebook. Omit `tags` to leave them as they are.",
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountNotebookUpdateSerializer(data=request.data)
@@ -2474,10 +2483,7 @@ class AccountNotebookViewSet(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
             short_id=self.kwargs["short_id"],
-            input=contracts.UpdateAccountNotebookInput(
-                title=data.get("title"),
-                tags=data.get("tags"),
-            ),
+            input=contracts.UpdateAccountNotebookInput(tags=data.get("tags")),
             user=cast(User, request.user),
             user_access_control=self.user_access_control,
         )
@@ -2598,6 +2604,8 @@ class AccountNotesViewSet(
             "-created_at",
             "title",
             "-title",
+            "created_by",
+            "-created_by",
             "account_name",
             "-account_name",
         }

@@ -20,6 +20,7 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
 class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"

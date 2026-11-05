@@ -50,6 +50,7 @@ const defaultListParams = {
     search: undefined,
     ordering: '-created_at',
     tags: undefined,
+    created_by: undefined,
 }
 
 describe('accountNotebooksLogic', () => {
@@ -185,7 +186,32 @@ describe('accountNotebooksLogic', () => {
         })
     })
 
-    it('applyViewState replaces search, tags and sort at once, loads once and echoes the rest back', async () => {
+    it('author filter is sent as user ids, resets to the first page and is part of the view state', async () => {
+        await mount()
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setCreatedByFilter([7, 9])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.page).toBe(1)
+        expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', { ...defaultListParams, created_by: [7, 9] })
+        expect(logic.values.viewState.filters.created_by).toEqual([7, 9])
+    })
+
+    it('resets to newest first, not the team tab default, when a view is cleared', async () => {
+        await mount()
+
+        expect(logic.values.defaultViewState.ordering).toBe('-created_at')
+        logic.actions.setSorting({ columnKey: 'title', order: 1 })
+        logic.actions.applyViewState(logic.values.defaultViewState)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sorting).toEqual({ columnKey: 'created_at', order: -1 })
+        expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', defaultListParams)
+    })
+
+    it('applyViewState replaces search, tags, author and sort at once, loads once and echoes the rest back', async () => {
         const onConfigChange = jest.fn()
         await mount(onConfigChange)
         const callsBefore = mockList.mock.calls.length
@@ -209,6 +235,7 @@ describe('accountNotebooksLogic', () => {
             ...defaultListParams,
             search: 'renewal',
             tags: JSON.stringify(['risk']),
+            created_by: [7],
             ordering: '-last_modified_at',
         })
         expect(logic.values.sorting).toEqual({ columnKey: 'last_modified_at', order: -1 })
@@ -238,7 +265,8 @@ describe('view ordering mapping', () => {
         [null, '-created_at'],
         [{ columnKey: 'created_at', order: 1 }, 'created_at'],
         [{ columnKey: 'title', order: -1 }, '-title'],
-        [{ columnKey: 'created_by', order: -1 }, '-created_at'],
+        [{ columnKey: 'created_by', order: -1 }, '-created_by'],
+        [{ columnKey: 'tags', order: 1 }, '-created_at'],
     ])('maps sorting %j to view ordering %s', (sorting, expected) => {
         expect(sortingToViewOrdering(sorting as { columnKey: string; order: 1 | -1 } | null)).toBe(expected)
     })
