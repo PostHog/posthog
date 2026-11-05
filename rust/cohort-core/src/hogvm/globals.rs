@@ -127,8 +127,8 @@ fn empty_group() -> Value {
 /// `MAT_COL_NULL_SENTINELS` in `posthog/hogql/database/schema/util/null_sentinels.py`.
 const NULL_SENTINELS: [&str; 2] = ["", "null"];
 
-/// Legacy reads a top-level person property through its `pmat_` column or its Numeric, DateTime or
-/// Boolean definition where one exists, and both read these texts as NULL. Raise
+/// Legacy reads a top-level person property through its non-nullable `pmat_` column or its Numeric,
+/// DateTime or Boolean definition where one exists, and both read these texts as NULL. Raise
 /// `EVALUATOR_VERSION` in [`crate::fingerprint`] with any change here.
 fn person(id: &str, mut properties: Value) -> Value {
     if let Some(map) = properties.as_object_mut() {
