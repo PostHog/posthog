@@ -100,7 +100,7 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.446.0
+      specifier: 1.446.0
       version: 1.446.0
     query-selector-shadow-dom:
       specifier: ^1.0.0
@@ -3085,6 +3085,18 @@ importers:
 
   products/conversations:
     dependencies:
+      '@dnd-kit/core':
+        specifier: '*'
+        version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/modifiers':
+        specifier: '*'
+        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/sortable':
+        specifier: '*'
+        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/utilities':
+        specifier: '*'
+        version: 3.2.1(react@18.3.1)
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.17.0(react@18.3.1)
@@ -3366,8 +3378,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       react-grid-layout:
-        specifier: ^2.2.4
-        version: 2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^2.3.0
+        version: 2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
@@ -3712,6 +3724,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
@@ -4465,6 +4480,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -21520,12 +21538,6 @@ packages:
     engines: {node: '>=10'}
     peerDependencies:
       react: 18.3.1
-
-  react-grid-layout@2.2.4:
-    resolution: {integrity: sha512-Eb57FsgOMYOfsUGrMI1ku/FFR+dPNPrE8qo+3hwZubpqVSy4GO9v52DeX50Tl3JDYAlCypP4rmw7Vrqk/zOIvA==}
-    peerDependencies:
-      react: 18.3.1
-      react-dom: 18.3.1
 
   react-grid-layout@2.3.0:
     resolution: {integrity: sha512-4ofzuR/MlYchp+ixDUVBxH6ybaw+JH51M+rpf675ik/++4Dn0Kax/Vf2Gv/7Z++mV1ZC7mY9UV2sRRycjGjKXQ==}
@@ -43731,17 +43743,6 @@ snapshots:
     dependencies:
       react: 18.3.1
       unlayer-types: 1.532.0
-
-  react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      clsx: 2.1.1
-      fast-equals: 4.0.3
-      prop-types: 15.8.1
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-      react-draggable: 4.5.0(patch_hash=b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-resizable: 3.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      resize-observer-polyfill: 1.5.1
 
   react-grid-layout@2.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
