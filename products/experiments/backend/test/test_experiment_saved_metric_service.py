@@ -429,7 +429,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
                 {"type": "primary", "breakdowns": [{"property": "$browser"}]},
                 {"method": "bayesian"},
                 False,
-                "breakdowns",
+                "The breakdowns it adds to this metric don't work with this change.",
             ),
             ("link_without_breakdowns", {"type": "primary"}, {"method": "bayesian"}, False, None),
             (
@@ -492,8 +492,9 @@ class TestExperimentSavedMetricService(APIBaseTest):
         if expected_error:
             with self.assertRaises(ValidationError) as ctx:
                 self._service().update_saved_metric(saved_metric, {"query": percentile_query})
+            assert "A linked experiment uses this metric" in str(ctx.exception)
             assert expected_error in str(ctx.exception)
-            assert "Checkout speed test" in str(ctx.exception)
+            assert "Checkout speed test" not in str(ctx.exception)
             saved_metric.refresh_from_db()
             assert saved_metric.query["metric_type"] == "mean"
         else:
