@@ -2923,8 +2923,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("at_cap", [str(uuid4()) for _ in range(2500)], status.HTTP_200_OK),
-            ("over_cap", [str(uuid4()) for _ in range(2501)], status.HTTP_400_BAD_REQUEST),
+            ("at_cap", [str(uuid4()) for _ in range(10000)], status.HTTP_200_OK),
+            ("over_cap", [str(uuid4()) for _ in range(10001)], status.HTTP_400_BAD_REQUEST),
             ("stored_id_format", [str(UUIDT())], status.HTTP_200_OK),
             ("not_a_uuid", ["x" * 100], status.HTTP_400_BAD_REQUEST),
             ("empty_list_would_match_whole_window", [], status.HTTP_400_BAD_REQUEST),

@@ -43,7 +43,6 @@ import { renderHogFunctionMessage } from '../logs/renderHogFunctionMessage'
 import {
     BulkRerunParams,
     HOG_INVOCATIONS_RERUN_MAX_COUNT,
-    HOG_INVOCATIONS_RERUN_MAX_IDS,
     HogInvocationRow,
     HogInvocationsFilters,
     HogInvocationsFunctionKind,
@@ -689,9 +688,9 @@ export function HogInvocations({
                 <div className="flex items-center justify-between border rounded p-2 bg-bg-light">
                     <div className="text-sm">
                         {selectedCount} selected
-                        {selectedCount > HOG_INVOCATIONS_RERUN_MAX_IDS ? (
+                        {selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT ? (
                             <span className="text-danger ml-2">
-                                Maximum is {HOG_INVOCATIONS_RERUN_MAX_IDS} per request.
+                                Maximum is {HOG_INVOCATIONS_RERUN_MAX_COUNT} per request.
                             </span>
                         ) : null}
                     </div>
@@ -706,8 +705,8 @@ export function HogInvocations({
                                 rerunUnsupportedReason ??
                                 (rerunableSelectedIds.length === 0
                                     ? 'Selected runs are all still in flight'
-                                    : selectedCount > HOG_INVOCATIONS_RERUN_MAX_IDS
-                                      ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_RERUN_MAX_IDS}`
+                                    : selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT
+                                      ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_RERUN_MAX_COUNT}`
                                       : undefined)
                             }
                             onClick={() => {

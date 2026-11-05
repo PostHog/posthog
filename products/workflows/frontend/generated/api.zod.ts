@@ -2740,7 +2740,7 @@ export const hogFlowsRerunCreateBodyFilterOneMaxCountMax = 10000
 export const hogFlowsRerunCreateBodyFilterOneInvocationIdsItemRegExp = new RegExp(
     '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 )
-export const hogFlowsRerunCreateBodyFilterOneInvocationIdsMax = 2500
+export const hogFlowsRerunCreateBodyFilterOneInvocationIdsMax = 10000
 
 export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
     .object({
@@ -2793,7 +2793,7 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                     .max(hogFlowsRerunCreateBodyFilterOneInvocationIdsMax)
                     .optional()
                     .describe(
-                        'Optional restriction to specific invocation IDs within the window. Omit it to match the whole window. Capped at 2500 per request. Always combined with `window_start`\/`window_end` so the ClickHouse query can be partition-pruned.'
+                        'Optional restriction to specific invocation IDs within the window. Omit it to match the whole window. Capped at 10000 per request. Always combined with `window_start`\/`window_end` so the ClickHouse query can be partition-pruned.'
                     ),
             })
             .describe('Filter shape for the rerun endpoint. `window_start`\/`window_end` are required.')

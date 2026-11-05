@@ -20,10 +20,6 @@ from posthog.settings.utils import get_from_env
 # env var from its CDP config — keep both in sync if you tweak the default.
 HOG_INVOCATION_RERUN_MAX_COUNT = get_from_env("HOG_INVOCATION_RERUN_MAX_COUNT", default=10000, type_cast=int)
 
-# The worker sends the whole ID list as one ClickHouse query parameter on every page, and a longer list
-# fails every page: `http_max_field_value_size` (128 KiB) fits at most 2912 URL-encoded UUIDs.
-HOG_INVOCATION_RERUN_MAX_IDS = min(2500, HOG_INVOCATION_RERUN_MAX_COUNT)
-
 # Not `UUIDField`: stored IDs are version 0 UUIDs, and the generated `zod.uuid()` schema rejects that version.
 INVOCATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
@@ -75,7 +71,7 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         child=serializers.RegexField(INVOCATION_ID_PATTERN, error_messages={"invalid": "Must be a lowercase UUID."}),
         required=False,
         min_length=1,
-        max_length=HOG_INVOCATION_RERUN_MAX_IDS,
+        max_length=HOG_INVOCATION_RERUN_MAX_COUNT,
         error_messages={
             "min_length": "Provide at least one invocation ID, or leave the list out to match the whole window.",
             "max_length": "You can rerun up to {max_length} invocations by ID in one request. "
@@ -83,7 +79,7 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         },
         help_text=(
             "Optional restriction to specific invocation IDs within the window. Omit it to match the whole "
-            f"window. Capped at {HOG_INVOCATION_RERUN_MAX_IDS} per request. Always combined with "
+            f"window. Capped at {HOG_INVOCATION_RERUN_MAX_COUNT} per request. Always combined with "
             "`window_start`/`window_end` so the ClickHouse query can be partition-pruned."
         ),
     )
