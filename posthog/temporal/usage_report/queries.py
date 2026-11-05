@@ -404,6 +404,12 @@ QUERIES: list[QuerySpec] = [
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
     ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
+    ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
         name="teams_with_query_app_bytes_read",
