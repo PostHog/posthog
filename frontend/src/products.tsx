@@ -1753,6 +1753,8 @@ export const productUrls = {
         intent,
         format,
         properties,
+        key,
+        variants,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
@@ -1760,6 +1762,8 @@ export const productUrls = {
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
         properties?: AnyPropertyFilter[]
+        key?: string
+        variants?: string[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1779,6 +1783,12 @@ export const productUrls = {
         }
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
+        }
+        if (key) {
+            params.set('key', key)
+        }
+        if (variants?.length) {
+            params.set('variants', variants.join(','))
         }
         return `/feature-flags/new?${params.toString()}`
     },
@@ -1843,11 +1853,13 @@ export const productUrls = {
     insightNew: ({
         type,
         dashboardId,
+        tileGroupKey,
         query,
         sceneSource,
     }: {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
+        tileGroupKey?: string | null
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
@@ -1862,11 +1874,15 @@ export const productUrls = {
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
             return urls.sqlEditor({ query })
         }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            ...(sceneSource ? { sceneSource } : {}),
-        }).url
+        return combineUrl(
+            '/insights/new',
+            dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+            {
+                ...(type ? { insight: type } : {}),
+                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
+            }
+        ).url
     },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         urls.insightNew({

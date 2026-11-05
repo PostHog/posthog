@@ -16,8 +16,8 @@ function Screen(): ReactElement {
     return <View />
 }
 
-test('an unpinned list opens the pushed screen and a pinned one its tab, though both answer /errors', () => {
-    const app = renderRouter(
+test('an unpinned list opens the pushed screen and a pinned one its tab, though both answer /errors', async () => {
+    const app = await renderRouter(
         { '(tabs)/_layout': TabsStub, '(tabs)/inbox': Screen, '(tabs)/errors': Screen, 'errors/index': Screen },
         { initialUrl: '/inbox' }
     )

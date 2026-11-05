@@ -5821,6 +5821,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
                 "authorization_code",
                 "refresh_token",
                 "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
                 "urn:ietf:params:oauth:grant-type:device_code",
             ],
         )

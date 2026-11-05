@@ -1,6 +1,6 @@
 import { type QueryClient, type QueryKey, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ViewToken } from 'react-native'
+import type { ListViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 import { fetchRecentDashboards } from '@/api/dashboards'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
@@ -69,15 +69,10 @@ function projectKey(scope: ProjectScope): string {
     return `${scope.host}|${scope.projectId}`
 }
 
-/** The display modes a pin offers. Web analytics and pins that open on the web show as rows only. */
-export function pinModes(pin: Pick<PinView, 'kind' | 'native'>): PinDisplayMode[] {
-    return pin.native && (pin.kind === 'insight' || pin.kind === 'dashboard') ? ['row', 'number', 'chart'] : ['row']
-}
-
 export interface PinsState {
     pins: QueryState<PinView[]>
     displayPrefs: PinDisplayPrefs
-    /** The server holds more pins than one page: show "Showing 100 pins". */
+    /** The server holds more starred items than one page, so pins after the first page are missing. */
     truncated: boolean
     /** For the refresh rules: the last read of the pin list, and a re-read. */
     list: RefreshList
@@ -156,7 +151,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
 export function usePinnedKeys(): ReadonlySet<string> {
     const { pins } = usePins()
     const data = pins.data
-    return useMemo(() => new Set((data ?? []).map((pin) => shortcutMatchKey(pin.type, pin.ref))), [data])
+    return useMemo(() => new Set((data ?? []).map((pin) => shortcutMatchKey(pin.kind, pin.ref))), [data])
 }
 
 export interface PinActions {
@@ -293,7 +288,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
 
 /** Deletes every row that matches the view, in every environment. Rejects with user-facing copy for a toast. */
 export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from: PinSource): Promise<void> {
-    const key = 'shortcutId' in view ? shortcutMatchKey(view.type, view.ref) : pinTargetKey(view)
+    const key = 'shortcutId' in view ? shortcutMatchKey(view.kind, view.ref) : pinTargetKey(view)
     return queuePinWrite(list, key, async () => {
         const viewType = view.kind
         const { client, listKey } = list
@@ -541,14 +536,14 @@ export interface Visibility {
     /** Undefined until the list reports what it shows. */
     visibleKeys: ReadonlySet<string> | undefined
     /** A stable callback for `FlatList` / `SectionList`. */
-    onViewableItemsChanged: (info: { viewableItems: ViewToken[] }) => void
+    onViewableItemsChanged: (info: { viewableItems: ListViewToken[] }) => void
     viewabilityConfig: typeof VIEWABILITY_CONFIG
 }
 
 /** Tracks which list rows are on screen. `keyOf` maps a row's item to its freshness key, or null. */
 export function useVisibility(keyOf: (item: unknown) => string | null): Visibility {
     const [visibleItems, setVisibleItems] = useState<readonly unknown[] | undefined>(undefined)
-    const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[] }) => {
+    const onViewableItemsChanged = useRef((info: { viewableItems: ListViewToken[] }) => {
         setVisibleItems(info.viewableItems.map((token) => token.item))
     }).current
     // A resolved display can give a visible Row pin a freshness key without another viewability callback.

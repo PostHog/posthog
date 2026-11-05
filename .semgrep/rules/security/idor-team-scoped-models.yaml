@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -244,6 +245,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -617,6 +619,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -752,6 +755,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan

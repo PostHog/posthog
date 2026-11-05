@@ -2876,6 +2876,31 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(inline_after - inline_before, 1.0)
 
+    def test_exhausted_inline_budget_refuses_the_fallback_run(self):
+        from rest_framework.exceptions import Throttled
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-fallback-throttled", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                side_effect=RuntimeError("materialized table exploded"),
+            ) as mock_exec,
+            mock.patch(
+                "products.endpoints.backend.presentation.views.api.charge_inline_rate",
+                side_effect=Throttled(wait=5),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(mock_exec.call_count, 1, "the inline retry must not run once the inline budget is spent")
+
     def test_paginating_union_query_counts_as_user_error(self):
         from prometheus_client import REGISTRY
 

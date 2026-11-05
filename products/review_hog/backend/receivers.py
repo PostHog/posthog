@@ -142,7 +142,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         if pr_url is None:
             return
         task = instance.task  # first DB hit
-        if task.signal_report_id is None:
+        signal_report_id = task.signal_report_source_id
+        if signal_report_id is None:
             return
         if task.deleted:
             # A soft-deleted task's run can still save output. Its PR is disowned work, and the
@@ -154,7 +155,7 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         if (instance.state or {}).get("ai_stage") != "implementation":
             return
         repository = (task.repository or "").strip() or None
-        resolved = resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
+        resolved = resolve_assigned_reviewers(instance.team_id, signal_report_id)
         if not resolved:
             return
         settings_by_user = ReviewUserSettings.load_preferences_many(instance.team_id, resolved)
@@ -166,14 +167,14 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
             # The priority as it stood when the implementation task was created. The agent can append
             # judgments through the artefact API, so a later one may be its own vote on its review.
             signal_priority = persisted_report_priority(
-                team_id=instance.team_id, report_id=str(task.signal_report_id), before=task.created_at
+                team_id=instance.team_id, report_id=str(signal_report_id), before=task.created_at
             )
             transaction.on_commit(
                 lambda: _start_review(
                     pr_url=pr_url,
                     team_id=instance.team_id,
                     user_id=acting_user_id,
-                    signal_report_id=str(task.signal_report_id),
+                    signal_report_id=str(signal_report_id),
                     signal_priority=signal_priority,
                     repository=repository,
                 ),
@@ -188,7 +189,7 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
                     repository=stamphog_repository,
                     team_id=instance.team_id,
                     acting_user_id=stamphog_user_id,
-                    signal_report_id=str(task.signal_report_id),
+                    signal_report_id=str(signal_report_id),
                     task_run_id=str(instance.id),
                 ),
                 robust=True,
