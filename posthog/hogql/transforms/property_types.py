@@ -7,6 +7,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENT_ROW_TABLES,
@@ -35,6 +36,10 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
 }
+
+
+# ai_events copies event properties, so it shares the event property definitions.
+_EVENT_PROPERTY_TABLES = (*EVENT_ROW_TABLES, AiEventsTable)
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -119,7 +124,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EVENT_ROW_TABLES):
+                elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -763,7 +768,7 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
                         return ("person", property_name)
-                elif isinstance(resolved_table, EVENT_ROW_TABLES):
+                elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     if property_name in self.event_properties:
                         return ("event", property_name)
         if type.field_type.name == "person_properties" and len(type.chain) == 1:
