@@ -321,13 +321,14 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("send_scope", ["transactional_email:write"], status.HTTP_200_OK),
-            ("workflow_scope", ["hog_flow:write"], status.HTTP_200_OK),
-            ("status_scope", ["transactional_email:read"], status.HTTP_403_FORBIDDEN),
+            ("send_scope", ["transactional_email:write"], status.HTTP_200_OK, False),
+            ("workflow_scope", ["hog_flow:write"], status.HTTP_200_OK, True),
+            ("send_and_workflow_read_scopes", ["transactional_email:write", "hog_flow:read"], status.HTTP_200_OK, True),
+            ("status_scope", ["transactional_email:read"], status.HTTP_403_FORBIDDEN, False),
         ]
     )
     def test_making_a_template_transactional_needs_the_send_scope(
-        self, _mock_post, _flag, _capture, _name, scopes, expected_status
+        self, _mock_post, _flag, _capture, _name, scopes, expected_status, returns_content
     ):
         template = self._template()
         client = APIClient()
@@ -340,6 +341,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         template.refresh_from_db()
         assert (template.transactional_hog_flow_id is not None) == (expected_status == status.HTTP_200_OK)
+        if expected_status == status.HTTP_200_OK:
+            body = response.json()
+            assert body["transactional_hog_flow_id"] == str(template.transactional_hog_flow_id)
+            assert ("content" in body, "draft_content" in body) == (returns_content, returns_content)
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

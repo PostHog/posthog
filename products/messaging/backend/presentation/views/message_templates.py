@@ -37,7 +37,11 @@ from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
+from posthog.permissions import (
+    is_authenticated_via_project_secret_api_key,
+    legacy_scope_object_used,
+    scopes_caller_lacks,
+)
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
@@ -1162,7 +1166,8 @@ class MessageTemplatesViewSet(
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
-            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
+            "the response leaves out `content` and `draft_content`."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
@@ -1198,7 +1203,12 @@ class MessageTemplatesViewSet(
                 )
             except Exception as e:
                 logger.warning("Failed to capture message template usage event", error=str(e))
-        return Response(self._serialize(updated))
+        data = self._serialize(updated)
+        # A send-scoped key can't read templates, so converting one must not hand it their content.
+        if scopes_caller_lacks(request, ["hog_flow:read"]):
+            data.pop("content", None)
+            data.pop("draft_content", None)
+        return Response(data)
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
