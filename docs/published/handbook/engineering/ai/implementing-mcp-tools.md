@@ -110,7 +110,14 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises documentation search, its agent instructions pick a search by the topic of the request.
+A question about the user's own company, product, internal terms, or policies goes to Business Knowledge.
+A question about PostHog features, SDKs, or setup goes to PostHog documentation.
+A request to query or build something from project data runs neither search, unless it names a company term that no event or property explains.
+The Business Knowledge lines appear only for content the project holds: document search when it has sources, and repository search when it has selected GitHub repositories.
+A project with neither gets no Business Knowledge guidance.
+If a search fails or returns no relevant result, the agent continues with the other available evidence.
+In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Intent prompt trials
 
@@ -324,6 +331,8 @@ An explicit request declaration takes precedence over stored session support.
 The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
 The schema stays the same across accounts; execution checks the tools available to the current account.
 The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
+The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
@@ -538,9 +547,6 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
-   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
-   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
-   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -583,6 +589,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
@@ -599,6 +606,9 @@ Product teams own their definitions and control which operations are exposed as 
          # Use it on tools that echo a nested serializer schema, where the unset optional fields
          # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
          # removing a `null` that only some rows carry makes the table larger, not smaller.
+         expandable: [tiles.*.insight.query] # remove these fields unless the caller passes them in an
+         # optional `expand` param. Use it on a detail tool where a few fields dominate the payload.
+         # Incompatible with `include`.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
@@ -875,6 +885,9 @@ This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
+
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
 
 ## Agent skills that support the MCP server
 

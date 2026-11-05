@@ -2,25 +2,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { retryImport } from 'lib/utils/retryImport'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { ExportedAssetType } from '~/types'
 
-import {
-    ExportNudgeCandidate,
-    captureExportNudgeCheckFailed,
-    exportNudgeEventProperties,
-    lookUpExportNudge,
-    resolveExportNudgeEligibility,
-} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
-import {
-    ExportNudgeSubject,
-    exportNudgeSubjectFor,
-} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject'
-import {
-    ExportNudgeMessage,
-    claimExportNudgeMessage,
-} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast'
+import type { ExportNudgeCandidate } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
+import type { ExportNudgeSubject } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject'
+import type { ExportNudgeMessage } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast'
 
 import { TriggerExportProps } from './exporter'
 
@@ -36,6 +25,26 @@ export interface ExportNudge {
 
 const NO_NUDGE: ExportNudge = { message: null, resolving: Promise.resolve(null) }
 
+interface NudgeModules {
+    logic: typeof import('products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic')
+    subject: typeof import('products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject')
+    toast: typeof import('products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast')
+}
+
+let nudgeModules: NudgeModules | null = null
+
+// The subscriptions code loads after the shell, not on its critical path. It is usually ready long before
+// the first export. If it fails to load, exports go on without the offer.
+const nudgeModulesLoaded: Promise<NudgeModules | null> = Promise.all([
+    retryImport(() => import('products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic')),
+    retryImport(
+        () => import('products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject')
+    ),
+    retryImport(() => import('products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast')),
+])
+    .then(([logic, subject, toast]) => (nudgeModules = { logic, subject, toast }))
+    .catch(() => null)
+
 /** What an export that acknowledged its kickoff hands to the toast it finishes on. */
 export interface KickoffToast {
     toastId: string
@@ -49,27 +58,59 @@ export interface KickoffToast {
  * check here and fold it in when the export settles.
  */
 export const startExportNudge = (exportData: TriggerExportProps | ExportedAssetType): ExportNudge => {
-    const subject = exportNudgeSubjectFor(exportData)
+    if (!nudgeModules) {
+        return {
+            message: null,
+            resolving: nudgeModulesLoaded.then((modules) =>
+                modules ? resolveNudge(modules, exportData) : Promise.resolve(null)
+            ),
+        }
+    }
+    const modules = nudgeModules
+    const subject = modules.subject.exportNudgeSubjectFor(exportData)
     if (!subject) {
         return NO_NUDGE
     }
-    const lookup = lookUpExportNudge(subject)
+    const lookup = modules.logic.lookUpExportNudge(subject)
     if (lookup.status === 'ineligible') {
         return NO_NUDGE
     }
     if (lookup.status === 'eligible') {
-        return { message: claimExportNudgeMessage(lookup.candidate), resolving: Promise.resolve(null) }
+        return { message: modules.toast.claimExportNudgeMessage(lookup.candidate), resolving: Promise.resolve(null) }
     }
-    return { message: null, resolving: resolveNudgeWhileExporting(subject) }
+    return { message: null, resolving: resolveNudgeWhileExporting(modules, subject) }
+}
+
+// The same check as above for an export that started before the subscriptions code loaded. The offer
+// then folds in when the export settles.
+const resolveNudge = async (
+    modules: NudgeModules,
+    exportData: TriggerExportProps | ExportedAssetType
+): Promise<ExportNudgeCandidate | null> => {
+    const subject = modules.subject.exportNudgeSubjectFor(exportData)
+    if (!subject) {
+        return null
+    }
+    const lookup = modules.logic.lookUpExportNudge(subject)
+    if (lookup.status === 'ineligible') {
+        return null
+    }
+    if (lookup.status === 'eligible') {
+        return lookup.candidate
+    }
+    return await resolveNudgeWhileExporting(modules, subject)
 }
 
 // A stalled or failed check must never hold up the export's own feedback.
-const resolveNudgeWhileExporting = async (subject: ExportNudgeSubject): Promise<ExportNudgeCandidate | null> =>
-    await withTimeout(resolveExportNudgeEligibility(subject), NUDGE_RESOLUTION_TIMEOUT_MS).catch((error) => {
+const resolveNudgeWhileExporting = async (
+    { logic }: NudgeModules,
+    subject: ExportNudgeSubject
+): Promise<ExportNudgeCandidate | null> =>
+    await withTimeout(logic.resolveExportNudgeEligibility(subject), NUDGE_RESOLUTION_TIMEOUT_MS).catch((error) => {
         if (error instanceof PromiseTimeoutError) {
             // Every other failure reports its own step. Without this one, a stalled check looks the
             // same as an exporter who was ineligible.
-            captureExportNudgeCheckFailed('timeout', exportNudgeEventProperties(subject))
+            logic.captureExportNudgeCheckFailed('timeout', logic.exportNudgeEventProperties(subject))
         }
         return null
     })
@@ -113,14 +154,16 @@ export const foldNudgeIntoSettledToast = async (
     action?: ToastButton
 ): Promise<void> => {
     const candidate = await nudge.resolving
-    if (!candidate) {
+    // A candidate exists only once the subscriptions code has loaded.
+    if (!candidate || !nudgeModules) {
         return
     }
+    const { logic, toast } = nudgeModules
     if (!lemonToast.isActive(toastId)) {
-        captureExportNudgeCheckFailed('toast-gone', exportNudgeEventProperties(candidate.subject))
+        logic.captureExportNudgeCheckFailed('toast-gone', logic.exportNudgeEventProperties(candidate.subject))
         return
     }
-    const message = claimExportNudgeMessage(candidate)
+    const message = toast.claimExportNudgeMessage(candidate)
     if (!message) {
         return
     }

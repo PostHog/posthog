@@ -3,9 +3,9 @@ import { MakeLogicType, actions, events, kea, listeners, path, reducers, selecto
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chunk } from 'lib/utils/arrays'
+import { hogql } from 'lib/utils/hogql'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 
 import { parsePartialJSON, selectAiValue } from './utils'
 

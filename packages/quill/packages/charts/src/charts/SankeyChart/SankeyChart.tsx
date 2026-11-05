@@ -7,8 +7,8 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
-import { useResolvedChartTheme } from '../../core/theme'
+import { applyMarginOverride, useStableMargins } from '../../core/hooks/useChartMargins'
+import { DEFAULT_CHART_COLORS, useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
@@ -52,9 +52,6 @@ function graphKey(
         [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])
 }
-
-/** Used when `theme.colors` is empty, as `Heatmap` does for its accent. */
-const FALLBACK_NODE_COLOR = '#1d4aff'
 
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onError,
@@ -110,11 +107,12 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [showNodeLabels, lastColumnLabels, nodes, links, nodeAlign, showNodeValues, valueFormatter]
     )
 
+    const stableMarginsOverride = useStableMargins(marginsOverride)
     const margins = useMemo<ChartMargins>(() => {
-        const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
+        const applied = applyMarginOverride(BASE_MARGINS, stableMarginsOverride)
         // Column headers are sized for their room, so an override cannot take it away.
         return { ...applied, top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
-    }, [hasColumnLabels, marginsOverride])
+    }, [hasColumnLabels, stableMarginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
@@ -149,10 +147,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const label = node.label ?? node.id
             if (!slots.has(label)) {
-                slots.set(label, palette[slots.size % palette.length] || FALLBACK_NODE_COLOR)
+                slots.set(label, palette[slots.size % palette.length] || DEFAULT_CHART_COLORS[0])
             }
         }
-        return (label: string): string => slots.get(label) ?? (palette[0] || FALLBACK_NODE_COLOR)
+        return (label: string): string => slots.get(label) ?? (palette[0] || DEFAULT_CHART_COLORS[0])
     }, [nodes, paletteKey])
 
     const layout = useMemo<SankeyChartLayout<NodeMeta, LinkMeta>>(
@@ -257,14 +255,11 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         hoverAnimationMs: HOVER_ANIMATION_MS,
     })
 
-    const renderTooltip = useMemo(
-        () =>
-            tooltip ??
-            ((tooltipContext: SankeyTooltipContext<NodeMeta, LinkMeta>): React.ReactNode => (
-                <PieTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
-            )),
-        [tooltip, valueFormatter]
-    )
+    const renderTooltip =
+        tooltip ??
+        ((tooltipContext: SankeyTooltipContext<NodeMeta, LinkMeta>): React.ReactNode => (
+            <PieTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
+        ))
 
     const canvasBounds = useCanvasBounds(canvasRef)
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {

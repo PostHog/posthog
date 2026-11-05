@@ -36,8 +36,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    IMPORT_NON_RETRYABLE_ERROR_TYPES,
     NEW_TABLE_NOT_READY_MESSAGE,
+    Any_Source_Errors,
     _transient_error_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
@@ -57,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     SimpleSource,
     SourceExtractionNotImplementedError,
+    error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -128,7 +132,7 @@ def _patched_activity(source_mock, model=None, schema=None):
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
         mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(return_value=schema)),
-        mock.patch.object(module, "ExternalDataSourceType", return_value="MongoDB"),
+        mock.patch.object(module, "known_source_key", return_value="MongoDB"),
         mock.patch.object(module, "bind_job_context"),
         mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
@@ -521,6 +525,29 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args.args[5] is error
     source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_self_managed_adoption_stops_the_run_before_extraction():
+    message = f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table or of its source changed"
+    source = _make_source(AssertionError("must not extract"), {})
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "self_managed_adoption_error", return_value=message),
+    ):
+        with pytest.raises(NonRetryableException, match="access rules of the table") as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    source.parse_config.assert_not_called()
+    source.source_for_pipeline.assert_not_called()
+    handle_mock.assert_not_awaited()
+    # Temporal doesn't retry the activity, and the job's finalizer pauses the schema with the message.
+    assert type(exc_info.value).__name__ in IMPORT_NON_RETRYABLE_ERROR_TYPES
+    assert error_message_matches(str(exc_info.value), Any_Source_Errors.keys())
+    assert Any_Source_Errors[ADOPTION_ACCESS_ERROR] is None
+    # The workflow records `e.cause.cause` as the job's error, so the refusal must be the cause.
+    assert str(exc_info.value.__cause__) == message
 
 
 @pytest.mark.asyncio
@@ -1251,7 +1278,7 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
         mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(return_value=schema)),
-        mock.patch.object(module, "ExternalDataSourceType", return_value="MongoDB"),
+        mock.patch.object(module, "known_source_key", return_value="MongoDB"),
         mock.patch.object(module, "bind_job_context"),
         mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),

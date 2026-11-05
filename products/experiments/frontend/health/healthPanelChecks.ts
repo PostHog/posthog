@@ -1,11 +1,12 @@
 import { pluralize } from 'lib/utils/strings'
 
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 
-export type HealthPanelCheck = ExperimentHealthCheckResultApi
+/** An exposure check from an answer cached before the server added a field has no description, values or rule. */
+export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
 
 /** A check in the list of checks. A check that reported a finding shows as that finding instead. */
 export type ListedHealthCheck = HealthPanelCheck & { status: Exclude<HealthPanelCheck['status'], 'finding'> }
@@ -72,6 +73,16 @@ export function listedHealthChecks(checks: HealthPanelCheck[]): ListedHealthChec
 
 export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPanelCheck['status']): number {
     return checks.filter((check) => check.status === status).length
+}
+
+export function healthChecksVerdict(checks: HealthPanelCheck[], issueCount: number): string {
+    const passedCount = countHealthChecks(checks, 'passed')
+    if (issueCount > 0) {
+        return `${pluralize(issueCount, 'issue')} found`
+    }
+    return passedCount > 0
+        ? `No problems found by ${pluralize(passedCount, 'check')}`
+        : 'No checks apply to this experiment yet'
 }
 
 export function healthChipState(

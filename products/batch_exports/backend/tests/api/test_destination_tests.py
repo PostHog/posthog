@@ -177,6 +177,7 @@ def test_can_run_s3_test_step_for_new_destination(
     assert destination_test["result"]["message"] is None
 
 
+@pytest.mark.parametrize("sends_config", [True, False])
 def test_can_run_s3_test_step_for_destination(
     client: HttpClient,
     bucket_name,
@@ -186,6 +187,7 @@ def test_can_run_s3_test_step_for_destination(
     team,
     user,
     object_storage_integration,
+    sends_config,
 ):
     destination_data = {
         "type": "S3Compatible",
@@ -211,9 +213,11 @@ def test_can_run_s3_test_step_for_destination(
         batch_export_data,
     )
 
+    # The stored config fills the fields a request leaves out, as the app leaves out secrets.
+    request_destination = destination_data if sends_config else {**destination_data, "config": {}}
     response = client.post(
         f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
-        {**{"step": 0}, **batch_export_data},
+        {"step": 0, **batch_export_data, "destination": request_destination},
         content_type="application/json",
     )
 

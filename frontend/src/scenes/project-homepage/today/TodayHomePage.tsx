@@ -9,6 +9,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
+import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
@@ -59,6 +60,8 @@ export function TodayHomePage(): JSX.Element {
         highlightsPending,
         pulsePending,
         pulseTiles,
+        pulseSlots,
+        pulsePinsLoaded,
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
@@ -77,6 +80,7 @@ export function TodayHomePage(): JSX.Element {
         highlightsPending,
         pulsePending,
         pulseTiles,
+        pulseSlots,
         pulseViewUpdated,
         currentProjectId,
         useSampleData,
@@ -117,13 +121,14 @@ export function TodayHomePage(): JSX.Element {
                 </div>
                 <div className="TodayHome__metaRow">
                     <TodayMetaLine />
+                    {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
             </section>
             <div className="TodayHome__body">
                 {pulsePending ? (
                     <TodayPulseSkeleton />
-                ) : highlights && pulseTiles.length > 0 ? (
-                    <TodayPulse metrics={pulseTiles} />
+                ) : highlights && pulseSlots?.length > 0 ? (
+                    <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
                 ) : highlights?.status === 'ready' ? (
                     <Text size="sm" variant="muted" render={<p />} className="m-0">
                         Key numbers show here when you or your team open a few trend insights.

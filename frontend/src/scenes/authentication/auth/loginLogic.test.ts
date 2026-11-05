@@ -4,13 +4,14 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { handleLoginRedirect, redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { handleLoginRedirect, loginLogic, redirectAfterLogin } from './loginLogic'
+import { loginLogic } from './loginLogic'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 jest.mock('posthog-js')

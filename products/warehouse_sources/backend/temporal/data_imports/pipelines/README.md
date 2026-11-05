@@ -39,7 +39,6 @@ The append keeps one row for each key in a batch, not in the run: a key that the
 
 A source that has no primary key can name the origin of each row instead, for example the file it came from.
 It sets `SourceResponse.replace_scope` (`ReplaceScope` in `sources/common/typings.py`): a column, the values this run reads again (`replaced`), and the values that are live now (`retained`).
-A source sets a scope only while the `warehouse-replace-rows-by-file` flag is on for the schema, because an older loader ignores the scope and fails the keyless batch.
 
 - The pipeline writes the two value sets to `replace_scope.parquet` in the run's folder (`pipeline_v3/replace_scope.py`). Each queue row carries only the column and the manifest path, under `replace_scope` in its metadata.
 - Before batch 0 of a fresh attempt writes, the loader deletes each row whose value is in `replaced` or not in `retained` (`pipeline_v3/load/replace_rows.py`). It reads the values in the table from one column, and deletes in commits of up to 1,000 values. Then every batch of the run appends.
