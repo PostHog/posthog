@@ -1577,7 +1577,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 lemonToast.error(
                     evaluationErrorMessage(
                         error,
-                        enabled ? 'Couldn’t turn on this evaluation.' : 'Couldn’t pause this evaluation.'
+                        enabled ? "Couldn't turn on this evaluation." : "Couldn't pause this evaluation."
                     )
                 )
                 actions.saveEnabledFailure()

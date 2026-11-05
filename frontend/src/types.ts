@@ -6898,7 +6898,7 @@ export type BatchExportServiceRedshift = {
         properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
         // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
-        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]

@@ -77,7 +77,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
-    IMPORT_RIDE_OUT_FLAG,
     DurableProgress,
     RideOutConfig,
 )
@@ -101,7 +100,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -752,9 +750,7 @@ async def _import_data_with_reporting(
             )
         # A deadline hand-off on the retry path would cost an attempt, so the same rule as preemption.
         ride_out: RideOutConfig | None = None
-        if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
-            schema, IMPORT_RIDE_OUT_FLAG
-        ):
+        if inputs.handoffs_are_free:
             # The ride-out's stopwatch starts when the monitor reports the shutdown, after the shutdown grace.
             ride_out = RideOutConfig(
                 grace_seconds=_graceful_shutdown_timeout_seconds() - shutdown_grace_seconds,

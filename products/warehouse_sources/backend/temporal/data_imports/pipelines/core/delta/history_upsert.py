@@ -12,6 +12,7 @@ therefore harmless: the re-run applies nothing twice.
 
 import math
 import time
+import shutil
 import asyncio
 import tempfile
 import functools
@@ -63,16 +64,16 @@ STAGED_BATCH_COLUMN = "_ph_staged_batch"
 # wins, also between runs whose staged rows are finalized together, because the staging version only grows.
 STAGED_ROW_COLUMN = "_ph_staged_row"
 _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
-# deltalite refuses a source above 2 GiB, counted with its key map. The staged size is an estimate, so
-# one call takes at most half of that.
-MAX_CALL_BYTES = 1024 * 1024 * 1024
+# deltalite refuses a source above this, counted with its key map.
+_SOURCE_GUARD_BYTES = 2 * 1024 * 1024 * 1024
+# The staged size is an estimate, so one call takes at most half of deltalite's source guard.
+MAX_CALL_BYTES = _SOURCE_GUARD_BYTES // 2
 # Each chunk rewrites the `current` files that hold its keys, so chunks stay as large as memory allows.
 CHUNK_TARGET_BYTES = 512 * 1024 * 1024
 # Rows per scanned batch, so one decoded batch of wide rows stays small next to the call budget.
 _SCAN_BATCH_ROWS = 16_384
-# Each chunk holds one open spill file while the staging table is read. Past this many chunks, a chunk grows
-# instead.
-_MAX_CHUNKS = 256
+# Each chunk of a spill pass holds one open file while the staging table is read.
+_MAX_OPEN_CHUNK_FILES = 256
 # deltalite's source guard also counts its copies of the key, order and tie-break columns (about twice their
 # size) and a key-map entry plus two row indexes per row.
 _INDEX_BYTES_PER_ROW = 48 + 2 * 4
@@ -89,6 +90,10 @@ _SUMMED_STATS = (
     "bytes_read",
     "bytes_written",
 )
+
+
+class HistoryChunkTooLargeError(ValueError):
+    """One key chunk of a sync is above deltalite's source limit, because one key holds too many versions."""
 
 
 @frozen
@@ -180,7 +185,11 @@ async def finalize(
     Staged rows that fit one call go in one commit. Larger syncs split by a hash of the key, one commit
     per chunk. Chunks hold disjoint keys, so a crash between two chunk commits leaves each key either
     fully applied or not at all, and the re-run applies only the rest. Only the last call carries
-    `commit_metadata`, so a tagged commit means the whole sync is in the table.
+    `commit_metadata`, so a tagged commit means the whole sync is in the table. A last call that keeps no
+    row makes no commit, so its tag is missing although the sync is applied.
+
+    Chunks spill to local disk in passes. Each pass reads the staging table again and holds at most about
+    half of the free disk, so a large sync needs more reads, not more disk.
     """
     key_columns = _normalized_keys(key_columns)
     partition_column = naming.partition_column
@@ -198,45 +207,64 @@ async def finalize(
     staging_dataset = staging_table.to_pyarrow_dataset()
     # The batch tags are only needed for the cleanup, so they never reach the upsert.
     columns = [name for name in staging_dataset.schema.names if name != STAGED_BATCH_COLUMN]
-    batch_tags = await asyncio.to_thread(_batch_tags, staging_dataset)
     narrow_columns = list(dict.fromkeys([*key_columns, naming.valid_from, STAGED_ROW_COLUMN]))
-    call_bytes = await asyncio.to_thread(_call_bytes, staging_dataset, columns, narrow_columns)
+    call_bytes, batch_tags = await asyncio.to_thread(_measure, staging_dataset, columns, narrow_columns)
     # One handle for every chunk, so each call does not load the table's log and checkpoint again.
     handle = await asyncio.to_thread(_open_deltalite, await table.get_table_uri(), table.get_storage_options())
 
     totals = dict.fromkeys(_SUMMED_STATS, 0)
     calls = staged_rows = 0
+
+    async def _apply(load: Callable[[], pa.Table], footprint: int, chunks: int, *, last: bool) -> None:
+        nonlocal calls, staged_rows
+        stats, rows = await _history_upsert(
+            table,
+            handle,
+            history_table,
+            load,
+            footprint,
+            key_columns=key_columns,
+            naming=naming,
+            partition_column=partition_column,
+            commit_metadata=commit_metadata if last else None,
+            chunk=calls,
+            chunks=chunks,
+        )
+        staged_rows += rows
+        calls += 1
+        for name in _SUMMED_STATS:
+            totals[name] += int(getattr(stats, name))
+
     with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-        sources: list[tuple[Callable[[], pa.Table], int]]
         if call_bytes <= max_call_bytes:
-            sources = [(functools.partial(_read_staged, staging_dataset, columns), call_bytes)]
+            await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
         else:
-            chunks = min(_MAX_CHUNKS, math.ceil(call_bytes / chunk_target_bytes))
-            spilled = await asyncio.to_thread(
-                _spill_chunks, handle, staging_dataset, columns, key_columns, narrow_columns, chunks, Path(directory)
-            )
-            sources = [(functools.partial(_read_chunk, path), footprint) for path, footprint in spilled]
-        for index, (load, footprint) in enumerate(sources):
-            if calls:
-                # The earlier chunk's commit made the handle stale, and the new columns must align to the table.
-                history_table = await table.get_delta_table() or history_table
-            stats, rows = await _history_upsert(
-                table,
-                handle,
-                history_table,
-                load,
-                footprint,
-                key_columns=key_columns,
-                naming=naming,
-                partition_column=partition_column,
-                commit_metadata=commit_metadata if index == len(sources) - 1 else None,
-                chunk=index,
-                chunks=len(sources),
-            )
-            staged_rows += rows
-            calls += 1
-            for name in _SUMMED_STATS:
-                totals[name] += int(getattr(stats, name, 0) or 0)
+            chunks = math.ceil(call_bytes / chunk_target_bytes)
+            per_pass = _chunks_per_pass(Path(directory), chunk_target_bytes)
+            for first in range(0, chunks, per_pass):
+                buckets = range(first, min(chunks, first + per_pass))
+                spilled = await asyncio.to_thread(
+                    _spill_chunks,
+                    handle,
+                    history_table.schema(),
+                    staging_dataset,
+                    columns,
+                    key_columns,
+                    narrow_columns,
+                    chunks,
+                    buckets,
+                    Path(directory),
+                )
+                for index, (path, footprint) in enumerate(spilled):
+                    if footprint > _SOURCE_GUARD_BYTES:
+                        # Chunks split keys, not a key's versions, so a smaller chunk target can't help it.
+                        raise HistoryChunkTooLargeError(
+                            f"{table.resource_name}: a key chunk of this sync holds {footprint} bytes, above "
+                            f"deltalite's {_SOURCE_GUARD_BYTES} byte source limit, so one key has too many versions"
+                        )
+                    last = buckets.stop == chunks and index == len(spilled) - 1
+                    await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
+                    path.unlink()
 
     # Only after every chunk committed: a crash before this point leaves the rows staged for the re-run.
     await DeltaWriter(staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
@@ -272,12 +300,26 @@ async def _history_table(
     return await evolve_delta_schema(history_table, schema)
 
 
-def _call_bytes(dataset: ds.Dataset, columns: list[str], narrow_columns: list[str]) -> int:
-    """What one call with every staged row counts against deltalite's source guard, one batch in memory at a time.
+def _measure(dataset: ds.Dataset, columns: list[str], narrow_columns: list[str]) -> tuple[int, set[str]]:
+    """What one call with every staged row counts against deltalite's source guard, and the staged batch tags.
 
-    Parquet stores repeated and null values in a few bytes, so only decoded batches give that size.
+    One batch is in memory at a time. Parquet stores repeated and null values in a few bytes, so only
+    decoded batches give that size.
     """
-    return sum(_footprint(batch, narrow_columns) for batch in _scanner(dataset, columns).to_batches())
+    footprint = 0
+    tags: set[str] = set()
+    for batch in _scanner(dataset, [*columns, STAGED_BATCH_COLUMN]).to_batches():
+        tag_column = batch.column(STAGED_BATCH_COLUMN)
+        tags.update(str(tag) for tag in pc.unique(tag_column).drop_null().to_pylist())
+        # The upsert never receives the tag column.
+        footprint += _footprint(batch, narrow_columns) - tag_column.nbytes
+    return footprint, tags
+
+
+def _chunks_per_pass(directory: Path, chunk_target_bytes: int) -> int:
+    """How many chunk files one spill pass writes: about half the free disk, and at most the open-file cap."""
+    free_bytes = shutil.disk_usage(directory).free
+    return max(1, min(_MAX_OPEN_CHUNK_FILES, free_bytes // 2 // chunk_target_bytes))
 
 
 def _footprint(batch: pa.RecordBatch, narrow_columns: list[str]) -> int:
@@ -297,53 +339,54 @@ def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:
 
 def _spill_chunks(
     handle: Any,
+    history_schema: Any,
     dataset: ds.Dataset,
     columns: list[str],
     key_columns: Sequence[str],
     narrow_columns: list[str],
     chunks: int,
+    buckets: range,
     directory: Path,
 ) -> list[tuple[Path, int]]:
-    """Write the staged rows into one local Arrow file per key bucket, one record batch at a time.
+    """Write the staged rows of the key buckets in `buckets` into one local Arrow file per bucket.
 
-    The history table hashes the keys after it casts them to its own key types, so two staged values that
+    The rows are aligned to the history table's decimal types first, so the history table hashes the keys
+    the upsert matches. It hashes them after it casts them to its own key types, so two staged values that
     become one table key land in the same bucket. Returns the files that received rows, in bucket order,
     each with its call footprint.
     """
-    paths = [directory / f"chunk-{index}.arrow" for index in range(chunks)]
-    footprints = [0] * chunks
-    schema = pa.schema([dataset.schema.field(name) for name in columns])
-    # The chunks together hold the whole staged sync on local disk.
+    paths = {bucket: directory / f"chunk-{bucket}.arrow" for bucket in buckets}
+    footprints = dict.fromkeys(buckets, 0)
+    staged_schema = pa.schema([dataset.schema.field(name) for name in columns])
+    schema = align_incoming_decimals_to_delta(staged_schema.empty_table(), history_schema).schema
     options = pa.ipc.IpcWriteOptions(compression="zstd")
     with contextlib.ExitStack() as stack:
-        writers = [stack.enter_context(pa.ipc.new_file(str(path), schema, options=options)) for path in paths]
-        for batch in _scanner(dataset, columns).to_batches():
-            if batch.num_rows == 0:
+        writers = {
+            bucket: stack.enter_context(pa.ipc.new_file(str(path), schema, options=options))
+            for bucket, path in paths.items()
+        }
+        for staged in _scanner(dataset, columns).to_batches():
+            if staged.num_rows == 0:
                 continue
-            buckets = handle.key_buckets(batch, list(key_columns), chunks)
-            # One sort per batch, then a slice per bucket, instead of a filter pass per bucket.
-            order = pc.sort_indices(buckets)
-            sorted_batch = batch.take(order)
-            starts = np.searchsorted(buckets.take(order).to_numpy(), np.arange(chunks + 1))
-            for index, writer in enumerate(writers):
-                count = int(starts[index + 1] - starts[index])
-                if count:
-                    bucket = sorted_batch.slice(int(starts[index]), count)
-                    writer.write_batch(bucket)
-                    footprints[index] += _footprint(bucket, narrow_columns)
-    return [(path, footprint) for path, footprint in zip(paths, footprints) if footprint]
+            aligned = align_incoming_decimals_to_delta(pa.Table.from_batches([staged]), history_schema)
+            for batch in aligned.to_batches():
+                ids = handle.key_buckets(batch, list(key_columns), chunks)
+                # One sort per batch, then a slice per bucket, instead of a filter pass per bucket.
+                order = pc.sort_indices(ids)
+                sorted_batch = batch.take(order)
+                starts = np.searchsorted(ids.take(order).to_numpy(), np.arange(chunks + 1))
+                for bucket, writer in writers.items():
+                    count = int(starts[bucket + 1] - starts[bucket])
+                    if count:
+                        rows = sorted_batch.slice(int(starts[bucket]), count)
+                        writer.write_batch(rows)
+                        footprints[bucket] += _footprint(rows, narrow_columns)
+    return [(paths[bucket], footprints[bucket]) for bucket in buckets if footprints[bucket]]
 
 
 def _read_chunk(path: Path) -> pa.Table:
     with pa.OSFile(str(path), "rb") as source:
         return pa.ipc.open_file(source).read_all()
-
-
-def _batch_tags(dataset: ds.Dataset) -> set[str]:
-    tags: set[str] = set()
-    for batch in _scanner(dataset, [STAGED_BATCH_COLUMN]).to_batches():
-        tags.update(str(tag) for tag in pc.unique(batch.column(STAGED_BATCH_COLUMN)).drop_null().to_pylist())
-    return tags
 
 
 def _scanner(dataset: ds.Dataset, columns: list[str]) -> ds.Scanner:
@@ -402,10 +445,12 @@ async def _history_upsert(
         duration_s = time.perf_counter() - started
         rows = data.num_rows
 
-    table.note_deltalite_commit(getattr(stats, "version", None))
+    committed = bool(stats.committed)
+    if committed:
+        table.note_deltalite_commit(stats.version)
     with contextlib.suppress(Exception):
         await table.logger.ainfo(
-            "history upsert: committed",
+            "history upsert: committed" if committed else "history upsert: nothing to write",
             chunk=chunk,
             chunks=chunks,
             duration_ms=round(duration_s * 1000),

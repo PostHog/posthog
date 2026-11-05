@@ -21,6 +21,7 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { isExternalSignalSource } from '../../externalSignalSources'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
@@ -116,6 +117,7 @@ interface SourceFilters {
 
 /** Product analytics only: which firing alerts become signals. */
 interface SourceAlertScope {
+    options: typeof ALERT_SCOPE_OPTIONS
     value: SignalAlertScope
     onChange: (value: SignalAlertScope) => void
     /** False before the source was ever turned on, as the choice is stored on its config row. */
@@ -139,6 +141,12 @@ const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description
         description:
             'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
         dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+    {
+        value: SignalAlertScope.Off,
+        label: 'Off',
+        description: 'No alerts become signals. Alert checks, notifications, and investigations keep running.',
+        dataAttr: 'signal-source-alert-scope-off',
     },
 ]
 
@@ -238,6 +246,8 @@ function EntityRow({
 
 interface ExpansionProps {
     agent: AgentRosterDefinition
+    /** A second line under the detail, for a setting that only some projects have. */
+    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     enablingProduct: boolean
@@ -308,6 +318,7 @@ function ProductDataStatus({
 
 function Expansion({
     agent,
+    note,
     state,
     product,
     enablingProduct,
@@ -356,6 +367,7 @@ function Expansion({
                     <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
                     {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
                 </p>
+                {note && <p className="mb-0 text-xs text-secondary">{note}</p>}
 
                 {hasMetaLine && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -420,7 +432,7 @@ function Expansion({
                                 aria-label="Alerts that become signals"
                                 data-attr="signal-source-alert-scope"
                                 radioPosition="top"
-                                options={ALERT_SCOPE_OPTIONS.map(({ value, label, description, dataAttr }) => ({
+                                options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
                                     value,
                                     label,
                                     description,
@@ -515,6 +527,7 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
+    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -531,6 +544,7 @@ interface AgentRowProps {
 
 const AgentRow = memo(function AgentRow({
     agent,
+    note,
     state,
     product,
     expanded,
@@ -658,6 +672,7 @@ const AgentRow = memo(function AgentRow({
             {expanded && (
                 <Expansion
                     agent={agent}
+                    note={note}
                     state={state}
                     product={product}
                     enablingProduct={enablingProduct}
@@ -681,7 +696,11 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
     return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
+const ANOMALY_SCORING_NOTE =
+    'This source also checks your active trends insights for anomalies and saves the results as $anomaly_score events, which are free.'
+
 export function AgentsRoster(): JSX.Element {
+    const { anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
     const {
         externalSourceStates,
         rosterGroups,
@@ -948,14 +967,18 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
-    const showAlertScope = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
-    const alertScope = useMemo((): SourceAlertScope | undefined => {
-        if (!showAlertScope) {
-            return undefined
-        }
+    const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope => {
         const blockedReason = stateFor('analytics').blockedReason
         return {
-            value: analyticsAlertScope,
+            options: allFiringAlertsEnabled
+                ? ALERT_SCOPE_OPTIONS
+                : ALERT_SCOPE_OPTIONS.filter(({ value }) => value !== SignalAlertScope.AllFiringAlerts),
+            // Without the flag the backend treats a stored all firing scope as investigated only.
+            value:
+                !allFiringAlertsEnabled && analyticsAlertScope === SignalAlertScope.AllFiringAlerts
+                    ? SignalAlertScope.InvestigatedOnly
+                    : analyticsAlertScope,
             onChange: setAnalyticsAlertScope,
             canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
             disabledReason:
@@ -963,7 +986,7 @@ export function AgentsRoster(): JSX.Element {
                 (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
         }
     }, [
-        showAlertScope,
+        allFiringAlertsEnabled,
         stateFor,
         analyticsAlertScope,
         setAnalyticsAlertScope,
@@ -1003,6 +1026,7 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
+                    note={agent.source === 'analytics' && anomalyScoringAvailable ? ANOMALY_SCORING_NOTE : undefined}
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
@@ -1027,6 +1051,7 @@ export function AgentsRoster(): JSX.Element {
         [
             stateFor,
             linearIssuesConfig,
+            anomalyScoringAvailable,
             openLinearTeamsPicker,
             isLinearIssuesToggling,
             sourceConfigsLoading,
