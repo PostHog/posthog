@@ -96,7 +96,7 @@ import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
-import { AttachedContext, MaxUIContext } from './maxTypes'
+import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -105,6 +105,7 @@ import {
     activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
+    getContextSourceProperties,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
@@ -167,6 +168,7 @@ export interface maxThreadLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     billingContext: MaxBillingContext | null // maxBillingContextLogic
     compiledContext: MaxUIContext | null // maxContextLogic
+    sceneContext: MaxContextItem[] // maxContextLogic
     availableStaticTools: ToolRegistration[] // maxGlobalLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     toolMap: {
@@ -783,7 +785,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'pendingBindTaskId',
             ],
             maxContextLogic,
-            ['compiledContext'],
+            ['compiledContext', 'sceneContext'],
             maxBillingContextLogic,
             ['billingContext'],
             billingLogic,
@@ -1287,6 +1289,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // otherwise invisible outside session recordings, because no send event records a length.
             // Null content means resume/continue rather than a new message.
             const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+            const contextSourceProperties = getContextSourceProperties(streamData.ui_context, values.sceneContext)
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
@@ -1528,6 +1531,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
 
@@ -1643,6 +1647,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                   ? 'api_error'
                                   : 'unknown_error',
                             prompt_length: promptLength,
+                            ...contextSourceProperties,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1668,6 +1673,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
                 actions.completeThreadGeneration()
