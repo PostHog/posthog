@@ -28,7 +28,7 @@ _VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
 @dataclass
 class RequestContext:
     request_id: str
-    product: str = "llm_gateway"
+    product: str = "unknown"
     posthog_properties: dict[str, str] | None = None
     posthog_flags: dict[str, str] | None = None
     traceparent_trace_id: str | None = None
@@ -57,7 +57,7 @@ def get_request_id() -> str:
 
 def get_product() -> str:
     ctx = request_context_var.get()
-    return ctx.product if ctx else "llm_gateway"
+    return ctx.product if ctx else "unknown"
 
 
 def set_posthog_properties(properties: dict[str, str] | None) -> None:

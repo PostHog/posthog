@@ -84,7 +84,6 @@ class TestGetLlmClient:
         "product,expected_path",
         [
             ("django", "/django/v1/"),
-            ("llm_gateway", "/llm_gateway/v1/"),
             ("posthog_code", "/posthog_code/v1/"),
             ("wizard", "/wizard/v1/"),
             ("signals", "/signals/v1/"),

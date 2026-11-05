@@ -15,7 +15,7 @@ uv run uvicorn llm_gateway.main:app --reload
 ### Making a request
 
 ```bash
-curl -X POST http://localhost:8080/llm_gateway/v1/chat/completions \
+curl -X POST http://localhost:8080/django/v1/chat/completions \
   -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
@@ -249,8 +249,6 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 
 | Product              | Auth            | Models                                             | Notes                           |
 | -------------------- | --------------- | -------------------------------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                                                | Explicit `/llm_gateway/` path   |
-| `ci`                 | API key only    | All                                                | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set                                     | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set                                     | Cloud background agents         |
 | `onboarding`         | OAuth only      | claude-sonnet-5                                    | Unbilled setup wizard cloud run |
