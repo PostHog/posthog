@@ -42,7 +42,7 @@ The managed integration is excluded from project SES tenant migration, identity 
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
 Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
-A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a dropped connection, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
+A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a connection dropped before or during the response, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
 A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures.
 
 ### Sending tiers
