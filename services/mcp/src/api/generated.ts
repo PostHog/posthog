@@ -17748,7 +17748,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsAuthorization = number | string | {
       aws_access_key_id: string;
@@ -17756,7 +17756,7 @@ export namespace Schemas {
     };
 
     /**
-     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsBucketCredentials = number | {
       aws_access_key_id: string;
@@ -17773,9 +17773,9 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       authorization: RedshiftCopyInputsAuthorization;
-      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       bucket_credentials: RedshiftCopyInputsBucketCredentials;
     }
 
@@ -48264,7 +48264,7 @@ export namespace Schemas {
       sdk: string;
       /** Number of billable requests in this bucket. */
       request_count: number;
-      /** Estimated billing units. Local evaluation requests count as 10 units each. */
+      /** Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1. */
       billing_units: number;
     }
 
@@ -74774,6 +74774,8 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
+      count_is_capped?: boolean;
       /**
          * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
          * @nullable
@@ -113091,6 +113093,21 @@ export namespace Schemas {
       nodeIdsByAlias: TraceNodeIdsByAlias;
       /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
       git: TraceGit | null;
+    }
+
+    export interface TraceAvailability {
+      /** Requested trace IDs readable from AI events or the shared events table. */
+      available_trace_ids: string[];
+    }
+
+    export interface TraceAvailabilityRequest {
+      /**
+         * Application and evaluator trace IDs to check without loading trace contents.
+         * @minItems 1
+         * @maxItems 2
+         * @items.maxLength 255
+         */
+      trace_ids: string[];
     }
 
     export interface TraceChoiceAnswer {

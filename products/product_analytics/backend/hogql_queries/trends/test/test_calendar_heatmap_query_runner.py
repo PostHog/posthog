@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_query_runner import (
     CalendarHeatmapQueryRunner,
 )
@@ -280,7 +280,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results_dict.get((6, 10)) == 1, f"Expected 1 custom event, got {results_dict.get((6, 10))}"
 
     def test_action_conversion_goal(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Did Custom Event",
             steps_json=[
@@ -692,7 +692,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_complex_actions_with_multiple_steps(self):
         """Test calendar heatmap with complex actions containing multiple steps"""
         # Create a complex action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Complex User Journey",
             steps_json=[

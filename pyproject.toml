@@ -810,6 +810,14 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
+    # TODO: actions presentation wave — the moved ActionViewSet is still a ModelViewSet over the Action model
+    # (tags, object access levels, folder placement), and its reference counts read cdp and cohorts rows
+    # directly. Thin it to parse -> facade -> serialize and delete each entry.
+    # backend:contract-check stays off until this list is empty.
+    "products.actions.backend.presentation.views.action -> products.actions.backend.models.action",
+    "products.actions.backend.presentation.views.action -> products.actions.backend.models.selector_match_change",
+    "products.actions.backend.presentation.views.action -> products.cdp.backend.models.hog_functions.hog_function",
+    "products.actions.backend.presentation.views.action -> products.cohorts.backend.models.cohort",
     # TODO: signals presentation wave. The activity summary viewset reads its modes, limits and
     # render types from backend/activity_summary/ directly. That directory has no __init__.py, so
     # grimp cannot see these edges and only the AST surface check in `hogli product:lint` holds
@@ -837,7 +845,6 @@ allow_indirect_imports = true
 ignore_imports = [
     "products.**.backend.routes -> products.**.backend.presentation.**",
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
-    "products.actions.backend.routes -> products.actions.backend.api.action",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
     "products.analytics_platform.backend.routes -> products.analytics_platform.backend.api.precompute_debug",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
