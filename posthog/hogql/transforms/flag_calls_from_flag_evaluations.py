@@ -201,8 +201,9 @@ def swap_flag_calls(
     every field in it that starts with `posthog.events` reads a scan.
     Otherwise it returns the resolved original. For an organization whose flag calls are only in
     `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
-    resolves anything when such an organization's query has a scan of flag calls with a shape that neither
-    `flag_evaluations` nor the union can stand in for.
+    resolves anything when such an organization's query has a scan of only flag calls with a shape that
+    `flag_evaluations` cannot stand in for. When the union refuses a scan, the query raises only if that scan still
+    reads `events` after the swap by resolved filters.
 
     While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
     differently:
@@ -268,16 +269,26 @@ def _resolve_with_swaps(
         )
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
-    refusals = [*swapper.refusals, *union.refusals]
-    if refusals:
-        if only_in_flag_evaluations:
-            raise _flag_calls_only_in_flag_evaluations_error(refusals[0], view_name)
+    if only_in_flag_evaluations and swapper.refusals:
+        raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], view_name)
+    refusals = [*swapper.refusals, *(refusal.reason for refusal in union.refusals)]
+    if refusals and not only_in_flag_evaluations:
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=refusals[0])
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
     if sources is not None:
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
             refusal = swapper.swap_scans_found_by_type(original, sources, clones)
+        # The swap by type can move a scan that the union refused, such as a scan joined after another table, to
+        # flag_evaluations. Each other refused scan still reads flag calls from events.
+        refusal = refusal or next(
+            (
+                union_refusal.reason
+                for union_refusal in union.refusals
+                if _table_chain(union_refusal.join) != ["posthog", "flag_evaluations"]
+            ),
+            None,
+        )
         if refusal is not None:
             raise _flag_calls_only_in_flag_evaluations_error(refusal, view_name)
     if not swapper.swapped and not union.renamed:
@@ -418,14 +429,13 @@ class EventsScan:
             other_tables=frozenset(name.lower() for name in ctes.union(_join_names(join.next_join))),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
-        collector = _AliasCollector(node)
-        collector.visit(node)
+        aliases = select_aliases(node)
         # The resolver tries a joined table's name, a CTE and a select alias before it reads a qualifier such as
         # `posthog.events` as the name of a table.
-        scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in collector.aliases))
+        scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in aliases))
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
-            name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
+            name for name, expr in aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
         )
         return scan
 
@@ -865,6 +875,13 @@ class SyntaxVisitor(TraversingVisitor):
         # The inherited visit follows the field's type into shared CTE types, which takes exponential time. An
         # earlier step can resolve parts of the tree in place.
         pass
+
+
+def select_aliases(node: ast.SelectQuery) -> list[tuple[str, ast.Expr]]:
+    """Each alias that `node` defines outside its subqueries, with the expression it names."""
+    collector = _AliasCollector(node)
+    collector.visit(node)
+    return collector.aliases
 
 
 class _AliasCollector(SyntaxVisitor):
