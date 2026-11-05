@@ -10,13 +10,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import QueryStatus
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.scoping import team_scope
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
@@ -66,6 +71,17 @@ class TestInboxUsageQueryRunner(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         result = self.client.get(result_path)
         assert result.status_code == 200, result.content
         assert "required_scope:signal_usage:read" in result.json()["query_status"]["labels"]
+
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        public_query_id = uuid.uuid4().hex
+        QueryStatusManager(public_query_id, self.team.pk).store_query_status(
+            QueryStatus(id=public_query_id, team_id=self.team.pk, complete=True, results={"results": [[1]]})
+        )
+        self.client.logout()
+        assert self.client.get(f"{path}{public_query_id}/?sharing_access_token={share.access_token}").status_code == 200
+        assert self.client.get(f"{result_path}?sharing_access_token={share.access_token}").status_code == 403
+        self.client.force_login(self.user)
 
         for scopes, expected in [(["query:read", "signal_usage:read"], 200), (["query:read"], 403)]:
             raw = generate_random_token_personal()

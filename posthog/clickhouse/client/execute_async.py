@@ -6,7 +6,7 @@ import orjson as json
 import structlog
 import posthoganalytics
 from prometheus_client import Histogram
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
 from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
@@ -275,26 +275,11 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        from posthog.schema import QuerySchemaRoot
-
-        from posthog.hogql_queries.required_scopes import (
-            QUERY_RESOURCE_SCOPE_LABEL_PREFIX,
-            required_query_resource_scopes,
-        )
-        from posthog.schema_migrations.upgrade import upgrade
+        from posthog.hogql_queries.required_scopes import query_resource_scope_labels_for_payload
 
         # Query IDs are caller-supplied, so execution must stamp the requirements of its own payload.
-        try:
-            query_model = QuerySchemaRoot.model_validate(upgrade(query_json)).root
-        except ValidationError:
-            # process_query_dict translates invalid payloads into the client-facing schema error.
-            pass
-        else:
-            labels = [
-                f"{QUERY_RESOURCE_SCOPE_LABEL_PREFIX}{scope}"
-                for scope in required_query_resource_scopes(query_model, team)
-            ]
-            query_status.labels = list(dict.fromkeys([*(query_status.labels or []), *labels])) or None
+        labels = query_resource_scope_labels_for_payload(query_json, team)
+        query_status.labels = list(dict.fromkeys([*(query_status.labels or []), *labels])) or None
         results = process_query_dict(
             team=team,
             query_json=query_json,

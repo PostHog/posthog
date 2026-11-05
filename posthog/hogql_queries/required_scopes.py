@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.models.team import Team
@@ -19,3 +19,16 @@ def required_query_resource_scopes(query: BaseModel, team: Team) -> list[str]:
             break
         query = source
     return []
+
+
+def query_resource_scope_labels_for_payload(query_json: dict, team: Team) -> list[str]:
+    from posthog.schema import QuerySchemaRoot
+
+    from posthog.schema_migrations.upgrade import upgrade
+
+    try:
+        query = QuerySchemaRoot.model_validate(upgrade(query_json)).root
+    except ValidationError:
+        # process_query_dict translates invalid payloads into the client-facing schema error.
+        return []
+    return [f"{QUERY_RESOURCE_SCOPE_LABEL_PREFIX}{scope}" for scope in required_query_resource_scopes(query, team)]

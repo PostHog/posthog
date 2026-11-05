@@ -97,6 +97,7 @@ from posthog.rate_limit import (
 )
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.scopes import APIScopeObject
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.facade.api import validate_account_users_access
@@ -265,6 +266,12 @@ def validate_query_resource_scopes(request: Request, team: Team, scopes: list[st
                 access.assert_access_level_for_resource(cast(APIScopeObject, scope.split(":")[0]), "viewer")
             except UserAccessControlError as error:
                 raise PermissionDenied(str(error)) from error
+    elif scopes:
+        readable = (
+            request.user.readable_system_table_access_scopes() if isinstance(request.user, SyntheticUser) else set()
+        )
+        if any(scope.split(":")[0] not in readable for scope in scopes):
+            raise PermissionDenied("You do not have access to this query.")
 
 
 def add_query_response_identity_headers(response: Response) -> Response:
