@@ -10,6 +10,7 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 """
 
 from collections.abc import Callable
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
@@ -56,6 +57,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     point_scan_at,
     select_aliases,
 )
+from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor
 
@@ -458,7 +460,12 @@ class _Aliases(CloningVisitor):
 
     def __init__(self, node: ast.SelectQuery) -> None:
         super().__init__()
-        self.aliases = dict(select_aliases(node))
+        self.node = node
+
+    @cached_property
+    def aliases(self) -> dict[str, ast.Expr]:
+        # Most SELECTs read no events scan, so the aliases are collected only when a scan needs them.
+        return dict(select_aliases(self.node))
 
     def target(self, expr: ast.Expr) -> ast.Expr:
         """The expression that `expr` names through a chain of select aliases, or `expr` when it names no alias."""
@@ -469,9 +476,7 @@ class _Aliases(CloningVisitor):
             if name not in self.aliases or name in named:
                 break
             named.add(name)
-            expr = self.aliases[name]
-            while isinstance(expr, ast.Alias):
-                expr = expr.expr
+            expr = unwrap_alias(self.aliases[name])
         return expr
 
     def visit_field(self, node: ast.Field):
@@ -700,6 +705,7 @@ class _UnionRenamer(ScanVisitor):
         # The flag_evaluations swap handles a first scan whose `event` filter it reads as only flag calls. It swaps or
         # refuses that scan on mode 2. On mode 1 events holds every flag call, so the union would read the same calls
         # twice there.
-        return scan.pins_flag_calls(
-            [aliases.visit(conjunct) for conjunct in filter_conjuncts(node)], needs_flag_key=False
-        )
+        conjuncts = filter_conjuncts(node)
+        if aliases.aliases:
+            conjuncts = [aliases.visit(conjunct) for conjunct in conjuncts]
+        return scan.pins_flag_calls(conjuncts, needs_flag_key=False)

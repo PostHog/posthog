@@ -271,9 +271,9 @@ def _resolve_with_swaps(
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
     if only_in_flag_evaluations and swapper.refusals:
         raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], view_name)
-    refusals = [*swapper.refusals, *(refusal.reason for refusal in union.refusals)]
-    if refusals and not only_in_flag_evaluations:
-        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=refusals[0])
+    if not only_in_flag_evaluations and (swapper.refusals or union.refusals):
+        reason = swapper.refusals[0] if swapper.refusals else union.refusals[0].reason
+        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
     if sources is not None:
