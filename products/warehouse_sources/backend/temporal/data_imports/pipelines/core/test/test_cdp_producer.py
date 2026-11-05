@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from io import BytesIO
@@ -898,7 +899,7 @@ async def test_produce_to_kafka_from_s3_resumes(resume_file: str, seconds_per_ro
         range(skipped_rows + 1, 7)
     )
     assert throttle.acquire_row.await_count == 6 - skipped_rows
-    expected_checkpoints = []
+    expected_checkpoints: list[object] = []
     for file_index, file_path in enumerate(files):
         if seconds_per_row:
             first_offset = skipped_rows + 1 if file_index == 0 else 1
@@ -1526,6 +1527,9 @@ async def _produce_staged_rows(
     produce_raises: bool = False,
     delivery_fails: bool = False,
     delivery_settles_on_flush: bool = False,
+    delete_raises: bool = False,
+    resume_from: ProduceCheckpoint | None = None,
+    on_checkpoint: Callable[[ProduceCheckpoint], None] | None = None,
 ) -> list[dict]:
     """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced.
 
@@ -1569,7 +1573,7 @@ async def _produce_staged_rows(
     mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
     mock_file.__exit__ = MagicMock(return_value=False)
     mock_fs.open_input_file.return_value = mock_file
-    mock_fs.delete_file = MagicMock()
+    mock_fs.delete_file = MagicMock(side_effect=RuntimeError("delete failed") if delete_raises else None)
 
     throttle = MagicMock(acquire_row=mock.AsyncMock())
     with (
@@ -1581,7 +1585,7 @@ async def _produce_staged_rows(
     ):
         mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
         mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=None)
-        await producer.produce_to_kafka_from_s3(throttle=throttle)
+        await producer.produce_to_kafka_from_s3(throttle=throttle, resume_from=resume_from, on_checkpoint=on_checkpoint)
 
     assert throttle.acquire_row.await_count == mock_kafka_producer.produce.call_count
     return [call[1]["data"]["properties"] for call in mock_kafka_producer.produce.call_args_list]
@@ -1653,6 +1657,24 @@ async def test_a_view_row_confirmed_only_at_flush_is_suppressed_on_the_next_run(
 
     await _produce_staged_rows(_view_producer_for_id(view_id), rows, delivery_settles_on_flush=True)
 
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
+
+
+@pytest.mark.asyncio
+async def test_a_view_row_delivered_before_a_retried_checkpoint_is_suppressed_on_the_next_run():
+    # A retry resumes after its checkpoint and never sees the rows before it. Its commit must still
+    # record them, or the next run triggers them again.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}, {"id": 2, "total": 7}]
+    checkpoints: list[ProduceCheckpoint] = []
+
+    with pytest.raises(RuntimeError, match="delete failed"):
+        await _produce_staged_rows(
+            _view_producer_for_id(view_id), rows, delete_raises=True, on_checkpoint=checkpoints.append
+        )
+
+    assert checkpoints[-1].rows_done == len(rows)
+    assert await _produce_staged_rows(_view_producer_for_id(view_id), rows, resume_from=checkpoints[-1]) == []
     assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
 
 

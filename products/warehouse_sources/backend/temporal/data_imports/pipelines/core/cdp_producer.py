@@ -358,7 +358,7 @@ class CDPProducer:
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
         emitted_rows = self._build_emitted_row_store()
-        await emitted_rows.load()
+        await emitted_rows.load(resuming=resume_from is not None)
         suppressed_rows = 0
 
         async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
@@ -373,6 +373,7 @@ class CDPProducer:
                     raise CDPProducerDeliveryError(f"Kafka delivery failed for staged file {file_path}") from e
                 window_futures.clear()
                 emitted_rows.record_settled()
+                await emitted_rows.persist_progress()
                 if on_checkpoint is not None:
                     on_checkpoint(ProduceCheckpoint(file_path=file_path, rows_done=row_offset))
                 return time.monotonic()
