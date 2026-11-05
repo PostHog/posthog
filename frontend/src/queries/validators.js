@@ -15071,7 +15071,7 @@ function validate128(data, { instancePath = '', parentData, parentDataProperty, 
     validate128.errors = vErrors
     return errors === 0
 }
-const schema128 = {
+const schema129 = {
     additionalProperties: false,
     description: 'Event-level quantile of `source.math_property`, pooled over all qualifying events of a variant.',
     properties: {
@@ -15102,7 +15102,7 @@ const schema128 = {
     required: ['kind', 'metric_type', 'quantile', 'source'],
     type: 'object',
 }
-const schema132 = {
+const schema133 = {
     discriminator: { propertyName: 'kind' },
     oneOf: [{ $ref: '#/definitions/EventsNode' }, { $ref: '#/definitions/ActionsNode' }],
     required: ['kind'],
@@ -15221,7 +15221,7 @@ function validate141(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema128.properties, key0)) {
+                    if (!func2.call(schema129.properties, key0)) {
                         validate141.errors = [
                             {
                                 instancePath,
