@@ -1486,6 +1486,14 @@ class TestSignalReportListAPI(APIBaseTest):
             return_value=flag_result if isinstance(flag_result, bool) else False,
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
+            expected_monitoring = {str(monitoring.id)} if enabled else set()
+            filtered = self.client.get(self._list_url(status="monitoring"))
+            assert filtered.status_code == status.HTTP_200_OK
+            assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
+            filtered_count = self.client.get(self._list_url(status="monitoring", count_only="true"))
+            assert filtered_count.status_code == status.HTTP_200_OK
+            assert filtered_count.json()["count"] == len(expected_monitoring)
+
             for query in [{"status": "resolved"}, {"view": "resolved"}]:
                 response = self.client.get(self._list_url(**query))
                 assert response.status_code == status.HTTP_200_OK
@@ -1593,7 +1601,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("monitoring", "monitoring"),
+            ("monitoring_and_invalid", "monitoring,bogus_status"),
             ("garbage", "bogus_status"),
             ("mixed_valid_and_invalid", "ready,bogus_status"),
             ("deleted_not_filterable", "deleted"),
@@ -5549,6 +5557,31 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
         assert content == {"old_summary": "Original summary", "new_summary": "New summary"}
+
+    def test_redacting_edit_does_not_expose_credential_through_artefacts_api(self):
+        token = "ghp_" + "Fake0Token" * 4
+        report = self._create_report()
+        report.summary = f"Run with token {token} to reproduce."
+        report.save(update_fields=["summary"])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+            content=json.dumps({"old_summary": f"Legacy {token}", "new_summary": "Legacy edit"}),
+        )
+
+        response = self.client.patch(
+            self._url(str(report.id)), data={"summary": "Run with token [redacted token]."}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        stored = [a.content for a in self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)]
+        assert len(stored) == 2
+        assert token not in stored[1]
+        listed = self.client.get(self._artefacts_url(str(report.id)))
+        assert listed.status_code == status.HTTP_200_OK
+        assert token not in listed.content.decode()
+        assert "Run with token [redacted] to reproduce." in listed.content.decode()
 
     def test_update_both_records_one_artefact_per_field(self):
         report = self._create_report()
