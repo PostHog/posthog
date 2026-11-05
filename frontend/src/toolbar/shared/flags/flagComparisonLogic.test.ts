@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import type { PostHog } from 'posthog-js'
 
@@ -65,16 +66,27 @@ describe('flagComparisonLogic', () => {
 
     test.each([
         {
-            outcome: 'fails',
+            outcome: 'restores the overrides when the capture fails',
             flagOverrides: userOverrides,
             secondCapture: () => Promise.reject(new Error('Cross-origin font')),
+            expectedOverrides: userOverrides,
         },
         {
-            outcome: 'succeeds with no earlier overrides',
+            outcome: 'restores no overrides when there were none',
             flagOverrides: undefined,
             secondCapture: () => Promise.resolve(new Blob(['on page'])),
+            expectedOverrides: undefined,
         },
-    ])("restores the user's overrides when the capture $outcome", async ({ flagOverrides, secondCapture }) => {
+        {
+            outcome: 'keeps a logout that cleared the overrides during the capture',
+            flagOverrides: userOverrides,
+            secondCapture: () => {
+                persisted.$override_feature_flags = undefined
+                return Promise.resolve(new Blob(['on page']))
+            },
+            expectedOverrides: undefined,
+        },
+    ])('$outcome', async ({ flagOverrides, secondCapture, expectedOverrides }) => {
         persisted.$override_feature_flags = flagOverrides
         jest.mocked(captureElementScreenshot)
             .mockResolvedValueOnce(new Blob(['off']))
@@ -83,9 +95,43 @@ describe('flagComparisonLogic', () => {
         await expectLogic(logic, () => logic.actions.compareFlag(flag)).toFinishAllListeners()
 
         expect(persisted).toEqual({
-            $override_feature_flags: flagOverrides,
+            $override_feature_flags: expectedOverrides,
             $override_feature_flag_payloads: userPayloads,
         })
+    })
+
+    test('restores the overrides when the page unloads during a capture', async () => {
+        let releaseCapture: (blob: Blob) => void = () => {}
+        jest.mocked(captureElementScreenshot)
+            .mockResolvedValueOnce(new Blob(['off']))
+            .mockImplementationOnce(() => new Promise((resolve) => (releaseCapture = resolve)))
+
+        logic.actions.compareFlag(flag)
+        await waitFor(() => expect(captureElementScreenshot).toHaveBeenCalledTimes(2))
+        expect(persisted.$override_feature_flags).toEqual({ ...userOverrides, [flag.key]: true })
+
+        window.dispatchEvent(new Event('pagehide'))
+        expect(persisted.$override_feature_flags).toEqual(userOverrides)
+
+        releaseCapture(new Blob(['on page']))
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    test('restores the overrides when a capture never finishes', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(captureElementScreenshot)
+                .mockResolvedValueOnce(new Blob(['off']))
+                .mockReturnValueOnce(new Promise(() => {}))
+
+            logic.actions.compareFlag(flag)
+            await jest.advanceTimersByTimeAsync(20000)
+
+            expect(persisted.$override_feature_flags).toEqual(userOverrides)
+            expect(logic.values.comparingFlagKey).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     test('shows the comparison when the flags menu closes during the capture', async () => {

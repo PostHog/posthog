@@ -7,6 +7,7 @@ import type { FlagInfo } from './flagInfo'
 
 const SETTLE_QUIET_MS = 1000
 const SETTLE_MAX_MS = 8000
+const CAPTURE_MAX_MS = 20000
 
 export interface ComparisonState {
     value: string | boolean
@@ -23,6 +24,13 @@ export function comparisonStates(flag: FlagInfo): ComparisonState[] {
 }
 
 export type FlagOverrides = Record<string, string | boolean>
+
+export class FlagOverridesChangedError extends Error {
+    constructor() {
+        super('The flag overrides changed during the comparison')
+        this.name = 'FlagOverridesChangedError'
+    }
+}
 
 export function readFlagOverrides(posthog: PostHog): FlagOverrides | null {
     return posthog.get_property('$override_feature_flags') ?? null
@@ -75,12 +83,23 @@ export interface PageCapture {
     height: number
 }
 
-export async function capturePage(): Promise<PageCapture> {
+/** Rejects after `maxMs`, because a stalled image load or a paused `requestAnimationFrame` would keep the comparison's overrides on the page. */
+export async function capturePage(maxMs: number = CAPTURE_MAX_MS): Promise<PageCapture> {
     const root = document.documentElement
     const width = root.clientWidth
     const height = root.scrollHeight
-    const blob = await captureElementScreenshot(root, { pixelRatio: 1, width, height })
-    return { blob, width, height }
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    try {
+        const blob = await Promise.race([
+            captureElementScreenshot(root, { pixelRatio: 1, width, height }),
+            new Promise<never>((_, reject) => {
+                deadline = setTimeout(() => reject(new Error(`The page capture took longer than ${maxMs} ms`)), maxMs)
+            }),
+        ])
+        return { blob, width, height }
+    } finally {
+        clearTimeout(deadline)
+    }
 }
 
 export async function imagesMatch(first: Blob, second: Blob): Promise<boolean> {

@@ -306,7 +306,7 @@ Fired when every capture of a flag comparison succeeds.
 
 ### `toolbar feature flag comparison failed`
 
-Fired when a capture fails, for example on a cross-origin image or font.
+Fired when a comparison stops early: a capture fails or times out, for example on a cross-origin image or font, or the flag overrides change during the run.
 
 | Property | Type     | Description       |
 | -------- | -------- | ----------------- |

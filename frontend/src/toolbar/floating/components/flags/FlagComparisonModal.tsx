@@ -5,6 +5,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { retryImport } from 'lib/utils/retryImport'
 
+import { FlagComparisonErrorBoundary } from '~/toolbar/floating/components/flags/FlagComparisonErrorBoundary'
 import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 
 // VisualImageDiffViewer is most of the comparison code, so the flags menu chunk loads it only when a comparison opens.
@@ -34,15 +35,17 @@ export function FlagComparisonModal(): JSX.Element {
             }
         >
             {comparison ? (
-                <Suspense
-                    fallback={
-                        <div className="flex justify-center p-4">
-                            <Spinner className="text-2xl" />
-                        </div>
-                    }
-                >
-                    <FlagComparisonDiff />
-                </Suspense>
+                <FlagComparisonErrorBoundary>
+                    <Suspense
+                        fallback={
+                            <div className="flex justify-center p-4">
+                                <Spinner className="text-2xl" />
+                            </div>
+                        }
+                    >
+                        <FlagComparisonDiff />
+                    </Suspense>
+                </FlagComparisonErrorBoundary>
             ) : null}
         </LemonModal>
     )
