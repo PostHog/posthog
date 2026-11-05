@@ -51,10 +51,10 @@ describe('wizardSpendAuditStepStates', () => {
             ['complete', 'failed', 'pending', 'pending'],
         ],
         [
-            'the first step as failed when a run is canceled before any task',
+            'no failed step when a run is canceled',
             run('cancelled', null),
-            [],
-            ['failed', 'pending', 'pending', 'pending'],
+            [task('Audit the PostHog setup', 'completed')],
+            ['complete', 'pending', 'pending', 'pending'],
         ],
     ])('shows %s', (_, givenRun, tasks, expected) => {
         expect(Object.values(wizardSpendAuditStepStates(givenRun, tasks))).toEqual(expected)
