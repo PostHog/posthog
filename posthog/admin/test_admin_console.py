@@ -251,6 +251,18 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
 
+    @parameterized.expand(
+        [
+            ("form_page_keeps_its_parameters", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
+            ("button_action_lands_on_its_panel", "rebuild-cache/", "#panel-remote-config"),
+        ]
+    )
+    def test_an_old_django_admin_action_url_lands_on_the_console(self, _name: str, old: str, new: str) -> None:
+        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/{old}")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/{new}"
+
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
 

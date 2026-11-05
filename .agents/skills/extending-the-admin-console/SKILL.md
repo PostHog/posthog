@@ -49,6 +49,7 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 1. Point the operation at the old view with `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in the `ModelAdmin`.
 2. Replace the old button in Django admin with `MovedToConsole.team_action(team, "<panel-key>", "<what moved>")`, so staff who look in the usual place find the new one.
 3. When a whole page moves, keep its old URL name and route it to `MovedToConsole.page_redirect`, which tells staff the page moved.
+4. Every old URL keeps working, query parameters included. Support staff keep bookmarks to old admin pages and actions. When you delete a team action's view, add its old path to `MOVED_TEAM_ACTIONS` in `posthog/admin/console/urls.py`, so it redirects to the console form or panel.
 
 ## 6. Before you call it done
 
