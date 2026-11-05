@@ -135,8 +135,7 @@ const SuggestReview = (): JSX.Element => {
     if (suggestions.length === 0) {
         return (
             <p className="m-0 text-muted">
-                No new prompts this time. Everything Claude came up with is already in your prompt set. Change the
-                topics or competitors and try again.
+                No usable prompts came back this time. Change the topics or competitors and try again.
             </p>
         )
     }
@@ -145,8 +144,9 @@ const SuggestReview = (): JSX.Element => {
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
                 <span className="text-muted">
-                    {selectedPrompts.length} of {pluralize(suggestions.length, 'suggestion')} selected. Nothing is
-                    tracked until you add them.
+                    {/* translate="no" keeps the count updating when the browser translates the page. */}
+                    <span translate="no">{selectedPrompts.length}</span> of{' '}
+                    {pluralize(suggestions.length, 'suggestion')} selected. Nothing is tracked until you add them.
                 </span>
                 <LemonButton
                     size="small"

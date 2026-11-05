@@ -40,6 +40,8 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        // The job reference persists, so one test's job must not resume in the next.
+        localStorage.clear()
         initKeaTests()
         jest.mocked(aeoPromptsSuggest).mockResolvedValue(pending)
         jest.mocked(aeoPromptsBulkImport).mockResolvedValue({ created: 1, updated: 0, skipped: 0 })
@@ -76,6 +78,29 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
             prompts: [{ prompt: 'Best session replay tool?', topic: 'Replay' }],
         })
         expect(logic.values).toMatchObject({ suggestOpen: false, job: null, adding: false })
+    })
+
+    it('resumes a job after the page unmounts and ignores a poll that would overlap another', async () => {
+        logic.actions.setForm({ domain: 'example.com' })
+        await expectLogic(logic, () => logic.actions.startSuggestions()).toFinishAllListeners()
+        logic.unmount()
+
+        let finishPoll: (job: AEOPromptSuggestionJobApi) => void = () => {}
+        jest.mocked(aeoPromptsSuggestionRetrieve).mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishPoll = resolve
+            })
+        )
+        logic = contentAutopilotPromptSuggestionsLogic()
+        logic.mount()
+        // The remount polls the stored job; a second poll while it runs sends no request.
+        logic.actions.loadJob()
+        expect(aeoPromptsSuggestionRetrieve).toHaveBeenCalledTimes(1)
+
+        finishPoll(completed)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.job?.status).toBe('completed')
+        expect(logic.values.selectedPrompts).toHaveLength(2)
     })
 
     it('shows the API reason when a job cannot start', async () => {

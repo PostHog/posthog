@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -22,6 +22,12 @@ import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 
 export const SUGGESTION_POLL_INTERVAL_MS = 3000
 export const SUGGESTION_COUNTS = [10, 20, 30, 50]
+const MAX_POLL_FAILURES = 5
+
+export interface PromptSuggestionJobRef {
+    id: string
+    teamId: number | string
+}
 
 export interface PromptSuggestionForm {
     domain: string
@@ -55,6 +61,7 @@ export interface contentAutopilotPromptSuggestionsLogicValues {
     adding: boolean
     form: PromptSuggestionForm
     job: AEOPromptSuggestionJobApi | null
+    jobRef: PromptSuggestionJobRef | null
     selectedPrompts: string[]
     selectedSuggestions: AEOPromptSuggestionApi[]
     startError: string | null
@@ -93,6 +100,9 @@ export interface contentAutopilotPromptSuggestionsLogicActions {
     }
     setJob: (job: AEOPromptSuggestionJobApi) => {
         job: AEOPromptSuggestionJobApi
+    }
+    setJobRef: (jobRef: PromptSuggestionJobRef | null) => {
+        jobRef: PromptSuggestionJobRef | null
     }
     setSelectedPrompts: (prompts: string[]) => {
         prompts: string[]
@@ -137,6 +147,7 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
         setForm: (form: Partial<PromptSuggestionForm>) => ({ form }),
         startSuggestions: true,
         startSuggestionsFailure: (error: string) => ({ error }),
+        setJobRef: (jobRef: PromptSuggestionJobRef | null) => ({ jobRef }),
         setJob: (job: AEOPromptSuggestionJobApi) => ({ job }),
         loadJob: true,
         editRequest: true,
@@ -159,6 +170,16 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
             EMPTY_FORM,
             {
                 setForm: (state, { form }) => ({ ...state, ...form }),
+            },
+        ],
+        // Only the job's id is kept, so a job started before leaving the page can be read again.
+        jobRef: [
+            null as PromptSuggestionJobRef | null,
+            { persist: true },
+            {
+                setJobRef: (_, { jobRef }) => jobRef,
+                editRequest: () => null,
+                addSelectedSuccess: () => null,
             },
         ],
         job: [
@@ -231,6 +252,8 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 })
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics content autopilot prompt suggestions started', { count: form.count })
+                cache.pollFailures = 0
+                actions.setJobRef({ id: job.id, teamId: values.currentTeamIdStrict })
                 actions.setJob(job)
             } catch (error) {
                 actions.startSuggestionsFailure(startErrorMessage(error))
@@ -238,6 +261,7 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
         },
         setJob: ({ job }) => {
             if (job.status === 'pending') {
+                cache.pollingJobId = job.id
                 cache.disposables.add(() => {
                     const id = setInterval(() => actions.loadJob(), SUGGESTION_POLL_INTERVAL_MS)
                     return () => clearInterval(id)
@@ -245,57 +269,98 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 return
             }
             cache.disposables.dispose('suggestionPoll')
-            if (job.status === 'completed') {
+            if (job.status === 'completed' && values.selectedPrompts.length === 0) {
                 actions.setSelectedPrompts(job.suggestions.map(({ prompt }) => prompt))
+            }
+            // Only a job this page watched finish counts, so restoring a finished job reports nothing.
+            if (job.status === 'completed' && cache.pollingJobId === job.id) {
+                cache.pollingJobId = null
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics content autopilot prompt suggestions completed', {
                     suggestions: job.suggestions.length,
                 })
             }
         },
-        loadJob: async (_, breakpoint) => {
-            const jobId = values.job?.id
-            if (!jobId || values.job?.status !== 'pending') {
+        loadJob: async () => {
+            const jobId = values.jobRef?.id
+            // Polls never overlap, so a slow response cannot be overtaken and miscounted as a failure.
+            if (!jobId || cache.pollInFlight) {
                 return
             }
+            cache.pollInFlight = true
             try {
                 const job = await aeoPromptsSuggestionRetrieve(String(values.currentTeamIdStrict), jobId)
-                breakpoint()
+                cache.pollFailures = 0
                 // A job the user replaced with a new request must not overwrite it.
-                if (job.id === values.job?.id && job.status !== 'pending') {
+                if (
+                    !cache.disposables.isDisposed &&
+                    job.id === values.jobRef?.id &&
+                    job.status !== values.job?.status
+                ) {
                     actions.setJob(job)
                 }
-            } catch {
-                // A missed poll is retried on the next tick; an expired job shows as failed.
-                if (values.job?.id === jobId) {
-                    cache.pollFailures = (cache.pollFailures ?? 0) + 1
-                    if (cache.pollFailures >= 5) {
-                        cache.pollFailures = 0
-                        actions.setJob({ ...values.job, status: 'failed', error: "Couldn't load the suggestions." })
-                    }
+            } catch (error) {
+                if (cache.disposables.isDisposed || values.jobRef?.id !== jobId) {
+                    return
                 }
+                const expired = error instanceof ApiError && error.status === 404
+                cache.pollFailures = (cache.pollFailures ?? 0) + 1
+                if (expired || cache.pollFailures >= MAX_POLL_FAILURES) {
+                    cache.pollFailures = 0
+                    actions.setJob({
+                        id: jobId,
+                        status: 'failed',
+                        suggestions: [],
+                        error: expired
+                            ? 'These suggestions expired. Start again to get new ones.'
+                            : "Couldn't load the suggestions.",
+                    })
+                }
+            } finally {
+                cache.pollInFlight = false
             }
         },
         editRequest: () => {
             cache.disposables.dispose('suggestionPoll')
         },
         addSelected: async () => {
+            const selected = values.selectedSuggestions
+            const suggested = values.job?.suggestions.length ?? 0
+            const teamId = String(values.currentTeamIdStrict)
+            let result: AEOPromptImportResultApi
             try {
-                const result = await aeoPromptsBulkImport(String(values.currentTeamIdStrict), {
-                    prompts: values.selectedSuggestions.map(({ prompt, topic }) => ({ prompt, topic })),
+                result = await aeoPromptsBulkImport(teamId, {
+                    prompts: selected.map(({ prompt, topic }) => ({ prompt, topic })),
                 })
-                // pinned: analytics event name, renaming it breaks dashboards
-                posthog.capture('web analytics content autopilot prompt suggestions added', {
-                    added: values.selectedSuggestions.length,
-                    suggested: values.job?.suggestions.length ?? 0,
-                })
+            } catch {
+                if (!cache.disposables.isDisposed) {
+                    actions.addSelectedFailure()
+                    lemonToast.error("Couldn't add the prompts. Try again.")
+                }
+                return
+            }
+            // pinned: analytics event name, renaming it breaks dashboards
+            posthog.capture('web analytics content autopilot prompt suggestions added', {
+                added: selected.length,
+                suggested,
+            })
+            if (!cache.disposables.isDisposed) {
                 actions.addSelectedSuccess()
                 // Reuses the import toast, and reloads the list, topics and overview.
                 actions.addPromptsSuccess(result)
-            } catch {
-                actions.addSelectedFailure()
-                lemonToast.error("Couldn't add the prompts. Try again.")
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        const { jobRef } = values
+        if (!jobRef) {
+            return
+        }
+        // A stored job from another project cannot be read here.
+        if (String(jobRef.teamId) !== String(values.currentTeamIdStrict)) {
+            actions.setJobRef(null)
+            return
+        }
+        actions.loadJob()
+    }),
 ])
