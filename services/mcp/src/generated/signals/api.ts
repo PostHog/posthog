@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 83 enabled ops
+ * PostHog API - MCP 84 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -443,6 +443,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
+    created_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.'
+        ),
     exclude: zod
         .array(zod.string())
         .max(signalsReportsListQueryExcludeMax)
@@ -5643,5 +5649,26 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
+})
+
+export const SignalsMonthlyUsageParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsMonthlyUsageQueryMonthRegExp = new RegExp('^[0-9]{4}-(0[1-9]|1[0-2])$')
+
+export const SignalsMonthlyUsageQueryParams = () => zod.object({
+    month: zod
+        .string()
+        .min(1)
+        .regex(signalsMonthlyUsageQueryMonthRegExp)
+        .optional()
+        .describe(
+            'UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.'
         ),
 })

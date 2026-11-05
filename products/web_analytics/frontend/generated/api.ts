@@ -122,7 +122,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
