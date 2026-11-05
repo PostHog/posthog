@@ -13982,6 +13982,29 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         holder = recipient if expected_holder == "recipient" else self.user
         self.assertEqual((assignee["kind"], assignee["user"]["id"]), ("user", holder.id))
 
+    def test_handoff_claim_follows_the_owner_when_a_second_handoff_commits_first(self) -> None:
+        from products.signals.backend.facade.report_tasks import record_report_task
+        from products.signals.backend.models import SignalReport
+
+        recipient = self.create_organization_user("recipient")
+        third = self.create_organization_user("third")
+        task = self.create_task(created_by=self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        with self.captureOnCommitCallbacks() as first_handoff_callbacks:
+            self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = recipient_client.post(self._handoff_url(task), {"user": third.id}, format="json")
+        for callback in first_handoff_callbacks:
+            callback()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["assignee"]
+        self.assertEqual(assignee["user"]["id"], third.id)
+
     @parameterized.expand(
         [
             ("active_run", False, "Finish or cancel active runs before handing off this task."),
