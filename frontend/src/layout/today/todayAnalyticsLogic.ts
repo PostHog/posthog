@@ -20,6 +20,8 @@ import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { newestByName } from './todayNewestByName'
+
 // pinned: persisted section ids and the `section` property of `analytics section toggled`.
 export type TodayAnalyticsSection = 'pinned' | 'recents' | 'monitor' | 'by-posthog'
 
@@ -167,12 +169,15 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         freshRecentAnalytics: [
             (s) => [s.recents, s.pinnedShortcutIds],
             (recents: FileSystemEntry[], pinnedShortcutIds: Map<string, string>): AnalyticsItem[] =>
-                recents
-                    .flatMap((entry) => {
+                newestByName(
+                    recents.flatMap((entry) => {
                         const item = fileSystemEntryToAnalytics(entry)
                         return item && !pinnedShortcutIds.has(pinKey(item.type, item.id)) ? [item] : []
-                    })
-                    .slice(0, TODAY_ANALYTICS_RECENTS_LIMIT),
+                    }),
+                    (item) => item.name,
+                    (item) => pinKey(item.type, item.id),
+                    TODAY_ANALYTICS_RECENTS_LIMIT
+                ),
         ],
         // The saved list covers only the wait for the shared list. Once it has loaded, even empty, it is the answer.
         recentAnalytics: [

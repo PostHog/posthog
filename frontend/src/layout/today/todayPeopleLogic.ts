@@ -6,21 +6,23 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { hogql } from 'lib/utils/hogql'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { ActivitySceneTab, activitySceneTabsLogic } from 'scenes/activity/activitySceneTabsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import { GroupTab, groupTabs as groupTabsFor } from '~/models/groupTabs'
 import { GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
 
 import { cohortsList } from 'products/cohorts/frontend/generated/api'
 import { accountsList, customerJourneysList } from 'products/customer_analytics/frontend/generated/api'
 
-import { TodayPeopleRecent, todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { TODAY_PEOPLE_ROW_LABELS, TodayPeopleRecent, TodayPeopleStaticRowKey } from './todayPeopleModel'
+import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
 // pinned: persisted section ids and the `section` property of `people section toggled`.
 export type TodayPeopleSection = 'recents'
@@ -30,28 +32,21 @@ const PRIMARY_ROW_KEYS: TodayPeopleRowKey[] = ['overview', 'persons', 'accounts'
 
 export type TodayPeopleRowCounts = Partial<Record<'accounts' | 'cohorts' | 'journeys', number>>
 
-// pinned: the row ids. Each one is part of the row's `people-sidebar-<row>` data-attr.
-export type TodayPeopleRowKey =
-    | 'overview'
-    | 'feed'
-    | 'tasks'
-    | 'persons'
-    | 'accounts'
-    | 'cohorts'
-    | 'journeys'
-    | 'notes'
-    | 'announcements'
-    | 'feature_requests'
-    | 'support'
-    | `groups-${number}`
+export type TodayPeopleGroupRowKey = `groups-${number}`
 
-export interface TodayPeopleRow {
-    key: TodayPeopleRowKey
+// pinned: the row ids. Each one is part of the row's `people-sidebar-<row>` data-attr.
+export type TodayPeopleRowKey = TodayPeopleStaticRowKey | TodayPeopleGroupRowKey
+
+interface TodayPeopleRowBase {
     label: string
     href: string
     /** The paths that mark the row active. */
     paths: string[]
 }
+
+export type TodayPeopleRow =
+    | (TodayPeopleRowBase & { kind: 'static'; key: TodayPeopleStaticRowKey })
+    | (TodayPeopleRowBase & { kind: 'group'; key: TodayPeopleGroupRowKey })
 
 // Collapsed sections belong to one person in one project. Without both ids nothing persists.
 const TEAM_ID = getCurrentTeamIdOrNone()
@@ -77,37 +72,39 @@ export function accountGroupTypeIndex(
 export function peopleSidebarRows(
     featureFlags: FeatureFlagsSet,
     groupTypeIndex: GroupTypeIndex | null,
-    groupTabs: ActivitySceneTab[] = []
+    groupTabs: GroupTab[] = []
 ): TodayPeopleRow[] {
     const customerAnalytics = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
     const csp = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
     const journeys = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
     const featureRequests = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]
     const tasks = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]
-    const row = (key: TodayPeopleRowKey, label: string, href: string, paths: string[] = [href]): TodayPeopleRow => ({
-        key,
-        label,
-        href,
-        paths,
-    })
+    const row = (
+        key: TodayPeopleStaticRowKey,
+        href: string,
+        paths: string[] = [href],
+        label: string = TODAY_PEOPLE_ROW_LABELS[key]
+    ): TodayPeopleRow => ({ kind: 'static', key, label, href, paths })
     const rows: (TodayPeopleRow | null)[] = [
-        customerAnalytics ? row('overview', 'Overview', urls.customerAnalyticsDashboard()) : null,
-        csp ? row('feed', 'Feed', urls.customerAnalyticsFeed()) : null,
-        tasks ? row('tasks', 'Tasks', urls.customerAnalyticsTasks()) : null,
-        row('persons', 'Persons', urls.persons(), [urls.persons(), '/person']),
-        csp ? row('accounts', 'Accounts', urls.customerAnalyticsAccounts()) : null,
-        ...groupTabs.map((tab) => {
-            const isAccounts = !csp && tab.key === `groups-${groupTypeIndex}`
+        customerAnalytics ? row('overview', urls.customerAnalyticsDashboard()) : null,
+        csp ? row('feed', urls.customerAnalyticsFeed()) : null,
+        tasks ? row('tasks', urls.customerAnalyticsTasks()) : null,
+        row('persons', urls.persons(), [urls.persons(), '/person']),
+        csp ? row('accounts', urls.customerAnalyticsAccounts()) : null,
+        ...groupTabs.map((tab): TodayPeopleRow => {
             // Accounts names one row only: the tab with customer-analytics-csp, else the account group type.
-            const label = isAccounts ? 'Accounts' : tab.label === 'Accounts' ? 'Groups' : tab.label
-            return row(isAccounts ? 'accounts' : (tab.key as TodayPeopleRowKey), label, tab.url)
+            if (!csp && tab.key === `groups-${groupTypeIndex}`) {
+                return row('accounts', tab.url)
+            }
+            const label = tab.label === TODAY_PEOPLE_ROW_LABELS.accounts ? 'Groups' : tab.label
+            return { kind: 'group', key: tab.key, label, href: tab.url, paths: [tab.url] }
         }),
-        row('cohorts', 'Cohorts', urls.cohorts()),
-        journeys ? row('journeys', 'Journeys', urls.customerAnalyticsJourneys()) : null,
-        csp ? row('notes', 'Notes', urls.customerAnalyticsNotes()) : null,
-        csp ? row('announcements', 'Announcements', urls.customerAnalyticsAnnouncements()) : null,
-        featureRequests ? row('feature_requests', 'Feature requests', urls.customerAnalyticsFeatureRequests()) : null,
-        row('support', 'Support', urls.supportTickets(), [urls.supportDashboard()]),
+        row('cohorts', urls.cohorts()),
+        journeys ? row('journeys', urls.customerAnalyticsJourneys()) : null,
+        csp ? row('notes', urls.customerAnalyticsNotes()) : null,
+        csp ? row('announcements', urls.customerAnalyticsAnnouncements()) : null,
+        featureRequests ? row('feature_requests', urls.customerAnalyticsFeatureRequests()) : null,
+        row('support', urls.supportTickets(), [urls.supportDashboard()]),
     ]
     return rows.filter((row): row is TodayPeopleRow => row !== null)
 }
@@ -117,9 +114,15 @@ export function visibleMoreRows(rows: TodayPeopleRow[], moreOpen: boolean, activ
     return rows.filter((row) => !PRIMARY_ROW_KEYS.includes(row.key) && (moreOpen || row.key === activeRow))
 }
 
-export function activePeopleRow(pathname: string, rows: TodayPeopleRow[], recents: TodayPeopleRecent[]): string | null {
+export function activePeopleRow(
+    pathname: string,
+    rows: TodayPeopleRow[],
+    recents: TodayPeopleRecent[],
+    openRecent: TodayPeopleRecent | null = null
+): string | null {
     const path = removeProjectIdIfPresent(pathname)
-    const recent = recents.find((item) => isUnderPath(path, item.href))
+    // A row keeps one URL for its record, but other pages can link to the record with another one.
+    const recent = recents.find((item) => item.href === openRecent?.href || isUnderPath(path, item.href))
     if (recent) {
         return `recent:${recent.href}`
     }
@@ -129,20 +132,24 @@ export function activePeopleRow(pathname: string, rows: TodayPeopleRow[], recent
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayPeopleLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
-    groupTabs: ActivitySceneTab[] // activitySceneTabsLogic
-    recents: TodayPeopleRecent[] // todayPeopleRecentsLogic
+    groupsAccessStatus: GroupsAccessStatus // groupsModel
     location: {
         pathname: string
         search: string
         hash: string
     } // router
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentRecent: TodayPeopleRecent | null // todayPeopleRecentsLogic
+    recentRows: TodayPeopleRecent[] // todayPeopleRecentsLogic
+    recents: TodayPeopleRecent[] // todayPeopleRecentsLogic
     accountsGroupTypeIndex: GroupTypeIndex | null
     activeRow: string | null
     collapsedSections: TodayPeopleSection[]
     counts: TodayPeopleRowCounts
     countsLoading: boolean
+    groupTabs: GroupTab[]
     hasMoreRows: boolean
     moreOpen: boolean
     moreRows: TodayPeopleRow[]
@@ -161,10 +168,10 @@ export interface todayPeopleLogicActions {
         errorObject?: any
     }
     loadCountsSuccess: (
-        counts: TodayPeopleRowCounts,
+        counts: Partial<Record<'accounts' | 'cohorts' | 'journeys', number>>,
         payload?: any
     ) => {
-        counts: TodayPeopleRowCounts
+        counts: Partial<Record<'accounts' | 'cohorts' | 'journeys', number>>
         payload?: any
     }
     toggleMore: () => {
@@ -182,10 +189,15 @@ export interface todayPeopleLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             groupTypes: Map<GroupTypeIndex, GroupType>
         ) => GroupTypeIndex | null
+        groupTabs: (
+            groupTypes: Map<GroupTypeIndex, GroupType>,
+            groupsAccessStatus: GroupsAccessStatus,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+        ) => GroupTab[]
         rows: (
             featureFlags: FeatureFlagsSet,
             accountsGroupTypeIndex: GroupTypeIndex | null,
-            groupTabs: ActivitySceneTab[]
+            groupTabs: GroupTab[]
         ) => TodayPeopleRow[]
         activeRow: (
             location: {
@@ -194,7 +206,8 @@ export interface todayPeopleLogicMeta {
                 search: string
             },
             rows: TodayPeopleRow[],
-            recents: TodayPeopleRecent[]
+            recents: TodayPeopleRecent[],
+            currentRecent: TodayPeopleRecent | null
         ) => string | null
         primaryRows: (rows: TodayPeopleRow[]) => TodayPeopleRow[]
         moreRows: (rows: TodayPeopleRow[], moreOpen: boolean, activeRow: string | null) => TodayPeopleRow[]
@@ -216,11 +229,9 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             groupsModel,
-            ['groupTypes'],
-            activitySceneTabsLogic,
-            ['groupTabs'],
+            ['groupTypes', 'groupsAccessStatus', 'aggregationLabel'],
             todayPeopleRecentsLogic,
-            ['recents'],
+            ['recents', 'recentRows', 'currentRecent'],
             router,
             ['location'],
             teamLogic,
@@ -307,18 +318,30 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
                     groupTypes
                 ),
         ],
+        groupTabs: [
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
+            (
+                groupTypes: Map<GroupTypeIndex, GroupType>,
+                groupsAccessStatus: GroupsAccessStatus,
+                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            ): GroupTab[] => groupTabsFor(groupTypes, groupsAccessStatus, aggregationLabel),
+        ],
         rows: [
             (s) => [s.featureFlags, s.accountsGroupTypeIndex, s.groupTabs],
             (
                 featureFlags: FeatureFlagsSet,
                 groupTypeIndex: GroupTypeIndex | null,
-                groupTabs: ActivitySceneTab[]
+                groupTabs: GroupTab[]
             ): TodayPeopleRow[] => peopleSidebarRows(featureFlags, groupTypeIndex, groupTabs),
         ],
         activeRow: [
-            (s) => [s.location, s.rows, s.recents],
-            (location: { pathname: string }, rows: TodayPeopleRow[], recents: TodayPeopleRecent[]): string | null =>
-                activePeopleRow(location.pathname, rows, recents),
+            (s) => [s.location, s.rows, s.recents, s.currentRecent],
+            (
+                location: { pathname: string },
+                rows: TodayPeopleRow[],
+                recents: TodayPeopleRecent[],
+                currentRecent: TodayPeopleRecent | null
+            ): string | null => activePeopleRow(location.pathname, rows, recents, currentRecent),
         ],
         primaryRows: [
             (s) => [s.rows],

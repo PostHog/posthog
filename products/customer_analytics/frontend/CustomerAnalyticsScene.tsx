@@ -70,7 +70,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
-    const { businessType, activeTab } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, activeTab, sceneName } = useValues(customerAnalyticsSceneLogic)
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
@@ -220,17 +220,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
 
     // The Today rail's People pane links to every tab, so the shell shows only the open tab's content.
     const activeTabEntry = tabs.find((tab) => tab.key === activeTab)
-    const tabsContent = todayRailNav ? (
-        activeTabEntry && 'content' in activeTabEntry ? (
-            activeTabEntry.content
+    const activeTabContent = activeTabEntry && 'content' in activeTabEntry ? activeTabEntry.content : dashboardContent
+    const tabBar =
+        tabs.length > 1 ? (
+            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
         ) : (
             dashboardContent
         )
-    ) : tabs.length > 1 ? (
-        <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-    ) : (
-        dashboardContent
-    )
+    const tabsContent = todayRailNav ? activeTabContent : tabBar
     const isFeatureRequestDetail =
         activeTab === 'feature_requests' && /\/customer_analytics\/feature-requests\/[^/]+\/?$/.test(location.pathname)
 
@@ -244,7 +241,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                 ) : (
                     <>
                         <SceneTitleSection
-                            name={activeTab === 'tasks' ? 'Tasks' : sceneConfigurations[Scene.CustomerAnalytics].name}
+                            name={sceneName}
                             description={
                                 activeTab === 'tasks'
                                     ? 'Work assigned to you across customer accounts.'

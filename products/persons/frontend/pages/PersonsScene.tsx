@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -11,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneMenuBar } from '~/layout/scenes/components/SceneMenuBar'
+import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
@@ -53,8 +54,17 @@ export function PersonsScene(): JSX.Element {
         <SceneContent>
             <ActivitySceneTabs activeKey="persons" />
 
-            {/* This page has no project tree entry, so it has no File menu. The bar adds Help under the Today layout. */}
-            {sceneMenuBarEnabled && todayRailNav && <SceneMenuBar />}
+            {sceneMenuBarEnabled &&
+                (todayRailNav ? (
+                    // This page has no project tree entry, so it has no File menu. The bar adds Help under the Today layout.
+                    <SceneMenuBar />
+                ) : (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
+                            <SceneMenuBarFileItems dataAttrKey="persons" />
+                        </SceneMenuBarMenu>
+                    </SceneMenuBar>
+                ))}
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Persons].name}

@@ -19,6 +19,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { isPeopleDetailPath, isPeopleListPath } from './todayPeopleModel'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
 export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'products' | 'settings'
@@ -74,27 +75,6 @@ export function railPaneHref(
     featureFlags: FeatureFlagsSet
 ): string | undefined {
     return RAIL_PANE_HOMES[pane]?.(effectivePhaiView, featureFlags)
-}
-
-function isPeopleListPath(path: string): boolean {
-    return (
-        path === urls.persons() ||
-        path === urls.cohorts() ||
-        /^\/groups\/[^/]+(\/new)?$/.test(path) ||
-        isUnderPath(path, urls.customerAnalytics()) ||
-        isUnderPath(path, urls.supportDashboard())
-    )
-}
-
-/** One person, group or cohort. Other panes link to these, so a visit from one of them keeps that pane open. */
-function isPeopleDetailPath(path: string): boolean {
-    return (
-        !isPeopleListPath(path) &&
-        (isUnderPath(path, '/person') ||
-            isUnderPath(path, urls.persons()) ||
-            isUnderPath(path, urls.cohorts()) ||
-            isUnderPath(path, '/groups'))
-    )
 }
 
 const PHONE_PAGE_LIMIT = 50

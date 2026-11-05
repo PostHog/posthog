@@ -100,7 +100,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     <TodayAnalyticsSidebar />
                 </TodayPreviewCardProvider>
             ) : activePane === 'people' ? (
-                <TodayPeopleSidebar />
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayPeopleSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
@@ -109,7 +111,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         </Suspense>
     )
 
-    const { title: paneTitle, titleIcon: paneTitleIcon, action: PaneAction } = TODAY_PANES[activePane]
+    const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
@@ -120,14 +122,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 title={
                     // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
                     <div className="-ms-0.5 flex min-w-0 items-center gap-1">
-                        {paneTitleIcon && (
-                            <span
-                                className="me-1 flex shrink-0 items-center text-foreground [&_svg]:size-4"
-                                aria-hidden
-                            >
-                                {paneTitleIcon}
-                            </span>
-                        )}
                         <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
                         <TodaySidebarPinButton />
                     </div>

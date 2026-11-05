@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ActivitySceneTab } from 'scenes/activity/activitySceneTabsLogic'
 import { urls } from 'scenes/urls'
 
+import { GroupTab } from '~/models/groupTabs'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import { accountGroupTypeIndex, activePeopleRow, peopleSidebarRows, visibleMoreRows } from './todayPeopleLogic'
@@ -23,8 +23,14 @@ const EVERY_TAB = {
     [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
 }
 
-const groupTabs = (...tabs: [number, string][]): ActivitySceneTab[] =>
-    tabs.map(([index, label]) => ({ key: `groups-${index}`, label, url: urls.groups(index), iconType: undefined }))
+const groupTabs = (...tabs: [number, string][]): GroupTab[] =>
+    tabs.map(([index, label]) => ({
+        key: `groups-${index}`,
+        label,
+        url: urls.groups(index),
+        iconType: 'group',
+        dataAttr: 'tab',
+    }))
 const ONE_TYPE = groupTabs([0, 'Organizations'])
 
 describe('todayPeopleLogic', () => {
@@ -116,6 +122,13 @@ describe('todayPeopleLogic', () => {
         ['nothing without group types', 0, groupTypes(), null],
     ])('the Accounts row opens %s', (_, configured, types, index) => {
         expect(accountGroupTypeIndex(configured, types)).toBe(index)
+    })
+
+    it('marks the open record active when its page has another URL than its row', () => {
+        const row = { type: 'person' as const, name: 'Ada', href: urls.personByUUID('uuid-1') }
+        expect(activePeopleRow('/project/1/person/ada', peopleSidebarRows(JOURNEYS, 0, ONE_TYPE), [row], row)).toBe(
+            `recent:${row.href}`
+        )
     })
 
     test.each([

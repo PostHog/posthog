@@ -13,8 +13,6 @@ export interface TodayPane {
     /** The title on top of the pane. The scene header shows it too while the sidebar is hidden. */
     title: string
     icon: JSX.Element
-    /** Shows before the title on top of the pane. */
-    titleIcon?: JSX.Element
     action?: () => JSX.Element
 }
 
@@ -27,13 +25,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
-    people: {
-        label: 'People',
-        title: 'People',
-        icon: <IconPeople />,
-        titleIcon: <IconPeople />,
-        action: TodayNewPeopleButton,
-    },
+    people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }

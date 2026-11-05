@@ -18,8 +18,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayAnalyticsSection, todayAnalyticsLogic } from './todayAnalyticsLogic'
+import { TodayPaneList } from './TodayPaneList'
 import { TodayPaneRow } from './TodayPaneRow'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
 import { TodayExplainerPreview, productPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -96,14 +96,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            {/* The rows are list options that need the pane list around them; this pane has no search, so the field stays hidden. */}
-            <TodayPaneSearchList
-                query=""
-                onQueryChange={() => {}}
-                searchLabel="Search analytics"
-                dataAttr="analytics-sidebar-search"
-                className="[&>div:first-child]:hidden"
-            >
+            <TodayPaneList>
                 <div className="flex flex-col gap-px pb-2">
                     <TodayPreviewTrigger payload={EXPLAINERS.all}>
                         <TodayPaneRow
@@ -285,7 +278,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                         />
                     </TodayPreviewTrigger>
                 </TodayPaneSection>
-            </TodayPaneSearchList>
+            </TodayPaneList>
         </div>
     )
 }
