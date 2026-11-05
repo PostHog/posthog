@@ -7,6 +7,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunTaskApi } from '../../generated/api.schemas'
 import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
 import type { WizardSpendAuditView } from './wizardSpendAuditLogic'
+import { type WizardSpendAuditAccountOwner, WizardSpendAuditOwnerContact } from './WizardSpendAuditOwnerContact'
 import { WizardSpendAuditRunView } from './WizardSpendAuditRunView'
 
 export interface WizardSpendAuditModalViewProps {
@@ -23,6 +24,8 @@ export interface WizardSpendAuditModalViewProps {
     artifacts: readonly WizardRunArtifactApi[]
     runDataLoading: boolean
     runDataError: string | null
+    accountOwner?: WizardSpendAuditAccountOwner | null
+    organizationName?: string | null
     now: number
     onClose: () => void
     onRepositoryChange: (repository: string) => void
@@ -46,6 +49,8 @@ export function WizardSpendAuditModalView({
     artifacts,
     runDataLoading,
     runDataError,
+    accountOwner = null,
+    organizationName = null,
     now,
     onClose,
     onRepositoryChange,
@@ -98,6 +103,13 @@ export function WizardSpendAuditModalView({
                     >
                         Connect GitHub
                     </LemonButton>
+                    {accountOwner && (
+                        <WizardSpendAuditOwnerContact
+                            owner={accountOwner}
+                            placement="before_run"
+                            organizationName={organizationName}
+                        />
+                    )}
                 </div>
             )
             break
@@ -122,6 +134,13 @@ export function WizardSpendAuditModalView({
                         </p>
                     </div>
                     {createError && <LemonBanner type="error">{createError}</LemonBanner>}
+                    {accountOwner && (
+                        <WizardSpendAuditOwnerContact
+                            owner={accountOwner}
+                            placement="before_run"
+                            organizationName={organizationName}
+                        />
+                    )}
                 </div>
             )
             footer = (
@@ -145,6 +164,8 @@ export function WizardSpendAuditModalView({
                     now={now}
                     loading={runDataLoading}
                     error={runDataError}
+                    accountOwner={accountOwner}
+                    organizationName={organizationName}
                     onRetry={onRetryRunData}
                 />
             ) : (

@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import type { WizardRunApi, WizardRunArtifactApi, WizardSpendProjectionItemApi } from '../../generated/api.schemas'
 import { WizardSpendAuditCreatedList } from './WizardSpendAuditCreatedList'
+import { type WizardSpendAuditAccountOwner, WizardSpendAuditOwnerContact } from './WizardSpendAuditOwnerContact'
 import type { WizardRunNotebookArtifact } from './wizardSpendAuditResultsLogic'
 
 type WizardRunSpendProjectionArtifact = Extract<WizardRunArtifactApi, { artifact_type: 'spend_projection' }>
@@ -80,9 +81,13 @@ function Recommendation({ item }: { item: WizardSpendProjectionItemApi }): JSX.E
 export function WizardSpendAuditResults({
     run,
     artifacts,
+    accountOwner = null,
+    organizationName = null,
 }: {
     run: WizardRunApi
     artifacts: readonly WizardRunArtifactApi[]
+    accountOwner?: WizardSpendAuditAccountOwner | null
+    organizationName?: string | null
 }): JSX.Element {
     const notebook = artifacts.find(
         (artifact): artifact is WizardRunNotebookArtifact => artifact.artifact_type === 'notebook'
@@ -139,6 +144,19 @@ export function WizardSpendAuditResults({
                     <span className="text-xs text-muted">No code changes needed.</span>
                 )}
             </div>
+
+            {accountOwner && (
+                <WizardSpendAuditOwnerContact
+                    owner={accountOwner}
+                    placement="after_run"
+                    organizationName={organizationName}
+                    savingText={
+                        projection && projection.saving_monthly.high > 0
+                            ? formatRange(projection.saving_monthly.low, projection.saving_monthly.high)
+                            : null
+                    }
+                />
+            )}
 
             {notebook && (
                 <WizardSpendAuditCreatedList projectId={String(run.team_id)} runId={run.id} notebook={notebook} />

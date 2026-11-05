@@ -19,12 +19,14 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { resolveTeamGitHubIntegration } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import type { IntegrationType, PreflightStatus } from '~/types'
+import type { IntegrationType, OrganizationType, PreflightStatus } from '~/types'
 
 import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
@@ -49,6 +51,7 @@ import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import type { WizardRunDataOptions } from '../../logics/wizardRunSyncLogic'
 import { isWizardRepositoryEligible } from '../wizard-library/components/WizardRepositoryPicker'
+import type { WizardSpendAuditAccountOwner } from './WizardSpendAuditOwnerContact'
 
 // The registry program the audit runs. The registry is served by the `wizard-program-registry`
 // flag payload, so a program with this id has to exist there before the button can start a run.
@@ -85,6 +88,9 @@ export interface wizardSpendAuditLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
     preflight: PreflightStatus | null // preflightLogic
+    billingAccountOwner: { email?: string; name?: string } | null // billingLogic
+    currentOrganization: OrganizationType | null // organizationLogic
+    accountOwner: WizardSpendAuditAccountOwner | null
     artifactsByRunId: Record<string, WizardRunArtifactApi[]> // wizardRunSyncLogic
     runDataErrors: Record<string, string | null> // wizardRunSyncLogic
     runDataLoading: Record<string, boolean> // wizardRunSyncLogic
@@ -257,6 +263,9 @@ export interface wizardSpendAuditLogicActions {
 export interface wizardSpendAuditLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        accountOwner: (
+            billingAccountOwner: { email?: string; name?: string } | null
+        ) => WizardSpendAuditAccountOwner | null
         enabled: (featureFlags: FeatureFlagsSet, preflight: PreflightStatus | null) => boolean
         githubIntegration: (githubIntegrations: IntegrationType[]) => IntegrationType | null
         program: (registry: WizardProgramApi[] | null) => WizardProgramApi | null
@@ -319,6 +328,10 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
             ['githubIntegrations', 'integrations', 'integrationsLoading'],
             preflightLogic,
             ['preflight'],
+            billingLogic,
+            ['accountOwner as billingAccountOwner'],
+            organizationLogic,
+            ['currentOrganization'],
             wizardRunSyncLogic({ projectId }),
             ['artifactsByRunId', 'runDataErrors', 'runDataLoading', 'tasksByRunId', 'userRuns'],
         ],
@@ -433,6 +446,14 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
         ],
     }),
     selectors(({ props }) => ({
+        // Managed accounts have an assigned PostHog contact. The prompt needs both a name and an address.
+        accountOwner: [
+            (s) => [s.billingAccountOwner],
+            (billingAccountOwner: { email?: string; name?: string } | null): WizardSpendAuditAccountOwner | null =>
+                billingAccountOwner?.name && billingAccountOwner?.email
+                    ? { name: billingAccountOwner.name, email: billingAccountOwner.email }
+                    : null,
+        ],
         enabled: [
             (s) => [s.featureFlags, s.preflight],
             (flags: FeatureFlagsSet, preflight: PreflightStatus | null): boolean =>
@@ -573,10 +594,14 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
 
         return {
             openModal: ({ source }) => {
+                // pinned: the account owner alert workflow triggers on this event and routes on account_owner_email
                 posthog.capture('billing optimize spend opened', {
                     ...wizardEventProperties(props.projectId, 'cloud'),
                     location: SPEND_AUDIT_LOCATION,
                     source,
+                    has_account_owner: !!values.accountOwner,
+                    account_owner_email: values.accountOwner?.email ?? null,
+                    organization_name: values.currentOrganization?.name ?? null,
                 })
                 actions.loadIntegrations()
                 actions.loadRegistry()

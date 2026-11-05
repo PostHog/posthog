@@ -23,6 +23,8 @@ export function WizardSpendAuditModal(props: WizardSpendAuditLogicProps): JSX.El
         runArtifacts,
         runDataIsLoading,
         runDataError,
+        accountOwner,
+        currentOrganization,
     } = useValues(logic)
     const { closeModal, setRepository, startAudit, retrySetup, runAgain, loadRunData } = useActions(logic)
     const [now, setNow] = useState(Date.now)
@@ -43,6 +45,8 @@ export function WizardSpendAuditModal(props: WizardSpendAuditLogicProps): JSX.El
             artifacts={runArtifacts}
             runDataLoading={runDataIsLoading}
             runDataError={runDataError}
+            accountOwner={accountOwner}
+            organizationName={currentOrganization?.name ?? null}
             now={now}
             onClose={closeModal}
             onRepositoryChange={setRepository}

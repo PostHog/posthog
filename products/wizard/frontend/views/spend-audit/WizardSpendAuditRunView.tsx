@@ -11,6 +11,7 @@ import {
 } from '../../lib/wizardRunDisplay'
 import { wizardRunErrorDetails } from '../../lib/wizardRunErrorCatalog'
 import { WizardInstallRunArtifacts } from '../onboarding/components/WizardInstallRunArtifacts'
+import type { WizardSpendAuditAccountOwner } from './WizardSpendAuditOwnerContact'
 import { WizardSpendAuditProgress } from './WizardSpendAuditProgress'
 import { WizardSpendAuditResults } from './WizardSpendAuditResults'
 
@@ -47,6 +48,8 @@ export function WizardSpendAuditRunView({
     now,
     loading,
     error,
+    accountOwner = null,
+    organizationName = null,
     onRetry,
 }: {
     run: WizardRunApi
@@ -55,6 +58,8 @@ export function WizardSpendAuditRunView({
     now: number
     loading: boolean
     error: string | null
+    accountOwner?: WizardSpendAuditAccountOwner | null
+    organizationName?: string | null
     onRetry: () => void
 }): JSX.Element {
     const completed = run.status === 'completed'
@@ -86,7 +91,12 @@ export function WizardSpendAuditRunView({
             {!completed && <WizardSpendAuditProgress run={run} tasks={tasks} />}
             <AuditOutcome run={run} tasks={tasks} />
             {completed ? (
-                <WizardSpendAuditResults run={run} artifacts={artifacts} />
+                <WizardSpendAuditResults
+                    run={run}
+                    artifacts={artifacts}
+                    accountOwner={accountOwner}
+                    organizationName={organizationName}
+                />
             ) : (
                 <WizardInstallRunArtifacts run={run} artifacts={artifacts} loading={loading} error={error} />
             )}
