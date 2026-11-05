@@ -90,7 +90,7 @@ It replaced the Products slot, which opened the web app's product library. `mobi
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
 The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the refresh hint from `useViewsList().refresh` and the "Edit pins" row of the More menu.
-Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
+Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant.
 
 ### Pins
 
@@ -121,6 +121,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 
 ### Pin actions
 
+- Hold a pin’s title for about 1.3 seconds to drag it directly in Views. The normal long-press menu appears first; keep holding for a second haptic cue, then drag to the highlighted tile and release to insert there. Holding near the top or bottom scrolls the list. This works with mixed tile heights and the two-column layout. Releasing without moving or cancelling leaves the order unchanged. Dragging is disabled while searching; Move up/down and Edit pins remain available, including for screen readers.
 - Long press any pin for its menu: Show as Row, Number or Chart, Choose tile (dashboards), Move up, Move down, Unpin.
 - Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
 - Every Recent, Browse and search row has a pin button. Tap it to pin or unpin the view; rows have no swipe action.
@@ -175,6 +176,8 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 | Dashboard     | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a SQL table, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). When the dashboard date control is visible, tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
 | Insight       | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`).                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+Chart clock times follow the device’s 12-hour or 24-hour preference, including hourly axes, tooltip headings, retention details and the “Data until” note. This changes only the display format; date ranges and bucket timezones keep their existing behavior.
 
 A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
 People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet drops a query that has not started. In demo, rows that open the web say "Not available in the demo".
@@ -262,6 +265,9 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 - `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
 - A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods), bar lists (all rows) and SQL tables (up to 500 rows) show in a card.
+- Saved stacked bar charts keep their stacks in pins, tiles, insights and full screen. The value axis fits the full stack; zero values leave no bar. Full screen offers a small layout icon beside Back for multi-series bar charts. Tap it to switch between grouped and stacked bars. The choice persists on this device across visits and applies to all bar charts, including pins and dashboard tiles. Until a choice is made, each chart uses its saved layout.
+- When time-series bars would become too thin, inline and full-screen charts show a readable window of dates, starting with the most recent. The date arrows page through every bucket without changing the saved interval; tooltips and screen reader selection follow the visible dates. Compact pins retain the whole range.
+- Date controls fit within the chart's reserved height, so dashboard tiles keep their height when a canvas replaces its placeholder. Hourly page labels include the calendar date and time at both ends of the window.
 - Charts on this screen send the usual chart events with `context: fullscreen`.
 - Portrait only: the app has no `expo-screen-orientation`, and landscape needs that native module in a new binary. There is no "Zoom to range" or "Show as table" yet.
 
@@ -287,6 +293,11 @@ The tab makes no backend change. [`VIEWS_BACKEND_FOLLOWUPS.md`](VIEWS_BACKEND_FO
 - Display mode and chosen tile on the server, so pins keep their mode on a new phone.
 - Insights viewed on the web in Recent, and phone views in the web's "Recently viewed".
 - Compare on dashboards: `DASHBOARD_COMPARE_SUPPORTED` stays false until US and EU run a build that accepts `compareFilter` in a dashboard override (the deploy check at the end of that file).
+
+## Session replays
+
+Session rows show a country flag beside the person when their profile has a valid `$geoip_country_code`.
+Profiles without a country show the person alone.
 
 ## Sessions and Errors release controls
 
