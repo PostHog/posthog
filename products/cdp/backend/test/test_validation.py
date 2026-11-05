@@ -19,6 +19,7 @@ from products.cdp.backend.validation import (
     InputsSchemaItemSerializer,
     InputsSchemaSerializer,
     RecordAliasRewriter,
+    build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
     reserved_functions_used,
@@ -87,6 +88,16 @@ def create_example_inputs():
         },
         "number": {"value": 42},
     }
+
+
+def _render_around(block_html: str) -> str:
+    return (
+        "<!DOCTYPE html><html><head><style>#u_body a { color: #00e; }</style></head>"
+        '<body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]-->'
+        '<table id="u_body"><tbody><tr><td><div class="u-row-container"><div class="u-row">'
+        f"{block_html}"
+        "</div></div></td></tr></tbody></table></body></html>"
+    )
 
 
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -502,6 +513,84 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, {"email": {"value": value}})
 
         assert validated["email"]["value"].get("design") == expected_design
+
+    @parameterized.expand(
+        [
+            ("plain_html", "<p>Old copy</p>", "<p>New copy</p>"),
+            ("copy_appended_to_the_block", "<p>Old copy</p>", "<p>Old copy</p><p>New footer</p>"),
+            ("block_wrapped_in_new_markup", "<p>Old copy</p>", '<div style="padding: 8px"><p>Old copy</p></div>'),
+            (
+                "copy_appended_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><p>P.S.</p>"),
+            ),
+            (
+                "block_is_an_unlayer_page_that_got_a_footer",
+                _render_around("<p>Page</p>"),
+                f"<div>{_render_around('<p>Page</p>')}<p>Footer</p></div>",
+            ),
+            (
+                "unrelated_body_class_is_not_the_unlayer_page",
+                "<p>Old copy</p>",
+                '<div class="menu_body"><p>Old copy</p></div>',
+            ),
+            (
+                "image_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><img src="https://example.com/offer.png">'),
+            ),
+            (
+                "link_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><a href="https://example.com"></a>'),
+            ),
+            ("unterminated_tags_around_the_block", "<p>Old copy</p>", "<p>Old copy</p>" + "<div u_body" * 1000),
+            (
+                "full_render_replaced_by_another",
+                '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
+                '<html><body class="clean-body u_body"><p>New copy</p></body></html>',
+            ),
+        ]
+    )
+    def test_stale_html_wrap_design_is_rebuilt_from_new_html(self, _name, old_html, new_html):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": new_html,
+            "design": build_html_wrap_design(old_html),
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
+
+    def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        edited_design = build_html_wrap_design("<p>Inner block</p>")
+        edited_design["body"]["values"] = {"backgroundColor": "#ffffff"}
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": '<html><body class="clean-body u_body"><p>Edited&nbsp;block</p></body></html>',
+            "design": edited_design,
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == edited_design
+
+    def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self):
+        html = _render_around("<p>Inner block</p>")
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        design = build_html_wrap_design("<p>Inner block</p>")
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": design}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>Inner block</p>")
 
     def test_html_only_email_wrap_is_deterministic(self):
         # Callers resend the same html-only value on every save; a fresh design each time would
