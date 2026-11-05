@@ -4403,6 +4403,7 @@ export namespace Schemas {
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
+        offset?: (number | null) | undefined;
         query: string;
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
