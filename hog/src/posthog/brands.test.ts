@@ -6,7 +6,7 @@ import { parseHost } from './host'
 import { parseOrganizationId, parseProjectId } from './ids'
 import { parseOAuthAccessToken, parsePersonalApiKey, parseProjectToken, parseWorkloadToken } from './tokens'
 
-function problem(parse: () => unknown): string {
+function errorOf(parse: () => unknown): string {
     try {
         parse()
     } catch (error) {
@@ -45,6 +45,7 @@ describe('brand factories', () => {
             'invalid_workload_token: This is a personal API key, not a workload token. A workload token must be a JWT, three parts joined by dots.',
         ],
         ['a custom project token without the prefix', () => parseProjectToken('my-team-token'), 'parsed'],
+        ['a custom project token with the prefix and punctuation', () => parseProjectToken('phc_team.v1'), 'parsed'],
         [
             'a personal API key as a project token',
             () => parseProjectToken('phx_abc123'),
@@ -83,7 +84,7 @@ describe('brand factories', () => {
             'invalid_host: The host must not have a query (?) or a fragment (#) in it.',
         ],
     ])('%s', (_name, parse, expected) => {
-        expect(problem(parse)).toBe(expected)
+        expect(errorOf(parse)).toBe(expected)
     })
 
     test.each([
