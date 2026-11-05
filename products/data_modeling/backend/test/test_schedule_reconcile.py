@@ -21,6 +21,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
+from products.data_modeling.backend.logic.billing_package import update_organization_billing_package
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
@@ -1060,6 +1061,42 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(
             schedule.spec,
             build_schedule_spec(entity_id=dag.id, interval=H6, team_timezone=self.team.timezone, anchor_minutes=30),
+        )
+
+    @parameterized.expand(
+        [
+            ("free", False, None, "unknown", "1hour", 60),
+            ("paid_no_package", True, False, "none", "30min", 30),
+            ("paid_package", True, True, "paid", "15min", 15),
+            ("unsynced_paid", True, None, "unknown", None, None),
+            ("unknown_plan", None, None, "unknown", None, None),
+        ]
+    )
+    def test_plan_floor_targets_the_synced_package(
+        self, _name: str, paid: bool | None, package: bool | None, label: str, interval: str | None, minutes: int | None
+    ) -> None:
+        self.organization.has_active_subscription = paid
+        update_organization_billing_package(str(self.organization.id), package)
+        # A partial billing response must retain the known package through the next local evaluation.
+        update_organization_billing_package(str(self.organization.id), None)
+        with mock.patch(
+            FLAG_RESULT,
+            return_value=mock.Mock(
+                enabled=interval is not None, payload={"min_interval": interval, "clamp_existing": True}
+            ),
+        ) as flag:
+            reading = read_organization_plan_refresh_floor(self.organization)
+        self.assertEqual(
+            flag.call_args.kwargs["person_properties"],
+            {
+                "organization_plan": "unknown" if paid is None else "paid" if paid else "free",
+                "organization_package": label,
+            },
+        )
+        self.assertTrue(flag.call_args.kwargs["only_evaluate_locally"])
+        self.assertTrue(reading.evaluated)
+        self.assertEqual(
+            reading.floor.schedule_floor if reading.floor else None, timedelta(minutes=minutes) if minutes else None
         )
 
     @parameterized.expand(

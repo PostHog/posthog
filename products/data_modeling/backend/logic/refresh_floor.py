@@ -1,7 +1,7 @@
 """The `data-modeling-refresh-floor` flag: the finest cadence an organization's plan lets a view refresh at.
 
 The payload names the floor in the same terms as a view's `sync_frequency`, for example
-`{"min_interval": "6hour", "clamp_existing": false}`. With `clamp_existing` false only new and
+`{"min_interval": "1hour", "clamp_existing": false}`. With `clamp_existing` false only new and
 changed cadences are held to the floor, and views already set faster keep running at their setting.
 With it true the scheduler also runs those views at the floor, and an endpoint keeps serving such a
 view's table for the floor's interval, because the table cannot refresh sooner. A view's saved cadence
@@ -19,6 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.run_mode import run_mode
 
+from products.data_modeling.backend.logic.billing_package import organization_package_label
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, format_cadence
 
 logger = structlog.get_logger(__name__)
@@ -74,7 +75,10 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             REFRESH_FLOOR_FLAG,
             organization_id,
             groups={"organization": organization_id},
-            person_properties={"organization_plan": organization.billing_plan_label()},
+            person_properties={
+                "organization_plan": organization.billing_plan_label(),
+                "organization_package": organization_package_label(organization_id),
+            },
             group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,

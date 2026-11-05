@@ -65,6 +65,7 @@ _LAZY = {
     "views_updated_since": "logic.view_column_refresh",
     "schedule_downstream_view_column_refresh": "tasks.refresh_downstream_view_columns",
     "schedule_organization_schedule_reconcile": "tasks.reconcile_organization_schedules",
+    "update_organization_billing_package": "logic.billing_package",
     "unbuilt_upstream_saved_query_ids": "logic.saved_query_reads",
     "last_query_change_at": "logic.saved_query_reads",
     "completed_full_refresh_workflow_ids": "logic.saved_query_reads",

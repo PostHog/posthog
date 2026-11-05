@@ -9,6 +9,7 @@ from .github_sync_config import GitHubSyncConfig, GitHubSyncStatus
 from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .node import Node, NodeType
+from .organization_refresh_policy import OrganizationRefreshPolicy
 from .pending_organization_reconcile import PendingOrganizationReconcile
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "GitHubSyncedModel",
     "Node",
     "NodeType",
+    "OrganizationRefreshPolicy",
     "PendingOrganizationReconcile",
 ]

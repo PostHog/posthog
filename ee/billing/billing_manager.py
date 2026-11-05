@@ -137,6 +137,37 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
+def _paid_package_status(products: object) -> bool | None:
+    if not isinstance(products, list):
+        return None
+    platform = next(
+        (
+            product
+            for product in products
+            if isinstance(product, dict) and product.get("type") == "platform_and_support"
+        ),
+        None,
+    )
+    if platform is None or not isinstance(platform.get("addons"), list):
+        return None
+    unknown = False
+    for addon in platform["addons"]:
+        if not isinstance(addon, dict) or not isinstance(addon.get("type"), str):
+            unknown = True
+            continue
+        if addon["type"] not in {"boost", "teams", "scale", "enterprise"}:
+            continue
+        plans = addon.get("plans", [])
+        if addon.get("subscribed") is True or (
+            isinstance(plans, list)
+            and any(isinstance(plan, dict) and plan.get("current_plan") is True for plan in plans)
+        ):
+            return True
+        if addon.get("subscribed") is not False or not isinstance(plans, list):
+            unknown = True
+    return None if unknown else False
+
+
 def _free_trial_active(customer: CustomerInfo) -> bool:
     free_trial_until = customer.get("free_trial_until")
     if not free_trial_until:
@@ -844,11 +875,14 @@ class BillingManager:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
 
-        if org_modified:
-            with transaction.atomic():
+        with transaction.atomic():
+            if org_modified:
                 organization.save()
-                if plan_changed:
-                    data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
+            package_changed = data_modeling_api.update_organization_billing_package(
+                str(organization.id), _paid_package_status(data.get("products"))
+            )
+            if plan_changed or package_changed:
+                data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

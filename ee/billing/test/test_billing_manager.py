@@ -25,6 +25,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.logs.backend.models import LogsRetentionRule
 
 from ee.billing.billing_manager import (
@@ -526,18 +527,84 @@ class TestBillingManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("upgrade", False, {"has_active_subscription": True}, True),
-            ("downgrade", True, {"has_active_subscription": False}, True),
-            ("same_plan", True, {"has_active_subscription": True}, False),
-            ("partial_response", False, {}, False),
+            ("upgrade", False, None, {"has_active_subscription": True}, True),
+            ("downgrade", True, None, {"has_active_subscription": False}, True),
+            ("same_plan", True, None, {"has_active_subscription": True}, False),
+            ("partial_response", False, None, {}, False),
+            ("paid_missing_products", True, True, {}, False),
+            ("paid_empty_products", True, True, {"products": []}, False),
+            ("paid_missing_addons", True, True, {"products": [{"type": "platform_and_support"}]}, False),
+            (
+                "paid_malformed_plans",
+                True,
+                True,
+                {
+                    "products": [
+                        {
+                            "type": "platform_and_support",
+                            "addons": [{"type": "teams", "subscribed": False, "plans": None}],
+                        }
+                    ]
+                },
+                False,
+            ),
+            ("first_package_sync", True, None, {"products": [{"type": "platform_and_support", "addons": []}]}, True),
+            ("package_removed", True, True, {"products": [{"type": "platform_and_support", "addons": []}]}, True),
+            ("still_no_package", True, False, {"products": [{"type": "platform_and_support", "addons": []}]}, False),
+            *[
+                (
+                    f"package_added_{package}",
+                    True,
+                    False,
+                    {"products": [{"type": "platform_and_support", "addons": [{"type": package, "subscribed": True}]}]},
+                    True,
+                )
+                for package in ("boost", "teams", "scale", "enterprise")
+            ],
+            (
+                "current_plan_package",
+                True,
+                False,
+                {
+                    "products": [
+                        {
+                            "type": "platform_and_support",
+                            "addons": [{"type": "teams", "subscribed": False, "plans": [{"current_plan": True}]}],
+                        }
+                    ]
+                },
+                True,
+            ),
+            (
+                "inactive_package",
+                True,
+                True,
+                {
+                    "products": [
+                        {
+                            "type": "platform_and_support",
+                            "addons": [{"type": "teams", "subscribed": False, "plans": []}],
+                        }
+                    ]
+                },
+                True,
+            ),
+            (
+                "unknown_package_status",
+                True,
+                True,
+                {"products": [{"type": "platform_and_support", "addons": [{"type": "teams"}]}]},
+                False,
+            ),
         ]
     )
-    def test_update_org_details_reconciles_refresh_schedules_only_on_a_plan_change(
-        self, _name: str, was_paid: bool, customer: dict[str, bool], expect_reconcile: bool
+    def test_update_org_details_reconciles_refresh_schedules_on_plan_or_package_changes(
+        self, _name: str, was_paid: bool, had_package: bool | None, customer: dict[str, object], expect_reconcile: bool
     ) -> None:
         organization = self.organization
         organization.has_active_subscription = was_paid
         organization.save()
+        data_modeling_api.update_organization_billing_package(str(organization.id), had_package)
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
@@ -554,6 +621,17 @@ class TestBillingManager(BaseTest):
             BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
 
         assert delay.call_args_list == ([call(str(organization.id))] if expect_reconcile else [])
+        delay.reset_mock()
+        with (
+            patch(
+                "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                ".reconcile_organization_schedules.delay",
+                delay,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
+        delay.assert_not_called()
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization
