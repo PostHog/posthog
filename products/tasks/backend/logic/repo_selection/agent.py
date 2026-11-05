@@ -276,6 +276,28 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
 
 
+def team_repository_names(
+    team_id: int, *, team: Team | None = None, refresh_stale_snapshot: bool = True
+) -> dict[str, str] | None:
+    """The repositories the team's own GitHub installation can reach, keyed by lowercased `owner/repo`.
+
+    Each value keeps GitHub's casing, for display. Returns None when the team has no GitHub installation.
+    `team_only` because callers show these names to any project member and run work as the installation's
+    bot, so a member's personal connection must not answer for the team. Callers apply their own precedence
+    to pick one repository from the result.
+
+    With `refresh_stale_snapshot=False`, a stale snapshot is used as it is, and GitHub is called only when no
+    snapshot exists yet. A refresh lists every page of the installation inside the request.
+    """
+    github = resolve_team_github_integration(team_id, team=team, team_only=True)
+    if github is None:
+        return None
+    repositories = (
+        None if refresh_stale_snapshot else github.list_all_cached_repositories(max_repos=1000, allow_refresh=False)
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    return {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
