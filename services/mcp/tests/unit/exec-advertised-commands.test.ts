@@ -102,7 +102,7 @@ function execGuidance(toolNames: string[]): string {
         builder.buildExecCommandReference(state()),
         builder.buildExecCommandReference(state('ClaudeAI')),
         builder.buildExecCommandReference(state(undefined, true)),
-        builder.buildExecCommandReference(state(undefined, true, 'plugin')),
+        builder.buildExecCommandReference(state(undefined, true, 'posthog-code')),
     ].join('\n\n')
 }
 
