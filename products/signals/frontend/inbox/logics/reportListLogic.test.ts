@@ -80,8 +80,6 @@ describe('reportListLogic', () => {
                     [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
                 })
             ).toFinishAllListeners()
-            // The section is already loaded, so the refresh sends the first page alone and reads the
-            // count off its total.
             expect(requests).toHaveLength(1)
             expect(requests.every((url) => new URL(url).searchParams.get('status') === 'monitoring')).toBe(true)
             expect(logic.values).toMatchObject({ count: 1, reports: [makeReport('monitored')] })

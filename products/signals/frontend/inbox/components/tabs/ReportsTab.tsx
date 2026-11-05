@@ -130,9 +130,8 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // `countSettled` means the count request is no longer in flight and the total on screen was
-    // produced by the current query, so a scope or filter change doesn't fire the event with the
-    // previous query's counts.
+    // Waiting on `countSettled` rather than the loading flags means a scope or filter change
+    // doesn't fire the event with the previous query's counts.
     const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 

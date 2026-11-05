@@ -172,8 +172,8 @@ export function shouldDefaultToEntireProject(input: {
 // First For-you count for the primary section: if the user has no reports suggested to
 // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
 // picked a scope themselves, and only once the user's uuid has resolved (so the count is
-// genuinely theirs, not an unfiltered project-wide count). A refresh of a loaded section takes
-// its count from the first page, so this runs on both counts.
+// genuinely theirs, not an unfiltered project-wide count). A loaded section takes its count from
+// its first page, so this runs on both counts.
 function applyDefaultScopeIfEmpty(
     props: reportListLogicType['props'],
     values: reportListLogicType['values'],
@@ -640,10 +640,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     })
                     // A newer count request for a changed query supersedes this one.
                     breakpoint()
-                    // A loaded section takes its count from its first page and sends no new count
-                    // request, so nothing else retires this one. Drop it when the query moved on, and
-                    // when a page landed while it was in flight, because that page carries the total
-                    // for the rows now on screen.
+                    // A loaded section sends no new count request, so nothing else retires this
+                    // one. Drop it when the query moved on, and when a page landed while it was in
+                    // flight, because that page carries the total for the rows now on screen.
                     if (
                         JSON.stringify(values.listApiParams) !== JSON.stringify(params) ||
                         values.reportsResponse !== pageAtRequest
@@ -937,9 +936,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 reportsResponse?.requestParams ? JSON.stringify(reportsResponse.requestParams) : null,
         ],
         // Nothing that can still change the count is in flight, and the count on screen belongs to
-        // the current query. A loaded section takes its count from the first page, so a scope or
-        // filter change holds the previous query's total until the refetched page lands. A failed
-        // page settles the section on what it had, rather than holding a consumer forever.
+        // the current query. A failed page settles the section on what it had, rather than holding
+        // a consumer forever.
         countSettled: [
             (s) => [
                 s.countLoading,
