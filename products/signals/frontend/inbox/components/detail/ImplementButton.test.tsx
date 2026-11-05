@@ -16,6 +16,7 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { mockTask, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -91,27 +92,57 @@ describe('ImplementButton', () => {
     })
 
     // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling them.
-    it("takes over a teammate's claim before it starts the run", async () => {
+    // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling
+    // them. A takeover the server refuses must reload the claim, or a retry submits the same stale takeover.
+    it.each([
+        { name: 'starts the run after the takeover', claimStatus: 200, starts: true },
+        { name: 'reloads the claim after a refused takeover', claimStatus: 409, starts: false },
+    ])("teammate's claim: $name", async ({ claimStatus, starts }) => {
         const claimBodies: unknown[] = []
         useMocks({
             post: {
                 '/api/projects/:team_id/signals/reports/:id/claim/': async ({ request }) => {
                     claimBodies.push(await request.json())
-                    return [200, { ...makeReport(), assignee: myClaim }]
+                    return claimStatus === 200
+                        ? [200, { ...makeReport(), assignee: myClaim }]
+                        : [409, { detail: "The report's claim changed. Reload the report and try again." }]
                 },
             },
         })
+        const bulkActions = inboxBulkActionsLogic()
+        bulkActions.mount()
         const user = userEvent.setup()
         render(<ImplementButton report={makeReport({ assignee: { ...teammateClaim, claim_id: 'claim-robin' } })} />)
 
-        await user.click(screen.getByTestId('inbox-report-create-pr'))
-        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
-        await user.click(await screen.findByText('Take over and implement'))
+        await expectLogic(bulkActions, async () => {
+            await user.click(screen.getByTestId('inbox-report-create-pr'))
+            await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+            await user.click(await screen.findByText('Take over and implement'))
+        }).toDispatchActions([starts ? 'reportClaimChanged' : 'reportWriteFailed'])
 
-        await waitFor(() =>
-            expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ assignee: myClaim }), undefined)
-        )
         expect(claimBodies).toEqual([{ takeover: true, takeover_claim_id: 'claim-robin' }])
+        if (starts) {
+            await waitFor(() =>
+                expect(createPrFromReport).toHaveBeenCalledWith(
+                    expect.objectContaining({ assignee: myClaim }),
+                    undefined
+                )
+            )
+        } else {
+            expect(createPrFromReport).not.toHaveBeenCalled()
+        }
+    })
+
+    // A second press while the first one still loads would start two runs.
+    it('starts one run when Implement is pressed twice quickly', async () => {
+        const report = makeReport()
+
+        inboxTaskKickoffLogic.actions.implementReport(report, undefined, 'triage_mode')
+        inboxTaskKickoffLogic.actions.implementReport(report, undefined, 'triage_mode')
+
+        await waitFor(() => expect(createPrFromReport).toHaveBeenCalledTimes(1))
+        await expectLogic(inboxTaskKickoffLogic).toFinishAllListeners()
+        expect(createPrFromReport).toHaveBeenCalledTimes(1)
     })
 
     it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(

@@ -253,7 +253,12 @@ def _release_settled_task_claim(*, team_id: int, report_id: str, task_id: str) -
     holds the report row lock.
     """
     claim = get_active_claim(team_id=team_id, report_id=report_id)
-    if claim is None or claim.actor_kind != "task" or str(claim.actor_task_id) == task_id:
+    if (
+        claim is None
+        or claim.actor_kind != "task"
+        or claim.actor_task_id is None
+        or str(claim.actor_task_id) == task_id
+    ):
         return
     runs: list[tuple[str | None, object]] = list(
         SignalReportTask.objects.filter(
