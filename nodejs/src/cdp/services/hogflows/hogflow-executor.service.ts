@@ -78,7 +78,8 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
 
 // The email service sets teamCapped and attachmentLoadTries for one send, which reads them from the job's stored
 // metadata. The actions after it in the same dequeue start from this executor's result, so both keys stay off
-// them. Otherwise their waits would count as cap delays, and a later email with files would get fewer load tries.
+// them. Otherwise their waits would count as cap delays, and a later email whose files fail to load would start at
+// a longer retry delay.
 function withoutPerSendMetadata(
     metadata: CyclotronJobInvocationHogFlow['queueMetadata']
 ): CyclotronJobInvocationHogFlow['queueMetadata'] {
