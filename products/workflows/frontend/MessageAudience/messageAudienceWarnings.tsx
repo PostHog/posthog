@@ -24,19 +24,15 @@ import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from 
 
 type EmailSender = Pick<IntegrationConfigApi, 'kind' | 'config'>
 
-function countedEmailSenders(emailIntegrations: EmailSender[], sandboxSenderEnabled: boolean): EmailSender[] {
-    return sandboxSenderEnabled
-        ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
-        : emailIntegrations
-}
-
 export function emailSenderWarning(
     integrations: EmailSender[],
     sandboxSenderEnabled: boolean,
     destination: MessageAudienceDestination
 ): string | null {
     const emailIntegrations = integrations.filter((integration) => integration.kind === 'email')
-    const senders = countedEmailSenders(emailIntegrations, sandboxSenderEnabled)
+    const senders = sandboxSenderEnabled
+        ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
+        : emailIntegrations
     if (senders.length === 0) {
         return emailIntegrations.length > 0 && destination !== 'broadcast'
             ? SANDBOX_ONLY_SENDER_MESSAGE
