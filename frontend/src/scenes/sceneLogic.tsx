@@ -76,6 +76,19 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
+function unmountSceneLogic(cache: { mountedSceneLogic: MountedSceneLogic | null }): void {
+    const mountedLogic = cache.mountedSceneLogic
+    if (!mountedLogic) {
+        return
+    }
+    try {
+        mountedLogic.unmount()
+    } catch (error) {
+        console.error('Error unmounting previous scene logic:', error)
+    }
+    cache.mountedSceneLogic = null
+}
+
 // A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
 function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
     const sceneConfig = sceneConfigurations[sceneId]
@@ -809,6 +822,11 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        [teamLogic.actionTypes.currentProjectAccessDenied]: () => {
+            if (values.activeSceneId === Scene.ErrorProjectAccessDenied) {
+                unmountSceneLogic(cache)
+            }
+        },
         // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
         // and the picker that would change it sits behind that screen. Drop the setting instead.
         resetUnavailableHomepage: ({ pathname }) => {
@@ -896,7 +914,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            // A scene behind the access denied screen would keep loading and polling the refused project.
+            if (exportedScene?.logic && values.activeSceneId !== Scene.ErrorProjectAccessDenied) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
@@ -934,15 +953,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     newLogicErrored = true
                 }
             } else {
-                const mountedLogic = cache.mountedSceneLogic
-                if (mountedLogic) {
-                    try {
-                        mountedLogic.unmount()
-                    } catch (error) {
-                        console.error('Error unmounting previous scene logic:', error)
-                    }
-                    cache.mountedSceneLogic = null
-                }
+                unmountSceneLogic(cache)
             }
 
             if (newLogicErrored) {

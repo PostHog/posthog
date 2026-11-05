@@ -616,9 +616,13 @@ describe('sceneLogic', () => {
         router.actions.push(urls.eventDefinitions())
         await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        const projectScene = logic.values.activeExportedScene
+        const projectSceneLogic = projectScene?.logic?.(projectScene.paramsToProps?.(logic.values.sceneParams) ?? {})
+        expect(projectSceneLogic?.isMounted()).toBe(true)
 
         teamLogic.actions.currentProjectAccessDenied()
         expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        expect(projectSceneLogic?.isMounted()).toBe(false)
 
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).delay(1)
