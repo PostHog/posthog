@@ -92,6 +92,13 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P3,
     AutonomyPriority.P4,
 )
+_PRIORITY_EMOJI: dict[str, str] = {
+    AutonomyPriority.P0: "🔴",
+    AutonomyPriority.P1: "🔴",
+    AutonomyPriority.P2: "🟠",
+    AutonomyPriority.P3: "⚪️",
+    AutonomyPriority.P4: "⚪️",
+}
 
 # Report titles are PR-style ("fix(scope): Description"). The inbox shows only the description, so
 # Slack does too. Keep in sync with CONVENTIONAL_COMMIT_TITLE in frontend/inbox/utils/reportPresentation.ts.
@@ -355,7 +362,11 @@ def _section_body(markdown: str) -> str:
 
 
 def _build_message_blocks(
-    report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
+    report: SignalReport,
+    *,
+    reviewer_mentions: list[str],
+    use_section_blocks: bool = False,
+    priority: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -390,15 +401,15 @@ def _build_message_blocks(
         body_block,
     ]
 
+    context_parts: list[str] = []
+    if priority_emoji := _PRIORITY_EMOJI.get(priority or ""):
+        context_parts.append(f"{priority_emoji} *{priority}*")
     # Plain-text blocks would show the raw mention token instead of resolving the user.
     if reviewer_mentions:
         owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"👤 {owner_label}: {' '.join(reviewer_mentions)}"}],
-            }
-        )
+        context_parts.append(f"👤 {owner_label}: {' '.join(reviewer_mentions)}")
+    if context_parts:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
 
     action_elements: list[dict] = [
         {
@@ -534,6 +545,7 @@ def _deliver_route_notification(
     route: _ChannelRoute,
     *,
     trigger: str,
+    priority: str | None,
 ) -> bool:
     """Post one report notification to a route's destination.
 
@@ -562,6 +574,7 @@ def _deliver_route_notification(
             report,
             reviewer_mentions=mentions,
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
+            priority=priority,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
@@ -598,11 +611,12 @@ def _deliver_to_routes(
     routes: list[_ChannelRoute],
     *,
     trigger: str,
+    priority: str | None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
     sent = 0
     for route in routes:
-        if _deliver_route_notification(report, route, trigger=trigger):
+        if _deliver_route_notification(report, route, trigger=trigger, priority=priority):
             sent += 1
     return sent
 
@@ -702,7 +716,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         )
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="report_ready")
+    sent = _deliver_to_routes(report, routes, trigger="report_ready", priority=priority)
     logger.info(
         "dispatch_inbox_item_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
@@ -814,7 +828,7 @@ def dispatch_reviewer_added_notifications(
     if not routes:
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="reviewer_added")
+    sent = _deliver_to_routes(report, routes, trigger="reviewer_added", priority=priority)
     logger.info(
         "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
