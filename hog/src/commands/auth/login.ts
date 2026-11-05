@@ -4,7 +4,7 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
-import { problemWith } from '@/core/schema'
+import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
@@ -65,13 +65,13 @@ async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', {
         initialValue: REGIONS.us,
-        validate: (value) => problemWith(HostSchema, value),
+        validate: (value) => validationError(HostSchema, value),
     })
     const projectId = await prompts.text('Project ID, the number in your project URL', {
-        validate: (value) => problemWith(ProjectIdSchema, value),
+        validate: (value) => validationError(ProjectIdSchema, value),
     })
     const apiKey = await prompts.password('Personal API key', {
-        validate: (value) => problemWith(PersonalApiKeySchema, value),
+        validate: (value) => validationError(PersonalApiKeySchema, value),
     })
     const key = new PersonalAPIKey({
         host: parseHost(host),

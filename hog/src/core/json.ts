@@ -1,14 +1,14 @@
 import type { z } from 'zod'
 
-import { failWith, firstProblem, type ParseFailure } from './schema'
+import { errorMessage, failWith, type ParseFailure } from './schema'
 
 // The only module that calls JSON.parse. Its result is `unknown` until a schema checks it, so no
 // caller casts JSON to the type it hopes for.
 
 export type JsonResult<T> =
     | { ok: true; value: T }
-    | { ok: false; reason: 'syntax'; problem: string }
-    | { ok: false; reason: 'schema'; problem: string; issues: z.core.$ZodIssue[] }
+    | { ok: false; reason: 'syntax'; message: string }
+    | { ok: false; reason: 'schema'; message: string; issues: z.core.$ZodIssue[] }
 
 interface JsonOptions {
     // Keeps integers beyond JavaScript's safe range as their source text, so a ClickHouse UInt64
@@ -31,13 +31,13 @@ export function decodeJson<S extends z.ZodType>(
     try {
         raw = options.lossless ? JSON.parse(text, losslessReviver) : JSON.parse(text)
     } catch (error) {
-        const problem = `Not valid JSON: ${error instanceof Error ? error.message : String(error)}`
-        return { ok: false, reason: 'syntax', problem }
+        const message = `Not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+        return { ok: false, reason: 'syntax', message }
     }
     const parsed = schema.safeParse(raw)
     return parsed.success
         ? { ok: true, value: parsed.data }
-        : { ok: false, reason: 'schema', problem: firstProblem(parsed.error), issues: parsed.error.issues }
+        : { ok: false, reason: 'schema', message: errorMessage(parsed.error), issues: parsed.error.issues }
 }
 
 export function parseJson<S extends z.ZodType>(text: string, schema: S, failure: ParseFailure): z.output<S> {
@@ -45,7 +45,7 @@ export function parseJson<S extends z.ZodType>(text: string, schema: S, failure:
     if (decoded.ok) {
         return decoded.value
     }
-    throw failWith(failure, decoded.problem)
+    throw failWith(failure, decoded.message)
 }
 
 // Decodes one escaped JSON string literal, quotes included. Undefined when it isn't one. A JSON
