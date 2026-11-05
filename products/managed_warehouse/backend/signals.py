@@ -105,7 +105,8 @@ def access_rule_changed(team_id: int, resource: str) -> None:
 
 
 def role_membership_changed(user_id: int, organization_id: UUID) -> None:
-    _on_commit_member(organization_id, _user_uuid(user_id))
+    if member_teams.is_enabled():
+        _on_commit_member(organization_id, _user_uuid(user_id))
 
 
 def connect() -> None:
