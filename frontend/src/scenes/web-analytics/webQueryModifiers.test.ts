@@ -18,12 +18,9 @@ const trends: QuerySchema = {
     source: { kind: NodeKind.TrendsQuery, series: [] },
 }
 const webVitals: QuerySchema = {
-    kind: NodeKind.InsightVizNode,
-    source: {
-        kind: NodeKind.WebVitalsQuery,
-        properties: [],
-        source: { kind: NodeKind.TrendsQuery, series: [] },
-    },
+    kind: NodeKind.WebVitalsQuery,
+    properties: [],
+    source: { kind: NodeKind.TrendsQuery, series: [] },
 }
 
 const layout = { colSpanClassName: 'md:col-span-full' as const }
@@ -71,12 +68,8 @@ describe('webQueryModifiers', () => {
         expect(trendsTile).toMatchObject({ query: { source: trends.source } })
         expect((trendsTile as { query: { source: object } }).query.source).not.toHaveProperty('webQueryModifiers')
         expect(replayTile).toBe(tiles[3])
-        expect(webVitalsTile).toMatchObject({
-            query: { source: { webQueryModifiers: { useDimensionalTables: true } } },
-        })
-        expect((webVitalsTile as { query: { source: { source: object } } }).query.source.source).not.toHaveProperty(
-            'webQueryModifiers'
-        )
+        expect(webVitalsTile).toMatchObject({ query: { webQueryModifiers: { useDimensionalTables: true } } })
+        expect((webVitalsTile as { query: { source: object } }).query.source).not.toHaveProperty('webQueryModifiers')
     })
 
     it.each([[TileId.OVERVIEW], [TileId.WEB_VITALS]])(
@@ -88,7 +81,7 @@ describe('webQueryModifiers', () => {
 
             const url = decodeURIComponent(getNewInsightUrl(tileId) ?? '')
 
-            expect(url).toContain('InsightVizNode')
+            expect(url).toContain('/insights/new')
             expect(url).not.toContain('webQueryModifiers')
         }
     )
