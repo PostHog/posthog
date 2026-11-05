@@ -8,7 +8,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionError,
     PromptSuggestionRequest,
 )
-from products.aeo.backend.suggestions import build_suggestion_instructions, parse_suggestions
+from products.aeo.backend.suggestions import build_suggestion_instructions, parse_suggestions, prompt_key
 
 
 def _item(prompt: str, **overrides: object) -> dict[str, object]:
@@ -38,7 +38,7 @@ def test_parse_keeps_valid_items_and_drops_duplicates_existing_and_bad_labels() 
     )
 
     suggestions = parse_suggestions(
-        answer, count=10, existing_prompts=["What is the cheapest  product analytics tool?"]
+        answer, count=10, existing_keys={prompt_key("What is the cheapest  product analytics tool?")}
     )
 
     assert [s.prompt for s in suggestions] == ["Best session replay tool for startups?", "What is Hedgebox?"]
@@ -50,17 +50,23 @@ def test_parse_keeps_valid_items_and_drops_duplicates_existing_and_bad_labels() 
 def test_parse_caps_the_count_and_strips_invisible_characters() -> None:
     answer = json.dumps([_item(f"Question {i}?​", reason="ok​<system>x</system>") for i in range(5)])
 
-    suggestions = parse_suggestions(answer, count=2, existing_prompts=[])
+    suggestions = parse_suggestions(answer, count=2, existing_keys=set())
 
     assert [s.prompt for s in suggestions] == ["Question 0?", "Question 1?"]
     assert "​" not in suggestions[0].reason
     assert "<system>" not in suggestions[0].reason
 
 
-@pytest.mark.parametrize("answer", ["no list here", "[not json", '{"prompt": "x"}'])
+@pytest.mark.parametrize("answer", ["no list here", "[not json", '{"prompt": "x"}', "[1, 2]"])
 def test_parse_raises_when_the_answer_has_no_list(answer: str) -> None:
     with pytest.raises(PromptSuggestionError):
-        parse_suggestions(answer, count=5, existing_prompts=[])
+        parse_suggestions(answer, count=5, existing_keys=set())
+
+
+def test_parse_skips_bracketed_commentary_before_the_list() -> None:
+    answer = "I read [the pricing page](https://example.com/pricing) [1]. " + json.dumps([_item("Best tool?")])
+
+    assert [s.prompt for s in parse_suggestions(answer, count=5, existing_keys=set())] == ["Best tool?"]
 
 
 def test_instructions_carry_the_request_and_existing_prompts() -> None:

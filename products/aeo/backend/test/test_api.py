@@ -772,13 +772,14 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("answer", True, 200, ["Best session replay tool?"]),
-            ("timeout", True, 503, None),
-            ("answer", False, 403, None),
+            ("answer", True, "completed", ["Best session replay tool?"], 1),
+            ("paused", True, "completed", ["Best session replay tool?"], 2),
+            ("timeout", True, "failed", [], 1),
+            ("answer", False, None, [], 0),
         ]
     )
-    def test_suggest_returns_new_prompts_without_saving_them(
-        self, outcome: str, ai_approved: bool, expected_status: int, expected_prompts: list[str] | None
+    def test_suggest_runs_as_a_job_and_never_saves_prompts(
+        self, outcome: str, ai_approved: bool, final_status: str | None, expected_prompts: list[str], calls: int
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -787,19 +788,42 @@ class TestAEOPromptAPI(APIBaseTest):
             {"prompt": p, "topic": "Replay", "circle": "battleground", "funnel_stage": "bottom", "branded": False}
             for p in ["Best session replay tool?", "Tracked already?"]
         ]
-        response_body = MagicMock(status_code=200)
-        response_body.json.return_value = {"content": [{"type": "text", "text": json.dumps(items)}]}
-        post = MagicMock(side_effect=requests.Timeout() if outcome == "timeout" else None, return_value=response_body)
+        paused = MagicMock(status_code=200)
+        paused.json.return_value = {"stop_reason": "pause_turn", "content": [{"type": "text", "text": "Reading."}]}
+        answered = MagicMock(status_code=200)
+        answered.json.return_value = {
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": json.dumps(items)}],
+        }
+        post = MagicMock(
+            side_effect={
+                "answer": [answered],
+                "paused": [paused, answered],
+                "timeout": requests.Timeout(),
+            }[outcome]
+        )
         gateway = MagicMock(url="http://gateway", api_key="test-key")
 
         with (
             patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
             patch("products.aeo.backend.suggestions.requests.Session.post", post),
         ):
-            response = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
 
-        assert response.status_code == expected_status, response.json()
-        if expected_prompts is not None:
-            assert [s["prompt"] for s in response.json()["suggestions"]] == expected_prompts
+        assert post.call_count == calls
         assert AEOPrompt.objects.for_team(self.team.id).count() == 1
-        assert post.called is ai_approved
+        if final_status is None:
+            assert started.status_code == status.HTTP_403_FORBIDDEN
+            return
+        assert started.status_code == status.HTTP_202_ACCEPTED, started.json()
+        assert started.json()["status"] == "pending"
+        job = self.client.get(f"{self.url}suggest/{started.json()['id']}/").json()
+        assert job["status"] == final_status
+        assert [s["prompt"] for s in job["suggestions"]] == expected_prompts
+        if outcome == "paused":
+            resumed = post.call_args_list[1].kwargs["json"]["messages"]
+            assert resumed[-1] == {"role": "assistant", "content": [{"type": "text", "text": "Reading."}]}
+
+    def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
+        response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

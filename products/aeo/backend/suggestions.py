@@ -1,16 +1,19 @@
 """Suggest prompts for a team's AEO prompt set with Claude, through the AI gateway.
 
-Suggestions are never saved here. A person reviews them and imports the ones they keep,
+Generation runs in a Celery task, and the result waits in the cache for the client to poll.
+Suggestions are never saved as prompts. A person reviews them and imports the ones they keep,
 so every prompt the runner sends to an engine is still one a person chose.
 """
 
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 
 import requests
 import structlog
@@ -25,8 +28,12 @@ from products.aeo.backend.facade.contracts import (
     PromptCircle,
     PromptSuggestion,
     PromptSuggestionError,
+    PromptSuggestionJob,
+    PromptSuggestionJobNotFoundError,
     PromptSuggestionRequest,
+    PromptSuggestionStatus,
 )
+from products.aeo.backend.models import AEOPrompt
 from products.aeo.backend.seeding import normalize_prompt
 
 logger = structlog.get_logger(__name__)
@@ -36,8 +43,11 @@ MAX_SUGGESTION_SEARCHES = 3
 MAX_SUGGESTION_TOKENS = 8000
 MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS = 100
 REASON_MAX_LENGTH = 300
-# The call runs inside a web request, so it gets one bounded attempt and no retries.
-SUGGESTION_TIMEOUT_SECONDS = 90
+SUGGESTION_CALL_TIMEOUT_SECONDS = 120
+# Web search can pause a turn (`pause_turn`); each continuation is another call, all under one deadline.
+MAX_SUGGESTION_CONTINUATIONS = 3
+SUGGESTION_DEADLINE_SECONDS = 300
+SUGGESTION_JOB_TTL_SECONDS = 60 * 60
 
 
 _INSTRUCTIONS = """You help a team choose the prompts to track for AI visibility: the questions people ask AI assistants \
@@ -100,35 +110,40 @@ def build_suggestion_instructions(request: PromptSuggestionRequest, existing_pro
     )
 
 
-def _json_array(text: str) -> list[Any]:
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end < start:
-        raise PromptSuggestionError("The model did not return a list of prompts")
-    try:
-        items = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as error:
-        raise PromptSuggestionError("The model returned prompts that could not be read") from error
-    if not isinstance(items, list):
-        raise PromptSuggestionError("The model did not return a list of prompts")
-    return items
+def _suggestion_items(text: str) -> list[Any]:
+    """The JSON array of suggestions in the answer. Commentary can come before it and carry
+    brackets of its own, such as a markdown link, so each `[` is tried until one decodes to a list holding objects."""
+    decoder = json.JSONDecoder()
+    for start in (i for i, char in enumerate(text) if char == "["):
+        try:
+            items, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(items, list) and any(isinstance(item, dict) for item in items):
+            return items
+    raise PromptSuggestionError("The model did not return a list of prompts")
 
 
-def parse_suggestions(text: str, *, count: int, existing_prompts: list[str]) -> list[PromptSuggestion]:
+def prompt_key(text: str) -> str:
+    return normalize_prompt(text).lower()
+
+
+def parse_suggestions(text: str, *, count: int, existing_keys: set[str]) -> list[PromptSuggestion]:
     """Turn the model's answer into suggestions, dropping malformed items, duplicates and prompts
     the team already tracks. The model read third-party pages, so every string is sanitized."""
-    seen = {normalize_prompt(prompt).lower() for prompt in existing_prompts}
+    seen = set(existing_keys)
     suggestions: list[PromptSuggestion] = []
-    for item in _json_array(text):
+    for item in _suggestion_items(text):
         if not isinstance(item, dict):
             continue
         prompt = normalize_prompt(_plain(str(item.get("prompt") or ""), MAX_PROMPT_LENGTH))
-        if not prompt or prompt.lower() in seen:
+        if not prompt or prompt_key(prompt) in seen:
             continue
         circle = str(item.get("circle") or "")
         stage = str(item.get("funnel_stage") or "")
         if circle not in PromptCircle.values or stage not in FunnelStage.values:
             continue
-        seen.add(prompt.lower())
+        seen.add(prompt_key(prompt))
         suggestions.append(
             PromptSuggestion(
                 prompt=prompt,
@@ -152,26 +167,16 @@ def _answer_text(body: dict[str, Any]) -> str:
     )
 
 
-def suggest_prompts(
-    team_id: int, request: PromptSuggestionRequest, existing_prompts: list[str]
+def generate_suggestions(
+    team_id: int, request: PromptSuggestionRequest, *, context_prompts: list[str], existing_keys: set[str]
 ) -> list[PromptSuggestion]:
     gateway = resolve_ai_gateway_config()
     if gateway is None:
         raise PromptSuggestionError("Prompt suggestions are not available on this instance")
     count = min(max(request.count, 1), MAX_SUGGESTIONS)
-    payload = {
-        "model": settings.AEO_ANTHROPIC_MODEL,
-        "max_tokens": MAX_SUGGESTION_TOKENS,
-        "messages": [{"role": "user", "content": build_suggestion_instructions(request, existing_prompts)}],
-        "tools": [
-            {
-                "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
-                "name": "web_search",
-                "max_uses": MAX_SUGGESTION_SEARCHES,
-                "allowed_callers": ["direct"],
-            }
-        ],
-    }
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": build_suggestion_instructions(request, context_prompts)}
+    ]
     headers = {
         "Authorization": f"Bearer {gateway.api_key}",
         "anthropic-version": "2023-06-01",
@@ -183,19 +188,119 @@ def suggest_prompts(
             or {}
         ),
     }
+    deadline = time.monotonic() + SUGGESTION_DEADLINE_SECONDS
+    assistant_content: list[Any] = []
     try:
         with requests.Session() as session:
             # Keep the in-cluster gateway call off any egress proxy, as the engines do.
             session.trust_env = False
-            response = session.post(
-                gateway.url.rstrip("/") + "/messages",
-                headers=headers,
-                json=payload,
-                timeout=SUGGESTION_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            body = response.json()
+            for _ in range(MAX_SUGGESTION_CONTINUATIONS + 1):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                response = session.post(
+                    gateway.url.rstrip("/") + "/messages",
+                    headers=headers,
+                    json={
+                        "model": settings.AEO_ANTHROPIC_MODEL,
+                        "max_tokens": MAX_SUGGESTION_TOKENS,
+                        "messages": messages,
+                        "tools": [
+                            {
+                                "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+                                "name": "web_search",
+                                "max_uses": MAX_SUGGESTION_SEARCHES,
+                                "allowed_callers": ["direct"],
+                            }
+                        ],
+                    },
+                    timeout=min(SUGGESTION_CALL_TIMEOUT_SECONDS, remaining),
+                )
+                response.raise_for_status()
+                body = response.json()
+                if body.get("stop_reason") != "pause_turn":
+                    return parse_suggestions(_answer_text(body), count=count, existing_keys=existing_keys)
+                # A paused turn resumes when all of the assistant's content so far is sent back as is.
+                assistant_content = [*assistant_content, *(body.get("content") or [])]
+                messages = [messages[0], {"role": "assistant", "content": assistant_content}]
     except (requests.RequestException, ValueError) as error:
         logger.warning("aeo_prompt_suggestions_failed", team_id=team_id, error=type(error).__name__)
         raise PromptSuggestionError("Prompt suggestions failed. Try again in a minute.") from error
-    return parse_suggestions(_answer_text(body), count=count, existing_prompts=existing_prompts)
+    raise PromptSuggestionError("Prompt suggestions took too long. Try again with fewer prompts.")
+
+
+def _job_key(team_id: int, job_id: str) -> str:
+    return f"aeo_prompt_suggestions:{team_id}:{job_id}"
+
+
+def _save_job(team_id: int, job: PromptSuggestionJob) -> None:
+    cache.set(
+        _job_key(team_id, job.id),
+        {
+            "status": job.status.value,
+            "error": job.error,
+            "suggestions": [
+                {
+                    "prompt": s.prompt,
+                    "topic": s.topic,
+                    "circle": s.circle.value,
+                    "funnel_stage": s.funnel_stage.value,
+                    "branded": s.branded,
+                    "reason": s.reason,
+                }
+                for s in job.suggestions
+            ],
+        },
+        timeout=SUGGESTION_JOB_TTL_SECONDS,
+    )
+
+
+def load_job(team_id: int, job_id: str) -> PromptSuggestionJob:
+    stored = cache.get(_job_key(team_id, job_id))
+    if not isinstance(stored, dict):
+        raise PromptSuggestionJobNotFoundError(job_id)
+    return PromptSuggestionJob(
+        id=job_id,
+        status=PromptSuggestionStatus(stored["status"]),
+        error=stored["error"],
+        suggestions=tuple(
+            PromptSuggestion(
+                prompt=item["prompt"],
+                topic=item["topic"],
+                circle=PromptCircle(item["circle"]),
+                funnel_stage=FunnelStage(item["funnel_stage"]),
+                branded=item["branded"],
+                reason=item["reason"],
+            )
+            for item in stored["suggestions"]
+        ),
+    )
+
+
+def create_job(team_id: int) -> PromptSuggestionJob:
+    job = PromptSuggestionJob(id=str(uuid.uuid4()), status=PromptSuggestionStatus.PENDING)
+    _save_job(team_id, job)
+    return job
+
+
+def fail_job(team_id: int, job_id: str, error: str) -> None:
+    _save_job(team_id, PromptSuggestionJob(id=job_id, status=PromptSuggestionStatus.FAILED, error=error))
+
+
+def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None:
+    prompts = list(AEOPrompt.objects.for_team(team_id).order_by("-created_at").values_list("prompt", flat=True))
+    try:
+        # Archived prompts count as tracked, so a suggestion never revives a prompt someone retired.
+        suggestions = generate_suggestions(
+            team_id,
+            request,
+            context_prompts=prompts[:MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS],
+            existing_keys={prompt_key(prompt) for prompt in prompts},
+        )
+    except PromptSuggestionError as error:
+        fail_job(team_id, job_id, str(error))
+        return
+    _save_job(
+        team_id,
+        PromptSuggestionJob(id=job_id, status=PromptSuggestionStatus.COMPLETED, suggestions=tuple(suggestions)),
+    )

@@ -174,47 +174,6 @@ const aeoPromptsStatsGet = (): ToolBase<ReturnType<typeof AeoPromptsStatsGetSche
     },
 })
 
-const AeoPromptsSuggestSchema = () => {
-    const AeoPromptsSuggestBody = orvalSchemas.AeoPromptsSuggestBody()
-    return AeoPromptsSuggestBody
-}
-
-const aeoPromptsSuggest = (): ToolBase<
-    ReturnType<typeof AeoPromptsSuggestSchema>,
-    Schemas.AEOPromptSuggestResponse
-> => ({
-    name: 'aeo-prompts-suggest',
-    schema: AeoPromptsSuggestSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsSuggestSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.domain !== undefined) {
-            body['domain'] = params.domain
-        }
-        if (params.brand !== undefined) {
-            body['brand'] = params.brand
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.competitors !== undefined) {
-            body['competitors'] = params.competitors
-        }
-        if (params.topics !== undefined) {
-            body['topics'] = params.topics
-        }
-        if (params.count !== undefined) {
-            body['count'] = params.count
-        }
-        const result = await context.api.request<Schemas.AEOPromptSuggestResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/suggest/`,
-            body,
-        })
-        return result
-    },
-})
-
 const AeoPromptsTopicsListSchema = () => z.object({})
 
 const aeoPromptsTopicsList = (): ToolBase<ReturnType<typeof AeoPromptsTopicsListSchema>, Schemas.AEOPromptTopic[]> => ({
@@ -304,7 +263,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-list': aeoPromptsList,
     'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
-    'aeo-prompts-suggest': aeoPromptsSuggest,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,
     'aeo-prompts-versions-list': aeoPromptsVersionsList,

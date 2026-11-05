@@ -530,9 +530,33 @@ export interface AEOPromptSuggestionApi {
     reason: string
 }
 
-export interface AEOPromptSuggestResponseApi {
-    /** Suggested prompts. None of them are saved. */
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type AEOPromptSuggestionJobStatusEnumApi =
+    (typeof AEOPromptSuggestionJobStatusEnumApi)[keyof typeof AEOPromptSuggestionJobStatusEnumApi]
+
+export const AEOPromptSuggestionJobStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface AEOPromptSuggestionJobApi {
+    /** Suggested prompts, filled in once status is completed. None of them are saved. */
     suggestions: AEOPromptSuggestionApi[]
+    /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
+    id: string
+    /** pending while Claude works, then completed or failed.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: AEOPromptSuggestionJobStatusEnumApi
+    /** Why the job failed. Empty unless status is failed. */
+    error?: string
 }
 
 export interface AEOPromptTopicApi {

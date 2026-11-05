@@ -15,7 +15,7 @@ import type {
     AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
-    AEOPromptSuggestResponseApi,
+    AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
     AchievementsListResponseApi,
@@ -321,19 +321,38 @@ export const getAeoPromptsSuggestUrl = (projectId: string) => {
 }
 
 /**
- * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggest = async (
     projectId: string,
     aEOPromptSuggestRequestApi: AEOPromptSuggestRequestApi,
     options?: RequestInit
-): Promise<AEOPromptSuggestResponseApi> => {
-    return apiMutator<AEOPromptSuggestResponseApi>(getAeoPromptsSuggestUrl(projectId), {
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptSuggestRequestApi),
+    })
+}
+
+export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/${jobId}/`
+}
+
+/**
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after they start.
+ * @summary Get AEO prompt suggestions
+ */
+export const aeoPromptsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestionRetrieveUrl(projectId, jobId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -352,3 +352,21 @@ class PromptSuggestion:
     funnel_stage: FunnelStage
     branded: bool
     reason: str
+
+
+class PromptSuggestionStatus(LabeledStrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@frozen
+class PromptSuggestionJob:
+    id: str
+    status: PromptSuggestionStatus
+    suggestions: tuple[PromptSuggestion, ...] = ()
+    error: str = ""
+
+
+class PromptSuggestionJobNotFoundError(Exception):
+    pass

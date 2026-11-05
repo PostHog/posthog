@@ -49,7 +49,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetTopicCounts,
     PromptStats,
-    PromptSuggestion,
+    PromptSuggestionJob,
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
@@ -60,6 +60,7 @@ from products.aeo.backend.facade.contracts import (
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
+from products.aeo.backend.tasks.tasks import suggest_aeo_prompts_task
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -503,15 +504,27 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
     return PromptImportResult(created=result["created"], updated=result["updated"], skipped=result["skipped"])
 
 
-def suggest_prompts(team_id: int, request: PromptSuggestionRequest) -> list[PromptSuggestion]:
-    """Suggest prompts to track, without saving them. Raises PromptSuggestionError when the model fails."""
-    # Archived prompts are included so a suggestion never revives a prompt someone retired.
-    existing = list(
-        AEOPrompt.objects.for_team(team_id)
-        .order_by("-created_at")
-        .values_list("prompt", flat=True)[: suggestions.MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS * 10]
+def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
+    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
+    job = suggestions.create_job(team_id)
+    suggest_aeo_prompts_task.delay(
+        team_id,
+        job.id,
+        {
+            "domain": request.domain,
+            "brand": request.brand,
+            "description": request.description,
+            "competitors": list(request.competitors),
+            "topics": list(request.topics),
+            "count": request.count,
+        },
     )
-    return suggestions.suggest_prompts(team_id, request, existing)
+    return job
+
+
+def get_prompt_suggestions(team_id: int, job_id: str) -> PromptSuggestionJob:
+    """Raises PromptSuggestionJobNotFoundError when the job is unknown or expired."""
+    return suggestions.load_job(team_id, job_id)
 
 
 def _get_prompt_row(team_id: int, prompt_id: str, *, lock: bool = False) -> AEOPrompt:

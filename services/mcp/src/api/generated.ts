@@ -471,9 +471,33 @@ export namespace Schemas {
       reason: string;
     }
 
-    export interface AEOPromptSuggestResponse {
-      /** Suggested prompts. None of them are saved. */
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type AEOPromptSuggestionJobStatusEnum = typeof AEOPromptSuggestionJobStatusEnum[keyof typeof AEOPromptSuggestionJobStatusEnum];
+
+
+    export const AEOPromptSuggestionJobStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOPromptSuggestionJob {
+      /** Suggested prompts, filled in once status is completed. None of them are saved. */
       suggestions: AEOPromptSuggestion[];
+      /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
+      id: string;
+      /** pending while Claude works, then completed or failed.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOPromptSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
     }
 
     export interface AEOPromptTopic {

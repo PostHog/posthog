@@ -4,7 +4,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -25,12 +25,13 @@ from products.aeo.backend.facade.api import (
     get_prompt,
     get_prompt_set_overview,
     get_prompt_stats,
+    get_prompt_suggestions,
     import_prompts,
     list_prompt_checks,
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
-    suggest_prompts,
+    start_prompt_suggestions,
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
@@ -56,7 +57,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetTopicCounts,
     PromptStats,
     PromptSuggestion,
-    PromptSuggestionError,
+    PromptSuggestionJob,
+    PromptSuggestionJobNotFoundError,
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
@@ -647,19 +649,33 @@ class AEOPromptSuggestionSerializer(DataclassSerializer):
         }
 
 
-class AEOPromptSuggestResponseSerializer(serializers.Serializer):
-    suggestions = AEOPromptSuggestionSerializer(many=True, help_text="Suggested prompts. None of them are saved.")
+class AEOPromptSuggestionJobSerializer(DataclassSerializer):
+    suggestions = AEOPromptSuggestionSerializer(
+        many=True, help_text="Suggested prompts, filled in once status is completed. None of them are saved."
+    )
 
-
-class AEOPromptSuggestionsUnavailable(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "Prompt suggestions failed. Try again in a minute."
-    default_code = "suggestions_unavailable"
+    class Meta:
+        dataclass = PromptSuggestionJob
+        ref_name = "AEOPromptSuggestionJob"
+        extra_kwargs = {
+            "id": {"help_text": "Job id. Poll GET aeo_prompts/suggest/<id>/ with it."},
+            "status": {"help_text": "pending while Claude works, then completed or failed."},
+            "error": {"help_text": "Why the job failed. Empty unless status is failed."},
+        }
 
 
 class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve", "topics", "checks", "stats", "versions", "overview"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "topics",
+        "checks",
+        "stats",
+        "versions",
+        "overview",
+        "suggestion",
+    ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
     scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
@@ -858,8 +874,8 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptSuggestRequestSerializer,
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
-        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.",
-        responses={200: OpenApiResponse(response=AEOPromptSuggestResponseSerializer)},
+        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.",
+        responses={202: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
         tags=["web_analytics"],
     )
     @action(
@@ -874,18 +890,30 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
             )
         data = request.validated_data
+        job = start_prompt_suggestions(
+            self.team_id,
+            PromptSuggestionRequest(
+                domain=data["domain"],
+                brand=data.get("brand", ""),
+                description=data.get("description", ""),
+                competitors=tuple(data.get("competitors", [])),
+                topics=tuple(data.get("topics", [])),
+                count=data["count"],
+            ),
+        )
+        return Response(AEOPromptSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        operation_id="aeo_prompts_suggestion_retrieve",
+        summary="Get AEO prompt suggestions",
+        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after they start.",
+        responses={200: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], url_path=r"suggest/(?P<job_id>[0-9a-f-]{36})", pagination_class=None)
+    def suggestion(self, request: ValidatedRequest, job_id: str, **kwargs: Any) -> Response:
         try:
-            suggestions = suggest_prompts(
-                self.team_id,
-                PromptSuggestionRequest(
-                    domain=data["domain"],
-                    brand=data.get("brand", ""),
-                    description=data.get("description", ""),
-                    competitors=tuple(data.get("competitors", [])),
-                    topics=tuple(data.get("topics", [])),
-                    count=data["count"],
-                ),
-            )
-        except PromptSuggestionError as error:
-            raise AEOPromptSuggestionsUnavailable(str(error)) from error
-        return Response(AEOPromptSuggestResponseSerializer({"suggestions": suggestions}).data)
+            job = get_prompt_suggestions(self.team_id, job_id)
+        except PromptSuggestionJobNotFoundError:
+            raise NotFound()
+        return Response(AEOPromptSuggestionJobSerializer(job).data)
