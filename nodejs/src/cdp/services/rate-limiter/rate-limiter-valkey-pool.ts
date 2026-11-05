@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 import type { CdpConfig } from '../../config'
 
 const OPTIONAL_VALKEY_TIMEOUT_MS = 250
+const COMMAND_TIMED_OUT = 'Command timed out'
 
 export type RateLimiterValkeyConfig = Pick<
     CdpConfig,
@@ -68,9 +69,16 @@ export function createSesRateLimiterValkeyPool(
 // queueing every caller's work for the whole outage and replaying it on recovery.
 function withoutOfflineQueue(pool: RedisV2): RedisV2 {
     const useClient: RedisV2['useClient'] = (options, callback) =>
-        pool.useClient(options, (client) => {
+        pool.useClient(options, async (client) => {
             client.options.enableOfflineQueue = false
-            return callback(client)
+            try {
+                return await callback(client)
+            } catch (error) {
+                if (error instanceof Error && error.message === COMMAND_TIMED_OUT) {
+                    client.disconnect(true)
+                }
+                throw error
+            }
         })
     return {
         useClient,
