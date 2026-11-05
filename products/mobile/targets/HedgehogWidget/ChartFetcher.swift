@@ -115,7 +115,7 @@ struct ChartFetcher {
         if response["result"] == nil || response["result"] is NSNull {
             return .failed(.noResult)
         }
-        guard let snapshot = try? TrendsParser.snapshot(response: response, pinId: pin.id, now: now) else {
+        guard let snapshot = try? InsightParser.snapshot(response: response, pin: pin, now: now) else {
             return .failed(.badData)
         }
         return .snapshot(snapshot)

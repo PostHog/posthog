@@ -12,7 +12,7 @@ struct ChartWidget: Widget {
                 }
         }
         .configurationDisplayName("Chart")
-        .description("Your first chart pin from Views. Touch and hold to change it.")
+        .description("A pinned view, with its latest value or chart.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

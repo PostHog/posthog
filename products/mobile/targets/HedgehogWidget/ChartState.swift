@@ -88,7 +88,7 @@ enum ChartResolver {
 
     static let signedOut = ChartSlot.State.message("Sign in to see your pins", detail: "Open PostHog to sign in")
     static let reauthenticate = ChartSlot.State.message("Open PostHog to update", detail: nil)
-    static let notConfigured = ChartSlot.State.message("No chart pins available", detail: "Open Views to pin an insight or choose a dashboard tile")
+    static let notConfigured = ChartSlot.State.message("No pinned views available", detail: "Open Views to pin an insight or choose a dashboard tile")
     static let noResult = ChartSlot.State.message("Open it in PostHog to load this insight", detail: nil)
 
     static func selections(primary: ChartSelection?, extras: [ChartSelection], family: ChartFamily, catalog: ChartCatalog? = nil) -> (ChartSelection?, [ChartSelection]) {

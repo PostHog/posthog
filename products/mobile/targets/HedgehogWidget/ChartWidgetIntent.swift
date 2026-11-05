@@ -62,7 +62,7 @@ struct PinQuery: EntityStringQuery {
 
 struct ChartWidgetIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Chart" }
-    static var description: IntentDescription { "Shows your first chart pin. Choose a different pin below." }
+    static var description: IntentDescription { "Shows your first pinned view. Choose a different pin below." }
 
     @Parameter(title: "Pin")
     var pin: PinEntity?

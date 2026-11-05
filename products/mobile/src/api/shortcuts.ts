@@ -28,7 +28,7 @@ export const SHORTCUT_PAGE_SIZE = 100
 
 /** True when the page holds every starred row, so a pin missing from it is really gone. */
 export function isCompleteShortcutPage(page: PaginatedApi<FileSystemShortcutApi>): boolean {
-    return !page.next && page.results.length < SHORTCUT_PAGE_SIZE
+    return !page.next
 }
 
 export function fetchShortcuts(signal?: AbortSignal): Promise<PaginatedApi<FileSystemShortcutApi>> {

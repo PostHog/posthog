@@ -11,6 +11,10 @@
   </style>
   <style name="ChartWidgetText.Value">
     <item name="android:textSize">26sp</item>
+    <item name="android:autoSizeTextType">uniform</item>
+    <item name="android:autoSizeMinTextSize">12sp</item>
+    <item name="android:autoSizeMaxTextSize">26sp</item>
+    <item name="android:autoSizeStepGranularity">1sp</item>
     <item name="android:textStyle">bold</item>
     <item name="android:fontFeatureSettings">tnum</item>
     <item name="android:textColor">@color/chart_widget_ink</item>

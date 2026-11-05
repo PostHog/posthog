@@ -38,7 +38,8 @@ enum ChartStore {
     }
 
     static func save(_ snapshot: ChartSnapshot, store: UserDefaults? = ChartStore.defaults) {
-        guard let data = try? JSONEncoder().encode(snapshot), let json = String(data: data, encoding: .utf8) else {
+        guard (Self.snapshot(pinId: snapshot.pinId, store: store)?.fetchedAt ?? 0) <= snapshot.fetchedAt,
+              let data = try? JSONEncoder().encode(snapshot), let json = String(data: data, encoding: .utf8) else {
             return
         }
         store?.set(json, forKey: snapshotKey(snapshot.pinId))

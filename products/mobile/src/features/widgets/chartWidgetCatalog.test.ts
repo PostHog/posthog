@@ -1,3 +1,6 @@
+import type { InsightApi } from '@/api/insights'
+import { isCompleteShortcutPage, SHORTCUT_PAGE_SIZE } from '@/api/shortcuts'
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import type { PinDisplay, PinKind, PinView } from '@/model/views'
 
 import { buildCatalog, type WidgetPinInsight } from './chartWidgetCatalog'
@@ -76,7 +79,7 @@ describe('buildCatalog', () => {
         })
 
         expect(catalog).toMatchObject({ version: 1, host: 'https://us.posthog.com', projectId: 2 })
-        expect(catalog.pins).toEqual([
+        expect(catalog.pins.map(({ displayMode: _mode, ...pin }) => pin)).toEqual([
             {
                 id: 's-signups',
                 kind: 'insight',
@@ -112,9 +115,9 @@ describe('buildCatalog', () => {
                 eligible: false,
                 reason: 'Choose a tile in Views first',
             }),
-            expect.objectContaining({ id: 's-funnel', eligible: false, reason: 'Not a chart over time' }),
-            expect.objectContaining({ id: 's-sql', eligible: false, reason: 'Not supported on the widget yet' }),
-            expect.objectContaining({ id: 's-browsers', eligible: false, number: false, chart: false }),
+            expect.objectContaining({ id: 's-funnel', eligible: true, reason: null }),
+            expect.objectContaining({ id: 's-sql', eligible: true, reason: null }),
+            expect.objectContaining({ id: 's-browsers', eligible: true, number: false, chart: false }),
             expect.objectContaining({ id: 's-steps', eligible: true, number: false, chart: true }),
             expect.objectContaining({
                 id: 's-unread',
@@ -125,4 +128,68 @@ describe('buildCatalog', () => {
             expect.objectContaining({ id: 's-gone', eligible: false, reason: "Couldn't find this insight" }),
         ])
     })
+})
+
+test('keeps dashboard tile values and display modes scoped to each pin', () => {
+    const query = { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery' }, display: 'BoldNumber' }
+    const pins = [10, 20].map((id) =>
+        pin(`pin-${id}`, 'dashboard', String(id), `Dashboard ${id}`, { mode: 'number', insightId: 101 })
+    )
+    const metadata = new Map(
+        pins.map((pin, index) => {
+            const response: InsightApi = {
+                id: 101,
+                short_id: 'same-insight',
+                name: 'Example',
+                derived_name: null,
+                query,
+                result: [[index + 1]],
+                columns: ['value'],
+                types: [['value', 'UInt64']],
+                last_refresh: null,
+                cache_target_age: null,
+                next_allowed_client_refresh: null,
+            }
+            return [
+                pin.shortcutId,
+                {
+                    insightId: 101,
+                    shortId: 'same-insight',
+                    name: 'Example',
+                    query,
+                    snapshot: insightSnapshot(response, undefined, { readAt: 1000, serverNow: 1000 }),
+                },
+            ] as const
+        })
+    )
+    const catalog = buildCatalog(pins, metadata, { host: 'https://example.com', projectId: 1, projectName: 'Example' })
+    expect(
+        catalog.pins.map((pin) => [
+            pin.dashboardId,
+            pin.eligible,
+            pin.displayMode,
+            pin.shortId,
+            pin.snapshot?.valueText,
+        ])
+    ).toEqual([
+        [10, true, 'number', 'same-insight', '1'],
+        [20, true, 'number', 'same-insight', '2'],
+    ])
+})
+
+test('accepts a full final pin page and keeps every visible pin', () => {
+    const results = Array.from({ length: SHORTCUT_PAGE_SIZE }, (_, index) => ({
+        id: `pin-${index}`,
+        path: `Example ${index}`,
+        type: 'insight',
+        ref: `insight-${index}`,
+        href: null,
+        order: index,
+        created_at: '',
+    }))
+    expect(isCompleteShortcutPage({ count: results.length, next: null, results })).toBe(true)
+    expect(isCompleteShortcutPage({ count: results.length + 1, next: 'https://example.com/next', results })).toBe(false)
+    const pins = results.map((result) => pin(result.id, 'insight', result.ref, result.path))
+    const catalog = buildCatalog(pins, new Map(), { host: 'https://example.com', projectId: 1, projectName: 'Example' })
+    expect(catalog.pins.map((item) => item.id)).toEqual(results.map((item) => item.id))
 })

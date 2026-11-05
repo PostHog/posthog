@@ -3,6 +3,7 @@ package com.posthog.code.mobile.chart
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import org.json.JSONObject
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -122,7 +123,29 @@ object ChartStore {
     @Synchronized
     fun setCatalogJson(context: Context, json: String?) {
         val editor = prefs(context).edit()
-        if (json == null) editor.remove(KEY_CATALOG) else editor.putString(KEY_CATALOG, json)
+        if (json == null) editor.remove(KEY_CATALOG) else {
+            val old = catalog(context)
+            val next = JSONObject(json)
+            val pins = next.optJSONArray("pins")
+            for (index in 0 until (pins?.length() ?: 0)) {
+                val pin = pins?.optJSONObject(index) ?: continue
+                val id = pin.optString("id")
+                val previous = old?.pin(id)
+                val changed = old?.host != next.optString("host").trimEnd('/') || old?.projectId != next.optLong("projectId") || previous == null || previous.insightId != pin.longOrNull("insightId") ||
+                    previous.shortId != pin.stringOrNull("shortId") || previous.dashboardId != pin.longOrNull("dashboardId") ||
+                    previous.displayMode != pin.stringOrNull("displayMode")
+                if (changed) {
+                    editor.remove("$SNAPSHOT_PREFIX$id").remove("$ERROR_PREFIX$id")
+                }
+                pin.optJSONObject("snapshot")?.let { snapshot ->
+                    val cached = if (changed) null else ChartStore.snapshot(context, id)
+                    if (snapshot.optLong("fetchedAt") >= (cached?.fetchedAt ?: 0L)) {
+                        editor.putString("$SNAPSHOT_PREFIX$id", snapshot.toString()).remove("$ERROR_PREFIX$id")
+                    }
+                }
+            }
+            editor.putString(KEY_CATALOG, json)
+        }
         editor.commit()
     }
 
@@ -212,6 +235,7 @@ object ChartStore {
         prefs(context).getString("$SNAPSHOT_PREFIX$pinId", null)?.let(ChartSnapshot::parse)
 
     fun setSnapshot(context: Context, snapshot: ChartSnapshot) {
+        if ((ChartStore.snapshot(context, snapshot.pinId)?.fetchedAt ?: 0L) > snapshot.fetchedAt) return
         prefs(context).edit()
             .putString("$SNAPSHOT_PREFIX${snapshot.pinId}", snapshot.toJson())
             .remove("$ERROR_PREFIX${snapshot.pinId}")

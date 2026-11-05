@@ -164,6 +164,9 @@ object ChartRenderer {
             // Opening the insight in the app computes it; the next refresh then finds the result.
             return Resolved.Message(name, message, detail, linkPin = pin.takeIf { error.kind == ErrorKind.NO_RESULT })
         }
+        if (snapshot.valueText == null && snapshot.rows.isEmpty() && snapshot.series.none { series -> series.points.any { it.value.isFinite() } }) {
+            return Resolved.Message(name, context.getString(R.string.chart_widget_empty), linkPin = pin)
+        }
         val extras = config.extraPinIds.asSequence()
             .filter { it != pin.id }
             .mapNotNull { catalog?.pin(it)?.takeIf { extra -> extra.eligible } }
@@ -232,14 +235,18 @@ object ChartRenderer {
             }
         }
         val spec = specOf(snapshot, if (family == Family.LARGE) TrendsParser.MAX_POINTS else SHORT_POINTS, grid = family != Family.SMALL)
-        bindChart(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, spec, chartWidth, chartHeight, m.density)
+        if (snapshot.rows.isNotEmpty()) {
+            bindRows(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, snapshot.rows, chartWidth, chartHeight, m.density)
+        } else {
+            bindChart(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, spec, chartWidth, chartHeight, m.density)
+        }
         if (family == Family.LARGE) bindLarge(context, views, id, data, spec, chartWidth, m)
 
         views.setOnClickPendingIntent(R.id.chart_root, linkIntent(context, pinLink(context, data.pin, family), id, 0))
         val pill = snapshot.deltaText?.let { arrow(snapshot.deltaSign) + it }
         views.setContentDescription(
             R.id.chart_root,
-            listOfNotNull(data.pin.name, snapshot.valueText, pill, snapshot.rangeLabel, updated).joinToString(", "),
+            listOfNotNull(data.pin.name, snapshot.valueText, pill, snapshot.rangeLabel, snapshot.rows.joinToString(". ") { "${it.label}: ${it.value}" }.takeIf { it.isNotEmpty() }, updated).joinToString(", "),
         )
         return views
     }
@@ -305,7 +312,11 @@ object ChartRenderer {
             views.setTextViewText(ids.range, snapshot.rangeLabel ?: "")
             bindValue(context, views, ids.value, ids.delta, snapshot)
             val sparkline = specOf(snapshot, SHORT_POINTS, grid = false)
-            bindChart(context, views, ids.frame, ids.light, ids.dark, sparkline, tileWidth, m.dp(28f), m.density)
+            if (snapshot.rows.isNotEmpty()) {
+                bindRows(context, views, ids.frame, ids.light, ids.dark, snapshot.rows, tileWidth, m.dp(28f), m.density)
+            } else {
+                bindChart(context, views, ids.frame, ids.light, ids.dark, sparkline, tileWidth, m.dp(28f), m.density)
+            }
         }
     }
 
@@ -372,6 +383,16 @@ object ChartRenderer {
             views.setViewVisibility(frameId, View.GONE)
             return
         }
+        views.setViewVisibility(frameId, View.VISIBLE)
+        views.setImageViewBitmap(lightId, light)
+        views.setImageViewBitmap(darkId, dark)
+    }
+
+    private fun bindRows(context: Context, views: RemoteViews, frameId: Int, lightId: Int, darkId: Int,
+        rows: List<SnapshotRow>, width: Float, height: Float, density: Float) {
+        val light = ChartCanvas.rows(rows, ChartColors.of(context, false), width.toInt(), height.toInt(), density)
+        val dark = ChartCanvas.rows(rows, ChartColors.of(context, true), width.toInt(), height.toInt(), density)
+        if (light == null || dark == null) { views.setViewVisibility(frameId, View.GONE); return }
         views.setViewVisibility(frameId, View.VISIBLE)
         views.setImageViewBitmap(lightId, light)
         views.setImageViewBitmap(darkId, dark)

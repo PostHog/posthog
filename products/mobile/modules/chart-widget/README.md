@@ -3,7 +3,7 @@
 A home-screen widget for iOS and Android that shows a pinned insight from the Views tab and reads PostHog by itself.
 See the sections below for the store contract, the fetch rules and the identifiers.
 
-The widget shows one pin as a number and sparkline (small), one pin as a chart with its value and change (medium), or one chart plus up to two number tiles (large).
+The widget shows one pin as a number, chart or compact rows (small and medium), or one pin plus up to two extra tiles (large). A dashboard pin shows its selected insight. Numbers preserve saved currency, percentage, prefix, suffix and precision settings; text and boolean SQL values remain text.
 An iOS widget with no saved selection shows the first supported pin in Views order, including when the catalog arrives after placement.
 The person can change it in the Edit Widget sheet. Android preselects the first supported pin in its configure screen.
 The app itself shows nothing about widgets.
@@ -11,7 +11,7 @@ The app itself shows nothing about widgets.
 ## How it works
 
 The app and the widget share a small store.
-The app writes the session copy and the pin catalog; the widget writes one snapshot per pin.
+The app writes the session copy, the pin catalog and any available Views snapshots; the widget refreshes one snapshot per pin.
 The widget never runs the app's JavaScript and never refreshes the OAuth token.
 
 ```text
@@ -52,7 +52,7 @@ On each return to the foreground, the app refreshes an OAuth access token with l
 The catalog takes each pin's insight from the newest available pin metadata or Number/Chart snapshot.
 Insight, dashboard and automatic preview updates also rebuild the catalog, so opening a pin in Views recovers an earlier metadata failure.
 A dashboard without a manually chosen tile discovers a suitable tile using the Views automatic preview reader, without changing the pin's display preference.
-For up to 30 pins without either, the sync reads `GET insights/?short_id=&basic=true&refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the same metadata cache.
+For pins without either, the sync reads the full insight with `refresh=force_cache` through the list-read lane (`listRead('insights')`), one at a time, and stores the answer in the metadata and Views caches. Dashboard reads include `from_dashboard`, and snapshots are scoped to each pin so two dashboard contexts do not overwrite each other.
 A 429, a 503, an empty budget bucket or no connection stops the reads; those pins say "Open it in Views first" until the next sync.
 The sync never forces a compute.
 
@@ -61,14 +61,14 @@ A widget tap opens `/views/insight/<short_id>?from=widget&family=<family>` or `/
 
 ## Store contract
 
-| Data                  | iOS                                                                                                                                                                                                                | Android                                                                                                                    | Writer |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------ |
-| Credentials           | Keychain generic password: service `com.posthog.code.mobile.chart-widget`, account `credentials`, access group `group.<app bundle id>`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`; data is the UTF-8 JSON | `EncryptedSharedPreferences` file `chart_widget_secure` (MasterKey AES256_GCM), key `credentials`, written with `commit()` | App    |
-| Catalog               | `UserDefaults(suiteName: "group.<app bundle id>")`, key `chart.catalog`                                                                                                                                            | `SharedPreferences` file `chart_widget`, key `chart.catalog`                                                               | App    |
-| Snapshot of one pin   | same suite, key `chart.snapshot.<pinId>`                                                                                                                                                                           | `chart_widget`, key `chart.snapshot.<pinId>`                                                                               | Widget |
-| Last error of one pin | same suite, key `chart.snapshotError.<pinId>`                                                                                                                                                                      | `chart_widget`, key `chart.snapshotError.<pinId>`                                                                          | Widget |
-| Project of one pin    | same suite, key `chart.pinProject.<pinId>` = `{ "projectId": number, "projectName": string }`                                                                                                                      | kept per widget in `chart.widget.<appWidgetId>` as `projectId`, `projectName` and `pinName`, written at configure time     | Widget |
-| Widget configuration  | the widget's configuration intent, kept by WidgetKit                                                                                                                                                               | `chart_widget`, key `chart.widget.<appWidgetId>` = `{ "pinId": string, "extraPinIds": string[] }`                          | Widget |
+| Data                  | iOS                                                                                                                                                                                                                | Android                                                                                                                    | Writer        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Credentials           | Keychain generic password: service `com.posthog.code.mobile.chart-widget`, account `credentials`, access group `group.<app bundle id>`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`; data is the UTF-8 JSON | `EncryptedSharedPreferences` file `chart_widget_secure` (MasterKey AES256_GCM), key `credentials`, written with `commit()` | App           |
+| Catalog               | `UserDefaults(suiteName: "group.<app bundle id>")`, key `chart.catalog`                                                                                                                                            | `SharedPreferences` file `chart_widget`, key `chart.catalog`                                                               | App           |
+| Snapshot of one pin   | same suite, key `chart.snapshot.<pinId>`                                                                                                                                                                           | `chart_widget`, key `chart.snapshot.<pinId>`                                                                               | App or widget |
+| Last error of one pin | same suite, key `chart.snapshotError.<pinId>`                                                                                                                                                                      | `chart_widget`, key `chart.snapshotError.<pinId>`                                                                          | Widget        |
+| Project of one pin    | same suite, key `chart.pinProject.<pinId>` = `{ "projectId": number, "projectName": string }`                                                                                                                      | kept per widget in `chart.widget.<appWidgetId>` as `projectId`, `projectName` and `pinName`, written at configure time     | Widget        |
+| Widget configuration  | the widget's configuration intent, kept by WidgetKit                                                                                                                                                               | `chart_widget`, key `chart.widget.<appWidgetId>` = `{ "pinId": string, "extraPinIds": string[] }`                          | Widget        |
 
 The suite is the hedgehog widget's App Group.
 An App Group id is also a keychain access group of every target in the group, so the extension reads the credentials without a keychain-sharing entitlement.
@@ -95,7 +95,7 @@ The widget treats `now > expiresAt - 60000` as expired and sends no request.
 ### Catalog JSON
 
 Replaced whole on each write.
-Pins are in Views order, at most 30.
+Pins are in Views order, up to the same 100-pin page as Views. A page with a next link does not replace the complete catalog.
 
 ```json
 {
@@ -116,6 +116,7 @@ Pins are in Views order, at most 30.
       "eligible": true,
       "number": true,
       "chart": true,
+      "displayMode": "chart",
       "reason": null
     },
     {
@@ -129,6 +130,7 @@ Pins are in Views order, at most 30.
       "eligible": true,
       "number": true,
       "chart": true,
+      "displayMode": "chart",
       "reason": null
     },
     {
@@ -139,38 +141,37 @@ Pins are in Views order, at most 30.
       "insightId": 789,
       "shortId": "ghi789",
       "dashboardId": null,
-      "eligible": false,
+      "eligible": true,
       "number": false,
       "chart": false,
-      "reason": "Not a chart over time"
+      "displayMode": "row",
+      "reason": null
     }
   ]
 }
 ```
 
-| Field         | Meaning                                                                                                                                                           |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | The pin's `shortcutId` (`PinView.shortcutId`). The widget configuration stores it.                                                                                |
-| `subtitle`    | "Insight" for an insight pin. For a dashboard pin, "<dashboard name> · <tile name>", or "Dashboard" before a tile is chosen.                                      |
-| `insightId`   | Null when the app has not read the insight. The widget then reads by `shortId`.                                                                                   |
-| `shortId`     | The insight's `short_id`: the pin's `ref`, or the chosen tile's insight. Null for a dashboard pin without a tile.                                                 |
-| `dashboardId` | The dashboard's numeric id, sent as `from_dashboard`. Null for an insight pin.                                                                                    |
-| `number`      | `capabilitiesOf(query).number` (`src/model/adapters/insightSnapshot.ts`): one series or a big number, without a breakdown.                                        |
-| `chart`       | `capabilitiesOf(query).chart`: a line or bar trends chart over time.                                                                                              |
-| `eligible`    | A `TrendsQuery` with `number` or `chart`. iOS lists other pins with `reason`; Android shows them grayed with `reason`. Only eligible pins are automatic defaults. |
-| `reason`      | Null when eligible, else one of the reasons below.                                                                                                                |
+| Field         | Meaning                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | The pin's `shortcutId` (`PinView.shortcutId`). The widget configuration stores it.                                                                          |
+| `subtitle`    | "Insight" for an insight pin. For a dashboard pin, "<dashboard name> · <tile name>", or "Dashboard" before a tile is chosen.                                |
+| `insightId`   | Null when the app has not read the insight. The widget then reads by `shortId`.                                                                             |
+| `shortId`     | The insight's `short_id`: the pin's `ref`, or the chosen tile's insight. Null for a dashboard pin without a tile.                                           |
+| `dashboardId` | The dashboard's numeric id, sent as `from_dashboard`. Null for an insight pin.                                                                              |
+| `number`      | The Views snapshot's number capability: one meaningful value, including SQL big numbers.                                                                    |
+| `chart`       | The Views snapshot's chart capability, including SQL time series.                                                                                           |
+| `eligible`    | Any readable insight with a query, including a dashboard's selected tile. Missing or unread pins carry a reason. Only eligible pins are automatic defaults. |
+| `reason`      | Null when eligible, else one of the reasons below.                                                                                                          |
 
-| Reason                            | When                                                                                                      |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| "Choose a tile in Views first"    | A dashboard pin without a tile chosen on this phone (`PinDisplay.insightId`).                             |
-| "Open it in Views first"          | The app has not read the insight yet.                                                                     |
-| "Couldn't find this insight"      | The server no longer returns the insight, or it is deleted.                                               |
-| "Not supported on the widget yet" | A SQL insight (`HogQLQuery`).                                                                             |
-| "Not a chart over time"           | Any other kind, or a trends insight that is neither a number nor a line or bar chart (`tileLimitReason`). |
+| Reason                         | When                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| "Choose a tile in Views first" | A dashboard pin without a tile chosen on this phone (`PinDisplay.insightId`). |
+| "Open it in Views first"       | The app has not read the insight yet.                                         |
+| "Couldn't find this insight"   | The server no longer returns the insight, or it is deleted.                   |
 
 ### Snapshot JSON
 
-Written by the widget after a good read, the same shape on both platforms.
+Written by the app from the Views adapter when available, and by the widget after a good read, with the same shape on both platforms. Catalog pins can include this object as `snapshot` and the Views preference as `displayMode`. A changed insight, dashboard, project or mode clears the old cached rendering. Newer snapshots win, and in-flight reads for an old selection or account are discarded.
 The widget renders from it when a later read fails.
 The age it shows is from `lastRefreshAt` (when the server computed the numbers), else `fetchedAt`; with several pins on screen, the oldest.
 
@@ -187,11 +188,15 @@ The age it shows is from `lastRefreshAt` (when the server computed the numbers),
   "deltaText": "12%",
   "deltaBasis": "vs. previous 14 days",
   "series": [{ "label": "Signups", "points": [{ "at": "2026-10-22", "value": 72 }], "previous": false }],
-  "chartKind": "line"
+  "chartKind": "line",
+  "display": "chart",
+  "rows": []
 }
 ```
 
 The error record is `{ "at": <epoch ms>, "kind": "network" | "auth" | "not_found" | "rate_limited" | "bad_data" | "no_result" }`.
+
+The optional `display` is `number`, `chart` or `rows`; `rows` contains `{ "label": "...", "value": "..." }` entries. Older snapshots without these fields still render. Snapshots hold at most 12 rows and 60 points per series; a widget shows as many rows as fit. Funnels show step counts and conversion; retention shows available cohort percentages; category charts and tables show compact rows. Other insight result shapes use compact labeled values. `InsightParser.swift` and `InsightParser.kt` mirror the Views adapters for background refreshes. Shared invented fixtures in `fixtures/insights.json` are checked by the TypeScript, Swift and Kotlin checks.
 
 ### Reads
 
@@ -266,17 +271,17 @@ App code calls `syncWidgetCredentials`, `syncWidgetCatalog` and `clearWidgetStat
 
 RemoteViews only (no Glance, no Compose), API 24 and up. Code in `android/src/main/java/com/posthog/code/mobile/chart/`:
 
-| File                                 | Role                                                                                                                       |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChartModels.kt`                     | Credentials, catalog, widget config, snapshot and error JSON (`org.json`).                                                 |
-| `ChartStore.kt`                      | The two preferences files below. Every write uses `commit()`.                                                              |
-| `TrendsParser.kt`                    | Insight response to snapshot: mirrors `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts`, `rangePresets.ts`. |
-| `ChartFetcher.kt`                    | One `HttpURLConnection` read per pin, `refresh=force_cache`, 20 s timeouts, status to error kind.                          |
-| `ChartWidgetRefresh.kt`              | `refreshAll(context)`: render from the cache on a background executor, then queue one network pass.                        |
-| `ChartRefreshWorker.kt`              | The `WorkManager` pass: each distinct pin once, then a render of every widget.                                             |
-| `ChartRenderer.kt`, `ChartCanvas.kt` | Layout choice, states, text, deep links; the chart drawn on a `Canvas` into a `Bitmap`.                                    |
-| `ChartWidgetProvider.kt`             | The `AppWidgetProvider`. Every callback is wrapped, because a receiver exception kills the app process.                    |
-| `ChartWidgetConfigureActivity.kt`    | "Choose a pin", a plain `Activity` built from views.                                                                       |
+| File                                     | Role                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `ChartModels.kt`                         | Credentials, catalog, widget config, snapshot and error JSON (`org.json`).                                                 |
+| `ChartStore.kt`                          | The two preferences files below. Every write uses `commit()`.                                                              |
+| `TrendsParser.kt` and `InsightParser.kt` | Insight response to snapshot: mirrors `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts`, `rangePresets.ts`. |
+| `ChartFetcher.kt`                        | One `HttpURLConnection` read per pin, `refresh=force_cache`, 20 s timeouts, status to error kind.                          |
+| `ChartWidgetRefresh.kt`                  | `refreshAll(context)`: render from the cache on a background executor, then queue one network pass.                                             |
+| `ChartRefreshWorker.kt`                  | The `WorkManager` pass: each distinct pin once, then a render of every widget.                                             |
+| `ChartRenderer.kt`, `ChartCanvas.kt`     | Layout choice, states, text, deep links; the chart drawn on a `Canvas` into a `Bitmap`.                                    |
+| `ChartWidgetProvider.kt`                 | The `AppWidgetProvider`. Every callback is wrapped, because a receiver exception kills the app process.                    |
+| `ChartWidgetConfigureActivity.kt`        | "Choose a pin", a plain `Activity` built from views.                                                                       |
 
 ### Identifiers
 
@@ -332,25 +337,25 @@ A corrupt or restored keystore file is deleted and counts as signed out; the app
 The iOS widget is a second kind in the `HedgehogWidget` extension (`targets/HedgehogWidget/`).
 It reads the catalog and its snapshots from the App Group suite and the credentials from the keychain, and it reads PostHog itself.
 
-| File                          | What it holds                                                                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `AppGroup.swift`              | The App Group id from the extension's bundle id, shared with the hedgehog's `SharedStore`                                            |
-| `ChartModels.swift`           | `Codable` shapes of the credentials, catalog, snapshot and snapshot error JSON                                                       |
-| `ChartStore.swift`            | Store keys, snapshot, error and pin project reads and writes, the keychain read (Foundation + Security)                              |
-| `ChartFetcher.swift`          | The cache-only insight read, status mapping, and `ChartRefresh` (one request per pin at a time)                                      |
-| `TrendsParser.swift`          | `TrendsQuery` response to snapshot, mirroring `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts` and `rangePresets.ts` |
-| `ChartState.swift`            | Which state each slot shows, which pins a refresh reads, deep links, age text, gallery sample data                                   |
-| `ChartWidgetIntent.swift`     | `ChartWidgetIntent`, `PinEntity` and `PinQuery` (the Edit widget picker)                                                             |
-| `ChartTimelineProvider.swift` | `AppIntentTimelineProvider`: reads, writes snapshots, builds entries                                                                 |
-| `ChartViews.swift`            | SwiftUI for small, medium and large, light and dark                                                                                  |
-| `ChartWidget.swift`           | The `AppIntentConfiguration`, registered in `HedgehogWidgetBundle.swift`                                                             |
+| File                                           | What it holds                                                                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AppGroup.swift`                               | The App Group id from the extension's bundle id, shared with the hedgehog's `SharedStore`                                      |
+| `ChartModels.swift`                            | `Codable` shapes of the credentials, catalog, snapshot and snapshot error JSON                                                 |
+| `ChartStore.swift`                             | Store keys, snapshot, error and pin project reads and writes, the keychain read (Foundation + Security)                        |
+| `ChartFetcher.swift`                           | The cache-only insight read, status mapping, and `ChartRefresh` (one request per pin at a time)                                |
+| `TrendsParser.swift` and `InsightParser.swift` | Insight response to snapshot, mirroring `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts` and `rangePresets.ts` |
+| `ChartState.swift`                             | Which state each slot shows, which pins a refresh reads, deep links, age text, gallery sample data                             |
+| `ChartWidgetIntent.swift`                      | `ChartWidgetIntent`, `PinEntity` and `PinQuery` (the Edit widget picker)                                                       |
+| `ChartTimelineProvider.swift`                  | `AppIntentTimelineProvider`: reads, writes snapshots, builds entries                                                           |
+| `ChartViews.swift`                             | SwiftUI for small, medium and large, light and dark                                                                            |
+| `ChartWidget.swift`                            | The `AppIntentConfiguration`, registered in `HedgehogWidgetBundle.swift`                                                       |
 
 ### Native check
 
 From `products/mobile` on macOS:
 
 ```sh
-swiftc targets/HedgehogWidget/{AppGroup,ChartModels,ChartStore,ChartFetcher,TrendsParser,ChartState}.swift scripts/check_chart_widget.swift -o /tmp/check-chart
+swiftc targets/HedgehogWidget/{AppGroup,ChartModels,ChartStore,ChartFetcher,TrendsParser,InsightParser,ChartState}.swift scripts/check_chart_widget.swift -o /tmp/check-chart
 /tmp/check-chart
 ```
 

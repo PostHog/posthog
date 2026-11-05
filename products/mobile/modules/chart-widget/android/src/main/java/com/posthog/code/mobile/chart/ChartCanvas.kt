@@ -9,6 +9,8 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Shader
+import android.text.TextPaint
+import android.text.TextUtils
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -79,6 +81,25 @@ internal object ChartCanvas {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         if (spec.bars) drawBars(canvas, spec, colors, width, height, dp) else drawLines(canvas, spec, colors, width, height, dp)
+        return bitmap
+    }
+
+    fun rows(rows: List<SnapshotRow>, colors: ChartColors, width: Int, height: Int, density: Float): Bitmap? {
+        if (width <= 0 || height <= 0) return null
+        val scale = min(1.0, sqrt(MAX_BITMAP_BYTES / (width.toDouble() * height * 4))).toFloat()
+        val bitmap = Bitmap.createBitmap(max(1, (width * scale).toInt()), max(1, (height * scale).toInt()), Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11 * density * scale; color = colors.ink }
+        val rowHeight = 20 * density * scale
+        val limit = min(rows.size, max(1, (bitmap.height / rowHeight).toInt()))
+        rows.take(limit).forEachIndexed { index, row ->
+            val y = rowHeight * index - paint.ascent()
+            val valueWidth = min(bitmap.width * 0.55f, paint.measureText(row.value))
+            val value = TextUtils.ellipsize(row.value, paint, valueWidth, TextUtils.TruncateAt.END).toString()
+            val label = TextUtils.ellipsize(row.label, paint, bitmap.width - valueWidth - 8 * density * scale, TextUtils.TruncateAt.END).toString()
+            canvas.drawText(label, 0f, y, paint)
+            canvas.drawText(value, bitmap.width - paint.measureText(value), y, paint)
+        }
         return bitmap
     }
 

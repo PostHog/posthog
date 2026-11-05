@@ -1,0 +1,27 @@
+package com.posthog.code.mobile.chart
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+fun main(args: Array<String>) {
+    val fixtures = JSONArray(File(args.single()).readText())
+    for (index in 0 until fixtures.length()) {
+        val fixture = fixtures.getJSONObject(index)
+        val expected = fixture.getJSONObject("expected")
+        val pin = CatalogPin("pin-example", "insight", "Example", "", 101, "example1", null, true, true, true, null)
+        val snapshot = InsightParser.parse(fixture.getJSONObject("response"), pin, 1793617200000L)
+        val name = fixture.getString("name")
+        check(snapshot.display == expected.getString("display")) { "$name: display ${snapshot.display}" }
+        if (expected.has("valueText")) check(snapshot.valueText == expected.stringOrNull("valueText")) { "$name: value ${snapshot.valueText}" }
+        if (expected.has("firstAt")) check(snapshot.series.first().points.first().at == expected.getString("firstAt")) { "$name: date" }
+        if (expected.has("firstValue")) check(snapshot.series.first().points.first().value == expected.getDouble("firstValue")) { "$name: duplicate sum" }
+        if (expected.optBoolean("lastIsGap")) check(snapshot.series.first().points.last().value.isNaN()) { "$name: gap" }
+        if (expected.has("firstRowValue")) check(snapshot.rows.first().value == expected.getString("firstRowValue")) { "$name: first row" }
+        if (expected.has("rowCount")) check(snapshot.rows.size == expected.getInt("rowCount")) { "$name: rows" }
+        if (expected.has("seriesCount")) check(snapshot.series.size == expected.getInt("seriesCount")) { "$name: series" }
+        if (expected.has("lastValue")) check(snapshot.series.first().points.last().value == expected.getDouble("lastValue")) { "$name: last value" }
+        check(ChartSnapshot.parse(snapshot.toJson())?.valueText == snapshot.valueText) { "$name: round trip" }
+        println("ok $name")
+    }
+}

@@ -33,6 +33,7 @@ struct CheckChartWidget {
         try checkStore(now: now)
         try await checkRefresh(now: now)
         try checkState(now: now)
+        try checkInsightFormats(now: now)
 
         if failures > 0 {
             print("\(failures) check(s) failed")
@@ -303,7 +304,9 @@ struct CheckChartWidget {
         let noMatch = Data(json(["results": [["short_id": "other", "query": trends(), "result": []]]] as JSONObject).utf8)
         check("short id read without a match is not_found", ChartFetcher.outcome(status: 200, body: noMatch, pin: byShortId, now: now) == .failed(.notFound))
         let funnel = Data(json(["query": ["kind": "InsightVizNode", "source": ["kind": "FunnelsQuery"]], "result": []] as JSONObject).utf8)
-        check("a non-trends result is bad_data", ChartFetcher.outcome(status: 200, body: funnel, pin: insight, now: now) == .failed(.badData))
+        if case .snapshot(let snapshot) = ChartFetcher.outcome(status: 200, body: funnel, pin: insight, now: now) {
+            check("an empty funnel remains a valid snapshot", snapshot.display == "rows" && snapshot.rows?.isEmpty == true)
+        } else { check("an empty funnel remains a valid snapshot", false) }
     }
 
     static func checkStore(now: Date) throws {
@@ -325,6 +328,9 @@ struct CheckChartWidget {
         ChartRefresh.record(.snapshot(snapshot), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a good read writes the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: a good read clears the error", ChartStore.error(pinId: "pin-a", store: store) == nil)
+        let older = ChartSample.snapshot(pinId: "pin-a", value: "Old", delta: 0, deltaText: "", values: [0], now: now.addingTimeInterval(-60))
+        ChartRefresh.record(.snapshot(older), pin: pin, credentials: credentials, at: now, store: store)
+        check("store: older background read preserves the app snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         ChartRefresh.record(.failed(.rateLimited), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a failure keeps the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: snapshotError kind", store.string(forKey: "chart.snapshotError.pin-a")?.contains("rate_limited") == true)
@@ -465,7 +471,7 @@ struct CheckChartWidget {
         check("state: missing catalog points to the app", message(noCatalog) == "Open PostHog to load your pins")
         let emptyCatalog = ChartCatalog(version: 1, host: catalog.host, projectId: 2, projectName: nil, writtenAt: 0, pins: [])
         let noPins = ChartResolver.content(primary: nil, extras: [], store: state(catalog: emptyCatalog), links: links, now: now)
-        check("state: empty catalog explains the next step", message(noPins) == "No chart pins available")
+        check("state: empty catalog explains the next step", message(noPins) == "No pinned views available")
         let defaults = ChartResolver.selections(primary: nil, extras: [signups], family: .large, catalog: catalog)
         check("selection: default participates in fetch and deduplication", defaults.0 == signups && defaults.1.isEmpty)
         let chosen = ChartResolver.selections(primary: ChartSelection(id: "pin-b", name: "Product KPIs"), extras: [], family: .medium, catalog: catalog)
@@ -559,6 +565,31 @@ struct CheckChartWidget {
         )
         check("large: two extra pins, no repeats", extras.map(\.id) == ["pin-b", "pin-d"])
         check("medium: no extra pins", ChartResolver.selections(primary: signups, extras: extras, family: .medium).1.isEmpty)
+    }
+
+    static func checkInsightFormats(now: Date) throws {
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("modules/chart-widget/fixtures/insights.json")
+        let fixtures = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [JSONObject]
+        let pin = ChartPin(id: "pin-example", kind: "insight", name: "Example", subtitle: nil,
+                           insightId: 101, shortId: "example1", dashboardId: nil, eligible: true,
+                           number: true, chart: true, reason: nil)
+        for fixture in fixtures {
+            let name = fixture["name"] as! String
+            let response = fixture["response"] as! JSONObject
+            let expected = fixture["expected"] as! JSONObject
+            let snapshot = try InsightParser.snapshot(response: response, pin: pin, now: now)
+            check("format: \(name) display", snapshot.display == expected["display"] as? String)
+            if let value = expected["valueText"] as? String { check("format: \(name) value", snapshot.valueText == value, snapshot.valueText ?? "nil") }
+            if expected["valueText"] is NSNull { check("format: \(name) null value", snapshot.valueText == nil) }
+            if let value = expected["firstAt"] as? String { check("format: \(name) date", snapshot.series.first?.points.first?.at == value) }
+            if let value = expected["firstValue"] as? Double { check("format: \(name) first point", snapshot.series.first?.points.first?.value == value) }
+            if expected["lastIsGap"] as? Bool == true { check("format: \(name) gap", snapshot.series.first?.points.last?.value == nil) }
+            if let value = expected["firstRowValue"] as? String { check("format: \(name) first row", snapshot.rows?.first?.value == value) }
+            if let count = expected["rowCount"] as? Int { check("format: \(name) rows", snapshot.rows?.count == count) }
+            if let count = expected["seriesCount"] as? Int { check("format: \(name) series", snapshot.series.count == count) }
+            if let value = expected["lastValue"] as? Double { check("format: \(name) last point", snapshot.series.first?.points.last?.value == value) }
+        }
     }
 
     static func require<T>(_ value: T?, _ name: String) throws -> T {

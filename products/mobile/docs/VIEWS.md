@@ -41,12 +41,12 @@ A complete pin list read forgets the prefs of that project's pins that are gone.
 Recent merges the last 20 views opened on this phone (`views-recent:v1`, per project) with the dashboards this user viewed on the web.
 Insights viewed on the web do not appear: no per-user source is open to OAuth without a new scope.
 
-**Home screen widget.** The Chart widget on iOS and Android shows a pin from this list, and the OS picker offers the first 30 pins in Views order.
+**Home screen widget.** The Chart widget on iOS and Android shows a pin from this list, and the OS picker offers the same pins as the Views page (up to 100), in Views order.
 A new iOS widget shows the first supported pin automatically, including when its pins arrive after placement. Edit Widget lets you change it. Android preselects the first supported pin in its setup screen.
 The iOS picker keeps unsupported pins visible with a reason, so an unsupported list does not appear empty.
 After each complete pin list read, insight or dashboard update, and each change of a pin's mode or tile, `src/features/widgets/chartWidgetSync.ts` writes a pin catalog for the widget.
 When the signed-in project has no catalog and no cached pin list, after a sign in, a project switch or a launch, the sync reads the pin list itself with the same query key and lane as `usePins`, once per project per session. A failure leaves the catalog for the next Views read.
-A trends insight that is a single number or a line or bar chart over time can show there. A dashboard pin uses the tile chosen on this phone, or discovers a suitable tile using the same automatic preview rules as Views. This does not change the pin's display preference. SQL insights are not supported yet.
+All readable insight pins are available, including SQL numbers, text values, time series, tables, funnels, retention and breakdowns. Numbers retain their saved formatting; tables and other non-time-series displays use compact rows. A dashboard pin uses the tile chosen on this phone, or discovers a suitable tile using the same automatic preview rules as Views. This does not change the pin's display preference. The app shares its available Views snapshot with the widget, which refreshes independently using the same result semantics.
 The catalog uses the metadata and snapshots the list already read. It reads metadata for at most 30 other pins with `basic=true&refresh=force_cache`, through the list-read lane.
 The widget reads its pin by itself on a timer with `refresh=force_cache`, so it never computes; see [the widget's README](../modules/chart-widget/README.md).
 The widget holds a copy of the access token and never refreshes it. When the app returns to the foreground with an OAuth token that expires within 24 hours, it refreshes the token once (`FOREGROUND_REFRESH_MARGIN_MS` in `src/auth/authStore.ts`), so the copy stays valid between app opens.

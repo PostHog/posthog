@@ -1,8 +1,9 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 
 import { ApiError } from '@/api/client'
-import { fetchInsightMetadata, type InsightBasicApi } from '@/api/insights'
+import { type InsightBasicApi, readInsight as readInsightResponse } from '@/api/insights'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
+import { serverNow } from '@/api/serverClock'
 import { type FileSystemShortcutApi, isCompleteShortcutPage } from '@/api/shortcuts'
 import { type AuthState, addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { getSessionIdentity, getSessionTokens, onSessionTokensChanged, sessionGeneration } from '@/auth/tokens'
@@ -15,6 +16,7 @@ import { featureAccessFor, useScopeErrorStore } from '@/features/views/useViewsA
 import { overrideKey, viewsKeys } from '@/features/views/viewsCache'
 import { abortError } from '@/lib/abort'
 import { track } from '@/lib/analytics'
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { pinsFromShortcuts } from '@/model/adapters/viewPins'
 import type { InsightSnapshot, PinView } from '@/model/views'
 
@@ -208,6 +210,7 @@ function cachedInsight(
             shortId: snapshot.data.shortId,
             name: snapshot.data.name,
             query: snapshot.data.query,
+            snapshot: snapshot.data,
         }
     }
     if (basic?.data) {
@@ -222,6 +225,7 @@ function cachedInsight(
 async function readInsight(
     client: QueryClient,
     scope: ProjectScope,
+    pin: PinView,
     shortId: string,
     isCurrent: () => boolean,
     signal: AbortSignal
@@ -231,7 +235,14 @@ async function readInsight(
         if (signal.aborted || !isCurrent()) {
             throw abortError()
         }
-        return fetchInsightMetadata(shortId, signal)
+        return readInsightResponse(
+            { shortId, id: pin.display.insightId },
+            {
+                refresh: 'force_cache',
+                signal,
+                fromDashboard: pin.kind === 'dashboard' ? Number(pin.ref) : null,
+            }
+        )
     })
     if (signal.aborted || !isCurrent()) {
         throw abortError()
@@ -242,7 +253,13 @@ async function readInsight(
     }
     // The shared cache entry, so the Views list's previews and later syncs read it without a request.
     client.setQueryData(viewsKeys.pinMetadata(scope, shortId), response)
-    return insightOf(response)
+    const snapshot = insightSnapshot(response, undefined, { readAt: Date.now(), serverNow: serverNow() })
+    client.setQueryData(
+        viewsKeys.insight(scope, shortId, pin.kind === 'dashboard' ? pin.ref : null, overrideKey(null)),
+        snapshot
+    )
+    const insight = insightOf(response)
+    return insight ? { ...insight, snapshot } : null
 }
 
 async function pinMetadata(
@@ -253,23 +270,23 @@ async function pinMetadata(
     signal: AbortSignal
 ): Promise<Map<string, WidgetPinInsight | null>> {
     const metadata = new Map<string, WidgetPinInsight | null>()
-    const unread = new Set<string>()
+    const unread = new Map<string, { pin: PinView; shortId: string }>()
     for (const pin of pins) {
         const shortId = pinInsightShortId(pin)
-        if (!shortId || metadata.has(shortId)) {
+        if (!shortId || metadata.has(pin.shortcutId)) {
             continue
         }
         const cached = cachedInsight(client, scope, pin, shortId)
         if (cached === undefined) {
-            unread.add(shortId)
+            unread.set(pin.shortcutId, { pin, shortId })
         } else {
-            metadata.set(shortId, cached)
+            metadata.set(pin.shortcutId, cached)
         }
     }
     // One at a time, so a first sync of many pins does not take a burst of the insights budget from the Views list.
-    for (const shortId of unread) {
+    for (const [pinId, { shortId, pin }] of unread) {
         try {
-            metadata.set(shortId, await readInsight(client, scope, shortId, isCurrent, signal))
+            metadata.set(pinId, await readInsight(client, scope, pin, shortId, isCurrent, signal))
         } catch (error) {
             // A 429, a 503, an empty budget, no connection or a session change holds for every pin, so the rest
             // stay unread until the next sync. A 403 or 404 concerns this insight only.

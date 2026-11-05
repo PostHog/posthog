@@ -1,18 +1,21 @@
-import { tileLimitReason } from '@/features/views/list/tileEligibility'
-import { capabilitiesOf, queryKindOf, tileShapeOf } from '@/model/adapters/insightSnapshot'
-import type { PinKind, PinView } from '@/model/views'
+import { SHORTCUT_PAGE_SIZE } from '@/api/shortcuts'
+import { capabilitiesOf, queryKindOf } from '@/model/adapters/insightSnapshot'
+import type { InsightSnapshot, PinKind, PinView } from '@/model/views'
+
+import { type WidgetSnapshot, widgetSnapshot } from './chartWidgetSnapshot'
 
 // The pin catalog the Chart home screen widget offers in its OS picker. The JSON shape is a contract with the native
 // widgets: see modules/chart-widget/README.md before changing a field.
 
 /** The OS pickers list at most this many pins, in Views order, and a sync reads metadata for at most this many. */
-export const CATALOG_PIN_LIMIT = 30
+export const CATALOG_PIN_LIMIT = SHORTCUT_PAGE_SIZE
 
 export interface WidgetPinInsight {
     insightId: number
     shortId: string
     name: string
     query: unknown
+    snapshot?: InsightSnapshot
 }
 
 export interface WidgetCatalogPin {
@@ -30,6 +33,8 @@ export interface WidgetCatalogPin {
     number: boolean
     chart: boolean
     reason: string | null
+    displayMode: PinView['display']['mode']
+    snapshot?: WidgetSnapshot
 }
 
 export interface WidgetCatalogProject {
@@ -46,14 +51,15 @@ export interface WidgetCatalogBody extends WidgetCatalogProject {
 
 export const PICK_TILE_REASON = 'Choose a tile in Views first'
 export const UNREAD_REASON = 'Open it in Views first'
-export const SQL_REASON = 'Not supported on the widget yet'
 export const MISSING_REASON = "Couldn't find this insight"
 
 export function pinInsightShortId(pin: PinView): string | null {
     if (pin.kind === 'insight') {
         return pin.ref
     }
-    return typeof pin.display.insightId === 'number' ? (pin.display.insightShortId ?? null) : null
+    return typeof pin.display.insightId === 'number'
+        ? (pin.display.insightShortId ?? `#${pin.display.insightId}`)
+        : null
 }
 
 function dashboardIdOf(pin: PinView): number | null {
@@ -70,36 +76,35 @@ function ineligible(reason: string): Eligibility {
     return { eligible: false, number: false, chart: false, reason }
 }
 
-// Only trends insights are offered, because the widgets parse a trends response only.
-function eligibilityOf(query: unknown): Eligibility {
-    const kind = queryKindOf(query)
-    if (kind === 'HogQLQuery') {
-        return ineligible(SQL_REASON)
+function eligibilityOf(insight: WidgetPinInsight): Eligibility {
+    if (!queryKindOf(insight.query)) {
+        return ineligible(UNREAD_REASON)
     }
-    if (kind !== 'TrendsQuery') {
-        return ineligible(tileLimitReason({ kind: 'insight', seriesCount: 0, hasBreakdown: false }, 'chart'))
-    }
-    const { number, chart } = capabilitiesOf(query)
-    if (!number && !chart) {
-        return ineligible(tileLimitReason({ kind: 'insight', ...tileShapeOf(query) }, 'chart'))
-    }
-    return { eligible: true, number, chart, reason: null }
+    const capabilities = insight.snapshot?.capabilities ?? capabilitiesOf(insight.query)
+    return { eligible: true, number: capabilities.number, chart: capabilities.chart, reason: null }
 }
 
-/** Keyed by `short_id`. Null: the server no longer returns the insight. Missing: the app has not read it yet. */
+/** Keyed by pin id (or `short_id` for callers without a pin context). Null: the server no longer returns the insight. Missing: the app has not read it yet. */
 export type WidgetPinMetadata = ReadonlyMap<string, WidgetPinInsight | null>
 
 function catalogPin(pin: PinView, metadata: WidgetPinMetadata): WidgetCatalogPin {
     const shortId = pinInsightShortId(pin)
-    const insight = shortId ? metadata.get(shortId) : undefined
+    const insight = metadata.has(pin.shortcutId)
+        ? metadata.get(pin.shortcutId)
+        : shortId
+          ? metadata.get(shortId)
+          : undefined
+    const snapshot = insight?.snapshot ? widgetSnapshot(pin.shortcutId, insight.snapshot, pin.display.mode) : null
     const base = {
         id: pin.shortcutId,
         kind: pin.kind,
         name: pin.name,
         subtitle: pin.kind === 'insight' ? 'Insight' : insight ? `${pin.name} · ${insight.name}` : 'Dashboard',
         insightId: insight?.insightId ?? pin.display.insightId ?? null,
-        shortId,
+        shortId: insight?.shortId ?? shortId,
         dashboardId: dashboardIdOf(pin),
+        displayMode: pin.display.mode,
+        ...(snapshot ? { snapshot } : {}),
     }
     if (pin.kind === 'dashboard' && typeof pin.display.insightId !== 'number') {
         return { ...base, ...ineligible(PICK_TILE_REASON) }
@@ -110,7 +115,7 @@ function catalogPin(pin: PinView, metadata: WidgetPinMetadata): WidgetCatalogPin
     if (!insight) {
         return { ...base, ...ineligible(UNREAD_REASON) }
     }
-    return { ...base, ...eligibilityOf(insight.query) }
+    return { ...base, ...eligibilityOf(insight) }
 }
 
 export function buildCatalog(

@@ -39,6 +39,8 @@ struct ChartPin: Codable, Equatable, Identifiable, Sendable {
     let chart: Bool
     let reason: String?
 
+    var displayMode: String? = nil
+
     var isDashboard: Bool { kind == "dashboard" }
 }
 
@@ -88,6 +90,11 @@ struct ChartSeries: Codable, Equatable, Sendable {
     let previous: Bool
 }
 
+struct ChartRow: Codable, Equatable, Sendable {
+    let label: String
+    let value: String
+}
+
 struct ChartSnapshot: Codable, Equatable, Sendable {
     static let supportedVersion = 1
 
@@ -96,18 +103,20 @@ struct ChartSnapshot: Codable, Equatable, Sendable {
     /// Epoch ms of the read that wrote this snapshot.
     let fetchedAt: Double
     let lastRefreshAt: String?
-    let rangeLabel: String?
+    var rangeLabel: String?
     /// The trends interval: "hour", "day", "week" or "month".
     let intervalLabel: String
     /// Nil when the insight has no single number, such as two series.
-    let valueText: String?
+    var valueText: String?
     /// The signed change that sets the pill's direction: percent, or points for a percentage insight.
     let deltaPercent: Double?
     let deltaText: String?
     let deltaBasis: String?
     /// Up to five current series, then the previous-period series of those. Up to 60 points each.
-    let series: [ChartSeries]
-    let chartKind: ChartKind
+    var series: [ChartSeries]
+    var chartKind: ChartKind
+    var display: String? = nil
+    var rows: [ChartRow]? = nil
 }
 
 enum ChartErrorKind: String, Codable, Sendable {

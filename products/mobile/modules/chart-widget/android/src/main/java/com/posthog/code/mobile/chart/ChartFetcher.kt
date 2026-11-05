@@ -59,14 +59,14 @@ object ChartFetcher {
             if (queryStatus?.optString("error_code") == "rate_limited") return Outcome.Failure(ErrorKind.RATE_LIMITED)
             if (queryStatus != null && queryStatus.optBoolean("error", false)) return Outcome.Failure(ErrorKind.BAD_DATA)
             if (!insight.has("result") || insight.isNull("result")) return Outcome.Failure(ErrorKind.NO_RESULT)
-            return Outcome.Success(TrendsParser.parse(insight, pin.id, now))
+            return Outcome.Success(InsightParser.parse(insight, pin, now))
         } catch (e: IOException) {
             return Outcome.Failure(ErrorKind.NETWORK)
         } catch (e: JSONException) {
             Log.w(TAG, "Pin ${pin.id} answered with JSON the widget cannot read", e)
             return Outcome.Failure(ErrorKind.BAD_DATA)
         } catch (e: BadDataException) {
-            Log.w(TAG, "Pin ${pin.id} is not a trends result: ${e.message}")
+            Log.w(TAG, "Pin ${pin.id} has an unreadable result: ${e.message}")
             return Outcome.Failure(ErrorKind.BAD_DATA)
         } finally {
             connection.disconnect()

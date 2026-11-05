@@ -107,8 +107,13 @@ private struct SmallChartLayout: View {
                 } else {
                     RangeText(text: snapshot.rangeLabel, colors: colors)
                 }
-                PlotArea(snapshot: snapshot, window: PointWindow.compact, kind: .line, style: .sparkline, colors: colors)
-                    .padding(.top, 4)
+                if let rows = snapshot.rows, !rows.isEmpty {
+                    SnapshotRows(rows: rows, limit: 3, colors: colors)
+                } else if snapshot.hasPoints {
+                    PlotArea(snapshot: snapshot, window: PointWindow.compact, kind: .line, style: .sparkline, colors: colors)
+                        .padding(.top, 4)
+                } else if snapshot.valueText != nil { Spacer(minLength: 0) }
+                else { Text("No data for this range").font(.system(size: 11)).foregroundStyle(colors.secondary) }
                 AgeLabel(dataDate: snapshot.dataDate, now: now, colors: colors)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -208,8 +213,13 @@ private struct ChartPanel: View {
                     }
                 }
             }
-            PlotArea(snapshot: snapshot, window: window, kind: snapshot.chartKind, style: .chart, colors: colors)
-                .padding(.top, 2)
+            if let rows = snapshot.rows, !rows.isEmpty {
+                SnapshotRows(rows: rows, limit: axisLabels ? 9 : 4, colors: colors)
+            } else if snapshot.hasPoints {
+                PlotArea(snapshot: snapshot, window: window, kind: snapshot.chartKind, style: .chart, colors: colors)
+                    .padding(.top, 2)
+            } else if snapshot.valueText != nil { Spacer(minLength: 0) }
+            else { Text("No data for this range").font(.system(size: 11)).foregroundStyle(colors.secondary) }
             if axisLabels, let ends = snapshot.axisLabels(limit: window) {
                 HStack {
                     Text(ends.0)
@@ -246,7 +256,11 @@ private struct NumberTile: View {
                     ValueText(text: snapshot.valueText ?? "", size: 20, colors: colors)
                     DeltaPill(snapshot: snapshot, colors: colors)
                 }
-                PlotArea(snapshot: snapshot, window: PointWindow.compact, kind: .line, style: .sparkline, colors: colors)
+                if let rows = snapshot.rows, !rows.isEmpty {
+                    SnapshotRows(rows: rows, limit: 2, colors: colors)
+                } else if snapshot.hasPoints {
+                    PlotArea(snapshot: snapshot, window: PointWindow.compact, kind: .line, style: .sparkline, colors: colors)
+                }
             case .loading:
                 Text("Loading…")
                     .font(.system(size: 12))
@@ -269,6 +283,32 @@ private struct NumberTile: View {
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(colors.hairline, lineWidth: 1))
+    }
+}
+
+private struct SnapshotRows: View {
+    let rows: [ChartRow]
+    let limit: Int
+    let colors: ChartColors
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(rows.prefix(limit).enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    Text(row.label).foregroundStyle(colors.secondary)
+                    Spacer(minLength: 0)
+                    Text(row.value).monospacedDigit().foregroundStyle(colors.ink)
+                }
+                .font(.system(size: 11))
+                .lineLimit(1)
+            }
+            if rows.count > limit {
+                Text("+\(rows.count - limit) more in PostHog")
+                    .font(.system(size: 10)).foregroundStyle(colors.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
