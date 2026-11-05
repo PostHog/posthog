@@ -54,7 +54,7 @@ function server(endpoints: unknown[], extra: (url: string, body: unknown) => unk
         if (reply) {
             return reply as { status: number; body: unknown }
         }
-        if (url === `${BASE}endpoints/`) {
+        if (url.replace(/\?.*/, '') === `${BASE}endpoints/`) {
             return { status: 200, body: { results: endpoints } }
         }
         if (url === `${BASE}insight_variables/`) {
