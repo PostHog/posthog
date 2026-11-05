@@ -84,6 +84,14 @@ class FlagCodeAnalysisResult(BaseModel):
 
 
 @frozen
+class TaskPrompt:
+    """The title and the agent instructions of a Tasks run."""
+
+    title: str
+    description: str
+
+
+@frozen
 class CodeAnalysisTarget:
     repository: str | None
     source: CodeAnalysisRepositorySource
@@ -221,8 +229,8 @@ def _outcomes(flag: FeatureFlag) -> str:
     return ", ".join(f'"{key}"' for key in keys)
 
 
-def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> tuple[str, str]:
-    """Return (title, description): the task title and the agent's instructions.
+def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> TaskPrompt:
+    """Return the task title and the agent's instructions.
 
     Only keys are interpolated: the flag key, which the API restricts to letters, digits, `-` and `_`,
     and variant keys that match the same pattern. The flag's name and description are free text a
@@ -263,7 +271,7 @@ def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> tuple[str,
             "- Do not change the flag in PostHog.",
         ]
     )
-    return title, description
+    return TaskPrompt(title=title, description=description)
 
 
 def require_ai_allowed(flag: FeatureFlag) -> None:
@@ -291,7 +299,7 @@ def start_code_analysis(
             "Choose a GitHub repository to analyze. If none are listed, connect GitHub in project settings.",
         )
 
-    title, description = build_code_analysis_prompt(flag, target.repository)
+    prompt = build_code_analysis_prompt(flag, target.repository)
     # The lock makes the running check and the new row one step, so two concurrent requests cannot both
     # start a billable run. The task's workflow starts on commit, so a rollback starts nothing.
     with transaction.atomic():
@@ -314,8 +322,8 @@ def start_code_analysis(
                 )
         created = tasks_facade.create_and_run_task(
             team=flag.team,
-            title=title,
-            description=description,
+            title=prompt.title,
+            description=prompt.description,
             origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
             user_id=user.id,
             repository=target.repository,

@@ -21,6 +21,7 @@ from products.feature_flags.backend.code_analysis import (
     CodeAnalysisError,
     CodeAnalysisStatus,
     FlagCodeAnalysisResult,
+    TaskPrompt,
     get_code_analysis_status,
     get_code_analysis_target,
     latest_cleanup_analysis,
@@ -176,8 +177,8 @@ def _reference_lines(result: FlagCodeAnalysisResult) -> list[str]:
 
 def build_code_cleanup_prompt(
     flag: FeatureFlag, repository: str, keep_outcome: str, result: FlagCodeAnalysisResult
-) -> tuple[str, str]:
-    """Return (title, description): the task title and the agent's instructions.
+) -> TaskPrompt:
+    """Return the task title and the agent's instructions.
 
     Only the flag key, safe variant keys, plain file paths and a hex commit are interpolated. The
     analysis summaries and notes are model output, so they stay out of the prompt.
@@ -220,7 +221,7 @@ def build_code_cleanup_prompt(
             "End the description with a reminder to archive the flag in PostHog after the change deploys.",
         ]
     )
-    return title, description
+    return TaskPrompt(title=title, description=description)
 
 
 def _cleanup_blocks_new_request(run: CodeCleanupRun | None) -> bool:
@@ -282,11 +283,11 @@ def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None =
             raise CodeAnalysisError("invalid_outcome", f"Choose one of: {', '.join(availability.outcome_options)}.")
 
         assert analysis_status.result is not None
-        title, description = build_code_cleanup_prompt(flag, target.repository, outcome, analysis_status.result)
+        prompt = build_code_cleanup_prompt(flag, target.repository, outcome, analysis_status.result)
         created = tasks_facade.create_and_run_task(
             team=flag.team,
-            title=title,
-            description=description,
+            title=prompt.title,
+            description=prompt.description,
             origin_product=tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
             user_id=user.id,
             repository=target.repository,
