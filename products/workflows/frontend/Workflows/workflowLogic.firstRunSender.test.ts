@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -6,15 +8,22 @@ import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
+import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowAction } from './hogflows/types'
 import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
+
+jest.mock('../Broadcasts/broadcastLifecycle', () => ({
+    ...jest.requireActual('../Broadcasts/broadcastLifecycle'),
+    confirmCreateAsBroadcast: jest.fn(),
+}))
 
 const SANDBOX: Partial<IntegrationType> = {
     id: 7,
@@ -311,6 +320,52 @@ describe('workflow first-run sender', () => {
         expect(emailValueOf(logic)?.from).toEqual({ integrationId: SANDBOX.id })
         expect(requestedIds.length).toBeGreaterThanOrEqual(2)
         expect(new Set(requestedIds)).toEqual(new Set([String(environmentId)]))
+        logic.unmount()
+    })
+
+    it('skips the broadcast offer for a batch email on the first-run sandbox sender the project list lacks', async () => {
+        const environmentId = ApiConfig.getCurrentTeamId()
+        const [triggerStep, exitStep] = NEW_WORKFLOW.actions
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': ({ params }) => [
+                    200,
+                    { results: String(params.team_id) === String(environmentId) ? integrations : [] },
+                ],
+                '/api/projects/:team_id/hog_flow_templates/:id/': () => [
+                    200,
+                    {
+                        ...NEW_WORKFLOW,
+                        exit_condition: 'exit_only_at_end',
+                        actions: [{ ...triggerStep, config: { type: 'batch', filters: {} } }, action, exitStep],
+                        edges: [
+                            { from: triggerStep.id, to: action.id, type: 'continue' },
+                            { from: action.id, to: exitStep.id, type: 'continue' },
+                        ],
+                    },
+                ],
+                '/api/projects/:team_id/hog_flows/broadcast_conversion_candidates/': { has_more: false, results: [] },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/': async ({ request }) => [
+                    201,
+                    { ...((await request.json()) as Record<string, any>), id: 'created-flow' },
+                ],
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, project_id: environmentId + 1 })
+        jest.mocked(confirmCreateAsBroadcast).mockResolvedValue('broadcast')
+
+        const logic = await loadTemplate()
+        expect(emailValueOf(logic)?.from).toEqual({ integrationId: SANDBOX.id })
+        expect(integrationsLogic.values.integrations?.map((integration) => integration.id)).not.toContain(SANDBOX.id)
+
+        logic.actions.setWorkflowValues({ name: 'Monthly update' })
+        await expectLogic(logic, () => logic.actions.submitWorkflow())
+            .toDispatchActions(['saveWorkflowSuccess'])
+            .toFinishAllListeners()
+
+        expect(confirmCreateAsBroadcast).not.toHaveBeenCalled()
         logic.unmount()
     })
 

@@ -23,8 +23,15 @@ function emailSenderIds(workflow: HogFlow): string[] {
     return ids.filter((id) => id !== null && id !== undefined).map(String)
 }
 
-export function sendsFromSandboxSender(workflow: HogFlow, integrations: IntegrationType[]): boolean {
+export function sendsFromSandboxSender(
+    workflow: HogFlow,
+    integrations: IntegrationType[],
+    knownSandboxId?: number | null
+): boolean {
     const sandboxIds = new Set(integrations.filter(isSandboxEmailSender).map((integration) => String(integration.id)))
+    if (knownSandboxId != null) {
+        sandboxIds.add(String(knownSandboxId))
+    }
     return emailSenderIds(workflow).some((id) => sandboxIds.has(id))
 }
 

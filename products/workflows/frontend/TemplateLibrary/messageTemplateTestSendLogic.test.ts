@@ -283,7 +283,7 @@ describe('messageTemplateTestSendLogic', () => {
             })
         })
 
-        it('loads the member suggestions once when the flag lands on an open modal, and only refreshes them on reopen', async () => {
+        it('loads the member suggestions once when the flag lands on an open modal, and reloads them on reopen', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
             await loadIntegrations([SANDBOX_SENDER])
             await expectLogic(logic, () => {
@@ -310,13 +310,25 @@ describe('messageTemplateTestSendLogic', () => {
 
             templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
             logic.actions.setRecipientEmail('rose.dawson@posthog.com')
+            await expectLogic(logic).toMatchValues({ recipientNotSuggested: false })
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/members/': {
+                        results: [
+                            VERIFIED_MEMBERS[0],
+                            { ...VERIFIED_MEMBERS[1], user: { ...VERIFIED_MEMBERS[1].user, is_email_verified: false } },
+                        ],
+                    },
+                },
+            })
             await expectLogic(logic, () => {
                 logic.actions.setModalOpen(false)
                 logic.actions.setModalOpen(true)
             })
-                .toDispatchActions(membersLogic, ['loadMemberUpdates'])
-                .toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
-                .toMatchValues({ sendDisabledReason: undefined })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientNotSuggested: true })
+            expect(logic.values.recipientSuggestions).not.toContain('rose.dawson@posthog.com')
         })
 
         it('sends a sandbox test without the template Reply-To and custom From, which the sandbox sender ignores', async () => {
