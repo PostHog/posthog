@@ -11297,6 +11297,10 @@ export namespace Schemas {
          */
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        copy_access_rules_to_history?: boolean | undefined;
+        /**
          * Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
          *
          * * `missing_primary_key` - Missing primary key
