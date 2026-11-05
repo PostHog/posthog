@@ -2508,7 +2508,7 @@ describe('CDP API', () => {
                     recipient: body.to,
                     scheduled_at: toClickHouseTime(scheduledAt),
                 })
-                expect(emailStatusRows()).toEqual([scheduledRow, scheduledRow])
+                expect(emailStatusRows()).toEqual([scheduledRow])
             })
 
             it('frees the key when the scheduled time is too far ahead', async () => {

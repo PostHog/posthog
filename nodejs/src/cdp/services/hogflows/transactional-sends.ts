@@ -119,20 +119,13 @@ export class TransactionalSends {
             stages.start('idempotency')
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
             switch (reservation.status) {
-                case 'replayed': {
-                    const scheduledAt = reservation.scheduledAt ?? null
-                    if (scheduledAt) {
-                        this.writeStatus({
-                            teamId: team.id,
-                            messageId: reservation.invocationId,
-                            status: 'scheduled',
-                            recipient: to,
-                            functionId: hogFlow.id,
-                            scheduledAt: new Date(scheduledAt),
-                        })
+                case 'replayed':
+                    // No status row: the send may have been moved or canceled since, and a newer row would hide that.
+                    return {
+                        outcome: 'replayed',
+                        invocationId: reservation.invocationId,
+                        scheduledAt: reservation.scheduledAt ?? null,
                     }
-                    return { outcome: 'replayed', invocationId: reservation.invocationId, scheduledAt }
-                }
                 case 'in_flight':
                     return { outcome: 'idempotency_key_in_flight' }
                 case 'conflict':
