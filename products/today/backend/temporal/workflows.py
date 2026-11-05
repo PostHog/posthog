@@ -18,6 +18,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         HighlightSourceInputs,
         HighlightSourceResult,
         ResolvePinsInputs,
+        ResolvePinsResult,
     )
 
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
@@ -36,7 +37,7 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
         if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
             results, pinned = await asyncio.gather(sources, _resolve_pins(inputs))
         else:
-            results, pinned = await sources, "[]"
+            results, pinned = await sources, ResolvePinsResult(found="[]")
         await temporalio.workflow.execute_activity(
             finalize_highlights_activity,
             FinalizeHighlightsInputs(
@@ -44,7 +45,8 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
                 highlights_id=inputs.highlights_id,
                 results=list(results),
                 pins=inputs.pins,
-                pinned=pinned,
+                pinned=pinned.found,
+                pins_failed=pinned.failed,
             ),
             start_to_close_timeout=FINALIZE_HIGHLIGHTS_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
@@ -72,7 +74,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
         return HighlightSourceResult(source_name=source_name, found=None, failed=True)
 
 
-async def _resolve_pins(inputs: ComputeHighlightsInputs) -> str:
+async def _resolve_pins(inputs: ComputeHighlightsInputs) -> ResolvePinsResult:
     try:
         result = await temporalio.workflow.execute_activity(
             resolve_pins_activity,
@@ -82,10 +84,11 @@ async def _resolve_pins(inputs: ComputeHighlightsInputs) -> str:
                 local_day=inputs.local_day,
                 scopes=inputs.scopes,
                 pins=inputs.pins,
+                highlights_id=inputs.highlights_id if inputs.progressive else None,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
         )
     except ActivityError:
-        return "[]"
-    return result.found
+        return ResolvePinsResult(found="[]", failed=True)
+    return result

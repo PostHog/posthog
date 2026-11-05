@@ -1,5 +1,5 @@
 import { type RefObject, useRef } from 'react'
-import type { AccessibilityActionEvent, AccessibilityActionInfo, View } from 'react-native'
+import type { AccessibilityActionEvent, AccessibilityActionInfo, ViewInstance } from 'react-native'
 
 import { haptic } from '@/lib/haptics'
 import type { InboxItem } from '@/model/types'
@@ -9,7 +9,7 @@ import type { RowAnchor } from './contextMenuPlacement'
 const ROW_ACCESSIBILITY_ACTIONS: AccessibilityActionInfo[] = [{ name: 'longpress', label: 'Show report actions' }]
 
 export interface RowMenuTrigger {
-    ref: RefObject<View | null>
+    ref: RefObject<ViewInstance | null>
     onLongPress: () => void
     accessibilityActions: AccessibilityActionInfo[]
     onAccessibilityAction: (event: AccessibilityActionEvent) => void
@@ -20,7 +20,7 @@ export function useRowMenuTrigger(
     item: InboxItem,
     onOpen: (item: InboxItem, anchor: RowAnchor) => void
 ): RowMenuTrigger {
-    const ref = useRef<View>(null)
+    const ref = useRef<ViewInstance>(null)
     const open = (): void => {
         ref.current?.measureInWindow((x, y, width, height) => onOpen(item, { x, y, width, height }))
     }
