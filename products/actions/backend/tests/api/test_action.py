@@ -21,9 +21,9 @@ from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
-from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
+from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.testing import create_experiment
@@ -47,7 +47,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "denied_warehouse_table" in response.json()["detail"]
         assert not Action.objects.filter(team=self.team, name="internal signup").exists()
 
-    @patch("products.actions.backend.api.action.report_user_action")
+    @patch("products.actions.backend.presentation.views.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
@@ -234,7 +234,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(Action.objects.count(), count)
 
     @time_machine.travel("2021-12-12", tick=False)
-    @patch("products.actions.backend.api.action.report_user_action")
+    @patch("products.actions.backend.presentation.views.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
         self.client.force_login(user)
