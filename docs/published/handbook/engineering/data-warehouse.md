@@ -10,6 +10,25 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Warehouse CDP producer
+
+`WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC` sets the default limit to 2,000 rows per second for each table.
+Overlapping runs of the same table share a rate limit.
+Operators can change the settings live.
+The producer refreshes the rate at most once every 60 seconds, when its local allowance is empty.
+
+`WAREHOUSE_CDP_PRODUCER_RATE_OVERRIDES` accepts comma-separated `<table id>:<rows per second>` pairs.
+Use the `ExternalDataSchema` id for a source table or the `DataWarehouseSavedQuery` id for a materialized view.
+Fractional rates are supported: `table-id:0.5` permits one row every two seconds.
+Invalid overrides are ignored, and rates have a minimum of 0.01 rows per second.
+
+The producer deletes each staged file only after Kafka confirms delivery of its rows.
+Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.
+Each file also has an end checkpoint.
+Activity retries resume from the last heartbeat checkpoint.
+Failed or canceled attempts retain unfinished files, so retries can produce duplicate rows.
+The activity has a five-minute heartbeat timeout and permits up to ten attempts.
+
 ## Direct SQL validation
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.

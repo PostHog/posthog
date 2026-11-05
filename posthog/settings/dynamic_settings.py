@@ -20,6 +20,19 @@ CONSTANCE_CONFIG = {
         "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
         int,
     ),
+    "WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC": (
+        2000,
+        "Default maximum rate in rows per second for the warehouse CDP producer to send one table to CDP. "
+        "Operators can change this rate live.",
+        int,
+    ),
+    "WAREHOUSE_CDP_PRODUCER_RATE_OVERRIDES": (
+        "",
+        "Comma-separated <table id>:<rows per second> pairs that override the default rate for each table. "
+        "Use the ExternalDataSchema id for a source table or the DataWarehouseSavedQuery id for a materialized view. "
+        "Rates can be fractional, for example 0.5.",
+        str,
+    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
