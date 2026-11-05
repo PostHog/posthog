@@ -930,12 +930,17 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
-            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
-            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
-            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0, 0, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0, 0, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1, 0, 0]),
+            ("empty_equals", "properties.step = ''", [0, 0, 0, 0, 0, 0, 1, 0]),
+            ("empty_not_equals", "properties.step != ''", [1, 1, 1, 1, 1, 1, 0, 1]),
+            ("empty_in", "properties.step IN ('', '5')", [0, 0, 1, 1, None, 0, 1, 0]),
+            ("empty_not_in", "properties.step NOT IN ('', '5')", [1, 1, 0, 0, 1, 1, 0, 1]),
+            ("array_text_equals", "properties.step = '[5]'", [0, 0, 0, 0, 0, 0, 0, 1]),
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
@@ -956,6 +961,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":"5"}',
                     "{}",
                     '{"step":"nan"}',
+                    '{"step":""}',
+                    '{"step":[5]}',
                 ],
             },
         )
@@ -963,16 +970,18 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
-            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
-            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
-            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1, 0]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1, 0]),
+            ("empty_equals", "properties.opted_in = ''", [0, 0, 0, 0, 0, 0, 1]),
+            ("empty_not_equals", "properties.opted_in != ''", [1, 1, 1, 1, 1, 1, 0]),
             (
                 "boolean_true_aliases_in",
                 "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
@@ -1003,7 +1012,30 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"opted_in":"true"}',
                     "{}",
                     '{"opted_in":false}',
+                    '{"opted_in":""}',
                 ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
+            ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0]),
+            ("empty_not_equals", "properties.signed_up_at != ''", [1, 0, 1]),
+        ]
+    )
+    def test_datetime_property_compared_to_empty_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int]
+    ) -> None:
+        context = self._context(event_properties={"signed_up_at": {"type": "DateTime"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": ['{"signed_up_at":"2024-04-06 07:08:09"}', '{"signed_up_at":""}', "{}"],
             },
         )
         assert [row[0] for row in rows] == expected

@@ -195,11 +195,11 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
-Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type.
+Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
-DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
+DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only the empty string, which no parser reads as a date and time, compares as text.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
+For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.

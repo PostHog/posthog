@@ -2141,8 +2141,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         )
 
     def _typed_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
-        """A Numeric or Boolean JSON property compared to text it cannot be read as, read as text the way the legacy
-        table compares it.
+        """A Numeric, Boolean or DateTime JSON property compared to text it cannot be read as, read as text the way the
+        legacy table compares it.
 
         A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
         Float64 read never matches, and a Boolean key can hold text that the Bool read turns into NULL. Comparing that
@@ -2156,9 +2156,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         field_type, property_name = single
         property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
         semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
-        if semantic_type.family not in ("float", "boolean"):
+        if semantic_type.family in ("float", "boolean"):
+            unreadable = any(convert_literal_to_runtime_type(value, semantic_type) is None for value in values)
+        elif semantic_type.family == "datetime":
+            # ClickHouse's best-effort parser accepts spellings a Python check would reject, so only the empty string,
+            # which no parser reads as a date and time, counts as unreadable.
+            unreadable = any(value == "" for value in values)
+        else:
             return None
-        if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
+        if not unreadable:
             return None
         source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or not _is_dynamic_json_source(source):
@@ -2535,13 +2541,18 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             values = [constant.value] if constant is not None else None
         else:
             values = self._extract_string_constants(node.right)
-        if not values or any(not value or value.startswith(("[", "{")) for value in values):
+        if not values:
             return None
         # A user-written `toBool(properties.x)` over a String property keeps its cast and is handled by
         # `_optimize_materialized_equals`. The swapper's Boolean cast over a Boolean-typed property is the one looked
         # through here, so that text the property cannot be read as compares as text.
+        # A declared String column stores '' the same as a missing key, and arrays and objects serialize differently
+        # from scalars, so a String property keeps its full read for those constants. A typed property compares them
+        # as text below: its Float64, Bool or DateTime read of such a constant can only fail.
         prop = None
-        if not self._is_boolean_conversion(property_expr):
+        if not self._is_boolean_conversion(property_expr) and not any(
+            not value or value.startswith(("[", "{")) for value in values
+        ):
             prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
         prop = prop or self._typed_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
