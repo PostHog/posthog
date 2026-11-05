@@ -1409,6 +1409,7 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         )
 
     def test_description_is_withheld_from_a_member_denied_the_view(self):
+        assert self.node.saved_query is not None
         DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             saved_query=self.node.saved_query,

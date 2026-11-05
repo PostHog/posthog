@@ -53,7 +53,6 @@ from products.data_modeling.backend.facade.models import (
 from products.data_modeling.backend.logic.node_description import (
     NodeDescription,
     can_describe_node,
-    get_describable_table,
     load_node_descriptions,
     warehouse_table_id,
     write_node_description,
@@ -652,8 +651,10 @@ class NodeViewSet(
         node = cast(Node, serializer.instance)
         self._require_view_edit_access(node.saved_query)
         if "description" in serializer.validated_data:
-            table = get_describable_table(node)
-            if table is not None and not self.user_access_control.check_access_level_for_object(table, "editor"):
+            table_id = warehouse_table_id(node)
+            if table_id is not None and not allowed_table_ids(
+                self.team_id, self.user_access_control, required_level="editor", ids={table_id}
+            ):
                 raise PermissionDenied(TABLE_EDIT_DENIED)
         if not NodeSerializer.writes_cadence(serializer.validated_data):
             serializer.save()

@@ -27,6 +27,7 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
+from posthog.llm.semantic_enrichment import upsert_user_edited_annotation
 from posthog.uuidt import UUIDT
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
@@ -40,6 +41,9 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
+)
+from products.warehouse_sources.backend.models.column_annotation import (
+    WarehouseColumnAnnotation as _WarehouseColumnAnnotation,
 )
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
@@ -98,6 +102,9 @@ __all__ = [
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
+    "live_table_exists",
+    "table_level_descriptions",
+    "write_table_level_description",
     "denied_table_ids",
     "pending_source_ids_for_tables",
     "tables_awaiting_first_sync",
@@ -539,6 +546,46 @@ def _resolve_allowed_table_ids(
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
     return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
+
+
+def table_level_descriptions(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableLevelDescription]:
+    """The text that `TableDescriptions` resolves for each table: the annotation, then the source schema."""
+    descriptions: dict[UUID, contracts.TableLevelDescription] = {}
+    for table_id, text in (
+        _ExternalDataSchema.objects.filter(team_id=team_id, table_id__in=table_ids, deleted=False)
+        .exclude(description__isnull=True)
+        .exclude(description="")
+        .order_by("updated_at")
+        .values_list("table_id", "description")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(text=text or "", source=None)
+    for table_id, text, source in (
+        _WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id__in=table_ids, column_name="")
+        .values_list("table_id", "description", "description_source")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(text=text, source=source)
+    return descriptions
+
+
+def live_table_exists(team_id: int, table_id: UUID) -> bool:
+    return _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).exists()
+
+
+def write_table_level_description(team_id: int, table_id: UUID, description: str) -> None:
+    """Store a user edit, protected from enrichment. An empty description deletes the row."""
+    if not description:
+        _WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table_id, column_name="").delete()
+        return
+    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).get()
+    upsert_user_edited_annotation(
+        _WarehouseColumnAnnotation,
+        team_id,
+        parent_field="table",
+        parent=table,
+        column_name="",
+        description=description,
+    )
 
 
 def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:

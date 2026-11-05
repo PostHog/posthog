@@ -322,6 +322,14 @@ class ExternalDataJob:
 
 
 @dataclass(frozen=True)
+class TableLevelDescription:
+    """What a warehouse table represents. `source` is null for text from the source schema."""
+
+    text: str
+    source: str | None
+
+
+@dataclass(frozen=True)
 class WarehouseColumnAnnotation:
     """A user/AI description attached to a warehouse table column."""
 
