@@ -18143,6 +18143,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -24632,6 +24636,17 @@
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
+                "severity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingQueryIssueSeverity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue severity."
+                },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingQueryStatus",
                     "description": "Filter by issue status."
@@ -26438,9 +26453,24 @@
             "additionalProperties": false,
             "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
             "properties": {
+                "description": {
+                    "description": "What the check looks for and why it matters. Missing on an answer cached before the field existed.",
+                    "type": "string"
+                },
                 "key": {
                     "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
                     "description": "Stable identifier of the check."
+                },
+                "measurement": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthMeasurement"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The value that decided a passed check. Null for the other statuses and for a pass without a value."
                 },
                 "name": {
                     "description": "The problem the check looks for, as the health panel lists it.",
@@ -26548,6 +26578,38 @@
         },
         "ExperimentExposureHealthFindingSeverity": {
             "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthMeasurement": {
+            "additionalProperties": false,
+            "description": "The value that decided a passed exposure check, against its threshold.",
+            "properties": {
+                "threshold": {
+                    "description": "The value at which the check reports a finding.",
+                    "type": "number"
+                },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentExposureHealthMeasurementUnit",
+                    "description": "percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test."
+                },
+                "value": {
+                    "description": "The value that the check measured on the experiment.",
+                    "type": "number"
+                },
+                "warns": {
+                    "$ref": "#/definitions/ExperimentExposureHealthMeasurementSide",
+                    "description": "The side of the threshold that reports a finding."
+                }
+            },
+            "required": ["value", "threshold", "unit", "warns"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthMeasurementSide": {
+            "enum": ["above", "below"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthMeasurementUnit": {
+            "enum": ["percentage", "p_value"],
             "type": "string"
         },
         "ExperimentExposureNode": {
@@ -37831,10 +37893,14 @@
                                 {
                                     "const": "threads",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "th",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 9,
-                            "minItems": 9,
+                            "maxItems": 10,
+                            "minItems": 10,
                             "type": "array"
                         },
                         "idField": {
@@ -39650,7 +39716,8 @@
                 "whatsapp",
                 "audience_network",
                 "facebook_marketplace",
-                "threads"
+                "threads",
+                "th"
             ],
             "type": "string"
         },
@@ -39730,6 +39797,13 @@
                 "type": {
                     "const": "MetricsAlertConfig",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                    },
+                    "description": "Values for the `$name` variables in the insight's query.",
+                    "type": "object"
                 }
             },
             "required": ["type"],

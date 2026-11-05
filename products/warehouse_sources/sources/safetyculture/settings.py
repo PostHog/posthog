@@ -116,6 +116,37 @@ SAFETYCULTURE_ENDPOINTS: dict[str, SafetyCultureEndpointConfig] = {
         # partition key.
         partition_key=None,
     ),
+    # Membership and assignee join feeds. None exposes `created_at`, and a full refresh is the only
+    # way to drop a removed membership or assignment, so they all sync full refresh.
+    "group_users": SafetyCultureEndpointConfig(
+        name="group_users",
+        path="/feed/group_users",
+        supports_incremental=False,
+        partition_key=None,
+        primary_keys=["group_id", "user_id"],
+    ),
+    "site_members": SafetyCultureEndpointConfig(
+        name="site_members",
+        path="/feed/site_members",
+        supports_incremental=False,
+        partition_key=None,
+        primary_keys=["site_id", "member_id"],
+    ),
+    "action_assignees": SafetyCultureEndpointConfig(
+        name="action_assignees",
+        path="/feed/action_assignees",
+        # The feed accepts `modified_after` (on the parent action), but its rows carry no
+        # `modified_at` to hold the watermark.
+        supports_incremental=False,
+        partition_key=None,
+    ),
+    "issue_assignees": SafetyCultureEndpointConfig(
+        name="issue_assignees",
+        path="/feed/issue_assignees",
+        # The issue assignees feed documents no `modified_after` param, so it's full refresh only.
+        supports_incremental=False,
+        partition_key=None,
+    ),
 }
 
 ENDPOINTS = tuple(SAFETYCULTURE_ENDPOINTS.keys())

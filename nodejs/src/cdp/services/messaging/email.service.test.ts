@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { Pool } from 'pg'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -12,6 +13,7 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -27,6 +29,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { EmailAttachmentsService } from './email-attachments.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -916,11 +919,13 @@ describe('EmailService', () => {
 
         describe('team sending cap (enforce mode)', () => {
             let claimAllOrNothingPair: jest.Mock
+            let claimUpTo: jest.Mock
             let cappedService: EmailService
             let cappedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
                 claimAllOrNothingPair = jest.fn()
+                claimUpTo = jest.fn().mockResolvedValue(0)
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
                 cappedService = new EmailService(
@@ -946,7 +951,7 @@ describe('EmailService', () => {
                     { report: jest.fn() },
                     undefined,
                     null,
-                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                    { claimAllOrNothingPair, claimUpTo } as unknown as RateLimiterService
                 )
                 cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
                 cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -955,6 +960,54 @@ describe('EmailService', () => {
             afterEach(() => {
                 jest.restoreAllMocks()
             })
+
+            const buildEnforcedService = (
+                name: string,
+                hourlyCap: number,
+                dailyCap: number
+            ): { service: EmailService; sendSpy: jest.SpyInstance; limiter: RateLimiterService } => {
+                const redis = createRedisV2PoolFromConfig({
+                    connection: hub.CDP_REDIS_HOST
+                        ? {
+                              url: hub.CDP_REDIS_HOST,
+                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          }
+                        : { url: hub.REDIS_URL },
+                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                })
+                const limiter = new RateLimiterService(redis, { name })
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                const service = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [hourlyCap],
+                        teamEmailTierDailyCaps: [dailyCap],
+                    },
+                    hub.integrationManager,
+                    configService,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    { report: jest.fn() },
+                    undefined,
+                    null,
+                    limiter
+                )
+                const sendSpy = jest.spyOn(service.sesV2Client!, 'send') as any
+                sendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                return { service, sendSpy, limiter }
+            }
 
             it.each([
                 // A reserved slot is exclusive and is parked on exactly; spreading it would
@@ -1015,6 +1068,26 @@ describe('EmailService', () => {
                 expect(messages).toContain("Could not check this project's email sending limit")
             })
 
+            it('sends a transactional email past the cap and charges the buckets anyway', async () => {
+                claimAllOrNothingPair.mockResolvedValue({
+                    granted: false,
+                    deniedIndex: 1,
+                    retryAfterMs: 30 * 60 * 1000,
+                    reserved: true,
+                })
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(claimAllOrNothingPair).not.toHaveBeenCalled()
+                expect(claimUpTo).toHaveBeenCalledTimes(2)
+                // No cap was applied, so the customer must not be told one was.
+                expect(result.logs.map((log) => log.message).join(' ')).not.toContain('reached its email sending limit')
+            })
+
             it('sends when the claim is granted', async () => {
                 claimAllOrNothingPair.mockResolvedValue({
                     granted: true,
@@ -1042,46 +1115,11 @@ describe('EmailService', () => {
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const hourlyCap = 360
                 const dailyCap = 8640
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                const enforcedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [hourlyCap],
-                        teamEmailTierDailyCaps: [dailyCap],
-                    },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    null,
-                    limiter
-                )
-                const enforcedSendSpy = jest.spyOn(enforcedService.sesV2Client!, 'send') as any
-                enforcedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                const {
+                    service: enforcedService,
+                    sendSpy: enforcedSendSpy,
+                    limiter,
+                } = buildEnforcedService('team-email-cap-test', hourlyCap, dailyCap)
 
                 // Drain the capped team's hourly bucket so every send below is a denial. The
                 // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
@@ -1129,6 +1167,72 @@ describe('EmailService', () => {
 
                 expect(otherResult.finished).toBe(true)
                 expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+            })
+
+            // Enforce mode has only ever issued claimAllOrNothingPair against real Valkey, so
+            // transactional through the single-key claimUpTo has never run there. Real limiter.
+            it('charges a transactional send against the real buckets without delaying it', async () => {
+                const hourlyCap = 60
+                const dailyCap = 50
+                const {
+                    service: enforcedService,
+                    sendSpy: enforcedSendSpy,
+                    limiter,
+                } = buildEnforcedService('team-email-cap-transactional-test', hourlyCap, dailyCap)
+
+                // A team of its own, so the buckets start cold whatever else touched Valkey.
+                const capTeam = (await createTestTeamFixture(hub.postgres)).team
+                await insertIntegration(hub.postgres, capTeam.id, {
+                    id: capTeam.id + 1,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const sendFor = (id: string, transactional: boolean): CyclotronJobInvocationHogFunction => {
+                    const next = createExampleInvocation({ team_id: capTeam.id, id: `function-${id}` })
+                    next.id = `invocation-${id}`
+                    next.state.vmState = { stack: [] } as any
+                    next.queueParameters = createEmailParams()
+                    next.queueParameters.from = { integrationId: capTeam.id + 1 }
+                    if (transactional) {
+                        next.hogFunction.metadata = { message_category_type: 'transactional' }
+                    }
+                    return next
+                }
+
+                // Empty the hourly bucket only, so the daily one can show the charge.
+                const buckets = teamEmailCapBuckets(capTeam.id, hourlyCap, dailyCap)
+                await limiter.claimUpTo({
+                    key: buckets[0].key,
+                    requested: hourlyCap,
+                    capacity: buckets[0].capacity,
+                    refillPerSecond: buckets[0].refillPerSecond,
+                })
+
+                // Control: the cap really is reached, so a marketing send parks.
+                const marketing = await enforcedService.executeSendEmail(sendFor('marketing', false))
+                expect(marketing.finished).toBe(false)
+                expect(enforcedSendSpy).not.toHaveBeenCalled()
+
+                const transactional = await enforcedService.executeSendEmail(sendFor('transactional', true))
+                expect(transactional.finished).toBe(true)
+                expect(transactional.invocation.queueScheduledAt).toBeUndefined()
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+
+                // A range, not an exact count, because the daily bucket refills as the test runs.
+                const dailyLeft = await limiter.claimUpTo({
+                    key: buckets[1].key,
+                    requested: dailyCap,
+                    capacity: buckets[1].capacity,
+                    refillPerSecond: buckets[1].refillPerSecond,
+                })
+                expect(dailyLeft).toBeLessThan(dailyCap)
+                expect(dailyLeft).toBeGreaterThanOrEqual(dailyCap - 2)
             })
         })
     })
@@ -1283,6 +1387,122 @@ describe('EmailService', () => {
                 EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+        })
+
+        describe('attachments', () => {
+            let attachments: EmailAttachmentsService
+            let assertPool: Pool
+            const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x9f, 0xff])
+            const files = decodeAttachments({
+                tracking: { captureEngagement: false },
+                attachments: [
+                    {
+                        filename: 'report.pdf',
+                        content: pdfBytes.toString('base64'),
+                        contentType: 'application/pdf',
+                    },
+                    {
+                        filename: 'logo.png',
+                        content: Buffer.from('png bytes').toString('base64'),
+                        contentType: 'image/png',
+                        contentId: 'logo',
+                    },
+                ],
+            })
+
+            beforeEach(() => {
+                attachments = new EmailAttachmentsService(hub.CYCLOTRON_NODE_DATABASE_URL)
+                service['emailAttachmentsService'] = attachments
+                assertPool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                invocation.id = new UUIDT().toString()
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: attachmentMetadata(files),
+                })
+            })
+
+            afterEach(async () => {
+                await attachments.stop()
+                await assertPool.end()
+            })
+
+            it.each([
+                ['on the first try', null],
+                [
+                    'on the retry after an SES throttle',
+                    () => sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded')),
+                ],
+                [
+                    'on the retry after the attachment store fails to answer',
+                    () =>
+                        jest
+                            .spyOn(attachments, 'load')
+                            .mockRejectedValueOnce(new Error('timeout exceeded when trying to connect')),
+                ],
+            ])('delivers the files to SES as Base64 attachments %s', async (_name, failFirstTry) => {
+                failFirstTry?.()
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                await attachments.store(invocation.id, team.id, files)
+
+                let result = await service.executeSendEmail(invocation)
+                if (failFirstTry) {
+                    expect(result.finished).toBe(false)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                    result = await service.executeSendEmail(result.invocation)
+                }
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls.at(-1)![0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Attachments).toEqual([
+                    {
+                        RawContent: pdfBytes,
+                        FileName: 'report.pdf',
+                        ContentType: 'application/pdf',
+                        ContentId: undefined,
+                        ContentDisposition: 'ATTACHMENT',
+                        ContentTransferEncoding: 'BASE64',
+                    },
+                    {
+                        RawContent: Buffer.from('png bytes'),
+                        FileName: 'logo.png',
+                        ContentType: 'image/png',
+                        ContentId: 'logo',
+                        ContentDisposition: 'INLINE',
+                        ContentTransferEncoding: 'BASE64',
+                    },
+                ])
+            })
+
+            it.each([
+                ['no row is stored', async () => {}],
+                [
+                    'the files under this job id belong to another team',
+                    async () => {
+                        await attachments.store(invocation.id, team.id + 1, files)
+                    },
+                ],
+                [
+                    'a stored file does not match its checksum',
+                    async () => {
+                        await attachments.store(invocation.id, team.id, files)
+                        await assertPool.query(
+                            `UPDATE cyclotron_email_attachments SET content = 'other bytes' WHERE job_id = $1 AND position = 1`,
+                            [invocation.id]
+                        )
+                    },
+                ],
+            ])('fails the send as attachments_missing and sends nothing when %s', async (_name, arrange) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                await arrange()
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/^attachments_missing: /)
             })
         })
 

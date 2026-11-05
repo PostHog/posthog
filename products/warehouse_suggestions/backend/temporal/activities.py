@@ -16,7 +16,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.rollout import filter_ids_for_rollout
 
-from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.job import TeamRunStatus, run_team, team_ids_with_suggestions_to_maintain
 from ..logic.reads import ReadWindow, read_rollup_days
 from ..logic.rules import RULES
@@ -38,14 +37,13 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
         LOGGER.info("warehouse_suggestions.skipped_by_kill_switch")
         return []
     candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_to_run()
-    teams = (
+    team_ids = list(
         Team.objects.filter(
             id__in=candidate_ids, is_demo=False, parent_team__isnull=True, organization__for_internal_metrics=False
         )
-        .select_related("organization")
         .order_by("id")
+        .values_list("id", flat=True)
     )
-    team_ids = [team.pk for team in teams if is_warehouse_suggestions_enabled(team)]
     if inputs.rollout_percentage < FULL_ROLLOUT:
         team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
     return [list(batch) for batch in batched(team_ids, inputs.batch_size, strict=False)]

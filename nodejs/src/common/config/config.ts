@@ -57,7 +57,10 @@ export function overrideWithEnv(
     }
     const newConfig: PluginsServerConfig = { ...tmpConfig }
 
-    newConfig.DATABASE_URL = buildPosthogDatabaseUrl(newConfig)
+    // A service that never opens Postgres runs without database settings, so PostgresRouter reports a missing URL instead.
+    if (newConfig.DATABASE_URL || newConfig.POSTHOG_DB_NAME) {
+        newConfig.DATABASE_URL = buildPosthogDatabaseUrl(newConfig)
+    }
 
     newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = buildBehavioralCohortsDatabaseUrl(newConfig)
 

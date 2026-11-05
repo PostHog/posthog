@@ -34,6 +34,17 @@ ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=5,
 )
 
+# The inbox signal is best effort. Few attempts and short clocks keep a stuck send from holding the
+# check open; the attempt clock leaves room for the send's own time limit and the cap refund.
+ALERT_SIGNAL_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=2),
+    maximum_interval=dt.timedelta(seconds=10),
+    backoff_coefficient=2.0,
+    maximum_attempts=2,
+)
+ALERT_SIGNAL_START_TO_CLOSE = dt.timedelta(seconds=45)
+ALERT_SIGNAL_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
+
 
 @dataclasses.dataclass(frozen=True)
 class SlotLease:
@@ -80,7 +91,7 @@ class AlertTimeouts:
         evaluate_retry_policy: RetryPolicy,
     ) -> "AlertTimeouts":
         return cls(
-            workflow_execution=prepare + evaluate + notify,
+            workflow_execution=prepare + evaluate + notify + ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
             activity_schedule_to_close=evaluate,
             evaluate_start_to_close=evaluate,
             evaluate_retry_policy=evaluate_retry_policy,

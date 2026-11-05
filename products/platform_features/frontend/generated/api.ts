@@ -24,8 +24,6 @@ import type {
     CommentSlackThreadApi,
     CommentsListParams,
     DiagnosticReportApi,
-    InternalFeedbackCreateBody,
-    InternalFeedbackResponseApi,
     ListParams,
     MemberOffboardingResourceApi,
     MembersListParams,
@@ -83,38 +81,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getInternalFeedbackCreateUrl = () => {
-    return `/api/internal_feedback/`
-}
-
-/**
- * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
- */
-export const internalFeedbackCreate = async (
-    internalFeedbackCreateBody?: InternalFeedbackCreateBody,
-    options?: RequestInit
-): Promise<InternalFeedbackResponseApi> => {
-    const formData = new FormData()
-    if (internalFeedbackCreateBody?.comment !== undefined) {
-        formData.append(`comment`, internalFeedbackCreateBody.comment)
-    }
-    if (internalFeedbackCreateBody?.page_url !== undefined) {
-        formData.append(`page_url`, internalFeedbackCreateBody.page_url)
-    }
-    if (internalFeedbackCreateBody?.element_identifier !== undefined) {
-        formData.append(`element_identifier`, internalFeedbackCreateBody.element_identifier)
-    }
-    if (internalFeedbackCreateBody?.screenshot !== undefined) {
-        formData.append(`screenshot`, internalFeedbackCreateBody.screenshot)
-    }
-
-    return apiMutator<InternalFeedbackResponseApi>(getInternalFeedbackCreateUrl(), {
-        ...options,
-        method: 'POST',
-        body: formData,
-    })
-}
 
 export const getListUrl = (params?: ListParams) => {
     const normalizedParams = new URLSearchParams()
