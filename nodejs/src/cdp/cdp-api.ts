@@ -34,7 +34,7 @@ import {
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
-import { HogFlow, HogFlowAction } from './schema/hogflow'
+import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
@@ -48,34 +48,28 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
-import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
-import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
-    AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
-    QueuedSend,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
-    decodeAttachments,
+    TransactionalSendRefusal,
     isRecipientFormatIssue,
-    queuedSend,
-    transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
+import { TransactionalSends } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
-import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -178,34 +172,16 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
     return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
 
-const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
-
-const transactionalEmailFingerprint = (
-    hogFlowId: string,
-    { to, distinct_id, variables }: TransactionalEmailRequest,
-    send: QueuedSend | undefined
-): string => {
-    const templateRequest = [hogFlowId, to, distinct_id, variables]
-    return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
-    )
-}
-
-type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
-
-const withSenderTheCallerChose = ({
-    from,
-    ...send
-}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
-    ...send,
-    from: senderTheCallerChose(from),
-})
-
-const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
-    if (!from) {
-        return undefined
-    }
-    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
+const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
+    idempotency_key_in_flight: 409,
+    idempotency_key_reused: 422,
+    idempotency_unavailable: 503,
+    not_sendable: 400,
+    sending_suspended: 422,
+    sending_paused: 422,
+    recipient_suppressed: 422,
+    quota_limited: 429,
+    recipient_unreachable: 422,
 }
 
 export class CdpApi {
@@ -1250,8 +1226,6 @@ export class CdpApi {
                     })
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
-                const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
-
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
                 const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
@@ -1269,128 +1243,18 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
 
-                stages.start('build')
-                const event: HogFunctionInvocationGlobals['event'] = {
-                    uuid: new UUIDT().toString(),
-                    event: TRANSACTIONAL_EMAIL_EVENT,
-                    distinct_id: distinctId,
-                    timestamp: DateTime.now().toISO(),
-                    url: '',
-                    // The email step's recipient reads this.
-                    properties: { to },
-                    elements_chain: '',
-                }
-                const triggerGlobals: HogFunctionInvocationGlobals = {
-                    event,
-                    project: {
-                        id: team.id,
-                        name: team.name,
-                        url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                    },
-                    variables,
-                }
-                const filterGlobals = convertToHogFunctionFilterGlobal({
-                    event,
-                    person: undefined,
-                    groups: {},
-                    variables,
-                })
-
-                const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-                const files = decodeAttachments(send)
-                const sendToQueue = send ? queuedSend(send, files) : undefined
-                if (sendToQueue) {
-                    invocation.state.send = sendToQueue
-                }
-                // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
-                // worker counts it instead.
-                invocation.state.triggerMetricPending = true
-                // Straight to the email queue: the flow's only step is the email, so a hop through the
-                // workflow queue would only add latency to a password reset or a verification code.
-                const priorityClass: EmailQueuePriorityClass = 'fast'
-                invocation.queue = 'email'
-                invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
-
-                const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, sendToQueue)
-                if (idempotencyKey) {
-                    // Checked before the quota, so a retry of a send that went out gets its answer even
-                    // when the team has hit its quota since.
-                    stages.start('idempotency')
-                    const reservation = await idempotencyKeys.reserve(
-                        team.id,
-                        idempotencyKey,
-                        fingerprint,
-                        invocation.id
-                    )
-                    switch (reservation.status) {
-                        case 'replayed':
-                            return reply('replayed', 202, {
-                                status: 'queued',
-                                invocation_id: reservation.invocationId,
-                                replayed: true,
-                            })
-                        case 'in_flight':
-                            return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
-                        case 'conflict':
-                            return reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
-                        case 'unavailable':
-                            return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
-                    }
-                }
-                try {
-                    stages.start('checks')
-                    const refusal = await this.refuseTransactionalEmail(
-                        team.id,
-                        hogFlow,
-                        transactionalEmailRecipients(parsed.data)
-                    )
-                    if (refusal) {
-                        if (idempotencyKey) {
-                            stages.start('idempotency')
-                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                        }
-                        return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
-                    }
-                    if (files.length) {
-                        stages.start('files')
-                        await this.emailAttachmentsService.store(invocation.id, team.id, files)
-                    }
-                    stages.start('queue_insert')
-                    this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-                    try {
-                        await this.hogflowQueue.queueInvocations([invocation])
-                    } catch (error) {
-                        this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                        throw error
-                    }
-                    cdpEmailQueuedTotal.labels(priorityClass).inc()
-                } catch (error) {
-                    // Nothing was queued, so the caller's retry with the same key must be able to send.
-                    if (idempotencyKey) {
-                        stages.start('idempotency')
-                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                    }
-                    throw error
-                }
-                if (idempotencyKey) {
-                    stages.start('idempotency')
-                    await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
-                }
-                stages.start('metrics_flush')
-                this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
-                // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
-                const warnTelemetryFlushFailed = (error: unknown) =>
-                    logger.warn('⚠️', 'Transactional email telemetry flush failed', {
-                        error: error instanceof Error ? error.message : String(error),
-                        invocation_id: invocation.id,
+                const result = await this.transactionalSendsForRequest().accept(team, hogFlow, parsed.data, stages)
+                if ('invocationId' in result) {
+                    const replayed = result.outcome === 'replayed'
+                    return reply(result.outcome, 202, {
+                        status: 'queued',
+                        invocation_id: result.invocationId,
+                        replayed,
                     })
-                void this.emailStatusService.flush().catch(warnTelemetryFlushFailed)
-                const { produced } =
-                    await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
-                void produced.catch(warnTelemetryFlushFailed)
-
-                return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                }
+                return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
+                    error: result.outcome,
+                })
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1401,51 +1265,19 @@ export class CdpApi {
             }
         }
 
-    // The email worker skips a send for these reasons too, but only after the caller has its 202. Checking them
-    // here tells the caller that the email will not go out. The worker keeps its checks, because the state can
-    // change while the job waits on the queue.
-    private async refuseTransactionalEmail(
-        teamId: number,
-        hogFlow: HogFlow,
-        recipients: string[]
-    ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
-        if (hogFlow.status !== 'active') {
-            return { outcome: 'not_sendable', status: 400 }
-        }
-        // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
-        // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
-        // refusals are rare and the verdict is cached per domain.
-        const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
-        const suppressed = Promise.all(
-            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
-        )
-        const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
-        // A DNS failure lets the send through.
-        const recipientSkipReasons = Promise.all(
-            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
-        )
-        // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
-        for (const lookup of lookups) {
-            lookup.catch(() => undefined)
-        }
-
-        if (await suspension) {
-            return { outcome: 'sending_suspended', status: 422 }
-        }
-        if (hogFlow.email_sending_paused_at) {
-            return { outcome: 'sending_paused', status: 422 }
-        }
-        if ((await suppressed).some(Boolean)) {
-            return { outcome: 'recipient_suppressed', status: 422 }
-        }
-        if ((await quota).isLimited) {
-            return { outcome: 'quota_limited', status: 429 }
-        }
-        if ((await recipientSkipReasons).some(Boolean)) {
-            return { outcome: 'recipient_unreachable', status: 422 }
-        }
-        return null
+    private transactionalSendsForRequest(): TransactionalSends {
+        return new TransactionalSends({
+            siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
+            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
+            queue: this.hogflowQueue,
+            invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
+            emailStatus: this.emailStatusService,
+            teamWorkflowsConfig: this.teamWorkflowsConfigService,
+            emailSuppression: this.emailSuppressionService,
+            emailValidation: this.emailValidationService,
+            quotaLimiting: this.deps.quotaLimiting,
+            emailAttachments: this.emailAttachmentsService,
+        })
     }
 
     private verifyScopedWorkflowJwt(
