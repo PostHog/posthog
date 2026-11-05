@@ -168,6 +168,7 @@ dependencies = [
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.2",
+    "ruamel.yaml~=0.18.12",
     "chdb==4.3.0",
     # chdb allows any chdb-core>=26.7.0, and engines before 26.9.0 accept a TLS certificate issued for another host.
     "chdb-core==26.9.0",

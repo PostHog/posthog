@@ -1,0 +1,15 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            // The message normalizer tests read recipe YAML, the case file shared with the frontend, and the frontend's
+            // copies of the bundled recipes, which the root .py globs miss.
+            "inputs": [
+                "$TURBO_EXTENDS$",
+                "backend/**/*.yaml",
+                "shared/**",
+                "../../packages/llm-normalizer/src/normalizer/recipe/default_recipes/**"
+            ]
+        }
+    }
+}
