@@ -31,7 +31,7 @@ def _message(kind: str, ts: str | None = None) -> SlackAppOnboardingMessage:
         blocks=[],
         ts=ts,
         step="model" if kind == "step" else None,
-        root_status="1 of 3 steps done" if kind == "root" else None,
+        root_status="1/3 done" if kind == "root" else None,
         summarizes_step=kind == "step" and ts is not None,
     )
 
@@ -169,9 +169,9 @@ async def test_each_activity_names_the_message_it_sends_in_the_history(env: Work
     summaries = await _run(env, slack, refreshes=2)
 
     assert summaries == [
-        *["plan", "post top message: 1 of 3 steps done", "plan", "post model: show step"],
-        *["plan", "edit model: shrink to one line", "edit top message: 1 of 3 steps done", "post model: show step"],
-        *["plan", "edit top message: 1 of 3 steps done", "post ready message"],
+        *["plan", "post top message: 1/3 done", "plan", "post model: show step"],
+        *["plan", "edit model: shrink to one line", "edit top message: 1/3 done", "post model: show step"],
+        *["plan", "edit top message: 1/3 done", "post ready message"],
     ]
 
 

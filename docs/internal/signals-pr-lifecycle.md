@@ -2,7 +2,7 @@
 
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
-Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. When Monitoring is enabled, the Monitoring option in the statuses dropdown filters by `status=monitoring`; disabled projects hide that option and skip its list and count requests. Review and merge continues to show reports with an open implementation PR.
+Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. Review and merge continues to show reports with an open implementation PR.
 
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.

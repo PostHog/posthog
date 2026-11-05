@@ -24,7 +24,7 @@ from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.signals.backend.anomaly_scores.config import (
     MAX_LIMITS,
     AnomalyScoringConfig,
-    covers_team,
+    enrolls_team,
     parse_config,
     read_payload,
 )
@@ -45,6 +45,7 @@ from products.signals.backend.anomaly_scores.read import (
 )
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import insight_usage
+from products.signals.backend.facade.source_configs import analytics_source_enabled
 
 TOP_SERIES = 3
 FLAGGED_POINTS = 5
@@ -53,6 +54,10 @@ URL_PADDING_BUCKETS = 7
 # The scorer writes at most this many series per insight. More come from events any member can capture.
 MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
+SCORING_SOURCE_OFF_MESSAGE = (
+    "The Product analytics source is turned off in this project's self-driving settings, so no insight is scored. "
+    "Scores written before it was turned off stay readable."
+)
 SCORING_TURNED_OFF_MESSAGE = (
     "Anomaly scoring is turned off in this project's self-driving settings, so no insight is scored. "
     "Scores written before it was turned off stay readable."
@@ -209,8 +214,10 @@ def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters
 
 def _scoring_off_message(config: AnomalyScoringConfig, team: Team) -> str | None:
     """Why the tick does not score this team's insights, or None when it does."""
-    if not covers_team(config, team):
+    if not enrolls_team(config, team):
         return SCORING_DISABLED_MESSAGE
+    if not analytics_source_enabled(team.id):
+        return SCORING_SOURCE_OFF_MESSAGE
     if turned_off_in_settings(team):
         return SCORING_TURNED_OFF_MESSAGE
     return None
