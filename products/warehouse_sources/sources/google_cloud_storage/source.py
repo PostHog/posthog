@@ -2,7 +2,6 @@ from typing import Any, cast
 
 from products.warehouse_sources.sources.google_cloud_storage._config import GoogleCloudStorageSourceConfig
 from products.warehouse_sources.sources.sdk import (
-    FEATURE_FLAG,
     GCS_EXAMPLE_URL,
     KEYWORDS,
     DataWarehouseSourceCategory,
@@ -38,7 +37,6 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
     )
 
     api_docs_url = "https://cloud.google.com/storage/docs/interoperability"
-    requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "gcs"
 
     @property
@@ -80,7 +78,6 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
             caption=source_caption("a Google Cloud Storage bucket"),
             iconPath="/static/services/google-cloud-storage.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
             fields=cast(
                 list[FieldType],
                 [
