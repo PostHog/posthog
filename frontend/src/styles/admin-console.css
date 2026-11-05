@@ -40,12 +40,13 @@
 }
 
 /* Each deployment gets its own tint, so a staff member with several regions open can tell the tabs
- * apart. `--theme-hue` and `--theme-tint` are quill's documented theme knobs; they shift every
- * surface, not only the stripe. */
+ * apart. `--theme-hue`, `--theme-dark-hue` and `--theme-tint` are quill's documented theme knobs; they
+ * shift every surface, not only the stripe. */
 [data-env='dev'] {
     --console-env: #a0ca21;
     --console-env-ink: #4a5e0f;
     --theme-hue: 125;
+    --theme-dark-hue: 125;
     --theme-tint: 0.012;
 }
 
@@ -53,6 +54,7 @@
     --console-env: #1490e8;
     --console-env-ink: #0b4f80;
     --theme-hue: 240;
+    --theme-dark-hue: 240;
     --theme-tint: 0.012;
 }
 
@@ -60,7 +62,21 @@
     --console-env: #ff5c1c;
     --console-env-ink: #a12d00;
     --theme-hue: 40;
+    --theme-dark-hue: 40;
     --theme-tint: 0.014;
+}
+
+/* The light inks are too dark to read on a dark surface. */
+[data-env='dev'][theme='dark'] {
+    --console-env-ink: #c8e86a;
+}
+
+[data-env='eu'][theme='dark'] {
+    --console-env-ink: #7cc4f5;
+}
+
+[data-env='us'][theme='dark'] {
+    --console-env-ink: #ff9a70;
 }
 
 @layer components {
@@ -74,7 +90,7 @@
 
     .console-env-pill {
         color: var(--console-env-ink);
-        background: color-mix(in oklab, var(--console-env) 22%, white);
+        background: color-mix(in oklab, var(--console-env) 22%, var(--card));
         border: 1px solid var(--console-env);
     }
 

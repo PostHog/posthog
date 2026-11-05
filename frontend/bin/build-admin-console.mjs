@@ -44,6 +44,13 @@ function inlineFonts(css) {
     })
 }
 
+// The head of the color icon is near-black, so it disappears on a dark surface. The web app uses the
+// white mono logomark in dark mode, and this is the same mark as a file the templates can link to.
+function writeMonoIcon() {
+    const icon = fs.readFileSync(path.join(FRONTEND, 'public/posthog-icon.svg'), 'utf8')
+    fs.writeFileSync(path.join(OUT_DIR, 'posthog-icon-mono.svg'), icon.replace(/fill="[^"]+"/g, 'fill="#fff"'))
+}
+
 function copyHoggies() {
     const hoggieDir = path.join(OUT_DIR, 'hoggies')
     fs.mkdirSync(hoggieDir, { recursive: true })
@@ -93,5 +100,6 @@ async function writeCrests() {
 fs.mkdirSync(OUT_DIR, { recursive: true })
 fs.rmSync(path.join(OUT_DIR, 'fonts'), { recursive: true, force: true })
 await buildStylesheet()
+writeMonoIcon()
 copyHoggies()
 await writeCrests()
