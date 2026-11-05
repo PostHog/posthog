@@ -304,7 +304,7 @@ class _InFlightLimit:
     """Caps the runs a backfill has in flight, so a backfill slows to what the provider key allows.
 
     A run that failed because the provider kept rate limiting it, or stayed down, halves the cap. After as many
-    evaluated runs as the cap, the cap rises by one, up to the configured maximum.
+    evaluated runs as the cap within one page, the cap rises by one, up to the configured maximum.
     """
 
     def __init__(self, maximum: int, limit: int = 0) -> None:
