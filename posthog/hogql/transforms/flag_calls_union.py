@@ -10,7 +10,11 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 """
 
 from collections.abc import Callable
+from functools import cache, partial
+from math import floor
 from typing import TYPE_CHECKING, cast
+
+import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import FLAG_CALLED_EVENT
@@ -52,8 +56,11 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     compared_values,
     comparison_of,
     filter_conjuncts,
+    flag_calls_only_in_flag_evaluations_error,
     flag_key_predicate,
     point_scan_at,
+    ratio_sample_fraction,
+    team_flag_key_compares_as_string,
 )
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor
@@ -63,6 +70,8 @@ from posthog.property_columns import TableColumn
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+
+logger = structlog.get_logger(__name__)
 
 # The joins whose resolver compares only the join's key and `extra_from_fields` on the source table. Lazy table
 # resolution projects exactly those from the union, so a join that reads anything else would name a missing column.
@@ -96,6 +105,8 @@ class UnionRename:
     renamed: bool
     # Why the union cannot read each other scan that names `$feature_flag_called` with other events.
     refusals: tuple[str, ...]
+    # The (start, end) of each `$feature_flag_called` literal that a renamed scan compares with its `event`.
+    literal_spans: frozenset[tuple[int, int]] = frozenset()
 
 
 def read_flag_calls_with_union(
@@ -117,6 +128,51 @@ def read_flag_calls_with_union(
     return rename_flag_call_scans_to_union(
         node, flag_key_compares_as_string, only_in_flag_evaluations=only_in_flag_evaluations
     )
+
+
+def union_applies(context: HogQLContext) -> bool:
+    """Whether the union reads this query's mixed flag-call scans."""
+    return _union_database(context) is not None
+
+
+def read_flag_calls_in_inline_cohort(
+    query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Points each flag-call scan in an inline cohort `query` at the union, in place, and returns `query`.
+
+    The resolver and the subquery and LEFTJOIN paths of `IN COHORT` splice an inline cohort in after the swap in
+    `resolve_flag_calls_from_flag_evaluations` has run, so that swap never sees its scans. Only the rename applies
+    here, because the swap's binding check needs the whole query.
+
+    Only an organization whose flag calls are only in `flag_evaluations` reads the union here. While `events` holds
+    every flag call, an inline cohort reads them from `events` as before. `resolve_in_cohorts_conjoined` splices its
+    cohorts in before the swap runs, so its caller passes `read_flag_calls_from_union=False`: the swap sees those scans.
+    """
+    database = _union_database(context)
+    if database is None or not database.flag_calls_only_in_flag_evaluations:
+        return query
+    renamer = _UnionRenamer(
+        cache(partial(team_flag_key_compares_as_string, context)),
+        only_in_flag_evaluations=True,
+        rename_flag_only_scans=True,
+    )
+    renamer.visit(query)
+    if renamer.refusals:
+        raise flag_calls_only_in_flag_evaluations_error(renamer.refusals[0])
+    return query
+
+
+def require_union_readable(resolved: ast.AST, context: HogQLContext, view_name: str | None = None) -> None:
+    """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a union scan in
+    `resolved` that reads a field the union cannot supply. An inline cohort is spliced in after the rename, so only
+    the resolved query shows its scans. `IN COHORT` resolves its join before lazy table resolution builds the
+    union, so that call is the last point where ClickHouse has not yet rejected the query."""
+    database = _union_database(context)
+    if database is None or not database.flag_calls_only_in_flag_evaluations:
+        return
+    unreadable = union_unreadable_reason(resolved, context)
+    if unreadable is not None:
+        raise flag_calls_only_in_flag_evaluations_error(unreadable, view_name)
 
 
 def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
@@ -208,6 +264,31 @@ def union_events_filter(node: ast.SelectQuery, union: EventsWithFlagCallsTable) 
     return _events_filter(_scan_conjuncts(node, union))
 
 
+def union_scan_sample(node: ast.SelectQuery, union: EventsWithFlagCallsTable) -> ast.SampleExpr | None:
+    """The SAMPLE that `node` puts on its scan of the union, or None."""
+    join = node.select_from
+    while join is not None:
+        if join.sample is not None and union_table_of(join.table.type if join.table else join.type) is union:
+            return join.sample
+        join = join.next_join
+    return None
+
+
+def sample_flag_evaluations_filter(sample: ast.SampleExpr, distinct_id: ast.Field) -> ast.Expr:
+    """The predicate that keeps the `flag_evaluations` rows whose `distinct_id` ClickHouse's `SAMPLE` keeps on `events`.
+
+    `events` samples by `cityHash64(distinct_id)`, and a ratio keeps the hashes below that ratio of the UInt64 range.
+    """
+    fraction = ratio_sample_fraction(sample)
+    if fraction is None:
+        raise QueryError("The flag call union reads only a SAMPLE ratio between 0 and 1.")
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Lt,
+        left=ast.Call(name="cityHash64", args=[distinct_id]),
+        right=ast.Constant(value=floor(fraction * 2**64)),
+    )
+
+
 def rename_flag_call_scans_to_union(
     node: ast.AST,
     flag_key_compares_as_string: Callable[[], bool],
@@ -222,8 +303,8 @@ def rename_flag_call_scans_to_union(
        clauses. A subquery's comparison does not count. A funnel step column such as
        `if(event = '$feature_flag_called' AND ..., 1, 0)` counts.
     2. The scan is the first table in FROM, and every join after it is INNER, LEFT or CROSS, GLOBAL or not.
-    3. The scan has no FINAL, table arguments, column aliases or SAMPLE other than 1, and its query selects no `*`
-       or `COLUMNS(...)`.
+    3. The scan has no FINAL, table arguments or column aliases, and its SAMPLE is 1 or a ratio between 0 and 1 without
+       OFFSET. Its query selects no `*` or `COLUMNS(...)`.
 
     A scan that the flag_evaluations swap changed reads `posthog.flag_evaluations` and is not an `events` scan any
     more. The flag_evaluations swap swaps or refuses a first scan that reads only flag calls, so the union neither
@@ -232,7 +313,9 @@ def rename_flag_call_scans_to_union(
     """
     renamer = _UnionRenamer(flag_key_compares_as_string, only_in_flag_evaluations)
     renamer.visit(node)
-    return UnionRename(renamed=renamer.renamed, refusals=tuple(renamer.refusals))
+    return UnionRename(
+        renamed=renamer.renamed, refusals=tuple(renamer.refusals), literal_spans=frozenset(renamer.literal_spans)
+    )
 
 
 def _union_database(context: HogQLContext) -> "Database | None":
@@ -385,7 +468,7 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     """Why the union cannot stand in for `scan`, the scan at `position` in the FROM chain of `node`, or None."""
     if position > 0:
         return "it joins events after another table"
-    refusal = scan.shape_refusal(node)
+    refusal = scan.shape_refusal(node, ratio_sample_ok=True)
     if refusal is not None:
         return refusal
     join = scan.join.next_join
@@ -398,11 +481,19 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     return None
 
 
+@frozen
+class _FlagCallScan:
+    position: int
+    scan: EventsScan
+    literals: list[ast.Constant]
+
+
 def _flag_call_scans(
     node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
-) -> list[tuple[int, EventsScan]]:
-    """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, with its position."""
-    scans: list[tuple[int, EventsScan]] = []
+) -> list[_FlagCallScan]:
+    """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, with its position and
+    the literals that name it."""
+    scans: list[_FlagCallScan] = []
     join = node.select_from
     position = 0
     while join is not None:
@@ -423,17 +514,17 @@ def _flag_call_scans(
                     flag_key_compares_as_string=flag_key_compares_as_string,
                 )
             )
-            if scan is not None and _names_flag_calls(node, scan):
-                scans.append((position, scan))
+            if scan is not None and (literals := _flag_call_literals(node, scan)):
+                scans.append(_FlagCallScan(position=position, scan=scan, literals=literals))
         join = join.next_join
         position += 1
     return scans
 
 
-def _names_flag_calls(node: ast.SelectQuery, scan: EventsScan) -> bool:
+def _flag_call_literals(node: ast.SelectQuery, scan: EventsScan) -> list[ast.Constant]:
     finder = _FlagCallComparisonFinder(node, scan)
     finder.visit(node)
-    return finder.found
+    return finder.literals
 
 
 class _ScanReadCopier(CloningVisitor):
@@ -594,7 +685,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         super().__init__()
         self.root = root
         self.reader = scan
-        self.found = False
+        self.literals: list[ast.Constant] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:
@@ -613,34 +704,57 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def _check(self, expr: ast.Expr) -> None:
         values = compared_values(expr, lambda read: self.reader.column(read) == ["event"])
-        if values and any(isinstance(value, ast.Constant) and value.value == FLAG_CALLED_EVENT for value in values):
-            self.found = True
+        for value in values or []:
+            if isinstance(value, ast.Constant) and value.value == FLAG_CALLED_EVENT:
+                self.literals.append(value)
 
 
 class _UnionRenamer(ScanVisitor):
-    def __init__(self, flag_key_compares_as_string: Callable[[], bool], only_in_flag_evaluations: bool) -> None:
+    def __init__(
+        self,
+        flag_key_compares_as_string: Callable[[], bool],
+        only_in_flag_evaluations: bool,
+        *,
+        rename_flag_only_scans: bool = False,
+    ) -> None:
         super().__init__()
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.only_in_flag_evaluations = only_in_flag_evaluations
+        self.rename_flag_only_scans = rename_flag_only_scans
         self.renamed = False
         self.refusals: list[str] = []
+        self.literal_spans: set[tuple[int, int]] = set()
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         # Only the first scan can be renamed, and it comes first, so each refusal reads the query as written.
-        for position, scan in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes):
-            if position == 0 and self._reads_only_flag_calls(node, scan):
+        for found in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes):
+            position, scan, literals = found.position, found.scan, found.literals
+            if position == 0 and self._left_to_the_swap(node, scan):
                 continue
             refusal = _union_refusal(node, scan, position)
             if refusal is not None:
                 self.refusals.append(refusal)
             else:
                 point_scan_at(node, scan, list(EVENTS_WITH_FLAG_CALLS_CHAIN))
-                # A lazy table cannot be sampled, and SAMPLE 1 keeps every row anyway.
-                scan.join.sample = None
+                # A lazy table cannot be sampled. SAMPLE 1 keeps every row anyway, and the union applies a ratio
+                # sample in its branches, where lazy table resolution reads it from this scan.
+                if scan.join.sample is not None and scan.join.sample.samples_all_rows():
+                    scan.join.sample = None
                 self.renamed = True
+                self.literal_spans.update(
+                    (literal.start, literal.end)
+                    for literal in literals
+                    if literal.start is not None and literal.end is not None
+                )
 
-    def _reads_only_flag_calls(self, node: ast.SelectQuery, scan: EventsScan) -> bool:
+    def _left_to_the_swap(self, node: ast.SelectQuery, scan: EventsScan) -> bool:
         # The flag_evaluations swap handles a first scan whose `event` filter it reads as only flag calls. It swaps or
         # refuses that scan on mode 2. On mode 1 events holds every flag call, so the union would read the same calls
         # twice there.
-        return scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False)
+        if self.rename_flag_only_scans:
+            return False
+        # The swap cannot read a sampled scan. On mode 2 the union reads it.
+        sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
+        return scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False) and not (
+            self.only_in_flag_evaluations and sampled
+        )

@@ -79,6 +79,7 @@ def _save_accounting_state(run: TaskRun) -> None:
         run_id=run.id,
         team_id=run.team_id,
         cost_delta_microusd=delta,
+        accounting_failed=_run_spend(run).accounting_failed,
         origin_product=previous.task.origin_product,
     )
 
@@ -297,6 +298,8 @@ def _run_spend(run: TaskRun, *, queued: bool | None = None) -> TaskRunSpend:
         complete=usage.complete,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",
+        accounting_failed=bool((run.state or {}).get("token_cost_incomplete"))
+        or (run.is_terminal and not gateway_usage_enabled(run)),
     )
 
 
