@@ -46,6 +46,7 @@ from posthog.views import login_required
 
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.dm_setup.card import refresh_dm_setup_card
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -270,6 +271,11 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         channel=state.channel,
         thread_ts=state.thread_ts,
     )
+    try:
+        refresh_dm_setup_card(workspace_integration, identity.slack_user_id)
+    except Exception:
+        # The link is saved. A card that did not update catches up the next time the person opens the DM.
+        logger.exception("slack_app_dm_setup_card_refresh_failed", slack_user_id=identity.slack_user_id)
 
     return _settings_redirect()
 

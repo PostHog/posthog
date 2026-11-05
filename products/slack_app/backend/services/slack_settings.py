@@ -1,7 +1,7 @@
 """Read helpers for per-(Slack workspace, Slack user) settings backed by
 `models.SlackSettings` (today: the untagged follow-up and question modes, the thread
-join mode, the channel welcome mode and the automatic model choice), plus the shared
-AI-triple value object.
+join mode, the channel welcome mode, the automatic model choice and where the DM setup
+card is), plus the shared AI-triple value object.
 
 Model preferences themselves live in the central tasks config
 (`products.tasks.backend.facade.ai_run_defaults`); `AIPreferences` keeps the
@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from django.db import models
+
+from posthog.dataclasses import frozen
 
 from products.slack_app.backend.models import ChannelWelcomeMode, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
@@ -188,6 +190,40 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
+@frozen
+class DmSetupCardState:
+    """The DM message that holds a person's setup card, and whether its steps are all done."""
+
+    channel: str
+    ts: str
+    completed: bool
+
+
+def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetupCardState | None:
+    from products.slack_app.backend.models import SlackSettings
+
+    stored = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("dm_setup_card", flat=True)
+        .first()
+    )
+    if not isinstance(stored, dict) or not stored.get("channel") or not stored.get("ts"):
+        return None
+    return DmSetupCardState(
+        channel=str(stored["channel"]), ts=str(stored["ts"]), completed=bool(stored.get("completed"))
+    )
+
+
+def set_dm_setup_card(slack_workspace_id: str, slack_user_id: str, state: DmSetupCardState) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"dm_setup_card": {"channel": state.channel, "ts": state.ts, "completed": state.completed}},
+    )
+
+
 def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | None:
     """The integration that the workspace-wide row routes mentions to."""
 
@@ -213,6 +249,9 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
 
 
 __all__ = [
+    "DmSetupCardState",
+    "resolve_dm_setup_card",
+    "set_dm_setup_card",
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",

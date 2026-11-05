@@ -54,6 +54,7 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
+from products.slack_app.backend.logic.dm_setup.card import show_dm_setup_card
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -2472,6 +2473,11 @@ def _route_app_home_opened(
         _handle_app_home_opened(event, slack_team_id, integration=integration)
     except Exception:
         logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+    if event.get("tab") == "messages":
+        try:
+            show_dm_setup_card(integration, slack_user_id)
+        except Exception:
+            logger.exception("slack_app_dm_setup_card_failed", slack_team_id=slack_team_id, event_id=event_id)
     return ROUTE_HANDLED_LOCALLY
 
 
