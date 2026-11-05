@@ -8646,6 +8646,13 @@ def handoff_task(
         }
         locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
         locked.save()
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            hand_off_task_claims,
+        )
+
+        hand_off_task_claims(
+            team_id=team_id, task_id=str(locked.id), previous_user_id=user_id, target_user_id=target.id
+        )
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,
             task_id=locked.id,

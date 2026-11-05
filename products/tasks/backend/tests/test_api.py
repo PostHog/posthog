@@ -13957,6 +13957,22 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
+    def test_handoff_moves_the_report_claim_the_task_works_under(self):
+        from products.signals.backend.facade.report_tasks import record_report_task
+        from products.signals.backend.models import SignalReport
+
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # A claim left with the previous owner would refuse every rerun the new owner starts.
+        assignee = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["assignee"]
+        self.assertEqual((assignee["kind"], assignee["user"]["id"]), ("user", recipient.id))
+
     @parameterized.expand(
         [
             ("active_run", False, "Finish or cancel active runs before handing off this task."),
