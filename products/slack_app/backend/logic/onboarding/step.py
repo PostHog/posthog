@@ -27,6 +27,7 @@ class OnboardingStepKey(StrEnum):
     GITHUB = "github"
     INBOX_CHANNEL = "inbox_channel"
     SOURCES = "sources"
+    CHANNEL_WELCOME = "channel_welcome"
     MODEL = "model"
     REPLIES_IN_THREADS = "replies_in_threads"
 

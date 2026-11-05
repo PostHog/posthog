@@ -342,11 +342,11 @@ describe('inboxFiltersLogic', () => {
                 .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
-        it('preserves a monitoring URL selection while hiding it until monitoring is enabled', async () => {
+        it('keeps a monitoring URL selection visible without a browser rollout flag', async () => {
             router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.visibleStateFilter).toEqual([])
+            expect(logic.values.visibleStateFilter).toEqual(['outcome-monitoring'])
             expect(router.values.searchParams.state).toBe('outcome-monitoring')
 
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
