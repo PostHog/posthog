@@ -237,8 +237,11 @@ export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFla
                         selectedOutcome={cleanupOutcome}
                         opening={openingCleanupPr}
                         error={cleanupError}
+                        statusStale={pollingStopped}
+                        checkingStatus={analysisLoading}
                         onSelectOutcome={selectCleanupOutcome}
                         onOpen={openCleanupPr}
+                        onCheckStatus={() => loadAnalysis()}
                     />
                     <div className="flex flex-wrap items-center gap-2">
                         {startButton('Analyze again')}

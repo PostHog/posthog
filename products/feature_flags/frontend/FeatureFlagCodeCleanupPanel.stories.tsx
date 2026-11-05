@@ -29,8 +29,11 @@ const meta: Meta<typeof FeatureFlagCodeCleanupPanel> = {
         selectedOutcome: 'enabled',
         opening: false,
         error: null,
+        statusStale: false,
+        checkingStatus: false,
         onSelectOutcome: () => {},
         onOpen: () => {},
+        onCheckStatus: () => {},
     },
     parameters: {
         testOptions: { snapshotBrowsers: [] },
@@ -63,6 +66,10 @@ export const Opening: Story = {
     args: { cleanup: { ...available, run: run({}) } },
 }
 
+export const StatusStale: Story = {
+    args: { cleanup: { ...available, run: run({}) }, statusStale: true },
+}
+
 export const Opened: Story = {
     args: {
         cleanup: {
@@ -84,6 +91,19 @@ export const Failed: Story = {
                 run_status: 'failed',
                 is_terminal: true,
                 error_message: 'The sandbox ran out of time before the pull request was opened.',
+            }),
+        },
+    },
+}
+
+export const FailedAfterOpeningPr: Story = {
+    args: {
+        cleanup: {
+            ...available,
+            run: run({
+                run_status: 'failed',
+                is_terminal: true,
+                pr_url: 'https://github.com/example-org/storefront/pull/482',
             }),
         },
     },

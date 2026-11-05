@@ -97,19 +97,24 @@ def _outcome_options(flag: FeatureFlag) -> tuple[str, ...] | None:
 
 def _suggested_outcome(flag: FeatureFlag) -> str | None:
     """The outcome every user gets today, which is the code to keep. None when users get different outcomes."""
+    # Early access enrollment and holdouts serve some users outside the release conditions, also when
+    # the flag has none, so they come before the shortcuts below.
+    if flag.has_feature_enrollment or flag.holdout:
+        return None
     # With no release conditions nothing matches, so every user gets false. The status checker counts this
     # shape as fully rolled out, which is right for staleness but not for which code runs.
     if not flag.conditions:
         return DISABLED
-    # Early access enrollment and holdouts serve some users outside the release conditions.
-    if flag.has_feature_enrollment or flag.holdout:
-        return None
     checker = FeatureFlagStatusChecker(feature_flag=flag)
+    if checker.get_rollout_summary(flag).max_rollout_percentage == 0:
+        return DISABLED
+    # With early exit, a targeted condition below 100% that comes before the untargeted 100% one serves
+    # false to the users it targets. The status checker ignores early exit, so it can't name one outcome.
+    if flag.early_exit and len(flag.conditions) > 1:
+        return None
     is_fully_rolled_out, _ = checker.is_flag_fully_rolled_out(flag)
     if is_fully_rolled_out:
         return checker.sole_served_variant(flag) if flag.variants else ENABLED
-    if checker.get_rollout_summary(flag).max_rollout_percentage == 0:
-        return DISABLED
     return None
 
 
@@ -225,11 +230,12 @@ def build_code_cleanup_prompt(
 
 
 def _cleanup_blocks_new_request(run: CodeCleanupRun | None) -> bool:
-    # A failed or canceled run, or one that finished without a pull request, can be retried. One that opened
-    # a pull request blocks another, so the repository never gets two cleanup pull requests for one flag.
+    # A run that ended without a pull request can be retried. One that opened a pull request blocks another,
+    # also when it failed or was canceled after opening it, so the repository never gets two cleanup pull
+    # requests for one flag.
     if run is None:
         return False
-    return not run.is_terminal or (run.run_status == "completed" and run.pr_url is not None)
+    return not run.is_terminal or run.pr_url is not None
 
 
 def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None = None) -> FeatureFlagCodeAnalysis:

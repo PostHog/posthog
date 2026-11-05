@@ -303,6 +303,24 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
             ("partial_rollout", {"groups": [{"properties": [], "rollout_percentage": 50}]}, 60, True, None, None),
             ("still_in_use", {"groups": [{"properties": [], "rollout_percentage": 100}]}, 1, True, "not_stale", None),
             ("no_conditions", {"groups": []}, 60, True, None, "disabled"),
+            ("enrollment_without_conditions", {"groups": [], "feature_enrollment": True}, 60, True, None, None),
+            (
+                "early_exit_targeted_zero_before_blanket",
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "value": "@example.com", "operator": "icontains"}],
+                            "rollout_percentage": 0,
+                        },
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                    "early_exit": True,
+                },
+                60,
+                True,
+                None,
+                None,
+            ),
             (
                 "variant_named_like_outcome",
                 {"groups": [], "multivariate": {"variants": [{"key": "disabled", "rollout_percentage": 100}]}},
@@ -398,6 +416,15 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
                 60,
                 {},
                 {"pr_url": "https://github.com/acme/web/pull/7"},
+                status.HTTP_409_CONFLICT,
+                "cleanup_exists",
+            ),
+            (
+                "cleanup_failed_after_opening_pr",
+                100,
+                60,
+                {},
+                {"status": "failed", "pr_url": "https://github.com/acme/web/pull/7"},
                 status.HTTP_409_CONFLICT,
                 "cleanup_exists",
             ),

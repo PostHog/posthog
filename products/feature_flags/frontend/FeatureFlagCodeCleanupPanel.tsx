@@ -11,13 +11,16 @@ export interface FeatureFlagCodeCleanupPanelProps {
     selectedOutcome: string | null
     opening: boolean
     error: string | null
+    statusStale: boolean
+    checkingStatus: boolean
     onSelectOutcome: (outcome: string) => void
     onOpen: () => void
+    onCheckStatus: () => void
 }
 
 // Mirrors the server: a run in progress, or one that opened a pull request, blocks another request.
 function blocksNewRequest(run: FeatureFlagCodeCleanupRunApi | null): boolean {
-    return !!run && (!run.is_terminal || (run.run_status === 'completed' && !!run.pr_url))
+    return !!run && (!run.is_terminal || !!run.pr_url)
 }
 
 function outcomeLabel(outcome: string, suggestedOutcome: string | null): string {
@@ -31,8 +34,11 @@ export function FeatureFlagCodeCleanupPanel({
     selectedOutcome,
     opening,
     error,
+    statusStale,
+    checkingStatus,
     onSelectOutcome,
     onOpen,
+    onCheckStatus,
 }: FeatureFlagCodeCleanupPanelProps): JSX.Element | null {
     const { run } = cleanup
     const canRequest = cleanup.unavailable_reason === null && !blocksNewRequest(run)
@@ -51,7 +57,19 @@ export function FeatureFlagCodeCleanupPanel({
         <div className="flex flex-col gap-2 border-t pt-4">
             <h4 className="m-0">Remove this flag from the code</h4>
 
-            {run && !run.is_terminal ? (
+            {run && !run.is_terminal && statusStale ? (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Check again',
+                        onClick: onCheckStatus,
+                        loading: checkingStatus,
+                        'data-attr': 'feature-flag-code-cleanup-resume',
+                    }}
+                >
+                    Couldn't get the latest status of this cleanup. It may still be running.
+                </LemonBanner>
+            ) : run && !run.is_terminal ? (
                 <div className="flex flex-wrap items-center gap-2">
                     <Spinner />
                     <span>Opening a cleanup pull request in {repository}</span>
@@ -69,6 +87,19 @@ export function FeatureFlagCodeCleanupPanel({
                     }}
                 >
                     A draft pull request removes this flag's checks. After it merges and deploys, archive the flag.
+                </LemonBanner>
+            ) : run?.pr_url ? (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'View pull request',
+                        to: run.pr_url,
+                        targetBlank: true,
+                        'data-attr': 'feature-flag-code-cleanup-pr-link',
+                    }}
+                >
+                    The cleanup stopped after it opened a draft pull request, so the pull request may be incomplete.
+                    Review it before it merges. {taskLink}
                 </LemonBanner>
             ) : run?.run_status === 'completed' ? (
                 <LemonBanner type="info">
