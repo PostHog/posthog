@@ -35,9 +35,14 @@ export function parseMessageTopHogMetrics<
     ]
 }
 
+export interface ParsedKafkaMessage {
+    event: IncomingEvent
+    eventBytes: number
+}
+
 export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
     T,
-    T & { event: IncomingEvent }
+    T & ParsedKafkaMessage
 > {
     return function parseKafkaMessageStep(input) {
         const { message } = input
@@ -48,7 +53,8 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
                 token: _token,
                 ...rawEvent
             } = requireObject(parseJSON(message.value!.toString()), 'outer message')
-            const data = requireObject(parseJSON(requireString(dataStr, 'data')), 'data field')
+            const eventJson = requireString(dataStr, 'data')
+            const data = requireObject(parseJSON(eventJson), 'data field')
             const combinedEvent: Record<string, unknown> = { ...data, ...rawEvent }
 
             if (!combinedEvent.uuid || !UUID.validateString(combinedEvent.uuid, false)) {
@@ -60,7 +66,7 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
             const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent))
 
-            return Promise.resolve(ok({ ...input, event: { event } }))
+            return Promise.resolve(ok({ ...input, event: { event }, eventBytes: Buffer.byteLength(eventJson, 'utf8') }))
         } catch (error) {
             logger.warn('Failed to parse Kafka message', { error })
             return Promise.resolve(
