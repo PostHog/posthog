@@ -33,7 +33,6 @@ const SERVER_MINTED_MARKER_SCOPE = 'internal_run:read'
 const INTERNAL_WRITE_SCOPE_OBJECTS = new Set([
     'context_layer_internal',
     'internal_run',
-    'loop_context_internal',
     'mcp_builtin_agent',
     'signal_scout_internal',
     'signal_scout_report',

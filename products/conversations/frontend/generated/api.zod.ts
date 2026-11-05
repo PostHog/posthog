@@ -9,6 +9,74 @@
  */
 import * as zod from 'zod'
 
+export const conversationsMacrosCreateBodyNameMax = 200
+
+export const conversationsMacrosCreateBodyShortcutMax = 50
+
+export const conversationsMacrosCreateBodyBodyMax = 10000
+
+export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosCreateBodyNameMax)
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosCreateBodyShortcutMax)
+        .nullish()
+        .describe(
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosCreateBodyBodyMax)
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+    visibility: zod
+        .enum(['shared', 'personal'])
+        .describe('\* `shared` - Everyone in the project\n\* `personal` - Only the creator')
+        .optional()
+        .describe(
+            "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
+export const conversationsMacrosPartialUpdateBodyNameMax = 200
+
+export const conversationsMacrosPartialUpdateBodyShortcutMax = 50
+
+export const conversationsMacrosPartialUpdateBodyBodyMax = 10000
+
+export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyShortcutMax)
+        .nullish()
+        .describe(
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyBodyMax)
+        .optional()
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+    visibility: zod
+        .enum(['shared', 'personal'])
+        .describe('\* `shared` - Everyone in the project\n\* `personal` - Only the creator')
+        .optional()
+        .describe(
+            "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
 /**
  * Handle ticket updates including assignee changes.
  */
@@ -158,6 +226,16 @@ export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Payload for recording whether a human adopted an AI draft.')
+
+/**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const ConversationsTicketsAttachmentsCreateBody = /* @__PURE__ */ zod.object({
+    file: zod.instanceof(File).describe('File to attach. Must be under 20 MiB.'),
+})
 
 /**
  * Add a private note to a ticket.
@@ -333,7 +411,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
         .optional()
         .describe('Email subject line.'),
-    email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
+    email_config_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
     tags: zod
@@ -400,6 +483,8 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
+                            'skipped_team_replied',
+                            'skipped_channel_excluded',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
                             'clarified',
@@ -407,12 +492,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `skipped_team_replied` - skipped_team_replied\n\* `skipped_channel_excluded` - skipped_channel_excluded\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
                 .describe(
-                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
                 ),
             assignee: zod
                 .array(
@@ -546,6 +631,8 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
+                            'skipped_team_replied',
+                            'skipped_channel_excluded',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
                             'clarified',
@@ -553,12 +640,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `skipped_team_replied` - skipped_team_replied\n\* `skipped_channel_excluded` - skipped_channel_excluded\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
                 .describe(
-                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
                 ),
             assignee: zod
                 .array(

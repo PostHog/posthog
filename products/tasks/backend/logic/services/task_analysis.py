@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     tag_task_artifact,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_sources import idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
 
@@ -121,9 +122,9 @@ def _next_analysis_attempt(*, team_id: int, target_run_id: str) -> int:
     one possible, which a bare per-run key would block forever.
     """
     return Task.objects.filter(
+        idempotency_key_startswith_q(f"{TASK_ANALYSIS_ORIGIN_KEY_PREFIX}:{target_run_id}:"),
         team_id=team_id,
         origin_product=Task.OriginProduct.TASK_ANALYSIS,
-        origin_key__startswith=f"{TASK_ANALYSIS_ORIGIN_KEY_PREFIX}:{target_run_id}:",
     ).count()
 
 
@@ -247,6 +248,13 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         "reasoning_effort": TASK_ANALYSIS_REASONING_EFFORT,
         **_target_context_state(target_task, target_run),
     }
+    query_context = [
+        query
+        for ancestor in target_run.get_resume_chain()
+        for query in (ancestor.state or {}).get("analytics_query_context", [])
+    ]
+    if query_context:
+        extra_run_state["analytics_query_context"] = query_context
 
     origin_key = _analysis_origin_key(str(target_run.id), attempt)
     try:

@@ -11,32 +11,38 @@ from __future__ import annotations
 import re
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
-from .crossings import driven_wiring_locations, facade_shape_use, recorded_facade_shape_rows
+from .crossings import driven_wiring_locations, facade_shape_use, facade_wiring_use, recorded_facade_shape_rows
 from .isolation import (
     GARAGE_PREFIXES,
     FacadeShapeFinding,
+    IsolationRung,
     IsolationStatus,
+    UnapprovedWiringClass,
     compute_isolation_status,
     facade_shape_findings,
+    has_contracts_module,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
     ignored_import_edges,
-    is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
     location_input_glob,
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    unwatched_modules,
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
+from .watched_channels import unwatched_channel_issue
+from .wiring_interfaces import APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS, WiringVerdict
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -56,15 +62,17 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
 
 
 def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
-    """Yield (path, depends_on) for every [[modules]] block."""
-    for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        path_match = re.search(r'path\s*=\s*"(.*?)"', block)
-        if not path_match:
+    """Yield (path, depends_on) for every [[modules]] block.
+
+    Reads the parsed TOML because a comment inside a depends_on list can name `[[interfaces]]`,
+    which ends a text match early and drops the rest of the list.
+    """
+    for module in tomllib.loads(tach_content).get("modules", []):
+        path = module.get("path")
+        if not path:
             continue
-        path = path_match.group(1)
-        deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
+        # tach accepts a dependency as a bare path or as a table such as {path = "...", deprecated = true}.
+        depends_on = [dep if isinstance(dep, str) else dep["path"] for dep in module.get("depends_on", [])]
         yield path, depends_on
 
 
@@ -106,10 +114,12 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
-         backend/facade/contracts.py (be isolated).
+         backend/facade/contracts.py (the Strict rung or above). A product
+         that also has a legacy-leak block is exempt: its facade block only
+         stops new reach-ins while the listed leaks drain.
       3. Names in alternation regexes must be sorted alphabetically.
 
-    The inverse direction ("every isolated product must be listed") is not
+    The inverse direction ("every Strict product must be listed") is not
     enforced — having `facade/contracts.py` is just scaffolding and doesn't
     mean the product is ready for canonical exposure.
     """
@@ -147,7 +157,9 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 "remove the stale entry from tach.toml"
             )
             continue
-        if not is_isolated_product(product_dir / "backend"):
+        if has_legacy_interface_leaks(tach_content, f"products.{name}"):
+            continue
+        if not has_contracts_module(product_dir / "backend"):
             issues.append(
                 f"canonical facade alternation lists '{name}' but products/{name}/backend/facade/contracts.py "
                 "is missing — either add contracts.py or remove the entry from tach.toml"
@@ -254,7 +266,7 @@ class CheckContext:
     name: str
     product_dir: Path
     backend_dir: Path
-    is_isolated: bool
+    has_facade_contracts: bool
     structure: dict
     detailed: bool  # True = single-product run, False = --all
     _isolation: IsolationStatus | None = field(default=None, repr=False, compare=False)
@@ -270,7 +282,7 @@ class CheckContext:
                 self.name,
                 self.product_dir,
                 self.backend_dir,
-                is_isolated=self.is_isolated,
+                has_facade_contracts=self.has_facade_contracts,
                 driven_wiring_locations=driven_wiring_locations(self.name),
             )
         return self._isolation
@@ -287,13 +299,13 @@ class CheckResult:
 
 class ProductCheck(ABC):
     label: str
-    for_isolated: bool = True
+    for_strict: bool = True
     for_lenient: bool = True
 
     def should_run(self, ctx: CheckContext) -> bool:
-        if ctx.is_isolated and not self.for_isolated:
+        if ctx.has_facade_contracts and not self.for_strict:
             return False
-        if not ctx.is_isolated and not self.for_lenient:
+        if not ctx.has_facade_contracts and not self.for_lenient:
             return False
         return True
 
@@ -310,7 +322,7 @@ class RequiredRootFilesCheck(ProductCheck):
     label = "required root files"
 
     def run(self, ctx: CheckContext) -> CheckResult:
-        required_key = "required" if ctx.is_isolated else "required_lenient"
+        required_key = "required" if ctx.has_facade_contracts else "required_lenient"
         missing = [
             filename
             for filename, config in ctx.structure.get("root_files", {}).items()
@@ -451,25 +463,18 @@ class ImportSurfaceCheck(ProductCheck):
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
 
-    A product that is not sealed yet holds the webhook_consumers surface alone: posthog/ingress/
-    imports that module by name and must not reach the product's internals through it, whether or
-    not the product has a contract.
+    The contracts name `products.*.backend.<surface>`, so they hold for every product whether or
+    not it has facade/contracts.py, and this check holds every surface for every product too.
     """
 
     label = "import surface"
 
     # (source subtree or module, allowed destination subtrees)
-    WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
-        WEBHOOK_CONSUMERS_SURFACE,
+        ("webhook_consumers", ("facade",)),
     )
-
-    def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """A product that is not sealed yet has no routes/presentation contract to hold, so
-        only its ingress entry point is checked."""
-        return self.SURFACES if ctx.is_isolated else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
         root = ctx.backend_dir / source
@@ -481,7 +486,7 @@ class ImportSurfaceCheck(ProductCheck):
     def should_run(self, ctx: CheckContext) -> bool:
         if not super().should_run(ctx) or not ctx.backend_dir.is_dir():
             return False
-        return any(self._surface_files(ctx, source) for source, _ in self._surfaces(ctx))
+        return any(self._surface_files(ctx, source) for source, _ in self.SURFACES)
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -492,7 +497,7 @@ class ImportSurfaceCheck(ProductCheck):
         prefix = f"products.{ctx.name}.backend"
         ignored = ignored_import_edges()
         issues = []
-        for source, allowed in self._surfaces(ctx):
+        for source, allowed in self.SURFACES:
             allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
             for f in self._surface_files(ctx, source):
                 importer = self._module_name(ctx, f)
@@ -503,9 +508,9 @@ class ImportSurfaceCheck(ProductCheck):
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
-                        f"{'/'.join(allowed)}. If import-linter did not flag this, either the target sits "
-                        "under a directory without __init__.py, which grimp cannot see, or this product "
-                        "carries no contract yet"
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see. To defer the edge, add that "
+                        "__init__.py first: import-linter rejects an ignore_imports entry it cannot match"
                     )
         if issues:
             return CheckResult(
@@ -539,13 +544,18 @@ class PackageJsonScriptsCheck(ProductCheck):
         # change flowing to HTTP through such a view would be hidden. The skip is the
         # reward for finishing — it can't be enabled until the wave empties them.
         status = ctx.isolation_status()
-        needs_contract_check = status.eligible_for_isolated_tests
+        # This gate leaves out the tach interface on purpose. The external boundary is required too,
+        # but TachCheck demands the interface and IsolationChainCheck blocks a script without it, so
+        # this gate does not report the same gap a third time.
+        needs_contract_check = status.internally_sealed and status.has_real_facade and not status.has_legacy_leaks
         # The wiring gate also withholds the skip script: a facade that still hands out unsanctioned
         # classes can't soundly narrow, so don't nag it to carry 'backend:contract-check' (the script
         # would be inert, and IsolationChainCheck blocks the narrowing that would make it bite). The
         # absence check below still keys on plain eligibility, so the five products that deliberately
         # keep script+broad while un-narrowed aren't told to drop it.
-        require_contract_check_script = needs_contract_check and not status.facade_leaks
+        require_contract_check_script = (
+            needs_contract_check and not status.facade_leaks and not status.unapproved_wiring
+        )
         required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
             if script not in scripts:
@@ -578,7 +588,7 @@ class PackageJsonScriptsCheck(ProductCheck):
         # --- surface the withholding decision (single-product view only; keep the CI sweep quiet) ---
         if (
             ctx.detailed
-            and ctx.is_isolated
+            and ctx.has_facade_contracts
             and not require_contract_check_script
             and "backend:contract-check" not in scripts
         ):
@@ -721,11 +731,11 @@ class TachCheck(ProductCheck):
             )
 
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        if ctx.is_isolated and not has_tach_interface(ctx.name, tach_content):
+        if ctx.has_facade_contracts and not has_tach_interface(ctx.name, tach_content):
             return CheckResult(
                 lines=["✗ missing interfaces declaration"],
                 issues=[
-                    f"Isolated product missing interface definition in tach.toml — "
+                    f"Strict product (it has facade/contracts.py) missing interface definition in tach.toml — "
                     f'add a [[interfaces]] block with from = ["{module_path}"]'
                 ],
             )
@@ -742,7 +752,7 @@ class IsolationChainCheck(ProductCheck):
     The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
     Each step requires the previous one, so a product can't claim a CI benefit it hasn't
     earned (the Django suite skipped on changes). The final step also can't be left
-    half-wired: once a product is fully sealed and eligible, it must actually turn the skip
+    half-wired: once a product is Sealed, it must actually turn the skip
     on by narrowing turbo.json inputs — otherwise the contract-check script is inert
     (inputs default to all of backend/, so every change still re-runs the Django suite).
     """
@@ -849,7 +859,7 @@ class IsolationChainCheck(ProductCheck):
                 f"suite. Add the matching input(s) ({surface_globs})"
             )
 
-        # Earned but not turned on: a fully sealed, eligible product that already carries
+        # Earned but not turned on: a Sealed product that already carries
         # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
         # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
         # script inherits the root task's all-of-backend inputs, so every internal change still
@@ -860,14 +870,14 @@ class IsolationChainCheck(ProductCheck):
         # rejected by the gate above, so nagging toward it is counterproductive — say what blocks it.
         needs_turn_on = (
             has_script
-            and status.eligible_for_isolated_tests
-            and status.externally_sealed
+            and status.is_sealed
             and not has_narrowed
             and not facade_violations
+            and not status.unapproved_wiring
         )
         if needs_turn_on:
             result.issues.append(
-                "product is fully sealed and eligible for isolated tests and carries "
+                "product is Sealed and carries "
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
@@ -878,7 +888,8 @@ class IsolationChainCheck(ProductCheck):
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
-        # so there's nothing more to say here — the nag is silently withheld, not replaced.
+        # so there's nothing more to say here — the nag is silently withheld, not replaced. The same
+        # holds for unapproved wiring classes, which WiringInterfaceCheck lists below Isolated.
 
         # Watching the route registration: routes.py is the product's route-registration entry
         # point (public API surface, imported by core to assemble the router), but it lives at
@@ -1060,11 +1071,71 @@ class FacadeShapeCheck(ProductCheck):
 
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
-        elif recorded:
-            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in {_CROSSING_LEDGER}")
-            result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
+        elif shape_rows := {row for row in recorded if " facade-wiring " not in row}:
+            result.warnings.append(f"facade shape debt: {len(shape_rows)} row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ facade shape debt: {len(shape_rows)} rows"]
         else:
             result.lines = ["✓ ok"]
+        return result
+
+
+_APPROVED_INTERFACES = ", ".join(
+    [qualified.rsplit(".", 1)[1] for qualified in sorted(APPROVED_WIRING_BASES)]
+    + [f"@{qualified.split('.', 1)[1]}" for qualified in sorted(APPROVED_WIRING_DECORATORS)]
+)
+
+
+def _wiring_issue(finding: UnapprovedWiringClass) -> str:
+    """The lint line for one class: where it crosses, why it fails, and the moves that clear it."""
+    reason = (
+        "whose bases or members the lint cannot read statically"
+        if finding.verdict is WiringVerdict.UNRESOLVED
+        else f"which implements no approved interface ({_APPROVED_INTERFACES})"
+    )
+    return (
+        f"facade/{finding.facade_module} hands out {finding.class_name} from {finding.source_path}, {reason}. "
+        "A wiring folder alone does not make a class wiring. Return contracts from a facade function, "
+        "register a plain function, or put the class behind an approved interface "
+        "(products/architecture.md § Wiring couplings). The ledger only shrinks, so this is not a row to add"
+    )
+
+
+class WiringInterfaceCheck(ProductCheck):
+    """Hold the approved-interface rule of § Wiring couplings for classes from wiring locations.
+
+    The class re-export check accepts a wiring location by its path. This check reads the class: it
+    must carry an approved decorator or reach an approved base. Only an Isolated product is held to
+    it, so every product clears it on the way to Isolated. Below that rung the finding is
+    information. An Isolated product's findings that existed when the check was introduced are
+    `facade-wiring` rows in the crossings ledger, and an unrecorded finding blocks.
+    """
+
+    label = "wiring interfaces"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and (ctx.backend_dir / "facade").is_dir()
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        status = ctx.isolation_status()
+        findings = status.unapproved_wiring
+        result = CheckResult(file=f"products/{ctx.name}/backend/facade")
+        if not findings:
+            result.lines = ["✓ ok"]
+            return result
+        if status.rung is not IsolationRung.ISOLATED:
+            names = ", ".join(sorted({f.class_name for f in findings}))
+            result.lines = [f"ℹ {len(findings)} class(es) from wiring locations without an approved interface"]
+            if ctx.detailed:
+                result.lines.append(f"  → information below the Isolated rung, clear before isolating: {names}")
+            return result
+        recorded = recorded_facade_shape_rows(ctx.name)
+        unrecorded = [f for f in findings if facade_wiring_use(ctx.name, f).as_baseline_line() not in recorded]
+        result.issues.extend(_wiring_issue(f) for f in unrecorded)
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.warnings.append(f"wiring debt: {len(findings)} grandfathered row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ wiring debt: {len(findings)} grandfathered rows"]
         return result
 
 
@@ -1102,6 +1173,11 @@ class ProductYamlCheck(ProductCheck):
             result.issues.append("product.yaml missing 'owners' field — who owns this product?")
         elif not isinstance(owners, list) or not all(isinstance(o, str) for o in owners):
             result.issues.append("product.yaml 'owners' must be a list of strings")
+
+        # The owners resolver ignores a value that is not a boolean, so a typo here would silently leave the paths
+        # not sensitive.
+        if "sensitive" in data and not isinstance(data["sensitive"], bool):
+            result.issues.append("product.yaml 'sensitive' must be true or false")
 
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
@@ -1201,13 +1277,15 @@ class OrphanedTestFilesCheck(ProductCheck):
     _EXTERNAL_RUNNER_PREFIXES = (
         "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
     )
-    # Per-product exemptions — paths that another workflow targets directly
-    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    # Exempt paths tested outside `backend:test`, including the Temporal tests in
+    # .depot/workflows/ci-backend.yml.
     _PRODUCT_SPECIFIC_EXEMPTIONS = {
-        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
-        "warehouse_sources": ("backend/temporal/",),
+        # backend/temporal/ is the Temporal segment above. sources/ holds the vendor plugins, which
+        # the "Warehouse sources checks and tests" job in ci-python.yml runs.
+        "warehouse_sources": ("backend/temporal/", "sources/"),
         "signals": ("backend/emission/",),
         # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
         # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
@@ -1279,6 +1357,33 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+class WatchedChannelsCheck(ProductCheck):
+    """Hold the modules that outside suites run without an import edge in the contract-check inputs.
+
+    watched_channels.py finds them: receivers on a sender the product does not own, and modules that
+    outside tests name by dotted path. Only a product with 'backend:contract-check' skips the suite,
+    so no other product runs this check.
+    """
+
+    label = "watched channels"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.isolation_status().has_contract_check_script
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        channels = ctx.isolation_status().channel_modules
+        unwatched = unwatched_modules(ctx.product_dir, {c.path for c in channels})
+        result = CheckResult(file=f"products/{ctx.name}/turbo.json")
+        result.issues = [
+            unwatched_channel_issue(path, [c for c in channels if c.path == path]) for path in sorted(unwatched)
+        ]
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1290,5 +1395,7 @@ CHECKS: list[ProductCheck] = [
     TachCheck(),
     IsolationChainCheck(),
     FacadeShapeCheck(),
+    WiringInterfaceCheck(),
+    WatchedChannelsCheck(),
     OrphanedTestFilesCheck(),
 ]

@@ -7,7 +7,7 @@ use crate::{
     error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
 };
 
 pub struct ParsedHermesMap {
@@ -76,10 +76,15 @@ impl Parser for HermesMapProvider {
     type Set = ParsedHermesMap;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Bytes) -> Result<ParsedHermesMap, Self::Err> {
+    async fn parse(
+        &self,
+        source: Bytes,
+        permit: ParsePermit,
+    ) -> Result<ParsedHermesMap, Self::Err> {
         // zstd decompress + Hermes sourcemap parse are both CPU-bound; offload from the
         // tokio runtime so a large bundle doesn't block other in-flight requests.
         tokio::task::spawn_blocking(move || -> Result<ParsedHermesMap, ResolveError> {
+            let _permit = permit;
             let (map, decompressed_bytes): (HermesMap, usize) =
                 read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "hermes")

@@ -38,9 +38,8 @@ If the user gave a `/project/<id>/replay-vision/<scanner-id>` URL, that path seg
 Otherwise list them with `vision-scanners-list` and pick the relevant one.
 
 A `?tab=` on that URL tells you which surface they're looking at, which usually says what they want:
-`overview` (the default, charts and stat panels), `observations` (the list), `on-demand` (scan a session now),
-`backfills` (historical scans over a past window), `configuration`, `calibration` (ratings and the prompt
-recommendation), or `actions` (digests and alerts).
+`overview` (the default, charts and stat panels), `observations` (the list), `search`, `run` (scan a session now or
+backfill a past window), `scouts`, or `alerts`. Older `on-demand` and `backfills` links open `run`.
 
 Then call `vision-scanners-get` to read its configuration **before** reading results — the `scanner_type` and
 `scanner_config.prompt` tell you how to interpret `scanner_result` (a `verdict` field only makes sense once you
@@ -61,8 +60,13 @@ Pick the axis that matches the question:
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
-- **Which recordings are worth watching?** → `vision-scanners-watch-feed` ranks succeeded observations across
+- **Which recordings are worth watching?** → `vision-scanners-highlight-feed` ranks succeeded observations across
   every readable scanner over a window (default the last 7 days) and says why each made the cut.
+- **Which issues keep coming up?** → `vision-groups-list` returns groups of near-duplicate issue observations
+  (one story, such as one bug many people hit), and `vision-themes-list` returns broader named themes. Both
+  count distinct people over a window against the window before, so `order=growth` shows what is spreading.
+  They only cover issue observations and they point at where to look: read a few members with
+  `vision-scanners-observations-list` (`group` or `theme`) before you describe a cluster as a finding.
 - **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
   of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).
 - **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or
@@ -138,23 +142,20 @@ Match the action to the user's intent, and **corroborate before you create work*
   tracked work, `vision-observations-create-task` opens a PostHog task from one observation (idempotent per
   observation; it does not start a coding agent). Group by distinct issue, not per observation: pick the
   clearest observation for each issue.
+- **Track the scanner on a dashboard.** If the scanner from Step 1 has `dashboard_suggested: true`, offer once to
+  create its dashboard with `vision-scanners-dashboard-create`, and drop it if the user declines. When it has
+  `dashboard_id`, link that dashboard instead of building new insights for what it already charts.
 - **Get told when it recurs.** `vision-alerts-create` puts an alert on the scanner: a `match` alert fires on
   every matching observation, a `metric` alert when a count or average score crosses a threshold over a
   window. Add a Slack or webhook destination with `vision-alerts-destinations-create`.
 - **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
   and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
   team-wide, last write wins, clearable with `vision-observations-label-delete`). **Never rate from your own
-  reading of the result.** The rating is team-wide and it steers the scanner's config, and a scanner's output
+  reading of the result.** The rating is team-wide and it steers how the scanner judges later sessions, and a scanner's output
   can repeat text from the recording it analysed, so a rating you invent both fakes a judgement the user never
   made and hands that recording influence over their config. Ask about the right ones too, not only the wrong
-  ones: a suggestion built from thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs
-  down, capture what the user says it should have concluded, which is what the rewrite acts on. Then check
-  `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
-  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Show the
-  rewrite and wait for the user's word before you call `vision-scanners-prompt-suggestions-apply` or
-  `vision-scanners-prompt-suggestions-dismiss`: applying is team-wide and changes every later sweep, so it is
-  their call, not yours. There is also **no MCP tool to test a suggestion** against the rated results, so tell
-  them to test it on the scanner's Calibration tab first.
+  ones: ratings of thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs down, capture
+  what the user says it should have concluded.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   `vision-observations-signal-reports-list` names the reports one observation fed, and
   `vision-scanners-self-driving-stats` sums what the scanner led to. Read and act on those reports with

@@ -23,7 +23,8 @@ import {
   CLAUDE_CLI_SUPPORT_DIRS,
   CLAUDE_CLI_SUPPORT_FILES,
   claudeBinName,
-  claudeExecutableCandidates as sdkClaudeExecutableCandidates,
+  legacyCliCandidates,
+  nativeBinaryCandidates,
   targetArch,
   targetPlatform,
 } from "../../../../packages/agent/packages/agent/build/native-binary.mjs";
@@ -63,16 +64,15 @@ export function fixFilenameCircularRef(): Plugin {
 
 let claudeCliCopied = false;
 
-function verifyBinaryArch(destPath: string): void {
+function verifyBinaryTarget(destPath: string): void {
   // Best-effort: parse the binary's magic bytes and confirm the embedded arch
   // matches what we believe we're packaging for. `file(1)` is more portable
-  // but adds a subprocess; reading 20 bytes is enough for Mach-O / ELF / PE.
-  let header: Buffer;
+  // but adds a subprocess; reading the headers is enough for Mach-O / ELF / PE.
+  let actual: ReturnType<typeof detectBinaryFormat>;
   try {
     const fd = openSync(destPath, "r");
     try {
-      header = Buffer.alloc(20);
-      readSync(fd, header, 0, 20, 0);
+      actual = detectBinaryFormat(fd);
     } finally {
       closeSync(fd);
     }
@@ -83,39 +83,62 @@ function verifyBinaryArch(destPath: string): void {
 
   const arch = targetArch();
   const platform = targetPlatform();
-  const actual = detectBinaryArch(header, platform);
-  if (actual && actual !== arch) {
+  if (!actual) {
     throw new Error(
-      `[copy-claude-executable] Architecture mismatch: copied binary is ${actual} but target is ${arch} (platform=${platform}). ` +
-        `Reinstall @anthropic-ai/claude-agent-sdk optional deps for the target arch, or set npm_config_arch=${arch} before building.`,
+      `[copy-claude-executable] Unrecognized binary format: copied binary is not Mach-O, ELF or PE but target is ${platform}-${arch}.`,
+    );
+  }
+  if (actual.platform !== platform) {
+    throw new Error(
+      `[copy-claude-executable] Platform mismatch: copied binary is ${actual.platform} but target is ${platform}.`,
+    );
+  }
+  if (actual.arch !== arch) {
+    throw new Error(
+      `[copy-claude-executable] Architecture mismatch: copied binary is ${actual.arch} but target is ${arch}.`,
     );
   }
 }
 
-function detectBinaryArch(
-  header: Buffer,
-  platform: string,
-): "arm64" | "x64" | "ia32" | null {
+function detectBinaryFormat(fd: number): {
+  platform: "darwin" | "linux" | "win32";
+  arch: "arm64" | "x64" | "ia32";
+} | null {
+  const header = Buffer.alloc(64);
+  if (readSync(fd, header, 0, 64, 0) < 20) return null;
   // Mach-O 64-bit LE: magic 0xFEEDFACF, then cputype at offset 4 (LE).
-  if (platform === "darwin" && header.readUInt32LE(0) === 0xfeedfacf) {
+  if (header.readUInt32LE(0) === 0xfeedfacf) {
     const cpuType = header.readUInt32LE(4);
-    if (cpuType === 0x0100000c) return "arm64";
-    if (cpuType === 0x01000007) return "x64";
+    if (cpuType === 0x0100000c) return { platform: "darwin", arch: "arm64" };
+    if (cpuType === 0x01000007) return { platform: "darwin", arch: "x64" };
+    return null;
   }
   // ELF: \x7FELF, then e_machine at offset 18 (LE).
   if (
-    platform === "linux" &&
     header[0] === 0x7f &&
     header[1] === 0x45 &&
     header[2] === 0x4c &&
     header[3] === 0x46
   ) {
     const eMachine = header.readUInt16LE(18);
-    if (eMachine === 0x3e) return "x64";
-    if (eMachine === 0xb7) return "arm64";
-    if (eMachine === 0x03) return "ia32";
+    if (eMachine === 0x3e) return { platform: "linux", arch: "x64" };
+    if (eMachine === 0xb7) return { platform: "linux", arch: "arm64" };
+    if (eMachine === 0x03) return { platform: "linux", arch: "ia32" };
+    return null;
   }
-  // PE: MZ at 0, PE header offset at 0x3C — too long to inline; skip.
+  // PE: MZ at 0, e_lfanew at 0x3C points to PE\0\0, then COFF Machine (LE).
+  if (header[0] === 0x4d && header[1] === 0x5a) {
+    const peHeader = Buffer.alloc(6);
+    if (readSync(fd, peHeader, 0, 6, header.readUInt32LE(0x3c)) < 6) {
+      return null;
+    }
+    if (peHeader.readUInt32LE(0) !== 0x00004550) return null;
+    const machine = peHeader.readUInt16LE(4);
+    if (machine === 0x8664) return { platform: "win32", arch: "x64" };
+    if (machine === 0xaa64) return { platform: "win32", arch: "arm64" };
+    if (machine === 0x14c) return { platform: "win32", arch: "ia32" };
+    return null;
+  }
   return null;
 }
 
@@ -259,6 +282,8 @@ export function copyClaudeExecutable(): Plugin {
       }
 
       const packageCandidates = [
+        ...nativeBinaryCandidates(join(__dirname, "node_modules")),
+        ...nativeBinaryCandidates(join(__dirname, "../../node_modules")),
         join(__dirname, "node_modules/@posthog/agent/dist/claude-cli", binName),
         join(
           __dirname,
@@ -270,8 +295,8 @@ export function copyClaudeExecutable(): Plugin {
           "../../../../packages/agent/packages/agent/dist/claude-cli",
           binName,
         ),
-        ...sdkClaudeExecutableCandidates(join(__dirname, "node_modules")),
-        ...sdkClaudeExecutableCandidates(join(__dirname, "../../node_modules")),
+        ...legacyCliCandidates(join(__dirname, "node_modules")),
+        ...legacyCliCandidates(join(__dirname, "../../node_modules")),
       ];
 
       const source = packageCandidates.find((p: string) => existsSync(p));
@@ -293,7 +318,7 @@ export function copyClaudeExecutable(): Plugin {
         execSync(`chmod +x "${destBinary}"`);
       }
       copyClaudeSupportAssets(source, destDir);
-      verifyBinaryArch(destBinary);
+      verifyBinaryTarget(destBinary);
       signClaudeBinary(destBinary);
       claudeCliCopied = true;
     },

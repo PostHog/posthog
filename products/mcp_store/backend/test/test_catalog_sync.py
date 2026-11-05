@@ -6,6 +6,8 @@ from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
+from posthog.credentials_service.callers import CredentialsCaller
+
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG, CatalogEntry
 from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
 from products.mcp_store.backend.models import (
@@ -83,7 +85,7 @@ class TestCatalogEntries(SimpleTestCase):
 
 
 class TestSyncMCPCatalog(TestCase):
-    @patch("products.mcp_store.backend.oauth_credentials.get_instance_settings")
+    @patch("products.mcp_store.backend.oauth_credentials.get_many_or_instance_settings")
     @patch("products.mcp_store.backend.catalog_sync.probe_mcp_server")
     def test_slack_dev_uses_separate_credentials_and_resets_after_disable(self, probe, instance_settings):
         entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
@@ -103,19 +105,23 @@ class TestSyncMCPCatalog(TestCase):
             counts = sync_mcp_catalog(entries=[entry])
             template = MCPServerTemplate.objects.get(url=entry.url)
             assert template.name == "Slack via PostHog (dev)"
-            assert template.description == "Search public Slack channels with the internal PostHog development app."
+            assert template.description == (
+                "Search public Slack channels and read messages, user profiles, and canvases you can access."
+            )
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
             assert entry.oauth_scope_allowlist is not None
-            assert template.oauth_scope_allowlist == list(entry.oauth_scope_allowlist)
+            assert "canvases:read" not in entry.oauth_scope_allowlist
+            expected_scopes = (*entry.oauth_scope_allowlist, "canvases:read")
+            assert template.oauth_scope_allowlist == list(expected_scopes)
             assert counts.activated == 1
             assert MCPServerTemplate.available_for_team(42).filter(id=template.id).exists()
             assert not MCPServerTemplate.available_for_team(43).filter(id=template.id).exists()
 
-        instance_settings.assert_called_with(["SLACK_DEV_APP_CLIENT_ID", "SLACK_DEV_APP_CLIENT_SECRET"])
-        probe.assert_called_once_with(
-            entry.url, scope_allowlist=entry.oauth_scope_allowlist, shared_client_id="dev-client"
+        instance_settings.assert_called_with(
+            ["SLACK_DEV_APP_CLIENT_ID", "SLACK_DEV_APP_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
         )
+        probe.assert_called_once_with(entry.url, scope_allowlist=expected_scopes, shared_client_id="dev-client")
 
         with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
             sync_mcp_catalog(entries=[entry])
@@ -179,7 +185,7 @@ class TestSyncMCPCatalog(TestCase):
             assert template.oauth_issuer_url == probe_result.oauth_metadata.get("issuer", "")
 
     @patch(
-        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        "products.mcp_store.backend.oauth_credentials.get_many_or_instance_settings",
         return_value={"SLACK_APP_CLIENT_ID": "slack-client", "SLACK_APP_CLIENT_SECRET": "slack-secret"},
     )
     def test_existing_shared_oauth_entry_activates_from_instance_credentials(self, _settings):
@@ -220,7 +226,7 @@ class TestSyncMCPCatalog(TestCase):
         probe.assert_called_once_with(template.url, scope_allowlist=None, shared_client_id="slack-client")
 
     @patch(
-        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        "products.mcp_store.backend.oauth_credentials.get_many_or_instance_settings",
         return_value={"SLACK_APP_CLIENT_ID": "", "SLACK_APP_CLIENT_SECRET": ""},
     )
     def test_instance_credential_source_deactivates_when_settings_are_missing(self, _settings):
@@ -331,7 +337,7 @@ class TestSyncMCPCatalog(TestCase):
         assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
 
     @patch(
-        "products.mcp_store.backend.oauth_credentials.get_instance_settings",
+        "products.mcp_store.backend.oauth_credentials.get_many_or_instance_settings",
         return_value={"SLACK_APP_CLIENT_ID": "slack-client", "SLACK_APP_CLIENT_SECRET": "slack-secret"},
     )
     def test_disabled_entry_remains_inactive_across_syncs(self, _settings):

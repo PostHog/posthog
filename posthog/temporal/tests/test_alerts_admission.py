@@ -15,14 +15,15 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slots,
 )
 
+_OTHER_KEY = "test:alerts:evaluations:inflight"
 _AT_TEN = datetime(2026, 9, 22, 10, tzinfo=UTC).timestamp()  # where the frozen clocks below start
 
 
 @pytest.fixture(autouse=True)
 def clear_inflight_slots():
-    get_client().delete(INFLIGHT_KEY)
+    get_client().delete(INFLIGHT_KEY, _OTHER_KEY)
     yield
-    get_client().delete(INFLIGHT_KEY)
+    get_client().delete(INFLIGHT_KEY, _OTHER_KEY)
 
 
 def _expiry(offset_seconds: float = 0) -> float:
@@ -65,6 +66,16 @@ def test_admission_fills_only_the_free_capacity_and_slots_outlive_any_check() ->
         assert inflight_alert_ids() == {"running", "c"}
         release_evaluation_slot("running", held_until=second_hold)
         assert inflight_alert_ids() == {"c"}
+
+
+def test_a_set_under_its_own_key_never_takes_the_production_sets_slots() -> None:
+    with time_machine.travel(_at(0), tick=False):
+        assert admit_evaluation_slots(["a"], limit=1, expires_at=_expiry()) == ["a"]
+        assert admit_evaluation_slots(["b"], limit=1, expires_at=_expiry(), key=_OTHER_KEY) == ["b"]
+        assert hold_evaluation_slot("c", limit=1, key=_OTHER_KEY) is None
+        release_evaluation_slot("a", held_until=_expiry(), key=_OTHER_KEY)
+        assert inflight_alert_ids() == {"a"}
+        assert inflight_alert_ids(key=_OTHER_KEY) == {"b"}
 
 
 def test_refresh_moves_only_the_expiry_its_holder_wrote() -> None:

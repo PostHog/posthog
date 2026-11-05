@@ -1,3 +1,4 @@
+import json
 import uuid
 import importlib.util
 from itertools import product
@@ -5,6 +6,7 @@ from pathlib import Path
 
 from posthog.test.base import APIBaseTest
 
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import URLResolver, resolve
 from django.urls.resolvers import RegexPattern
@@ -14,7 +16,12 @@ from rest_framework import status
 
 from posthog import urls
 from posthog.api.playwright_setup import delete_events
-from posthog.frontend_views import home, home_with_region_redirect, region_host_from_current_instance
+from posthog.frontend_views import (
+    home,
+    home_with_region_redirect,
+    public_page_metadata_context,
+    region_host_from_current_instance,
+)
 from posthog.models.instance_setting import override_instance_config
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
@@ -76,16 +83,17 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], "https://us.posthog.com/organization/billing")
 
-    def test_integration_connect_redirect_authenticated(self):
+    @parameterized.expand([("slack",), ("mcp",)])
+    def test_integration_connect_redirect_authenticated(self, connect_from: str):
         response = self.client.get(
-            f"/integrations/connect/github/?project_id={self.team.id}&connect_from=slack", follow=False
+            f"/integrations/connect/github/?project_id={self.team.id}&connect_from={connect_from}", follow=False
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
         self.assertIn(f"/api/projects/{self.team.id}/integrations/authorize/", location)
         self.assertIn("kind=github", location)
         self.assertIn("account-connected", location)
-        self.assertIn("connect_from%3Dslack", location)
+        self.assertIn(f"connect_from%3D{connect_from}", location)
 
     def test_integration_connect_redirect_requires_login(self):
         self.client.logout()
@@ -211,6 +219,51 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
 
 
+class TestPublicPageMetadata(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("login_with_next", "/login?next=/insights", "Log in • PostHog", "/login"),
+            ("signup_with_email", "/signup/?email=someone%40example.com", "Sign up • PostHog", "/signup"),
+            ("preflight", "/preflight", "PostHog", None),
+            ("invite_signup", "/signup/0b8e1f2a-1111-4c2d-9e3f-123456789abc", "PostHog", None),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.example.com", CLOUD_DEPLOYMENT="US")
+    def test_head_renders_search_metadata(self, _name, request_path, expected_title, expected_canonical_path):
+        request = RequestFactory().get(request_path)
+        html = render_to_string("head.html", public_page_metadata_context(request))
+
+        self.assertIn(f"<title>{expected_title}</title>", html)
+        if expected_canonical_path is None:
+            self.assertNotIn('rel="canonical"', html)
+            self.assertNotIn('name="description"', html)
+            self.assertNotIn("application/ld+json", html)
+        else:
+            canonical_url = f"https://us.example.com{expected_canonical_path}"
+            self.assertIn(f'<link rel="canonical" href="{canonical_url}">', html)
+            self.assertIn(f'<meta property="og:url" content="{canonical_url}">', html)
+            self.assertIn('<meta name="description" content="', html)
+            self.assertIn('<meta property="og:image" content="https://posthog.com/images/og/default.png">', html)
+            self.assertIn('<meta name="twitter:site" content="@PostHog">', html)
+            structured_data = json.loads(html.split('<script type="application/ld+json">')[1].split("</script>")[0])
+            self.assertEqual(structured_data["@type"], "WebPage")
+            self.assertEqual(structured_data["url"], canonical_url)
+            self.assertEqual(structured_data["name"], expected_title)
+
+    @parameterized.expand([("login", "/login?next=/insights"), ("signup", "/signup/")])
+    @override_settings(SITE_URL="https://hobby.example.com", CLOUD_DEPLOYMENT=None)
+    def test_head_on_self_hosted_has_no_preview_image_or_posthog_marketing_metadata(self, _name, request_path):
+        request = RequestFactory().get(request_path)
+        html = render_to_string("head.html", public_page_metadata_context(request))
+
+        self.assertNotIn("og:image", html)
+        self.assertIn('<meta name="twitter:card" content="summary">', html)
+        self.assertNotIn("posthog.com", html)
+        self.assertNotIn("twitter:site", html)
+        self.assertNotIn("application/ld+json", html)
+        self.assertNotIn("free tier", html)
+
+
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
     @parameterized.expand(
         [
@@ -260,6 +313,33 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
 
         assert response.status_code == 302
         assert response["Location"] == expected_location
+
+
+class TestAgentDiscoveryFiles(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("llms_txt_on_cloud", "/llms.txt", "US", 200),
+            ("llms_txt_on_local_dev", "/llms.txt", "LOCAL", 200),
+            ("llms_txt_on_hobby", "/llms.txt", None, 404),
+            ("ai_catalog", "/ai-catalog.json", "US", 404),
+            ("well_known_ai_catalog", "/.well-known/ai-catalog.json", "US", 404),
+        ]
+    )
+    def test_agent_discovery_files_do_not_fall_through_to_the_app(
+        self, _name: str, request_path: str, region: str | None, expected_status: int
+    ) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        with override_settings(CLOUD_DEPLOYMENT=region, SITE_URL="https://us.example.com"):
+            response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            body = response.content.decode()
+            assert body.startswith("# ")
+            assert "](https://mcp.posthog.com/mcp)" in body
+            assert "](https://us.example.com/settings/user-api-keys)" in body
 
 
 class TestConditionalRoutes(SimpleTestCase):

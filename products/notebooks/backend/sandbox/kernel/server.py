@@ -10,6 +10,8 @@ Launched inside the sandbox as `python -m nb_kernel.server --port … --secret-f
 - POST /page → verifies the HMAC command token, synchronously re-queries the data
   plane with the request's LIMIT/OFFSET and returns the rows in the 200 response.
   A page fetch is bounded, so it is plain request/response — no callback.
+- POST /complete and /inspect → verifies the HMAC command token, asks the live kernel for
+  completions or a name's signature and docstring, and answers synchronously.
 """
 
 import json
@@ -20,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from .auth import verify_command_token
-from .runner import execute_run, fetch_page, request_interrupt
+from .runner import complete_code, execute_run, fetch_page, inspect_code, request_interrupt
 
 DEFAULT_PORT = 47821
 
@@ -35,7 +37,7 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path not in ("/run", "/page", "/interrupt"):
+        if self.path not in ("/run", "/page", "/interrupt", "/complete", "/inspect"):
             self._respond(404, {"error": "Not found"})
             return
         try:
@@ -54,7 +56,19 @@ class KernelServerHandler(BaseHTTPRequestHandler):
         if self.path == "/interrupt":
             self._handle_interrupt(payload)
             return
+        if self.path in ("/complete", "/inspect"):
+            self._handle_introspection(payload)
+            return
         self._handle_page(payload)
+
+    def _handle_introspection(self, payload: dict[str, Any]) -> None:
+        try:
+            result = complete_code(payload) if self.path == "/complete" else inspect_code(payload)
+        except Exception:  # noqa: BLE001 — a failed lookup must answer, not leave the editor waiting
+            logging.getLogger(__name__).exception("nb_kernel introspection failed")
+            self._respond(500, {"error": "Introspection failed in the sandbox"})
+            return
+        self._respond(200, result)
 
     def _handle_interrupt(self, payload: dict[str, Any]) -> None:
         # Run-scoped: cancels the run's queued/waiting phases via its cancel event and

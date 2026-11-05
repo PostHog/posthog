@@ -1,12 +1,14 @@
-from posthog.test.base import APIBaseTest
+from django.test import SimpleTestCase
+
+from posthog.models import Team, User
 
 from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
 from products.posthog_ai.backend.services.system_prompt.service import ClaudeCodeSystemPrompt, PromptService
 
 
-class TestPostHogAISystemPrompt(APIBaseTest):
+class TestPostHogAISystemPrompt(SimpleTestCase):
     def _build(self) -> ClaudeCodeSystemPrompt:
-        return PromptService(self.team, self.user).build()
+        return PromptService(Team(id=1), User(id=1)).build()
 
     def test_build_returns_preset_append_suffix(self):
         # The object form makes the agent-server append to Claude Code's prompt (a suffix), rather
@@ -32,9 +34,10 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "a conversion between two events" in prompt
         assert "are not substitutes for `metric-list`" in prompt
         assert "product skill's query recipe does not exempt" in prompt
-        assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
-        assert "Derive from an approved metric when one covers the same measure" in prompt
-        assert "otherwise derive the number yourself" in prompt
+        assert "An approved metric outranks a `proposed` or drifted one" in prompt
+        assert "only if its `metric-describe` definition measures what the user asked" in prompt
+        assert "warn the user that the metric is proposed or drifted" in prompt
+        assert "Never present a `proposed` or drifted metric's result" not in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]

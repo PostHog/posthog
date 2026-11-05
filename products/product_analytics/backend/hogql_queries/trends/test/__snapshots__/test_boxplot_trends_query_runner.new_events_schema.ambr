@@ -7,7 +7,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.amount, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.amount, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.amount, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.amount, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.amount, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.amount, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'purchase'))
   GROUP BY day_start
@@ -24,7 +25,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_0_day[new_events_schema]
@@ -35,7 +37,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -52,7 +55,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_1_hour[new_events_schema]
@@ -63,7 +67,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalHour(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))))
   GROUP BY day_start
@@ -80,7 +85,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_2_minute[new_events_schema]
@@ -91,7 +97,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalMinute(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 10:05:00', 'UTC'))))
   GROUP BY day_start
@@ -108,7 +115,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_3_week[new_events_schema]
@@ -119,7 +127,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-11-27 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -136,7 +145,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_day_format_varies_by_interval_4_month[new_events_schema]
@@ -147,7 +157,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -164,7 +175,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_each_datum_has_label_and_day[new_events_schema]
@@ -175,7 +187,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -192,7 +205,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_0_filter_test_accounts_off[new_events_schema]
@@ -203,7 +217,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -220,7 +235,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_filter_test_accounts_1_filter_test_accounts_on[new_events_schema]
@@ -231,9 +247,10 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), '%@posthog.com%'), 1))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(if(notEquals(toJSONString(e.person_properties.^email), '{}'), toJSONString(e.person_properties.^email), if(isNull(e.person_properties.email), NULL, if(and(in(ascii(toString(e.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.email)), tuple(91, 123))), toJSONString(e.person_properties.email), toString(e.person_properties.email))))), '%@posthog.com%'), 1))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -248,7 +265,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_days_produce_separate_buckets_with_correct_stats[new_events_schema]
@@ -259,7 +277,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -276,7 +295,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each[new_events_schema.1]
@@ -287,7 +307,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.other_prop, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'other_event'))
   GROUP BY day_start
@@ -304,7 +325,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each[new_events_schema]
@@ -315,7 +337,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -332,7 +355,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day[new_events_schema]
@@ -343,7 +367,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -360,7 +385,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros[new_events_schema]
@@ -371,7 +397,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -388,7 +415,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing[new_events_schema]
@@ -399,7 +427,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -416,7 +445,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing[new_events_schema]
@@ -427,7 +457,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -444,7 +475,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_0_filter_chrome_only[new_events_schema]
@@ -455,9 +487,10 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Chrome'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.properties.`$browser`, 'Chrome'))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -472,7 +505,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_1_filter_firefox_only[new_events_schema]
@@ -483,9 +517,10 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`)))), 'Firefox'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.properties.`$browser`, 'Firefox'))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -500,7 +535,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_property_filters_2_no_filter_sees_both[new_events_schema]
@@ -511,7 +547,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -528,7 +565,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_results_are_ordered_by_day_ascending[new_events_schema]
@@ -539,7 +577,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -556,7 +595,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_session_duration_produces_boxplot_data[new_events_schema]
@@ -567,7 +607,8 @@
          quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(session_duration, 'Float64')) AS p75,
          max(accurateCastOrNull(session_duration, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(session_duration, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(session_duration, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(session_duration, 'Float64')) AS count_val
   FROM
     (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
             any(e__session.`$session_duration`) AS session_duration
@@ -595,7 +636,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_sparse_data_fills_missing_dates_with_zeros[new_events_schema]
@@ -606,7 +648,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -623,7 +666,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_0_uniform_distribution[new_events_schema]
@@ -634,7 +678,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -651,7 +696,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_1_single_value[new_events_schema]
@@ -662,7 +708,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -679,7 +726,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_2_two_values[new_events_schema]
@@ -690,7 +738,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -707,7 +756,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_3_identical_values[new_events_schema]
@@ -718,7 +768,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -735,7 +786,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_4_negative_values[new_events_schema]
@@ -746,7 +798,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -763,7 +816,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_5_large_values[new_events_schema]
@@ -774,7 +828,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -791,7 +846,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestBoxPlotTrendsQueryRunner.test_statistics_for_distribution_6_decimal_values[new_events_schema]
@@ -802,7 +858,8 @@
          quantile(0.5)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS median_val,
          quantile(0.75)(accurateCastOrNull(e.properties.revenue, 'Float64')) AS p75,
          max(accurateCastOrNull(e.properties.revenue, 'Float64')) AS max_val,
-         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val
+         avg(accurateCastOrNull(e.properties.revenue, 'Float64')) AS mean_val,
+         count(accurateCastOrNull(e.properties.revenue, 'Float64')) AS count_val
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
@@ -819,6 +876,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

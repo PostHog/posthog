@@ -1,6 +1,7 @@
 import { SignalSourceType } from '../../types'
 
 const SOURCE_TRIGGER_COPY: Partial<Record<SignalSourceType, string>> = {
+    [SignalSourceType.ScannerFinding]: 'a scanner finds a usability problem',
     [SignalSourceType.SessionProblem]: 'a session shows a product problem',
     [SignalSourceType.Evaluation]: 'an AI evaluation fails',
     [SignalSourceType.EvaluationReport]: 'AI evaluation results need attention',
@@ -14,6 +15,7 @@ const SOURCE_TRIGGER_COPY: Partial<Record<SignalSourceType, string>> = {
     [SignalSourceType.CiFlakyCheck]: 'a CI check becomes flaky',
     [SignalSourceType.CiBrokenDefaultBranch]: 'the default branch breaks',
     [SignalSourceType.CiDurationRegression]: 'a CI workflow slows down',
+    [SignalSourceType.Incident]: 'an incident or on-call alert opens',
 }
 
 export function sourceTriggerCopy(sourceType: SignalSourceType): string {

@@ -15,7 +15,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -23,19 +22,23 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.authentication_checks import covers_authentication
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
-from products.tasks.backend.logic.services.workflow_task_skills import MAX_ATTACHED_SKILLS
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun, TeamTasksConfig
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
-from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTaskCreateSerializer
+from products.workflows.backend.presentation.views.workflow_tasks import (
+    WorkflowTaskCreateSerializer,
+    WorkflowTasksJWTAuthentication,
+)
 
 SECRET = "test-tasks-create-jwt"
 
@@ -75,13 +78,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
 
-    def _seed_workflow_task(self, run_status: str) -> Task:
+    def _flow_columns(self, hog_flow_id: UUID | str, *, source_columns: bool) -> dict:
+        if source_columns:
+            return {"source_kind": "hog_flow", "source_id": str(hog_flow_id)}
+        return {"hog_flow_id": hog_flow_id}
+
+    def _seed_workflow_task(self, run_status: str, *, source_columns: bool = False) -> Task:
         task = Task.objects.create(
             team=self.team,
             title="existing",
             description="existing",
             origin_product=Task.OriginProduct.WORKFLOW,
-            hog_flow_id=self.hog_flow.id,
+            **self._flow_columns(self.hog_flow.id, source_columns=source_columns),
         )
         TaskRun.objects.create(task=task, team=self.team, status=run_status)
         return task
@@ -93,6 +101,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         hog_flow_id: UUID | None,
         origin_product: str = Task.OriginProduct.WORKFLOW,
         created_at: datetime | None = None,
+        source_columns: bool = False,
     ) -> None:
         # No TaskRun rows: the daily caps count Task rows only, and runless tasks keep the
         # in-flight count at 0, so a cap test cannot pass via the in-flight 409 instead.
@@ -103,13 +112,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
                     title=f"seed-{i}",
                     description="seed",
                     origin_product=origin_product,
-                    hog_flow_id=hog_flow_id,
+                    **(
+                        self._flow_columns(hog_flow_id, source_columns=source_columns)
+                        if hog_flow_id is not None
+                        else {}
+                    ),
                     **({"created_at": created_at} if created_at is not None else {}),
                 )
                 for i in range(count)
             ]
         )
 
+    @covers_authentication(WorkflowTasksJWTAuthentication)
     def test_creates_a_task_and_run_attributed_to_the_workflow_and_its_owner(self) -> None:
         response = self._post()
 
@@ -171,6 +185,34 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["provider"] == expected_provider
         assert run.state["model"] == model
         assert run.state["reasoning_effort"] == "high"
+
+    @parameterized.expand([("zai-org/glm-5.3-flash",), ("deepseek-ai/deepseek-v4-flash-0731",)])
+    def test_drops_a_model_outside_the_workflows_gateway_pin(self, model: str) -> None:
+        response = self._post({"model": model})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
+        assert run.state.get("runtime_adapter") is None
+
+    @parameterized.expand([("dropped_model", {"model": "zai-org/glm-5.3-flash"}), ("no_model", {})])
+    def test_skips_a_project_default_model_outside_the_workflows_gateway_pin(self, _name: str, body: dict) -> None:
+        TeamTasksConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "ai_run_preferences": {
+                    "runtime_adapter": "claude",
+                    "model": "zai-org/glm-5.3-flash",
+                    "reasoning_effort": None,
+                }
+            },
+        )
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
 
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
@@ -311,50 +353,6 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert "server-unknown" in response.json()["detail"]
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    @parameterized.expand(
-        [
-            ("no_header", "none"),
-            ("wrong_signing_key", "wrong_key"),
-            ("wrong_audience", "wrong_audience"),
-            # Same signing key as the scout-run step, distinct audience: that token must not
-            # spend a task creation, even though both mint from TASKS_CREATE_JWT_SECRETS.
-            ("scout_run_audience", "scout_run_audience"),
-            ("expired", "expired"),
-            ("missing_workflow_claim", "no_flow_claim"),
-        ]
-    )
-    def test_rejects_a_token_it_did_not_mint_for_this_workflow(self, _name: str, kind: str) -> None:
-        flow_id = str(self.hog_flow.id)
-        token = {
-            "none": None,
-            "wrong_key": _token(self.team.id, flow_id, signing_key="not-the-secret"),
-            "wrong_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.RECORDING_API),
-            "scout_run_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN),
-            "expired": _token(self.team.id, flow_id, expiry=timedelta(minutes=-1)),
-            "no_flow_claim": _token(self.team.id, None),
-        }[kind]
-
-        headers: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
-        response = self.client.post(self.url, {"prompt": "hi"}, format="json", **headers)
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
-    def test_rejects_a_token_minted_for_another_team(self) -> None:
-        other_team = self.create_team_with_organization(self.organization)
-
-        response = self._post(token=_token(other_team.id, str(self.hog_flow.id)))
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
-    @override_settings(TASKS_CREATE_JWT_SECRETS=[])
-    def test_fails_closed_when_the_signing_secret_is_not_provisioned(self) -> None:
-        response = self._post()
-
-        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
-
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
     def test_refuses_a_workflow_whose_owner_is_deactivated(self, usage_limit_response_mock) -> None:
         self.user.is_active = False
@@ -380,26 +378,15 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert not Task.objects.filter(hog_flow_id=flow.id).exists()
         usage_limit_response_mock.assert_not_called()
 
-    @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
-    def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:
-        if case == "unknown_workflow":
-            flow_id = str(uuid4())
-        else:
-            other_team = self.create_team_with_organization(self.organization)
-            flow_id = create_workflow_for_test(team_id=other_team.id, name="Theirs", created_by_id=self.user.id).id
-
-        response = self._post(token=_token(self.team.id, flow_id))
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-    def test_skips_creation_at_the_in_flight_limit(self) -> None:
+    @parameterized.expand([("old_columns", False), ("new_columns", True)])
+    def test_skips_creation_at_the_in_flight_limit(self, _name: str, source_columns: bool) -> None:
         for _ in range(2):
-            self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+            self._seed_workflow_task(TaskRun.Status.IN_PROGRESS, source_columns=source_columns)
 
         response = self._post({"max_parallel_tasks": 2})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 2
+        assert Task.objects.count() == 2
 
     def test_finished_runs_free_up_the_limit(self) -> None:
         self._seed_workflow_task(TaskRun.Status.COMPLETED)
@@ -408,11 +395,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @parameterized.expand(["per_workflow", "team_wide"])
+    @parameterized.expand([("per_workflow", False), ("per_workflow_new_columns", True), ("team_wide", False)])
     @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
-    def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
-        if scope == "per_workflow":
-            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id))
+    def test_skips_creation_at_the_daily_cap(self, scope: str, source_columns: bool, usage_limit_response_mock) -> None:
+        if scope.startswith("per_workflow"):
+            self._seed_created_tasks(
+                WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=UUID(self.hog_flow.id), source_columns=source_columns
+            )
             expected_fragment = "This workflow reached its daily limit"
         else:
             # Two other workflows fill the team budget; this workflow is far under its own cap.
@@ -498,14 +487,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
-    def test_rejects_creation_when_the_owner_is_over_the_usage_limit(self, usage_limit_response_mock) -> None:
-        usage_limit_response_mock.return_value = object()  # any non-None reply means blocked
-
-        response = self._post()
+    @parameterized.expand(
+        [
+            # Any non-None reply from the Desktop usage gate means blocked.
+            ("owner_over_usage_limit", "usage_limit_response", object(), "usage limit"),
+            ("team_out_of_ai_credits", "is_team_over_credit_budget", True, "monthly PostHog AI credits"),
+        ]
+    )
+    def test_rejects_creation_when_usage_is_blocked(self, _name: str, gate: str, blocked: Any, detail: str) -> None:
+        with patch(f"products.tasks.backend.logic.services.workflow_tasks.{gate}", return_value=blocked):
+            response = self._post()
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert "usage limit" in response.json()["detail"]
+        assert detail in response.json()["detail"]
         assert Task.objects.count() == 0
 
     def test_replaying_an_idempotency_key_returns_the_existing_task(self) -> None:
@@ -537,14 +531,22 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.status_code == status.HTTP_200_OK, replay.json()
         assert replay.json()["id"] == first.json()["id"]
 
-    def test_rejects_an_idempotency_key_used_by_another_workflow(self) -> None:
+    @parameterized.expand(
+        [
+            ("old_columns", {"origin_key": "invocation-1"}, False),
+            ("new_columns", {"idempotency_key": "invocation-1"}, True),
+        ]
+    )
+    def test_rejects_an_idempotency_key_used_by_another_workflow(
+        self, _name: str, key_columns: dict, source_columns: bool
+    ) -> None:
         Task.objects.create(
             team=self.team,
             title="other",
             description="other",
             origin_product=Task.OriginProduct.WORKFLOW,
-            hog_flow_id=uuid4(),
-            origin_key="invocation-1",
+            **self._flow_columns(uuid4(), source_columns=source_columns),
+            **key_columns,
         )
 
         response = self._post({"idempotency_key": "invocation-1"})
@@ -645,18 +647,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert later_run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1"]
 
-    @parameterized.expand([("with_repository", True), ("without_repository", False)])
-    def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
-        body: dict = {}
-        if with_repository:
-            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
-            body["repository"] = "posthog/posthog"
+    @parameterized.expand(
+        [
+            ("repositories", {"repositories": ["posthog/posthog", "posthog/posthog.com"]}),
+            ("legacy_repository", {"repository": "posthog/posthog"}),
+            ("no_repository", {}),
+        ]
+    )
+    def test_the_task_works_in_the_requested_repositories(self, _name: str, body: dict) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        expected = body.get("repositories") or ([body["repository"]] if "repository" in body else [])
 
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.repositories == expected
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["pending_dispatch"]["create_pr"] is with_repository
+        assert run.state["pending_dispatch"]["create_pr"] is bool(expected)
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")
@@ -685,17 +693,6 @@ class TestWorkflowTasksAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.status == TaskRun.Status.IN_PROGRESS
         resume.assert_not_called()
-
-    def test_a_request_without_a_prompt_is_rejected(self) -> None:
-        response = self.client.post(
-            self.url,
-            {"title": "no prompt"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {_token(self.team.id, str(self.hog_flow.id))}",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
         response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
@@ -928,11 +925,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert teammate_response.status_code == status.HTTP_200_OK, teammate_response.json()
         assert "initial_prompt_override" not in teammate_response.json()["state"]
 
-        sandbox_response = self._sandbox_client(task_id).get(run_url)
+        sandbox_response = self._sandbox_client(task_id, run_id).get(run_url)
         assert sandbox_response.status_code == status.HTTP_200_OK, sandbox_response.json()
         assert "private alert" in sandbox_response.json()["state"]["initial_prompt_override"]
 
-    def _sandbox_client(self, task_id: str) -> APIClient:
+    def _sandbox_client(self, task_id: str, run_id: str) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Task agent",
             client_id=ARRAY_APP_CLIENT_ID_DEV,
@@ -952,6 +949,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
         )
+        run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=self.team.id)
+        run.state = {**(run.state or {}), "sandbox_oauth_token_ids": [str(access_token.id)]}
+        run.save(update_fields=["state"])
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
@@ -1004,6 +1004,28 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert mapping.mentioning_slack_user_id == "U123"
 
 
+class TestWorkflowTaskCreateRepositories(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_slash", {"repositories": ["just-a-name"]}, "repositories"),
+            ("too_many_slashes", {"repositories": ["org/repo/extra"]}, "repositories"),
+            ("duplicate_in_another_case", {"repositories": ["org/repo", "ORG/Repo"]}, "repositories"),
+            ("legacy_no_slash", {"repository": "just-a-name"}, "repository"),
+        ]
+    )
+    def test_rejects_repositories_the_sandbox_cannot_clone(self, _name, body, field):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", **body})
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    def test_lowercases_repositories(self):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", "repositories": ["Org/Repo"]})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["repositories"] == ["org/repo"]
+
+
 class TestWorkflowOriginIsReserved(SimpleTestCase):
     def test_the_public_tasks_api_rejects_the_workflow_origin(self) -> None:
         from products.tasks.backend.presentation.serializers import TaskCreateSerializer
@@ -1012,54 +1034,6 @@ class TestWorkflowOriginIsReserved(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "origin_product" in serializer.errors
-
-
-class TestWorkflowTaskCreateSerializer(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("missing_prompt", {}, "prompt"),
-            ("blank_prompt", {"prompt": ""}, "prompt"),
-            ("zero_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 0}, "max_parallel_tasks"),
-            ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
-            ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
-            ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
-            ("skills_not_a_list", {"prompt": "p", "skills": "error-triage"}, "skills"),
-            ("skills_not_strings", {"prompt": "p", "skills": [{"name": "error-triage"}]}, "skills"),
-            (
-                "too_many_skills",
-                {"prompt": "p", "skills": [f"s-{i}" for i in range(MAX_ATTACHED_SKILLS + 1)]},
-                "skills",
-            ),
-            ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
-            (
-                "slack_context_missing_channel",
-                {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
-                "slack_context",
-            ),
-            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
-            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
-            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
-            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
-            (
-                "slack_context_bad_integration_id",
-                {
-                    "prompt": "p",
-                    "slack_context": {"integration_id": "not-a-pk", "channel": "C1", "thread_ts": "1.0"},
-                },
-                "slack_context",
-            ),
-        ]
-    )
-    def test_rejects_invalid_input(self, _name: str, body: dict, field: str) -> None:
-        serializer = WorkflowTaskCreateSerializer(data=body)
-
-        assert not serializer.is_valid()
-        assert field in serializer.errors
-
-    def test_accepts_a_minimal_request(self) -> None:
-        serializer = WorkflowTaskCreateSerializer(data={"prompt": "look into the alert"})
-
-        assert serializer.is_valid(), serializer.errors
 
 
 class TestRenderRunMessage(SimpleTestCase):

@@ -16,8 +16,9 @@ from django.conf import settings
 import numpy as np
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
@@ -80,6 +81,7 @@ def latest_report_vectors(team_id: int, report_ids: Sequence[str], *, rendering:
                 },
                 workload=Workload.OFFLINE,
                 team_id=team_id,
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )

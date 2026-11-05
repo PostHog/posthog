@@ -17,12 +17,22 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.auth import account_refused
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
 
+from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
+
 from ee.partners.stripe.api.provisioning.core import is_stripe_oauth_app
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
+
+# The response reaches Stripe, not a PostHog page, so the message names PostHog. The code is
+# what lets PostHog support trace the refusal to an access rule.
+ACCOUNT_BLOCKED_MESSAGE = (
+    "PostHog can't give access to this account. If you think this is a mistake, contact PostHog support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
 
 
 class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
@@ -65,6 +75,14 @@ class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
         user = access_token.user
         if user is None or not user.is_active:
             raise SpecError("unauthorized", "Authentication failed", status=401)
+        if account_refused(
+            request,
+            user,
+            call_site="stripe_provisioning_token",
+            impersonated=access_token.impersonated_by_id is not None,
+        ):
+            # Stripe's provisioning spec defines the error codes, so the refusal uses its `forbidden`.
+            raise SpecError("forbidden", ACCOUNT_BLOCKED_MESSAGE, status=403)
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

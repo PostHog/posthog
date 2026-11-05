@@ -4,8 +4,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -13,6 +18,7 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { maxMocks } from '../testUtils'
 import { QuestionInput } from './QuestionInput'
+import { QuillQuestionInput } from './QuillQuestionInput'
 
 jest.mock(
     '@posthog/hogvm',
@@ -23,7 +29,11 @@ jest.mock(
     { virtual: true }
 )
 
-describe('QuestionInput', () => {
+// Both skins share `useQuestionInput`, so the same behavior holds whichever one the flags pick.
+describe.each([
+    ['lemon', QuestionInput],
+    ['quill', QuillQuestionInput],
+])('QuestionInput (%s)', (_skin, Composer) => {
     let maxLogicInstance: ReturnType<typeof maxLogic.build>
     let threadLogicInstance: ReturnType<typeof maxThreadLogic.build>
 
@@ -46,7 +56,7 @@ describe('QuestionInput', () => {
             <Provider>
                 <BindLogic logic={maxLogic} props={{ panelId: 'test' }}>
                     <BindLogic logic={maxThreadLogic} props={threadProps}>
-                        <QuestionInput />
+                        <Composer />
                     </BindLogic>
                 </BindLogic>
             </Provider>
@@ -64,6 +74,24 @@ describe('QuestionInput', () => {
     const slashCommandItem = (): HTMLElement | null => screen.queryByText('/init')
 
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+    it('offers file selection before the first message and preserves the current draft', async () => {
+        // The flag outlives the previous skin's run of this test, so start from flags off.
+        act(() => featureFlagLogic.actions.setFeatureFlags([], {}))
+        const attachButton = (): Element | null => document.querySelector('[data-attr="max-new-chat-attach-file"]')
+        expect(attachButton()).not.toBeInTheDocument()
+        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
+        expect(attachButton()).toBeInTheDocument()
+        const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
+        const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement
+        fireEvent.change(fileInput, { target: { files: [file] } })
+        expect(composerSeedLogic().values.seed).toMatchObject({
+            prompt: 'Read these notes',
+            files: [file],
+            autoSubmit: false,
+        })
+    })
 
     it('does not release a sandbox pre-warm when blur moves to the send button', async () => {
         // Simulate a completed warm; a release would clear the flag (and relay-cancel the warm Run).

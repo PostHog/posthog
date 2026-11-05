@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
-import { translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
+import { translateCanvasRect, translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
 import { assertCanvasCapability } from './canvasCapabilities'
 import { CanvasDocumentBridge } from './canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
@@ -106,6 +106,11 @@ export function DraftCanvas({
                 onTextSelection: (selection) =>
                     latest.current.callbacks.onTextSelection?.(
                         translateCanvasTextSelection(selection, iframeRef.current?.getBoundingClientRect() ?? null)
+                    ),
+                onCommentActivate: (id, rect) =>
+                    latest.current.callbacks.onCommentActivate?.(
+                        id,
+                        rect ? translateCanvasRect(rect, iframeRef.current?.getBoundingClientRect() ?? null) : null
                     ),
             }),
             hasUserActivation: () => latest.current.hasUserActivation(),

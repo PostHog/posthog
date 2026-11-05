@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError, ProgrammingError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -62,6 +64,21 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+_RESOURCE_MONITOR_QUOTA_ERROR = "cannot be resumed because resource monitor"
+
+# Snowflake error 251001: the connector's own `_validate_account` rejects an account identifier
+# containing a character other than letters, digits, '_', '-', or '.' before any request reaches
+# Snowflake — typically the customer pasted a full URL or hostname (e.g.
+# "https://xy12345.snowflakecomputing.com") into the account id field instead of the bare
+# identifier. Nothing we send differs between attempts, so retrying can never succeed until the
+# customer corrects the field. The message is fully static (no account value embedded), so it's
+# safe to match as-is. Same `{action}` placeholder convention as `_MALFORMED_PEM_MESSAGE`.
+_INVALID_ACCOUNT_IDENTIFIER_MESSAGE = (
+    "Snowflake rejected the account identifier because it contains a character other than letters, "
+    "digits, '_', '-', or '.' (for example a slash from a pasted URL or hostname). Enter just the "
+    "account identifier (for example xy12345 or xy12345.us-east-1), then {action}"
+)
+
 # Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
 # sync path retries such a blip quietly, but interactive validation has nothing to retry
 # automatically, so it tells the user it was a brief blip and to try again rather than capturing it
@@ -82,11 +99,13 @@ _MFA_ENFORCED_MESSAGE = (
 )
 
 SnowflakeErrors = {
+    _RESOURCE_MONITOR_QUOTA_ERROR: "The Snowflake warehouse can't resume because its resource monitor has used its credit quota. Raise the quota or wait for it to reset, then try again.",
     "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
     "Incorrect username or password was specified": "Incorrect username or password was specified",
     "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then try again.",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
+    "Invalid account identifier": _INVALID_ACCOUNT_IDENTIFIER_MESSAGE.format(action="try again."),
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
     # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't
     # resolve to a real deployment (wrong/incomplete account id, missing region/cloud segment). The
@@ -107,6 +126,61 @@ SnowflakeErrors = {
 
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
+    codebase_detection = detect(
+        env=("^SNOWFLAKE_", "^SNOWSQL_", "^AIRFLOW_CONN_SNOWFLAKE_DEFAULT$"),
+        npm=("snowflake-sdk",),
+        pypi=(
+            "snowflake-connector-python",
+            "snowflake-sqlalchemy",
+            "snowflake-snowpark-python",
+            "snowflake",
+            "snowflake-core",
+            "snowflake-ml-python",
+            "snowflake-cli",
+            "snowflake-cli-labs",
+            "snowflake-ingest",
+            "snowpipe-streaming",
+            "snowflake-telemetry-python",
+            "snowpark-connect",
+            "snowpark-submit",
+            "snowpark-checkpoints",
+            "snowpark-checkpoints-collectors",
+            "snowpark-checkpoints-validators",
+            "snowpark-checkpoints-configuration",
+            "snowpark-checkpoints-hypothesis",
+            "dbt-snowflake",
+            "apache-airflow-providers-snowflake",
+        ),
+        cargo=("snowflake-connector-rs",),
+        go=("github.com/snowflakedb/gosnowflake",),
+        maven=(
+            "net.snowflake:snowflake-jdbc",
+            "net.snowflake:snowflake-jdbc-fips",
+            "net.snowflake:snowflake-jdbc-thin",
+            "net.snowflake:snowflake-jdbc-native",
+            "net.snowflake:snowflake-jdbc-native-all",
+            "net.snowflake:snowflake-ingest-sdk",
+            "net.snowflake:spark-snowflake_2.10",
+            "net.snowflake:spark-snowflake_2.11",
+            "net.snowflake:spark-snowflake_2.12",
+            "net.snowflake:spark-snowflake_2.13",
+            "com.snowflake:snowpark",
+            "com.snowflake:snowpark_2.12",
+            "com.snowflake:snowpark_2.13",
+            "com.snowflake:snowpark-fips",
+            "com.snowflake:snowpark-fips_2.12",
+            "com.snowflake:snowpark-fips_2.13",
+            "com.snowflake:snowpipe-streaming",
+            "com.snowflake:telemetry",
+            "com.snowflake:connectors-native-sdk",
+            "com.snowflake:snowflake-kafka-connector",
+            "com.snowflake:snowflake-maven-plugin",
+            "com.snowflake:snowpark-connect-java-client_2.12",
+            "com.snowflake:snowpark-connect-java-client_2.13",
+        ),
+        rubygems=("rb_snowflake_client", "sequel-snowflake"),
+    )
+
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION
@@ -249,6 +323,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -275,6 +350,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # match the stable phrase.
             "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
+            "Invalid account identifier": _INVALID_ACCOUNT_IDENTIFIER_MESSAGE.format(action="resync."),
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
@@ -412,6 +488,26 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # cleanly once the backend blip clears, so this is self-recovering rather than a bug.
             # The errno prefix is volatile, so we match the stable status text.
             "HTTP 503: Service Unavailable",
+            # Snowflake error 000604 (57014): the connector arms a client-side "timebomb" on
+            # `cursor.execute()` using `network_timeout` (see `_SNOWFLAKE_QUERY_TIMEOUT_SECONDS`) and
+            # cancels the query once it elapses. The metadata/listing queries (column discovery,
+            # primary-key and clustering-key lookups) don't pass the long explicit per-query timeout,
+            # so they inherit the shorter connection-level one — usually plenty, but a cold warehouse
+            # resume or a transient backend slowdown can push a catalog scan past it. A fresh attempt
+            # opens a new connection and re-executes from scratch, so this is self-recovering rather
+            # than a bug. The query id in the message is volatile, so we match the stable phrase.
+            "SQL execution was cancelled by the client due to a timeout",
+            # Snowflake error 090073 (22000): the warehouse can't resume because the customer's resource
+            # monitor used its credit quota. Monitors reset on the schedule the customer set (daily,
+            # weekly or monthly), and the customer can raise the quota at any time. Disabling the
+            # schema would leave the sync off after the quota returns, so keep it enabled and retry.
+            # The query id and names are volatile, so we match the stable phrase.
+            _RESOURCE_MONITOR_QUOTA_ERROR,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            _RESOURCE_MONITOR_QUOTA_ERROR: "Your Snowflake warehouse can't resume because its resource monitor has used its credit quota. This sync tries again on its own and works again once you raise the quota or it resets.",
         }
 
     def reconcile_schema_metadata(

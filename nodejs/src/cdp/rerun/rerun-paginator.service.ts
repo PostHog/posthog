@@ -14,6 +14,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import {
     HogInvocationResultsService,
+    SENSITIVE_VARIABLES_OMITTED,
     decodeInvocationGlobals,
 } from '../services/monitoring/hog-invocation-results.service'
 import {
@@ -640,7 +641,8 @@ export class RerunPaginatorService {
                         teamId,
                         state.function_kind,
                         state.function_id,
-                        row
+                        row,
+                        state.request.replay_code_sends === true
                     )
                     if (!invocation) {
                         counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
@@ -681,7 +683,8 @@ export class RerunPaginatorService {
         teamId: number,
         functionKind: RerunFunctionKind,
         functionId: string,
-        row: InvocationRow
+        row: InvocationRow,
+        replayCodeSends: boolean
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
@@ -767,6 +770,37 @@ export class RerunPaginatorService {
                 return null
             }
             const persistedState = parsedGlobals as Record<string, any>
+            if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
+                logger.warn('⚠️', 'Skipping rerun of a sensitive message whose data was not stored', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                this.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: teamId,
+                            log_source: 'hog_flow',
+                            log_source_id: functionId,
+                            instance_id: row.invocation_id,
+                            timestamp: DateTime.now(),
+                            level: 'warn',
+                            message:
+                                "Not re-run: this run's message is sensitive, so its content wasn't stored and can't be sent again.",
+                        },
+                    ],
+                    'hog_flow'
+                )
+                return null
+            }
+            if (persistedState.send && !replayCodeSends) {
+                logger.warn('⚠️', 'Skipping rerun of an email sent from code while code sends are off', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
             const eventForFilter = persistedState.event ?? {}
             const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
                 event: eventForFilter,
@@ -795,10 +829,15 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
+            // The cohort lookup counters are dropped too. A run that aborted after its last
+            // lookup attempt would otherwise restart with no retries left, and the leftover
+            // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
+                cohortLookupAttempts: _cohortLookupAttempts,
+                cohortLookupFailed: _cohortLookupFailed,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 
@@ -823,6 +862,9 @@ export class RerunPaginatorService {
                     ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
                     : undefined,
                 personId: persistedState.personId,
+                // Later message steps check these before the per-worker preferences cache, which can predate them.
+                messageOptOuts: persistedState.messageOptOuts,
+                send: persistedState.send,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

@@ -13,7 +13,7 @@ describe('error tracking fingerprint route', () => {
     // `decodeURI(pathname)` — which unescapes `%5B` to `[`, `%20` to a space, and every non-ASCII
     // escape to its character. Those fall outside the router's global `segmentValueCharset`, so
     // while this route used a named `:fingerprint` segment an alert link such as
-    // /error_tracking/fingerprint/Error%3A%20%5BcashFlowDrilldown%5D matched no route at all and the
+    // /error-tracking/fingerprint/Error%3A%20%5BcashFlowDrilldown%5D matched no route at all and the
     // app rendered its 404 scene instead of resolving the fingerprint. A wildcard skips the charset.
     let matched = false
 
@@ -40,7 +40,7 @@ describe('error tracking fingerprint route', () => {
         ['TypeError: {"a":1} <html> `tpl` (500)'],
         ['fp-1'],
     ])('routes an alert link for the fingerprint %s', (fingerprint) => {
-        router.actions.push(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`)
+        router.actions.push(`/error-tracking/fingerprint/${encodeURIComponent(fingerprint)}`)
 
         expect(matched).toBe(true)
     })

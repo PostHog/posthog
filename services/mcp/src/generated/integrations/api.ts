@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -21,6 +21,7 @@ export const IntegrationsListQueryParams = () => zod.object({
         .enum([
             'anthropic',
             'apns',
+            'apple-ads',
             'aws-redshift',
             'aws-s3',
             'azure-blob',
@@ -71,7 +72,7 @@ export const IntegrationsListQueryParams = () => zod.object({
         ])
         .optional()
         .describe(
-            '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
+            '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -104,6 +105,8 @@ export const IntegrationsChannelsRetrieveParams = () => zod.object({
         ),
 })
 
+export const integrationsChannelsRetrieveQueryChannelIdDefault = ``
+export const integrationsChannelsRetrieveQueryForceRefreshDefault = false
 export const integrationsChannelsRetrieveQueryLimitDefault = 50
 export const integrationsChannelsRetrieveQueryLimitMax = 200
 
@@ -113,6 +116,18 @@ export const integrationsChannelsRetrieveQueryOffsetMin = 0
 export const integrationsChannelsRetrieveQuerySearchDefault = ``
 
 export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
+    channel_id: zod
+        .string()
+        .default(integrationsChannelsRetrieveQueryChannelIdDefault)
+        .describe(
+            'Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.'
+        ),
+    force_refresh: zod
+        .boolean()
+        .default(integrationsChannelsRetrieveQueryForceRefreshDefault)
+        .describe(
+            "Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache."
+        ),
     limit: zod
         .number()
         .min(1)
@@ -128,6 +143,41 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .string()
         .default(integrationsChannelsRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive channel name or ID search query.'),
+})
+
+/**
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until status is verified, then call email/verify once so the sender can send.
+ * @summary Get email sending domain status
+ */
+export const IntegrationsEmailStatusRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsEmailStatusRetrieveQueryRefreshDefault = false
+
+export const IntegrationsEmailStatusRetrieveQueryParams = () => zod.object({
+    refresh: zod
+        .boolean()
+        .default(integrationsEmailStatusRetrieveQueryRefreshDefault)
+        .describe('Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.'),
+})
+
+/**
+ * Ask SES to check the domain's DNS records again. When SES has verified the domain, mark the domain's senders as verified so they can send. Call it once email/status reports status verified.
+ * @summary Verify an email sending domain
+ */
+export const IntegrationsEmailVerifyCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({
@@ -187,6 +237,63 @@ export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
+ * @summary Import push device tokens
+ */
+export const IntegrationsPushTokensCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax = 200
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax = 4096
+
+export const integrationsPushTokensCreateBodyDryRunDefault = false
+export const integrationsPushTokensCreateBodyCreateMissingPersonsDefault = false
+
+export const IntegrationsPushTokensCreateBody = () => zod.object({
+    subscriptions: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax)
+                    .describe("The person's distinct ID in this project: the ID your app passes to `identify`."),
+                device_token: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax)
+                    .describe(
+                        'The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.'
+                    ),
+            })
+        )
+        .describe('Up to 1000 devices to register on this push channel. List a person once per device.'),
+    dry_run: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyDryRunDefault)
+        .describe(
+            'Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing.'
+        ),
+    import_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.'
+        ),
+    create_missing_persons: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyCreateMissingPersonsDefault)
+        .describe(
+            "Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push."
         ),
 })
 

@@ -16,10 +16,12 @@ from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    OwnersFileStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
+    RoutingMode,
 )
 
 
@@ -71,7 +73,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode or trigger_label."
+            "review_mode, trigger_label or routing_mode."
         ),
     )
 
@@ -98,11 +100,21 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         return fields
 
     review_mode = serializers.ChoiceField(
-        choices=[(m.value, m.value) for m in ReviewMode],
+        choices=ReviewMode.choices,
         read_only=True,
         help_text=(
-            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
-            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+            "When reviews run: 'label' reviews only pull requests carrying the trigger label (the "
+            "default), mirroring the Action's opt-in flow; 'all' reviews every pull request."
+        ),
+    )
+    routing_mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        read_only=True,
+        help_text=(
+            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
+            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "new paths."
         ),
     )
 
@@ -117,6 +129,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "digest_enabled",
             "review_mode",
             "trigger_label",
+            "routing_mode",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -739,16 +752,26 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         required=False, help_text="Whether merged PRs on this repo are captured for the daily Slack digest."
     )
     review_mode = serializers.ChoiceField(
-        choices=[(m.value, m.value) for m in ReviewMode],
+        choices=ReviewMode.choices,
         required=False,
         help_text=(
-            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
-            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+            "When reviews run: 'label' reviews only pull requests carrying the trigger label (the "
+            "default), mirroring the Action's opt-in flow; 'all' reviews every pull request."
         ),
     )
     trigger_label = serializers.CharField(
         required=False,
         help_text=("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
+    )
+    routing_mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        required=False,
+        help_text=(
+            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
+            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "new paths."
+        ),
     )
 
     def __init__(
@@ -791,3 +814,15 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
         attrs["digest_enabled"] = False
         return attrs
+
+
+class StamphogOwnersFileSerializer(serializers.Serializer):
+    """Whether a repository can use reviewer requests, which read ownership from its owners.yaml."""
+
+    owners_file = serializers.ChoiceField(
+        choices=OwnersFileStatus.choices,
+        help_text=(
+            "Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when "
+            "the check could not ask GitHub (no installation, or GitHub answered with an error)."
+        ),
+    )

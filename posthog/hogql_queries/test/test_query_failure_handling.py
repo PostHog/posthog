@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -62,6 +62,13 @@ def _clickhouse_error(message: str, code: int) -> Exception:
     return error
 
 
+def _unreadable_result_type_error() -> Exception:
+    driver_error = UnknownTypeError("Unknown type AggregateFunction(argMin, String, UInt8)")
+    error = wrap_clickhouse_query_error(driver_error)
+    error.__cause__ = driver_error
+    return error
+
+
 def _wrapped_by_the_app() -> Exception:
     error = DatabaseSchemaUnavailable()
     error.__cause__ = ServerException("Cannot compare", code=386)
@@ -79,6 +86,7 @@ class TestSharedFailures(SimpleTestCase):
                 "per_query_memory_limit",
                 lambda: _clickhouse_error("Memory limit (for query) exceeded: would use 30.1 GiB", 241),
             ),
+            ("unreadable_result_type", _unreadable_result_type_error),
             ("hogql_query_error", lambda: QueryError("Unknown field: nope", start=7, end=11)),
             ("hogql_syntax_error", lambda: HogQLSyntaxError("Unexpected token", start=0, end=3, fix="select")),
         ]

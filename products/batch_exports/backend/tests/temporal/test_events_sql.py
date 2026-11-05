@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.sql.events import native_events_export_query
@@ -18,14 +20,14 @@ def test_native_events_export_query_refuses_stale_replicas() -> None:
     assert "fallback_to_stale_replicas_for_distributed_queries=0" in query
 
 
-def test_native_events_export_query_keeps_empty_object_literals() -> None:
-    query = ClickHouseClient().prepare_query(native_events_export_query("event"), QUERY_PARAMETERS)
+def test_native_events_export_query_keeps_empty_object_literals_in_custom_fields() -> None:
+    query = ClickHouseClient().prepare_query(native_events_export_query("'{}' AS properties"), QUERY_PARAMETERS)
 
     assert "'{0}'" not in query
-    for key in ("$set", "$set_once", "$group_set"):
-        assert f"temporary_properties.^`{key}`), '{{}}')" in query
+    assert "'{}'" in query
 
 
-def test_native_events_export_query_unescapes_dotted_keys() -> None:
-    # Without this setting `toJSONString(properties)` prints a stored dotted key as `a%2Eb`.
-    assert "json_type_escape_dots_in_keys=1" in native_events_export_query("event")
+# Without these settings `toJSONString(properties)` prints a stored dotted key as `a%2Eb` and a `/` as `\/`.
+@pytest.mark.parametrize("setting", ["json_type_escape_dots_in_keys=1", "output_format_json_escape_forward_slashes=0"])
+def test_native_events_export_query_matches_legacy_json_text(setting: str) -> None:
+    assert setting in native_events_export_query("event")

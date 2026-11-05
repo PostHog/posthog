@@ -1,16 +1,9 @@
 import datetime as dt
-from dataclasses import dataclass
-from typing import Any
 
 from parameterized import parameterized
 
 from products.replay_vision.backend.temporal.network_capture import NetworkRequest, SessionNetworkPayload
-from products.replay_vision.backend.temporal.network_tool import (
-    GET_NETWORK_TOOL_NAME,
-    build_network_index,
-    dispatch_network_tool,
-    get_network_around,
-)
+from products.replay_vision.backend.temporal.network_tool import build_network_index, get_network_around
 from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _SESSION_START = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -36,19 +29,13 @@ def _payload(*offsets_s: int, captured: bool = True) -> SessionNetworkPayload:
     )
 
 
-@dataclass(frozen=True)
-class _Call:
-    name: str
-    args: dict[str, Any]
-
-
 class TestGetNetworkAround:
     def test_resolves_vid_t_through_the_video_clock(self) -> None:
-        # The anchor has to match the video footer and the events tool, or a REC_T addresses different
-        # moments in the two tools.
+        # The anchor has to match the video footer and the events lookup, or a REC_T addresses different
+        # moments in the two lookups.
         index = build_network_index(_payload(30), _SESSION_START, _IDENTITY_CLOCK)
         assert index.offsets == [30]
-        assert get_network_around(index, 30)["requests"][0]["vid_t"] == 30
+        assert get_network_around(index, 30, 10)["requests"][0]["vid_t"] == 30
 
     def test_projects_across_a_stretch_the_rasterizer_cut(self) -> None:
         # The render drops inactive stretches, so a request's session time runs ahead of its video time.
@@ -66,19 +53,14 @@ class TestGetNetworkAround:
         index = build_network_index(_payload(0, 20, 21, 40), _SESSION_START, _IDENTITY_CLOCK)
         assert [entry["vid_t"] for entry in get_network_around(index, 20, 5)["requests"]] == [20, 21]
 
-    def test_an_empty_window_says_so(self) -> None:
-        result = get_network_around(build_network_index(_payload(500), _SESSION_START, _IDENTITY_CLOCK), 10)
-        assert result["requests"] == []
-        assert "No failed or slow requests" in result["note"]
-
-    def test_an_incomplete_read_never_claims_the_window_was_clean(self) -> None:
-        # Truncation is what produces wrongly empty windows, so the affirmative note must not win there.
+    def test_an_incomplete_read_says_the_window_may_be_incomplete(self) -> None:
+        # Truncation is what produces wrongly empty windows, so the model must not read one as clean.
         payload = SessionNetworkPayload(
             requests=[NetworkRequest(timestamp_ms=_start_ms(), url="https://app.test/x", status=500)],
             captured=True,
             truncated=True,
         )
-        result = get_network_around(build_network_index(payload, _SESSION_START, _IDENTITY_CLOCK), 400)
+        result = get_network_around(build_network_index(payload, _SESSION_START, _IDENTITY_CLOCK), 400, 10)
         assert result["requests"] == []
         assert "may be incomplete" in result["note"]
 
@@ -112,6 +94,12 @@ class TestIndexState:
                 "none",
                 False,
             ),
+            (
+                "captured but a request hid its status",
+                SessionNetworkPayload(captured=True, unknown_outcomes=True),
+                "none",
+                False,
+            ),
             ("no capture at all", _payload(captured=False), "none", False),
             ("no payload", None, "none", False),
         ]
@@ -122,22 +110,3 @@ class TestIndexState:
         index = build_network_index(payload, _SESSION_START, _IDENTITY_CLOCK)
         assert index.state() == expected
         assert index.has_requests() is offered
-
-
-class TestDispatchNetworkTool:
-    def test_dispatches_a_valid_call(self) -> None:
-        index = build_network_index(_payload(12), _SESSION_START, _IDENTITY_CLOCK)
-        result = dispatch_network_tool(_Call(name=GET_NETWORK_TOOL_NAME, args={"vid_t": 12}), index)
-        assert [entry["url"] for entry in result["requests"]] == ["https://app.test/12"]
-
-    def test_an_unknown_tool_name_is_refused(self) -> None:
-        # A hallucinated name, or one whose tool was not offered, must not return data for a question the
-        # model did not ask.
-        index = build_network_index(_payload(12), _SESSION_START, _IDENTITY_CLOCK)
-        result = dispatch_network_tool(_Call(name="get_something_else", args={"vid_t": 12}), index)
-        assert "error" in result
-
-    def test_a_malformed_argument_answers_the_model_instead_of_failing_the_scan(self) -> None:
-        index = build_network_index(_payload(12), _SESSION_START, _IDENTITY_CLOCK)
-        result = dispatch_network_tool(_Call(name=GET_NETWORK_TOOL_NAME, args={"vid_t": "nope"}), index)
-        assert "error" in result

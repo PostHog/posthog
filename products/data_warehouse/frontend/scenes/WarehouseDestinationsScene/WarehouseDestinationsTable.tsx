@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -9,6 +9,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from '../../shared/components/DestinationIcon'
+import { DESTINATION_STATUS_TAGS } from '../../shared/components/destinationStatus'
 import { destinationTarget } from '../../shared/components/destinationTarget'
 import { SyncedSources } from './SyncedSources'
 
@@ -45,8 +46,19 @@ export function WarehouseDestinationsTable({
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             render: (_, destination) => (
-                <div className="flex flex-col">
-                    <span className="font-semibold">{destination.name}</span>
+                <div className="flex flex-col items-start">
+                    {/* The managed warehouse row has nothing to edit, so its name stays text. */}
+                    {destination.is_posthog_warehouse ? (
+                        <span className="font-semibold">{destination.name}</span>
+                    ) : (
+                        <Link
+                            className="font-semibold"
+                            onClick={() => onEdit(destination)}
+                            data-attr="warehouse-destination-scene-open"
+                        >
+                            {destination.name}
+                        </Link>
+                    )}
                     {destinationTarget(destination) ? (
                         <span className="text-muted text-xs">{destinationTarget(destination)}</span>
                     ) : null}
@@ -61,6 +73,25 @@ export function WarehouseDestinationsTable({
                     {destinationTypeLabel(destination.type)}
                 </LemonTag>
             ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, destination) => {
+                // The PostHog warehouse is written by the sync itself, so it has no delivery health of its own.
+                if (destination.is_posthog_warehouse) {
+                    return null
+                }
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
+                return (
+                    <div className="flex flex-col items-start gap-1 max-w-80">
+                        <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                        {destination.status !== 'healthy' && destination.latest_error ? (
+                            <span className="text-muted text-xs">{destination.latest_error}</span>
+                        ) : null}
+                    </div>
+                )
+            },
         },
         {
             title: 'Synced by',

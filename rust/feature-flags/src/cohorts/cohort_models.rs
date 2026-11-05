@@ -168,6 +168,27 @@ impl StampPolicyDivergence {
     }
 }
 
+/// A cohort membership resolved for condition analysis, and whether it can be stated as fact.
+///
+/// The dynamic path scores a behavioral or lifecycle leaf as a non-match whatever the cohort's
+/// member list holds, so the matcher refuses to trust a non-match on such a cohort. Condition
+/// analysis keeps the same distinction, so its explanation never asserts a membership that
+/// nothing resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CohortMembership {
+    Member,
+    NonMember,
+    /// Resolved as a non-member, on a cohort whose behavioral or lifecycle leaf the dynamic path
+    /// cannot evaluate.
+    UnverifiedNonMember,
+}
+
+impl CohortMembership {
+    pub fn is_member(self) -> bool {
+        matches!(self, Self::Member)
+    }
+}
+
 impl Cohort {
     /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
     /// Missing or malformed `condition_type` (e.g. a hypercache entry written before this

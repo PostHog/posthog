@@ -14,6 +14,7 @@ import { MarkerSeverity, editor } from 'monaco-editor'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AnyDataNode,
     HogLanguage,
@@ -23,9 +24,9 @@ import {
     HogQLNotice,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../logic/featureFlagLogic'
+import { noticeLink } from './noticeLink'
 import { characterOffsetToUtf16 } from './offsets'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
@@ -234,6 +235,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
                                 : undefined,
+                            code: noticeLink(error.url, props.monaco),
                         }
                     }
 

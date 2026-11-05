@@ -4,7 +4,6 @@ from typing import cast
 
 from posthog.schema_enums import AlertState as InsightAlertState
 
-from products.alerts.backend.facade.lifecycle import AlertState
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -15,6 +14,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.lifecycle import AlertState
 
 NOW = datetime(2026, 7, 27, 12, 0, tzinfo=UTC)
 

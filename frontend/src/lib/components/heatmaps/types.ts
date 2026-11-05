@@ -3,8 +3,7 @@ export type CommonFilters = {
     date_to?: string | null
     filter_test_accounts?: boolean
     cohort_ids?: number[]
-    // A subset of FilterType['events'], spelled out because ~/types imports this file. Each entry is an
-    // event name plus optional property filters, matching what ActionFilter emits.
+    // Each entry is an event name plus optional property filters, matching what the heatmap event picker emits.
     events?: HeatmapEventFilter[]
 }
 
@@ -96,3 +95,6 @@ export type HeatmapEventsResponse = {
     total_count: number
     has_more: boolean
 }
+
+/** `missing` when the page has no posthog-js, which the browser extension can run without. */
+export type ScrollDepthPosthogJsError = 'version' | 'disabled' | 'missing' | null

@@ -18,16 +18,14 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type ModelAccess,
-  PROJECT_BLUEBIRD_FLAG,
-  SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   subscriptionModelAccess,
   useAdapterSubscription,
@@ -64,7 +62,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
-import { cloudTaskCarriesLocalInstructions } from "../../settings/serverAgentInstructions";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -264,21 +265,11 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me channel so they
-  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
-  // cannot collide across teammates; before the list loads the task is created unfiled.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const serverInstructionsEnabled = useFeatureFlag(
-    SERVER_AGENT_INSTRUCTIONS_FLAG,
-  );
   const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
-  const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
+  const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo
     ? true
@@ -457,10 +448,12 @@ export function useTaskCreation({
 
         try {
           const settings = useSettingsStore.getState();
+          // Tasks created without a channel default into the user's private #me
+          // channel so they surface in the Channels space instead of staying
+          // unfiled. #me is per-user, so this cannot collide across teammates;
+          // before the list loads the task is created unfiled.
           const defaultedChannelId =
-            bluebirdEnabled && !channelId && !channelName
-              ? personalChannel?.id
-              : undefined;
+            !channelId && !channelName ? personalChannel?.id : undefined;
 
           const localMcpServersForRun = partitionLocalMcpServersForRun(
             localMcpServers,
@@ -509,15 +502,18 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
             customInstructions:
               workspaceMode === "cloud" &&
               !cloudTaskCarriesLocalInstructions({
-                flagEnabled: serverInstructionsEnabled,
                 projectId: currentProjectId,
-                onServerProjectIds:
-                  settings.customInstructionsOnServerProjectIds,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
               })
-                ? undefined
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
                 : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
@@ -692,7 +688,6 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
-      serverInstructionsEnabled,
       currentProjectId,
       editorRef,
       sessionId,
@@ -721,7 +716,6 @@ export function useTaskCreation({
       channelId,
       channelContextId,
       allowNoRepo,
-      bluebirdEnabled,
       personalChannel?.id,
       localMcpServers,
       localMcpServersLoading,

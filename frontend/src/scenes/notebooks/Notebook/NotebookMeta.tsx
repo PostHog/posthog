@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBrackets, IconSparkles, IconTerminal } from '@posthog/icons'
+import { IconBrackets, IconNotebook, IconSparkles, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
-import { isKernelUiEnabled } from '../utils'
+import { isJupyterModeAvailable, isKernelUiEnabled } from '../utils'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
@@ -265,6 +265,31 @@ export const NotebookKernelInfoButton = ({
             icon={<IconTerminal />}
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookJupyterModeButton = (
+    props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
+): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { content } = useValues(notebookLogic)
+    const { isJupyterMode } = useValues(notebookSettingsLogic)
+    const { setIsJupyterMode } = useActions(notebookSettingsLogic)
+
+    if (!isJupyterModeAvailable(featureFlags) || !isMarkdownNotebookContent(content)) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setIsJupyterMode(!isJupyterMode)}
+            active={isJupyterMode}
+            icon={<IconNotebook />}
+            tooltip={isJupyterMode ? 'Turn off Jupyter mode' : 'Lay out and edit this notebook like Jupyter'}
+            tooltipPlacement="left"
+            data-attr="notebook-jupyter-mode-toggle"
         />
     )
 }

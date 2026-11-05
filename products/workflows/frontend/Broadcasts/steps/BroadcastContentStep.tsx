@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
@@ -10,12 +10,34 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
+import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
+import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
+import {
+    BroadcastEmailValue,
+    DEFAULT_BROADCAST_EMAIL,
+    broadcastWizardLogic,
+    getMissingSenderIds,
+    getSenderIds,
+} from '../broadcastWizardLogic'
+import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
+import { BroadcastPushComposer } from './BroadcastPushComposer'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { email, stepValidationErrors, selectedSender } = useValues(broadcastWizardLogic)
-    const { setEmail } = useActions(broadcastWizardLogic)
+    const {
+        broadcast,
+        email,
+        name,
+        stepValidationErrors,
+        templatingErrors,
+        selectedSender,
+        emailSettings,
+        aiEmailDraftStatus,
+        channel,
+    } = useValues(broadcastWizardLogic)
+    const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
@@ -24,21 +46,64 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
+    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
+    const missingSenderIds = integrations ? getMissingSenderIds(email.from, integrations) : []
+    const remainingSenderIds = getSenderIds(email.from).filter((id) => !missingSenderIds.includes(id))
+    const editorValue = missingSenderIds.length
+        ? {
+              ...email,
+              from: {
+                  ...email.from,
+                  integrationId: remainingSenderIds[0],
+                  integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+              },
+          }
+        : email
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {
         setSenderSetup(null)
         if (integrationId) {
             loadIntegrations()
-            setEmail({ ...email, from: { ...email.from, integrationId } })
+            setEmail({
+                ...email,
+                from: {
+                    ...email.from,
+                    integrationId,
+                    integrationIds:
+                        senderSetup !== 'new' && remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+                },
+            })
         }
     }
 
-    const errors = stepValidationErrors.content
+    // A parser message can quote the template, so it is kept out of the matching by wording below.
+    const templatingMessages: (string | undefined)[] = Object.values(templatingErrors)
+    const errors = stepValidationErrors.content.filter((error) => !templatingMessages.includes(error))
     const fieldErrors: EmailFieldErrors = {
         from: errors.find((error) => error.includes('sender')),
-        subject: errors.find((error) => error.includes('subject')),
-        body: errors.find((error) => error.includes('content')),
+        to: templatingErrors.to,
+        subject: errors.find((error) => error.includes('subject')) ?? templatingErrors.subject,
+        preheader: templatingErrors.preheader,
+        body: errors.find((error) => error.includes('content')) ?? templatingErrors.body,
+    }
+
+    // A push broadcast keeps its composer even with the flag off, so it can still be read and fixed.
+    if (channel === 'push') {
+        return (
+            <div className="flex flex-col gap-4 min-h-[36rem] @container">
+                <div className="flex items-start justify-between gap-2">
+                    <div>
+                        <h2 className="m-0 text-xl font-semibold">Write your push notification</h2>
+                        <p className="m-0 text-secondary">
+                            Pick the apps to send through, then add a title and message.
+                        </p>
+                    </div>
+                    <BroadcastChannelSwitch />
+                </div>
+                <BroadcastPushComposer />
+            </div>
+        )
     }
 
     return (
@@ -48,14 +113,17 @@ export function BroadcastContentStep(): JSX.Element {
                     <h2 className="m-0 text-xl font-semibold">Write your email</h2>
                     <p className="m-0 text-secondary">Pick a sender, add a subject, and design the email.</p>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => setTemplatePickerOpen(true)}
-                    data-attr="broadcast-wizard-template-picker"
-                >
-                    Start from template
-                </LemonButton>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <BroadcastChannelSwitch />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => setTemplatePickerOpen(true)}
+                        data-attr="broadcast-wizard-template-picker"
+                    >
+                        Start from template
+                    </LemonButton>
+                </div>
             </div>
             <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
             {!integrationsLoading && integrations && !hasSenders ? (
@@ -86,20 +154,72 @@ export function BroadcastContentStep(): JSX.Element {
             {senderSetup ? (
                 <EmailSetupModal
                     integration={senderSetup === 'new' ? undefined : senderSetup}
+                    entry="broadcast"
                     onClose={closeSenderSetup}
                     onComplete={closeSenderSetup}
                 />
             ) : null}
+            {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"
                 liveChanges
-                value={email as unknown as EmailTemplate}
+                value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />
+            {email.to?.email && !email.to.email.includes('{{') ? (
+                <span className="text-xs text-warning" data-attr="broadcast-fixed-recipient-hint">
+                    Every email in this broadcast goes to {email.to.email}, not to each person in the audience. Use{' '}
+                    <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
+                </span>
+            ) : null}
+            <LemonSwitch
+                label="Track opens and link clicks"
+                checked={emailSettings.trackingEnabled}
+                onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
+                bordered
+                data-attr="broadcast-tracking-toggle"
+            />
+            {!emailSettings.trackingEnabled && (
+                <span className="text-xs text-secondary">
+                    Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
+                </span>
+            )}
+            <LemonSwitch
+                label="Add UTM tags to links"
+                checked={emailSettings.utmTagsEnabled}
+                onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
+                bordered
+                data-attr="broadcast-utm-tags-toggle"
+            />
+            {emailSettings.utmTagsEnabled && (
+                <>
+                    <UtmTagFields
+                        value={emailSettings.utmParams}
+                        onChange={(utmParams) =>
+                            setEmailSettings({
+                                utmParams,
+                                utmParamsFromDefault: utmKeysFromDefaultAfterEdit(
+                                    emailSettings.utmParamsFromDefault,
+                                    emailSettings.utmParams,
+                                    utmParams
+                                ),
+                            })
+                        }
+                        campaignDefault={name || 'Broadcast name'}
+                        contentDefault={
+                            broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
+                        }
+                    />
+                    <UtmTeamDefaultControls
+                        value={emailSettings.utmParams}
+                        onSavedAsTeamDefault={() => setEmailSettings({ utmParamsFromDefault: [...UTM_TAG_KEYS] })}
+                    />
+                </>
+            )}
         </div>
     )
 }

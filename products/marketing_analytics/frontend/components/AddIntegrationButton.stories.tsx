@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -10,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { AddIntegrationButton } from './AddIntegrationButton'
 import { NEW_AD_SOURCES_SEEN_KEY } from './newAdSourcesLogic'
@@ -58,6 +59,7 @@ const meta: Meta<typeof AddIntegrationButton> = {
                             AppleSearchAds: 'apple_search_ads.png',
                             OpenAIAds: 'openai_ads.svg',
                             AmazonAds: 'amazon_ads.png',
+                            TwitterAds: 'twitter_ads.png',
                             BigQuery: 'bigquery.png',
                         }).map(([name, icon]) => [
                             name,
@@ -74,6 +76,7 @@ const meta: Meta<typeof AddIntegrationButton> = {
             FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
         ],
         testOptions: { viewport: { width: 520, height: 1024 } },
     },

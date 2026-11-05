@@ -2,10 +2,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -33,6 +35,7 @@ export function SessionProfileScene(): JSX.Element {
     const { sessionId, sessionData, isInitialLoading, sessionDataLoading, sessionEventsLoading } =
         useValues(sessionProfileLogic)
     const { loadSessionData } = useActions(sessionProfileLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!sessionData && !isInitialLoading) {
         return <NotFound object="session" />
@@ -55,15 +58,26 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        onClick={() => loadSessionData()}
-                        loading={sessionDataLoading || sessionEventsLoading}
-                    >
-                        Refresh
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            onClick={() => loadSessionData()}
+                            loading={sessionDataLoading || sessionEventsLoading}
+                        >
+                            <IconRefresh />
+                            Refresh
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            onClick={() => loadSessionData()}
+                            loading={sessionDataLoading || sessionEventsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    )
                 }
             />
 

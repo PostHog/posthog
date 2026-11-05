@@ -131,7 +131,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
     props({} as DashboardTemplateChooserLogicProps),
     key(
         (p: DashboardTemplateChooserLogicProps) =>
-            `${p.scope ?? 'default'}|${availabilityContextsKey(p.availabilityContexts)}`
+            `${p.scope ?? 'default'}|${availabilityContextsKey(p.availabilityContexts)}|${p.redirectAfterCreation ?? true}`
     ),
     connect((props: DashboardTemplateChooserLogicProps) => ({
         values: [
@@ -264,6 +264,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
             })
             runBlankDashboardFlow({
                 isLoading: values.isLoading,
+                redirectAfterCreation: props.redirectAfterCreation,
                 setIsLoading: actions.setIsLoading,
                 addDashboard: actions.addDashboard,
             })

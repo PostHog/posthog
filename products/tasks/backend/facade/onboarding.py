@@ -38,6 +38,7 @@ from products.tasks.backend.facade.onboarding_prompt import (
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
 from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.task_sources import idempotency_key_q
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 
@@ -45,9 +46,9 @@ logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
-ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
+ONBOARDING_SESSION_FREE_MODEL = "zai-org/glm-5.3-flash"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write", "inbox:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
@@ -62,8 +63,8 @@ def _origin_key(user_id: int) -> str:
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
     return (
         Task.objects.filter(
+            idempotency_key_q(_origin_key(user_id)),
             team_id=team_id,
-            origin_key=_origin_key(user_id),
             created_by_id=user_id,
             origin_product=Task.OriginProduct.USER_CREATED,
         )

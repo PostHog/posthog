@@ -68,7 +68,15 @@ type StoryArgs = { scope: string }
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Cyclotron job inputs',
-    parameters: { layout: 'padded', viewMode: 'story' },
+    parameters: {
+        layout: 'padded',
+        viewMode: 'story',
+        testOptions: {
+            // Wait for the editor itself: `.monaco-editor` also matches Monaco's shared overflow root on
+            // <body>, which exists before any editor mounts.
+            waitForSelector: '.CodeEditor[data-editor-ready="true"]',
+        },
+    },
     render: ({ scope }) => {
         useStorybookMocks({
             get: {
@@ -82,7 +90,9 @@ const meta: Meta<StoryArgs> = {
             },
         })
         return (
-            <div className="max-w-2xl">
+            // A fixed width, not max-w: the snapshot root shrink-wraps its content, so the Monaco inputs
+            // would take whatever width the root had at the moment they mounted.
+            <div className="w-[42rem]">
                 <CyclotronJobInputs
                     configuration={{ inputs_schema: SLACK_INPUTS_SCHEMA, inputs: SLACK_INPUTS }}
                     showSource={false}

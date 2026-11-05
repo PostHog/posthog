@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
+import { isActorsQuery, isHogQLQuery, isPersonsNode } from '~/queries/schema/node-guards'
 import {
     CurrencyCode,
     DataTableNode,
@@ -31,18 +32,11 @@ import {
     LLMTracePerson,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isGroupsQuery,
-    isHogQLQuery,
-    isPersonsNode,
-    isTracesQuery,
-    trimQuotes,
-} from '~/queries/utils'
+import { isEventsQuery, isGroupsQuery, isTracesQuery, trimQuotes } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityGlobalColumns'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
@@ -95,7 +89,8 @@ export function renderColumn(
     rowCount: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
-    context?: QueryContext<DataTableNode>
+    context?: QueryContext<DataTableNode>,
+    columnFormat?: string | null
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
     const originalKey = key
@@ -111,6 +106,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (columnFormat === 'mcp_harness' && typeof value === 'string') {
+        return <HarnessLabel category={value} />
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
         return (
@@ -184,6 +181,14 @@ export function renderColumn(
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
+                // ClickHouse returns the epoch for min() or max() over no rows, because DateTime is not Nullable
+                if (new Date(value).getTime() === 0 && !/\.\d*[1-9]/.test(value)) {
+                    return (
+                        <Tooltip title="Unix epoch. An aggregate like min() or max() returns this when no rows match.">
+                            <span className="cursor-default">{value}</span>
+                        </Tooltip>
+                    )
+                }
                 return (
                     <TZLabel
                         time={value}

@@ -4,5 +4,6 @@ pub mod canonical_log;
 pub mod disk;
 pub mod health;
 pub mod metrics;
+pub mod store_files;
 pub mod store_stats;
 pub mod tokio_monitor;

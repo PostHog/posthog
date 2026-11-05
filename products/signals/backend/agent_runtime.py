@@ -30,7 +30,7 @@ fields are taken as a set so a Codex runtime never pairs with a Claude model):
     → team_configs[team_id].steps["*"]
     → team_configs["*"].steps[step]
     → team_configs["*"].steps["*"]
-    → step default (Codex for scout rubrics; agent-server Claude runtime otherwise)
+    → step default (Codex for scout rubrics and repo selection; agent-server Claude runtime otherwise)
 
 A resolved override threads through `CustomPromptSandboxContext`
 (runtime_adapter/model/reasoning_effort/service_tier) → `Task.create_and_run` → the run state → the
@@ -87,10 +87,15 @@ class AgentRuntime:
     model: str | None = None
     reasoning_effort: str | None = None
     service_tier: str | None = None
+    runtime: str = "acp"
 
 
 DEFAULT_RUNTIME = AgentRuntime()
 SCOUT_RUBRICS_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high")
+# Repo selection runs in the background, so it takes the cheaper, slower Flex queue.
+REPO_SELECTION_RUNTIME = AgentRuntime(
+    runtime_adapter="codex", model="gpt-6-luna", reasoning_effort="medium", service_tier="flex"
+)
 
 # The OpenAI service tiers a pin may name, mirroring the agent server's `ServiceTier` enum. The
 # agent server sends the value verbatim as the gateway's `X-PostHog-Service-Tier`, which fails
@@ -100,6 +105,11 @@ KNOWN_SERVICE_TIERS = frozenset({"default", "priority", "flex"})
 
 # The Codex trial config (used by the local `analyze_report --codex` override).
 CODEX_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh")
+
+_STEP_DEFAULT_RUNTIMES: dict[str, AgentRuntime] = {
+    STEP_SCOUT_RUBRICS: SCOUT_RUBRICS_RUNTIME,
+    STEP_REPO_SELECTION: REPO_SELECTION_RUNTIME,
+}
 
 
 def _read_flag_payload() -> dict | None:
@@ -180,6 +190,6 @@ def resolve_agent_runtime(team_id: int, step: str) -> AgentRuntime:
     step default; gating the runtime must never be able to fail an agentic run. Blocking network I/O
     (the payload read), so async callers wrap this in `database_sync_to_async`."""
     runtime = _resolve_from_payload(_read_flag_payload(), team_id, step)
-    if runtime == DEFAULT_RUNTIME and step == STEP_SCOUT_RUBRICS:
-        return SCOUT_RUBRICS_RUNTIME
+    if runtime == DEFAULT_RUNTIME:
+        return _STEP_DEFAULT_RUNTIMES.get(step, DEFAULT_RUNTIME)
     return runtime

@@ -6,15 +6,22 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ModelAccessEnumApi,
+    type SandboxCustomImageDTOApi,
+    type SandboxEnvironmentDTOApi,
+    TaskRuntimeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { runStreamLogic } from '../../api/logics'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
@@ -22,6 +29,7 @@ import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
@@ -100,6 +108,8 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -183,6 +193,20 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toHaveProperty('branch', null)
         expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
+    })
+
+    // An Inbox task link must still open its transcript without Tasks access.
+    it.each([
+        ['/tasks', '/ai'],
+        ['/tasks/new', '/ai'],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
+    ])('without Tasks access, %s lands on %s', async (start, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic.mount()
+        router.actions.push(start)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${expected}`)
     })
 
     it.each([
@@ -416,6 +440,99 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
+    it.each([
+        ['a picked environment', 'environment:env-1', null, true, true, { sandbox_environment_id: 'env-1' }],
+        ['a picked image', 'image:img-1', null, true, true, { custom_image_id: 'img-1' }],
+        ['the starred environment', undefined, 'environment:env-1', true, true, { sandbox_environment_id: 'env-1' }],
+        [
+            'the starred environment while the lists load',
+            undefined,
+            'environment:env-1',
+            false,
+            true,
+            { sandbox_environment_id: 'env-1' },
+        ],
+        [
+            'the starred environment when the task goes out before the config loads',
+            undefined,
+            'environment:env-1',
+            true,
+            false,
+            { sandbox_environment_id: 'env-1' },
+        ],
+        ['no deleted starred environment', undefined, 'environment:env-gone', true, true, {}],
+        ['no environment once the default is picked', null, 'environment:env-1', true, true, {}],
+    ])('sends %s with the task and its run', async (_case, picked, starred, listsLoaded, configFirst, expected) => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': {
+                    ...myConfigResponse(null),
+                    task_defaults: { default_cloud_target: starred },
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        logic.mount()
+        if (configFirst) {
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        }
+        if (listsLoaded) {
+            logic.actions.setCloudTargets(
+                [{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi],
+                [{ id: 'img-1', name: 'Node image', status: 'ready' } as SandboxCustomImageDTOApi]
+            )
+        }
+        if (picked !== undefined) {
+            logic.actions.pickCloudTarget(picked)
+        }
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const targetOf = (body: Record<string, any> | null): Record<string, any> => ({
+            sandbox_environment_id: body?.sandbox_environment_id,
+            custom_image_id: body?.custom_image_id,
+        })
+        expect(targetOf(createBody)).toEqual(expected)
+        expect(targetOf(runBody)).toEqual(expected)
+    })
+
+    it('applies a star saved after the config loaded before the composer mounted', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': {
+                    ...myConfigResponse(null),
+                    task_defaults: {
+                        start_in_plan_mode: null,
+                        auto_publish_cloud_runs: null,
+                        default_cloud_target: null,
+                    },
+                },
+            },
+            post: {
+                '/api/projects/:team/tasks/@me/config/task_defaults/': async ({ request }) => [
+                    200,
+                    { start_in_plan_mode: null, auto_publish_cloud_runs: null, ...((await request.json()) as object) },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        taskRunDefaultsLogic.mount()
+        await expectLogic(taskRunDefaultsLogic, () =>
+            taskRunDefaultsLogic.actions.loadMyConfig()
+        ).toFinishAllListeners()
+        logic.mount()
+        logic.actions.setCloudTargets([{ id: 'env-1', name: 'Locked down' } as SandboxEnvironmentDTOApi], [])
+
+        logic.actions.toggleFavoriteCloudTarget('environment:env-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCloudTarget).toBe('environment:env-1')
+    })
+
     // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
     // the trailing whitespace never matches that echo, so the first message rendered twice.
     it('sends and echoes the first message without surrounding whitespace', async () => {
@@ -432,6 +549,69 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ description: 'do the thing' })
         expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
         expect(logic.values.newTaskData.description).toBe('')
+    })
+
+    describe('task defaults', () => {
+        const useTaskDefaultsMocks = (): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/@me/config/': {
+                        ...myConfigResponse(null),
+                        task_defaults: { start_in_plan_mode: true, auto_publish_cloud_runs: true },
+                    },
+                },
+            })
+        }
+
+        it.each([
+            ['on', true, 'plan', true],
+            ['off', false, 'auto', undefined],
+        ])(
+            'applies the stored defaults to a new task with today-rail-nav %s',
+            async (_state, flagOn, expectedMode, expectedAutoPublish) => {
+                useTaskDefaultsMocks()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
+                })
+                logic.mount()
+                await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+                logic.actions.setNewTaskData({ description: 'do the thing' })
+                logic.actions.submitNewTask()
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(runBody?.initial_permission_mode).toBe(expectedMode)
+                expect(runBody?.auto_publish).toBe(expectedAutoPublish)
+                expect(createBody?.auto_publish).toBe(expectedAutoPublish)
+            }
+        )
+
+        it.each([
+            ['a picked mode', 'default' as const, 'default'],
+            ['a model change alone', null, 'plan'],
+        ])('sends the right mode after %s', async (_case, pickedMode, expectedMode) => {
+            useTaskDefaultsMocks()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.mount()
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                model: 'claude-opus-5-5',
+                permissionMode: 'auto',
+            })
+            if (pickedMode) {
+                logic.actions.pickPermissionMode(pickedMode)
+            }
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+            logic.actions.submitNewTask()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(runBody?.initial_permission_mode).toBe(expectedMode)
+        })
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
@@ -564,6 +744,25 @@ describe('taskTrackerSceneLogic', () => {
             toast.mockRestore()
         }
     )
+
+    it('toasts the active-session cap refusal and keeps the draft', async () => {
+        const detail =
+            'You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.'
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/:id/run/': () => [400, { detail, code: 'active_session_cap' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(detail)
+        expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+        toast.mockRestore()
+    })
 
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
@@ -789,6 +988,31 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })
 
+    it('refreshes the rail’s Recent list when a composer creates a session', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/task_channels/': [],
+                '/api/projects/:team/task_activity/': { results: [] },
+            },
+        })
+        const rail = todaySpacesLogic()
+        rail.mount()
+        // Step past the load the rail does on mount, so the assertion below can only match a later one.
+        await expectLogic(rail).toDispatchActions(['loadRecentTasksSuccess']).toFinishAllListeners()
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ description: 'ship it' })
+
+        await expectLogic(rail, () => {
+            logic.actions.submitNewTask()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['loadRecentTasks'])
+
+        rail.unmount()
+    })
+
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
     it.each(['global', 'runner'])('keeps a repository hidden by a %s override out of requests', async (scope) => {
         useMocks({
@@ -991,11 +1215,15 @@ describe('taskTrackerSceneLogic', () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
         const contextItems = [{ type: 'skill', key: 'example-skill' }]
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems, files })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.stagedAttachments.map(({ file }) => file)).toEqual(files)
+        logic.actions.applyComposerSeed()
+        expect(logic.values.stagedAttachments).toHaveLength(1)
         expect(logic.values.newTaskData.description).toBe('analyze churn')
         expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()

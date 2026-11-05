@@ -3,7 +3,10 @@ import type {
   RpcCommand,
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentConversationEvent } from "@posthog/agent-contracts";
+import type {
+  AgentContent,
+  AgentConversationEvent,
+} from "@posthog/agent-contracts";
 import {
   createPiConversationTranslator,
   type PiConversationTranslator,
@@ -30,6 +33,7 @@ export class PiRuntime {
     id: string;
     message: string;
     type: "prompt" | "steer" | "follow_up";
+    conversationContent?: AgentContent[];
   }> = [];
   private directBashActive = false;
 
@@ -67,7 +71,15 @@ export class PiRuntime {
     return () => this.extensionListeners.delete(listener);
   }
 
-  async sendCommand(command: RpcCommand): Promise<RpcResponse> {
+  /**
+   * `conversationContent` is what the conversation shows for a user message instead of the prompt
+   * Pi echoes back: the user's own text plus a `resource_link` per attachment, where the prompt
+   * carries the attachment paths as text for the model.
+   */
+  async sendCommand(
+    command: RpcCommand,
+    options?: { conversationContent?: AgentContent[] },
+  ): Promise<RpcResponse> {
     const isUserMessage =
       command.type === "prompt" ||
       command.type === "steer" ||
@@ -77,6 +89,7 @@ export class PiRuntime {
         id: command.id,
         message: command.message,
         type: command.type,
+        conversationContent: options?.conversationContent,
       });
     }
     if (command.type !== "bash") {
@@ -168,6 +181,9 @@ export class PiRuntime {
         if (pendingIndex >= 0) {
           const [pending] = this.pendingUserMessages.splice(pendingIndex, 1);
           conversationEvent.id = pending.id;
+          if (pending.conversationContent) {
+            conversationEvent.content = pending.conversationContent;
+          }
         }
       }
     }

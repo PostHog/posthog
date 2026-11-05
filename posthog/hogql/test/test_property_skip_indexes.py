@@ -329,10 +329,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             # ``notEquals`` can't be range-pruned by minmax.
             ("neq", PropertyOperator.IS_NOT, "5", False),
             # Range ops fire minmax via the printer's range-comparison rewrite (``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)``).
-            ("lt", PropertyOperator.LT, "5", True),
-            ("gt", PropertyOperator.GT, "5", True),
-            ("lte", PropertyOperator.LTE, "5", True),
-            ("gte", PropertyOperator.GTE, "5", True),
+            # Non-numeric bounds: a numeric-text bound ("5") now coerces to Float64 and hides the column (see ``..._numeric_constant_against_string_column_coerces``).
+            ("lt", PropertyOperator.LT, "mango", True),
+            ("gt", PropertyOperator.GT, "mango", True),
+            ("lte", PropertyOperator.LTE, "mango", True),
+            ("gte", PropertyOperator.GTE, "mango", True),
             # Multi-value IN uses the printer's ``has([values], col)`` optimized path — minmax prunes granules out of range.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # ILIKE can't use minmax on its own, but the printer's combined form with ``col IS NOT NULL`` does get minmax considered (entirely-NULL granules pruneable).
@@ -361,8 +362,9 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         [
             ("eq", PropertyOperator.EXACT, "5", True),
             # Range ops use minmax via the rewrite — sentinel exclusion is inlined as extra ``notEquals`` clauses so the comparison itself stays bare.
-            ("lt", PropertyOperator.LT, "5", True),
-            ("gt", PropertyOperator.GT, "5", True),
+            # Non-numeric bounds, same reason as the nullable variant above.
+            ("lt", PropertyOperator.LT, "mango", True),
+            ("gt", PropertyOperator.GT, "mango", True),
             # Multi-value IN: ``has([...], col)`` via the printer's optimized path.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # No ``IS NOT NULL`` companion clause here (column is already non-nullable), so minmax has no leverage.
@@ -387,9 +389,9 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
 
     @parameterized.expand(
         [
-            # String constants — lexical compare against the String column; minmax fires for every flavor.
+            # Non-numeric string constants — lexical compare against the String column; minmax fires for every flavor.
+            # A numeric-looking bound ("5") coerces to Float64 instead; see ``..._numeric_constant_against_string_column_coerces``.
             ("string_pure_alpha", "apple"),
-            ("string_numeric_looking", "5"),
             ("string_date_looking", "2024-01-15"),
             ("string_iso_datetime_looking", "2024-01-15T10:30:00Z"),
         ]
@@ -422,21 +424,38 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
 
     @parameterized.expand(
         [
-            # Non-string Python constants — printer emits the constant raw (``less(col, 5)`` or ``less(col, toDateTime64('2024-01-15 ...'))``) and ClickHouse refuses ``String < UInt8 / Float64 / DateTime64`` at execution. (Same behavior as the existing equality / IN rewrites — none of them gate on constant type. For numeric/datetime compare, declare ``property_type`` on the PropertyDefinition; see ``test_mat_col_lt_typed_*``.)
+            # Numeric constants against an untyped property get a ``toFloat(col)`` wrap, so the
+            # comparison executes (no NO_COMMON_TYPE), but the Call hides the column from minmax,
+            # same as ``test_mat_col_lt_typed_numeric_property``. Numeric text counts: the filter
+            # UI submits a typed-in bound as a string.
             ("int", 5),
             ("float", 5.5),
-            ("datetime", datetime(2024, 1, 15, 10, 30)),
+            ("numeric_text", "5"),
         ]
     )
-    def test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors(
+    def test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces(
         self, _name: str, value: Any
     ) -> None:
         self._seed()
+        mat_col = self._materialize_with(is_nullable=True, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        self._assert_indexes(
+            self._filter(PropertyOperator.LT, value),
+            expected_used=set(),
+            expected_not_used={index},
+        )
+
+    def test_mat_col_nullable_minmax_lt_datetime_constant_against_string_column_errors(self) -> None:
+        # A datetime constant stays raw (``less(col, toDateTime64('2024-01-15 ...'))``) and ClickHouse
+        # refuses ``String < DateTime64`` at execution. (Same behavior as the existing equality / IN
+        # rewrites — none of them gate on constant type. For datetime compare, declare
+        # ``property_type`` on the PropertyDefinition; see ``test_mat_col_lt_typed_datetime_property``.)
+        self._seed()
         self._materialize_with(is_nullable=True, create_minmax_index=True)
-        query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, value))
+        query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, datetime(2024, 1, 15, 10, 30)))
         with self.assertRaises(Exception) as ctx:
             sync_execute(query, values)
-        # ClickHouse: ``No supertype for types String, UInt8`` or ``No operation less between String and DateTime64``.
+        # ClickHouse: ``No operation less between String and DateTime64``.
         message = str(ctx.exception).lower()
         assert "supertype" in message or "no operation" in message, (
             f"Expected a type-mismatch error from ClickHouse, got: {ctx.exception}"
@@ -632,8 +651,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # Sentinel-aware IN path bails when ``''`` / ``'null'`` is in the value set (non-nullable mat cols store both as sentinels), so the bloom filter doesn't fire.
             ("in_with_sentinel", PropertyOperator.IN_, ["5", ""], False),
-            # Range rewrite emits ``less(col, '5') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them).
-            ("lt", PropertyOperator.LT, "5", True),
+            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them). Non-numeric bound: numeric text coerces and skips the rewrite.
+            ("lt", PropertyOperator.LT, "mango", True),
         ]
     )
     def test_mat_col_non_nullable_bloom_filter(
@@ -770,7 +789,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
 
         stats = HogQLTypeObservability(dialect="clickhouse", source="unknown")
         with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
-            self._filter_to_sql(self._filter(PropertyOperator.LT, "5"))
+            # Non-numeric bound: a numeric-text bound coerces to Float64 and skips the range rewrite.
+            self._filter_to_sql(self._filter(PropertyOperator.LT, "mango"))
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             assert stats.materialized_range_rewrite["fired_compare"] == 0
@@ -815,9 +835,10 @@ class TestPersonOnEventsPropertySkipIndexes(_PropertySkipIndexTestBase):
     @parameterized.expand(
         [
             ("eq", PropertyOperator.EXACT, "5", True),
-            # Range ops use minmax via the printer's range-comparison rewrite.
-            ("lt", PropertyOperator.LT, "5", True),
-            ("gt", PropertyOperator.GT, "5", True),
+            # Range ops use minmax via the printer's range-comparison rewrite. Non-numeric
+            # bounds: numeric text coerces to Float64 and hides the column.
+            ("lt", PropertyOperator.LT, "mango", True),
+            ("gt", PropertyOperator.GT, "mango", True),
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
             # is_set omitted — minmax usage for ``col IS NOT NULL`` is ClickHouse-version-dependent (CH 26.3 yes, 25.12 no).
@@ -919,9 +940,10 @@ class TestPersonPropertySkipIndexes(_PropertySkipIndexTestBase):
     @parameterized.expand(
         [
             ("eq", PropertyOperator.EXACT, "5", True),
-            # Range ops use minmax via the printer's range-comparison rewrite.
-            ("lt", PropertyOperator.LT, "5", True),
-            ("gt", PropertyOperator.GT, "5", True),
+            # Range ops use minmax via the printer's range-comparison rewrite. Non-numeric
+            # bounds: numeric text coerces to Float64 and hides the column.
+            ("lt", PropertyOperator.LT, "mango", True),
+            ("gt", PropertyOperator.GT, "mango", True),
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
             # is_set omitted — minmax usage for ``col IS NOT NULL`` is ClickHouse-version-dependent (CH 26.3 yes, 25.12 no).
         ]

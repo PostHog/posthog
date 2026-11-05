@@ -30,9 +30,11 @@ Every other verdict is posted once per run as a comment review on the same surfa
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
 The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
+The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
 So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
+A label can request at most one review per PR every 10 minutes.
+A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
 `WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
@@ -49,8 +51,8 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
-3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
-4. Expand the repository's row and pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
 The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
@@ -61,11 +63,15 @@ A repository added to the installation later shows up after a member connects ag
 Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
 Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
 So an editor can turn reviews back on for a repository a manager paused.
+New repositories start in label-triggered mode, so an editor can turn reviews on without a manager, and widening them to every PR stays a manager decision.
+
+When a repository is turned on in label-triggered mode, or its trigger label changes, Stamphog creates the label in the GitHub repository, because GitHub only offers existing labels on a PR.
+This is best-effort: if the app may not write labels there, or the label already exists, nothing changes and nothing is reported.
 
 ## Customize the review for your repository
 
 Customization is optional.
-A repository with no `.stamphog/` directory reviews under the hosted defaults in [`backend/logic/policy_defaults/`](backend/logic/policy_defaults/).
+A repository with no `.stamphog/` directory reviews under the defaults the engine ships in [`packages/pr-approval-agent/defaults/`](packages/pr-approval-agent/defaults/).
 
 The three `.stamphog/` files are read from the repository's **default branch**, never from the PR head, so a PR cannot rewrite the policy that gates it.
 After the sandbox clones the PR head, the server overwrites the checkout's `.stamphog/` with the default-branch versions.
@@ -74,31 +80,70 @@ A file the repository does not carry is wiped from the checkout as well, so a pl
 `AGENT_APPROVALS.md` is the exception: it sits in arbitrary folders, so the engine reads it from the checkout, which is the PR head.
 That is why its frontmatter is a bounded positive allow-list, and why the `stamphog_policy` deny routes every edit to one to a human reviewer.
 
-| File                 | Required | Default when absent       | How it combines with the default                                                             |
-| -------------------- | -------- | ------------------------- | -------------------------------------------------------------------------------------------- |
-| `policy.yml`         | No       | The hosted default policy | Section overlay: each top-level section you declare replaces the default's section wholesale |
-| `review-guidance.md` | No       | The hosted default norms  | Replaces the default prose wholesale                                                         |
-| `steering.md`        | No       | Nothing is added          | Passed through as-is, because no default exists                                              |
-| `AGENT_APPROVALS.md` | No       | No folder overrides       | Read from the PR's own tree, not overlaid                                                    |
+| File                 | Required | Default when absent        | How it combines with the default                                                             |
+| -------------------- | -------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `policy.yml`         | No       | The shipped default policy | Merged onto it: mappings merge key by key, a declared list replaces, `extend_<list>` appends |
+| `review-guidance.md` | No       | The shipped default norms  | Replaces the default prose as a whole                                                        |
+| `steering.md`        | No       | Nothing is added           | Appended to the guidance, because no default exists                                          |
+| `AGENT_APPROVALS.md` | No       | No folder overrides        | Read from the PR's own tree, not merged                                                      |
 
 What each file contains, and how per-folder overrides resolve: [the engine's "Policy files" section](packages/pr-approval-agent/README.md#policy-files).
 
-The overlay means a repository can declare only the sections it wants to change.
-A repository that only wants a bigger size gate writes five lines:
+The engine merges a repository's `policy.yml` onto its shipped default, so a repository declares only what it changes:
+
+- A mapping merges key by key. A repository can add one deny category, or change one field of an inherited category, and everything it leaves out stays inherited, including future additions upstream.
+- A list the repository declares replaces the default's list. That is how a repository drops an inherited pattern.
+- An `extend_<name>` key appends to the inherited `<name>` list, for example `extend_paths` under a category's `match` or `extend_path_patterns` under `allow`. Declaring both `<name>` and `extend_<name>`, or extending a list the default does not have, fails the run closed.
+
+A repository that only wants a bigger size gate and one more pattern in a deny category writes this:
 
 ```yaml
-version: 1
 size_gate:
-  max_lines: 1000
-  max_files: 40
+  max_lines: 1500
+  max_files: 60
+deny:
+  infra_cicd:
+    match:
+      extend_paths:
+        - '^deploy/'
 ```
 
-Everything else, including every deny category, still comes from the hosted default.
-A global limit may not exceed the matching ceiling under `overrides`, so a repository that wants to go past the shipped ceilings declares both sections.
-The merged document is validated by the engine's strict loader inside the sandbox, so required sections and the `stamphog_policy` self-governance deny cannot be dropped by omission.
+A global limit may not exceed the matching ceiling under `overrides`, so a repository that wants to go past the shipped ceilings declares both.
+The engine validates the merged document with its strict loader.
+The `stamphog_policy` self-governance deny can gain patterns but never lose a shipped one: a merged policy without every shipped pattern fails the run closed.
 
 A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
 The repository declared something, so reviewing under pure defaults would be wrong.
+
+### Deny exceptions
+
+A repository can declare narrow exceptions without copying the hosted `deny` section:
+
+```yaml
+deny_exceptions:
+  billing:
+    - keyword: billing
+      path_prefixes: [apps/, argocd/, shared/, state/, charts/]
+      extensions: [.yaml, .yml]
+  infra_cicd:
+    - path_prefixes: [.github/]
+```
+
+The example permits agent review of billing-service deployment YAML and GitHub automation paths.
+The billing exception skips only the `billing` pattern; `payment`, `stripe`, `invoice`, and `pricing` still match.
+New billing patterns and other categories stay inherited because this file does not replace `deny`.
+
+Every rule needs literal directory prefixes relative to the repository root, with a trailing slash.
+The optional `extensions` list restricts the rule to those file suffixes.
+The optional `keyword` must name an existing literal path-capable pattern in that category; omitting it exempts the category within the selected paths.
+All selectors in a rule must match, and multiple rules provide alternative exceptions.
+Path prefixes and extensions match without regard to case.
+
+An exception that lifts a denial sends the PR to `T1-agent`, including YAML-only and test-only changes.
+The reviewer still evaluates actual effects, independent assurance, and unresolved concerns; exceptions do not grant approval.
+Title scrutiny, other categories, prerequisites, and size gates remain active.
+Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
+Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
 
 ### The `digest:` key
 
@@ -126,6 +171,50 @@ A merge fans out to every audience it belongs to, and each audience resolves to 
 - A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
 
 Why the digest works this way: [`docs/digest.md`](docs/digest.md).
+
+## Reviewer routing
+
+Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
+Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A comment names the cut owners and why.
+
+`routing_mode` on the repo config decides when routing runs:
+
+- `off` (the default): never.
+- `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too.
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+  - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody.
+  - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
+  - Any other outcome (refused, escalate, gated, failed) routes in full.
+  - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
+  - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
+  - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
+  - A verdict that lands before the opening event stores its record is dropped the same way, so the opening event checks for a finished review of the head first and routes by it.
+
+`routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
+
+`routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+`routing_fork_labels` has no API yet. Set it with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_fork_labels={"team-alpha": "team/alpha"})`.
+
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+`full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
+Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
+
+Every routing run (event, verdict or safety net) takes the same steps:
+
+1. A compare-and-swap claim sets `routing` with `claimed_by` (the Celery task id) and `claimed_at`.
+2. The plan (kept and cut owners, the user, team and label requests, the comment body) is saved under the claim, with `planned_at`, before any GitHub write.
+3. The labels and review requests go out, and the record becomes `requested`.
+4. The comment is written or removed, and the record becomes `done`.
+
+A retry of the same task keeps the task id: it reuses a saved plan without a second model call, and after `requested` it only finishes the comment.
+While another task holds a claim on any head, the event and verdict tasks retry a minute later and the safety net returns.
+A claim older than two hours counts as abandoned, so a task that died does not block the PR.
+When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
+`model` is set only when a request reached the gateway.
 
 ## How it runs
 

@@ -1,6 +1,6 @@
 # posthog-replay-anonymizer
 
-PII scrubber for rrweb session-replay events: text/URL redaction, native image blur, and canvas/`cv` neutralization. This is the scrub core behind PostHog's ml-mirror pipelines.
+PII scrubber for rrweb session-replay events: text/URL redaction, image collection for an out-of-band scrub, and canvas/`cv` neutralization. An image the scrub lane cannot take is blanked; nothing is blurred in this crate. This is the scrub core behind PostHog's ml-mirror pipelines.
 
 Consumers:
 

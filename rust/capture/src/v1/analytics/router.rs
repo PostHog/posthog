@@ -27,7 +27,7 @@ pub fn routes() -> Router<State> {
 /// The handler needs no AI-specific branch: every AI behavior in the v1
 /// pipeline (gateway provenance, the llm_events quota exemption, `Pipeline::Ai`
 /// restrictions, the per-event size ceiling, the byte-rate limiter, and the
-/// `Destination::AiEvents` lane itself) keys off the event name, not the path.
+/// `Destination::AiMain` lane itself) keys off the event name, not the path.
 /// What the path decides is which deployment answers, which `crate::router`
 /// gates on the capture mode.
 pub fn ai_routes() -> Router<State> {

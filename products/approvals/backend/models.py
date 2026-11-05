@@ -43,6 +43,11 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     policy_snapshot = models.JSONField()
 
+    # Which product owned the resource when this request was created. Re-derived at apply and
+    # refused on a mismatch, so an approval binds to the ownership the approvers reviewed.
+    # NULL means no classification was recorded, which an apply treats as nothing to check.
+    owner_kind = models.CharField(max_length=64, null=True, blank=True)
+
     validation_status = models.CharField(
         max_length=16,
         choices=ValidationStatus,

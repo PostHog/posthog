@@ -25,6 +25,7 @@ import type {
 import { evaluationErrorMessage } from './apiErrors'
 import { backfillRangeDateFormat } from './backfillConditions'
 import { hasUnsetConditionRollout, llmEvaluationLogic, normalizeConditionRollouts } from './llmEvaluationLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConditionSet } from './types'
 import type { EvaluationConfig } from './types'
 
@@ -179,6 +180,9 @@ export interface evaluationBackfillsLogicActions {
         estimate: EvaluationBackfillEstimateApi
         requestedWindow: BackfillWindow | null
     }
+    retryBackfill: (id: string) => {
+        id: string
+    }
     seedConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
     }
@@ -214,7 +218,9 @@ export interface evaluationBackfillsLogicMeta {
             evaluation: EvaluationConfig | null
         ) => EvaluationTargetEnumApi
         startDisabledReason: (
+            evaluation: EvaluationConfig | null,
             hasActiveBackfill: boolean,
+            transitioningIds: string[],
             conditions: EvaluationConditionSet[],
             estimate: EvaluationBackfillEstimateApi | null,
             estimateLoading: boolean,
@@ -269,6 +275,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         createBackfill: true,
         createBackfillDone: (succeeded: boolean) => ({ succeeded }),
         cancelBackfill: (id: string) => ({ id }),
+        retryBackfill: (id: string) => ({ id }),
         transitionBackfillDone: (id: string) => ({ id }),
         expandBackfill: (id: string) => ({ id }),
         collapseBackfill: (id: string) => ({ id }),
@@ -353,6 +360,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             [] as string[],
             {
                 cancelBackfill: (state, { id }) => [...state, id],
+                retryBackfill: (state, { id }) => [...state, id],
                 transitionBackfillDone: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
@@ -387,16 +395,32 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             ): EvaluationTargetEnumApi => estimate?.unit ?? evaluation?.target ?? 'generation',
         ],
         startDisabledReason: [
-            (s) => [s.hasActiveBackfill, s.conditions, s.estimate, s.estimateLoading, s.estimateError],
+            (s) => [
+                s.evaluation,
+                s.hasActiveBackfill,
+                s.transitioningIds,
+                s.conditions,
+                s.estimate,
+                s.estimateLoading,
+                s.estimateError,
+            ],
             (
+                evaluation: EvaluationConfig | null,
                 hasActiveBackfill: boolean,
+                transitioningIds: string[],
                 conditions: EvaluationConditionSet[],
                 estimate: EvaluationBackfillEstimateApi | null,
                 estimateLoading: boolean,
                 estimateError: string | null
             ): string | undefined => {
+                if (evaluation?.enabled === false) {
+                    return 'Enable the evaluation before backfilling it'
+                }
                 if (hasActiveBackfill) {
                     return 'This evaluation already has a running backfill'
+                }
+                if (transitioningIds.length > 0) {
+                    return 'Wait for the current retry or cancel to finish'
                 }
                 // Checked before the count, which reads as an empty range rather than as a 0% sample.
                 if (hasUnsetConditionRollout(conditions)) {
@@ -533,6 +557,12 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             },
             loadBackfillsSuccess: schedulePoll,
             loadBackfillsFailure: schedulePoll,
+            // A count cut short by leaving the tab never lands here, so the request waits for the next visit.
+            requestEstimateSuccess: () => {
+                if (takeBackfillStart(props.evaluationId) && !values.startDisabledReason) {
+                    actions.createBackfill()
+                }
+            },
             seedConditions: () => actions.requestEstimate(),
             setWindowRange: () => actions.requestEstimate(),
             setConditions: () => actions.requestEstimate(),
@@ -601,7 +631,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     // The units this run covers now have a result, so the count it started from is stale.
                     cache.lastEstimate = null
                     cache.recountWhenIdle = true
-                    lemonToast.success('Backfill started')
+                    lemonToast.success('Backfill started', { autoClose: 15000 })
                     actions.loadBackfills()
                 } catch (error) {
                     lemonToast.error(backfillErrorMessage(error, 'Couldn’t start the backfill. Try again.'))
@@ -623,6 +653,47 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     lemonToast.error(backfillErrorMessage(error, 'Couldn’t cancel the backfill. Try again.'))
                 } finally {
                     actions.transitionBackfillDone(id)
+                }
+            },
+            retryBackfill: async ({ id }) => {
+                const teamId = teamLogic.values.currentTeamId
+                const backfill = values.backfills.find((run) => run.id === id)
+                if (cache.retryingBackfill) {
+                    if (cache.retryingBackfill !== id) {
+                        actions.transitionBackfillDone(id)
+                    }
+                    return
+                }
+                // Conditions are written for one target, so a retry under another would grade the wrong units.
+                if (!teamId || !backfill || backfill.target !== values.evaluation?.target) {
+                    actions.transitionBackfillDone(id)
+                    return
+                }
+                cache.retryingBackfill = id
+                posthog.capture('llma evaluation backfill retry clicked', {
+                    evaluation_id: props.evaluationId,
+                    backfill_id: id,
+                    status: backfill.status,
+                    status_reason: backfill.status_reason,
+                })
+                try {
+                    await evaluationsBackfillsCreate(String(teamId), props.evaluationId, {
+                        window_start: backfill.window_start,
+                        window_end: backfill.window_end,
+                        conditions: backfill.conditions.map((condition, index) => ({
+                            ...condition,
+                            id: `retry-${index}`,
+                        })),
+                        rerun_existing: false,
+                    })
+                    cache.recountWhenIdle = true
+                    lemonToast.success('Retry started. Existing results will be kept.')
+                } catch (error) {
+                    lemonToast.error(backfillErrorMessage(error, 'Couldn’t retry this backfill. Try again.'))
+                } finally {
+                    cache.retryingBackfill = false
+                    actions.transitionBackfillDone(id)
+                    actions.loadBackfills(true)
                 }
             },
         }

@@ -26,6 +26,7 @@ class LogoDevClient(EgressClient):
     every caller; wire it through :func:`logodev_request`."""
 
     observability = logodev_egress
+    egress_domain = "logodev"
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         return consume_logodev_sync(priority=priority, source=source)

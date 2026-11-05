@@ -14,10 +14,15 @@ function tracker(): AnalyticsTracker | null {
   return resolveServiceOptional<AnalyticsTracker>(ANALYTICS_TRACKER);
 }
 
-export function trackEvidencePreviewShown(kind: string, cached: boolean): void {
+export function trackEvidencePreviewShown(
+  kind: string,
+  cached: boolean,
+  referenceSource: "link" | "tag",
+): void {
   tracker()?.track(ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN, {
     kind,
     cache: cached ? "hit" : "miss",
+    reference_source: referenceSource,
   });
 }
 

@@ -16,7 +16,6 @@ def _row(
     return {
         "posthog_organization_id": org_id,
         "billing_customer_id": "bc-1",
-        "billing_customer_name": "Acme Inc",
         "stripe_customer_id": stripe_id,
         "address_line_1": "1 Main St",
         "address_line_2": None,
@@ -62,7 +61,6 @@ class TestStripeSignalsDataClass(TestCase):
         signals = StripeSignals(
             posthog_organization_id="org-1",
             billing_customer_id="bc-1",
-            billing_customer_name="Acme",
             stripe_customer_id="cus_1",
             address_line_1="1 Main St",
             address_line_2=None,
@@ -136,7 +134,6 @@ class TestFetchStripeSignals(TestCase):
             {
                 "posthog_organization_id": "org-1",
                 "billing_customer_id": "bc-1",
-                "billing_customer_name": "Acme",
                 "stripe_customer_id": "cus_1",
                 "address_line_1": "1 Main St",
                 "address_line_2": "Suite 200",

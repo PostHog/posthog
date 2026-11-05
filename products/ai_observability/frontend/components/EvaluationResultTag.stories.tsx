@@ -40,7 +40,7 @@ export const Numeric: Story = {
             <div className="space-y-2">
                 <div>Below the passing threshold</div>
                 <EvaluationResultTag
-                    run={{ status: 'completed', result: null, result_type: 'numeric', score: 6.5 }}
+                    run={{ status: 'completed', result: null, result_type: 'numeric', score: 6.999999 }}
                     passingRule={{ operator: 'gte', threshold: 7 }}
                 />
             </div>

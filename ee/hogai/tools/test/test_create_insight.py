@@ -27,11 +27,13 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
+from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
 
@@ -123,6 +125,40 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, concurrent_query)
 
+    @parameterized.expand([("insight",), ("dashboard",)])
+    async def test_saved_update_accepts_patch_paths_from_read_data_schema(self, read_kind: str):
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Wrapped chart",
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], "interval": "day"}},
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Board")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight)
+        read_tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=AssistantState(messages=[])
+        )
+        read_args = (
+            {"kind": "insight", "insight_id": insight.short_id}
+            if read_kind == "insight"
+            else {"kind": "dashboard", "dashboard_id": str(dashboard.id)}
+        )
+        read_output, _ = await read_tool._arun_impl({**read_args, "execute": False})
+        schema = json.loads(read_output.split("```json\n")[1].split("\n```")[0])
+        interval_path = "/source/interval" if "source" in schema else "/interval"
+
+        tool = await self._create_tool()
+        await tool._arun_impl(
+            viz_title="Chart",
+            viz_description="",
+            query_description="Change interval",
+            insight_type="trends",
+            insight_id=insight.short_id,
+            query_patch=json.dumps([{"op": "replace", "path": interval_path, "value": "week"}]),
+        )
+        await insight.arefresh_from_db()
+        assert insight.query is not None
+        self.assertEqual(insight.query["source"]["interval"], "week")
+
     async def test_saved_update_rejects_changes_after_approval_preview(self):
         tool = await self._create_tool()
         original_query = {"kind": "TrendsQuery", "series": []}
@@ -213,7 +249,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, {"kind": "TrendsQuery", "series": []})
 
-    async def test_saved_update_blocks_restricted_query_on_public_share(self):
+    @parameterized.expand(
+        [
+            ("public_share", "publicly shared"),
+            ("subscription", "delivered by a subscription"),
+        ]
+    )
+    async def test_saved_update_blocks_restricted_query_on_exposed_insight(self, exposure: str, expected_reason: str):
         tool = await self._create_tool()
         original_query = {"kind": "TrendsQuery", "series": []}
         insight = await Insight.objects.acreate(team=self.team, query=original_query)
@@ -226,10 +268,13 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.organization, "editor@example.com", "test-password"
         )
         tool = await self._create_tool()
-        await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        if exposure == "public_share":
+            await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+        else:
+            await database_sync_to_async(create_subscription)(team_id=self.team.id, insight_id=insight.id)
 
-        with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):
-            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+        with patch("posthog.api.sharing_publish_gate.denied_query_resources", return_value=["restricted table"]):
+            with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
 
         await insight.arefresh_from_db()

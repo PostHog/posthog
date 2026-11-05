@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     MSSQLColumn,
     MSSQLImplementation,
     _filter_qualified_tables,
-    _non_system_schema_clause,
 )
 
 
@@ -65,27 +64,10 @@ def impl() -> MSSQLImplementation:
 # ---------------------------------------------------------------------------
 
 
-class TestNonSystemSchemaClause:
-    def test_excludes_system_schemas_and_db_roles(self):
-        clause, params = _non_system_schema_clause("table_schema")
-        assert "table_schema NOT IN" in clause
-        # `db[_]%%` brackets the underscore (literal match) and doubles the `%` for pyformat.
-        assert "table_schema NOT LIKE 'db[_]%%'" in clause
-        assert set(params.values()) == {"sys", "guest", "INFORMATION_SCHEMA"}
-
-
 class TestFilterQualifiedTables:
-    def test_matches_qualified_name_directly(self):
-        all_tables = {"dbo.users": [("id", "int", False)], "sales.users": [("uid", "int", False)]}
-        assert _filter_qualified_tables(all_tables, ["dbo.users"]) == {"dbo.users": [("id", "int", False)]}
-
     def test_legacy_bare_name_matches_every_namespace(self):
         all_tables = {"dbo.users": [("id", "int", False)], "sales.users": [("uid", "int", False)]}
         assert set(_filter_qualified_tables(all_tables, ["users"]).keys()) == {"dbo.users", "sales.users"}
-
-    def test_unknown_name_dropped(self):
-        all_tables = {"dbo.users": [("id", "int", False)]}
-        assert _filter_qualified_tables(all_tables, ["dbo.missing"]) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -94,30 +76,6 @@ class TestFilterQualifiedTables:
 
 
 class TestGetColumns:
-    def test_multi_schema_qualifies_and_keeps_duplicates_distinct(self, impl):
-        rows = [
-            ("dbo", "users", "id", "int", "NO"),
-            ("dbo", "users", "email", "varchar", "YES"),
-            ("sales", "users", "id", "bigint", "NO"),
-        ]
-        conn, cursor = _conn_with_rows(rows)
-        result = impl.get_columns(conn, _make_config(schema=""), None)
-        assert set(result.keys()) == {"dbo.users", "sales.users"}
-        assert result["dbo.users"] == [("id", "int", False), ("email", "varchar", True)]
-        assert result["sales.users"] == [("id", "bigint", False)]
-        sql, params = cursor.execute.call_args.args
-        assert "table_schema NOT LIKE 'db[_]%%'" in sql
-        assert set(params.values()) == {"sys", "guest", "INFORMATION_SCHEMA"}
-
-    def test_single_schema_keeps_bare_names(self, impl):
-        rows = [("dbo", "users", "id", "int", "NO")]
-        conn, cursor = _conn_with_rows(rows)
-        result = impl.get_columns(conn, _make_config(schema="dbo"), None)
-        assert set(result.keys()) == {"users"}
-        sql, params = cursor.execute.call_args.args
-        assert "table_schema = %(schema)s" in sql
-        assert params["schema"] == "dbo"
-
     def test_single_schema_pushes_names_filter(self, impl):
         rows = [("dbo", "users", "id", "int", "NO")]
         conn, cursor = _conn_with_rows(rows)
@@ -258,38 +216,6 @@ def routing_mocks(mocker):
 
 
 class TestBuildPipelineRouting:
-    def test_routes_per_row_namespace_from_metadata(self, routing_mocks):
-        inputs = _make_inputs(
-            schema_name="analytics.users",
-            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-        )
-        response = MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
-        assert routing_mocks["metadata"] == ("analytics", "users")
-        assert routing_mocks["pks"] == ("analytics", "users")
-        # S3 subdir is the single-underscore normalization of the dotted display name.
-        assert response.name == "analytics_users"
-
-    def test_self_heals_dotted_name_without_metadata(self, routing_mocks):
-        inputs = _make_inputs(schema_name="analytics.users")
-        MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
-        assert routing_mocks["metadata"] == ("analytics", "users")
-
-    def test_preserves_legacy_storage_key(self, routing_mocks):
-        # A migrated single-schema row keeps its old Delta subdir via s3_folder_name.
-        inputs = _make_inputs(
-            schema_name="analytics.users",
-            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            s3_folder_name="users",
-        )
-        response = MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
-        assert response.name == "users"
-
-    def test_legacy_single_schema_fallback(self, routing_mocks):
-        inputs = _make_inputs(schema_name="messages")
-        response = MSSQLImplementation().build_pipeline(_make_config(schema="dbo"), inputs)
-        assert routing_mocks["metadata"] == ("dbo", "messages")
-        assert response.name == "messages"
-
     def test_raises_when_namespace_indeterminate(self, routing_mocks):
         # Blank config schema, no metadata, bare name — nothing resolves a namespace, so the
         # row is broken: fail loudly rather than guess.

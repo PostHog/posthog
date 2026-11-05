@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -168,6 +169,14 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
                 name="posthog_experiment_feature_flag_rule_id_uniq",
             )
         ]
+        indexes = [
+            # The hourly recalculation scans select running experiments across all teams.
+            models.Index(
+                fields=["start_date"],
+                name="posthog_exp_running_start_idx",
+                condition=models.Q(deleted=False, status="running"),
+            ),
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
@@ -193,6 +202,13 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     @property
     def is_stopped(self) -> bool:
         return self.is_launched and self.end_date is not None
+
+    @property
+    def hours_since_launch(self) -> float | None:
+        # Counts to now also after the end date.
+        if self.start_date is None:
+            return None
+        return (timezone.now() - self.start_date).total_seconds() / 3600
 
     @property
     def is_paused(self) -> bool:
@@ -316,7 +332,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
@@ -329,12 +345,12 @@ def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
 
 def live_experiment_exists() -> Exists:
     """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+    return Exists(live_experiments_for_flag(OuterRef("pk")))
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
     """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
-    return _live_experiments_for_flag(feature_flag_id).exists()
+    return live_experiments_for_flag(feature_flag_id).exists()
 
 
 def metric_display_rank(ordered_uuids: Sequence[str] | None) -> Callable[[str], int]:
@@ -459,6 +475,10 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
+    # The version 1 key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the chart still shows the row after a team
+    # setting moves `fingerprint` away from the current key. No reuse check reads it.
+    display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
@@ -486,6 +506,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELED = "canceled", "Canceled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
@@ -503,9 +524,11 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "fingerprint"],
+                models.F("experiment"),
+                KeyTextTransform("uuid", "metric"),
+                models.F("fingerprint"),
                 condition=models.Q(status__in=["pending", "in_progress"]),
-                name="unique_active_recalculation_per_experiment_metric",
+                name="unique_active_backfill_per_metric_key",
             ),
         ]
         db_table = "posthog_experimenttimeseriesrecalculation"
@@ -531,6 +554,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
+        # The frontend refreshes a running experiment on page load when its latest results are older than its
+        # staleness threshold. Advances the window to now, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
@@ -563,13 +588,13 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         """The subset of Trigger a client may send on POST. Each value must also exist on Trigger.
 
         The rest are set server side: agent_mcp by the view from the client header, timeseries_sync and
-        scheduled by their workflows. stale_refresh, auto_refresh and the deprecated values have no
-        sender.
+        scheduled by their workflows. auto_refresh and the deprecated values have no sender.
         """
 
         MANUAL = "manual", "Manual"
         MANUAL_RETRY = "manual_retry", "Manual Retry"
         COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
         HEAL_LATEST_RUN = "heal_latest_run", "Heal Latest Run"
         EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
         METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"

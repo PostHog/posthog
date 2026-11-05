@@ -1,8 +1,94 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { RISKY_SCOPE_WARNINGS } from 'lib/oauthScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
-export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+// Fallback when the user has not loaded yet. The real limit comes from the `personal_api_keys`
+// entitlement and travels on the user as `personal_api_keys_limit`.
+export const DEFAULT_MAX_API_KEYS_PER_USER = 10
+
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+const SCOPE_ACCESS_LEVELS: readonly ScopeAccessLevel[] = ['none', 'read', 'write']
+
+const SCOPE_ACCESS_LEVEL_LABELS: Record<ScopeAccessLevel, string> = { none: 'no access', read: 'read', write: 'write' }
+
+/**
+ * One scope object in a picker, with the levels it can take. The OAuth consent screen and the key
+ * modal both build this shape, so one group control serves both. A level with no disabled reason is
+ * available. The reason is the text the row's segment shows.
+ */
+export type ScopePickerRow = {
+    key: string
+    label: string
+    value: ScopeAccessLevel
+    disabledReasons: Partial<Record<ScopeAccessLevel, string>>
+    info?: string | JSX.Element
+    warning?: string | JSX.Element
+    /** True when the row is dimmed, for example at no access or when a project scoped key rules it out. */
+    muted?: boolean
+}
+
+export type ScopePickerGroup<Row extends ScopePickerRow = ScopePickerRow> = {
+    label: string
+    rows: Row[]
+}
+
+export const scopeRowAllows = (row: ScopePickerRow, level: ScopeAccessLevel): boolean => !row.disabledReasons[level]
+
+// The nearest available level: the same or a lower one first, so a group set to write holds a
+// read-only row at read, then a higher one, so a row an app requires at read never drops to none.
+export const clampScopeLevel = (row: ScopePickerRow, level: ScopeAccessLevel): ScopeAccessLevel => {
+    const index = SCOPE_ACCESS_LEVELS.indexOf(level)
+    const candidates = [...SCOPE_ACCESS_LEVELS.slice(0, index + 1).reverse(), ...SCOPE_ACCESS_LEVELS.slice(index + 1)]
+    return candidates.find((candidate) => scopeRowAllows(row, candidate)) ?? row.value
+}
+
+// The group shows a level as selected when each row is at that level after the clamp. A level no
+// row can take is never selected, which removes the tie between write and read in a group with no
+// writable row, and between none and read in a group of required rows.
+export const scopeGroupLevel = (rows: ScopePickerRow[]): ScopeAccessLevel | undefined =>
+    [...SCOPE_ACCESS_LEVELS]
+        .reverse()
+        .find(
+            (level) =>
+                rows.some((row) => scopeRowAllows(row, level)) &&
+                rows.every((row) => row.value === clampScopeLevel(row, level))
+        )
+
+// A level is disabled on the group when no row can take it. The reason is the rows' own.
+export const scopeGroupDisabledReasons = (rows: ScopePickerRow[]): Partial<Record<ScopeAccessLevel, string>> =>
+    Object.fromEntries(
+        SCOPE_ACCESS_LEVELS.flatMap((level) => {
+            const reason = rows.find((row) => !scopeRowAllows(row, level))?.disabledReasons[level]
+            return reason && rows.every((row) => !scopeRowAllows(row, level)) ? [[level, reason]] : []
+        })
+    )
+
+// Tooltip on the selected group level, for the rows that sit at another level after the clamp.
+// Each row gives the reason its own segment shows, so the text names the real cause.
+export const scopeGroupTooltip = (rows: ScopePickerRow[], level: ScopeAccessLevel | undefined): string | undefined => {
+    if (!level) {
+        return undefined
+    }
+    const counts = new Map<string, number>()
+    for (const row of rows.filter((row) => row.value !== level)) {
+        const note = `at ${SCOPE_ACCESS_LEVEL_LABELS[row.value]}: ${row.disabledReasons[level] ?? ''}`
+        counts.set(note, (counts.get(note) ?? 0) + 1)
+    }
+    const notes = [...counts].map(
+        ([note, count]) => `${count} of these permissions ${count === 1 ? 'stays' : 'stay'} ${note}.`
+    )
+    return notes.length > 0 ? notes.join(' ') : undefined
+}
+
+export const countScopeRowsByLevel = (rows: { value: ScopeAccessLevel }[]): Record<ScopeAccessLevel, number> => {
+    const counts: Record<ScopeAccessLevel, number> = { none: 0, read: 0, write: 0 }
+    for (const row of rows) {
+        counts[row.value] += 1
+    }
+    return counts
+}
 
 export type APIScope = {
     key: APIScopeObject
@@ -43,6 +129,40 @@ export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string)
     return tokens.every((token) => haystack.includes(token))
 }
 
+/**
+ * The warning a scope picker row shows for a risky scope at the picked level. The backend owns the list of
+ * risky scopes and their wording. Write access includes read, so a write pick also shows the read warning.
+ */
+export const riskyScopeWarning = (
+    scopeObject: string,
+    level: ScopeAccessLevel,
+    riskyScopes: Record<string, string>
+): string | undefined => {
+    const actions: APIScopeAction[] = level === 'write' ? ['write', 'read'] : level === 'read' ? ['read'] : []
+    const warnings = actions.map((action) => riskyScopes[`${scopeObject}:${action}`]).filter(Boolean)
+    return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
+}
+
+/**
+ * What a personal API key or OAuth scope row warns about at the picked level: the scope's own note, such as a
+ * feature flag it also writes, followed by the backend's risky scope warning.
+ */
+export function scopeRowWarning(
+    apiScope: APIScope | undefined,
+    scopeObject: string,
+    level: ScopeAccessLevel
+): string | JSX.Element | undefined {
+    const note = level === 'none' ? undefined : apiScope?.warnings?.[level]
+    const risky = riskyScopeWarning(scopeObject, level, RISKY_SCOPE_WARNINGS)
+    return note && risky ? (
+        <>
+            {note} {risky}
+        </>
+    ) : (
+        (note ?? risky)
+    )
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -66,6 +186,18 @@ export const API_SCOPES: APIScope[] = [
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
+    {
+        key: 'workload_trust_policy',
+        objectName: 'Workload trust policy',
+        objectPlural: 'workload trust policies',
+        disabledActions: ['write'],
+    },
+    {
+        key: 'workload_trust_policy_request',
+        objectName: 'Workload trust policy request',
+        objectPlural: 'workload trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a workload trust policy. A request grants nothing until an admin approves it.',
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -132,6 +264,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
     {
         key: 'ingestion_warning',
         objectName: 'Ingestion warning',
@@ -143,6 +276,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
+    { key: 'knowledge_writer', objectName: 'Knowledge writer', objectPlural: 'knowledge writer verdicts' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
@@ -175,15 +309,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Organization member',
         objectPlural: 'organization members',
         disabledWhenProjectScoped: true,
-        warnings: {
-            write: (
-                <>
-                    This scope can be used to invite users to your organization,
-                    <br />
-                    effectively <strong>allowing access to other scopes via the added user</strong>.
-                </>
-            ),
-        },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
@@ -226,6 +351,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    {
+        key: 'transactional_email',
+        objectName: 'Transactional email',
+        objectPlural: 'transactional emails',
+        info: "Write makes a template transactional and sends email from it. Read gets a sent email's status and works only with a project secret API key. This scope can't edit templates or workflows.",
+    },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
@@ -234,24 +365,20 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'User',
         objectPlural: 'users',
         disabledActions: ['write'],
-        warnings: {
-            read: (
-                <>
-                    This scope allows you to retrieve your own user object.
-                    <br />
-                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
-                </>
-            ),
-        },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    {
+        key: 'signal_usage',
+        objectName: 'Self-driving usage',
+        objectPlural: 'self-driving usage',
+        disabledActions: ['write'],
+    },
     { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
-    { key: 'today', objectName: 'Today briefing', objectPlural: 'Today briefings' },
+    { key: 'today', objectName: 'Today home', objectPlural: 'Today home' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
-    { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
     { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
@@ -267,14 +394,10 @@ export const API_SCOPES: APIScope[] = [
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every grantable scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here —
+// Every scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here,
+// except the OAuth-hidden ones in `OAUTH_SCOPES_HIDDEN` (lib/oauthScopes.generated), which no picker shows.
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
-    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
-    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
@@ -282,7 +405,9 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
+    cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
+    vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
 }
 
 // Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
@@ -296,6 +421,14 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'billing:read',
+    'replay_scanner:write',
+    'session_recording:read',
+    'hog_flow:read',
+    'hog_flow:write',
+    'messaging_preference:write',
+    'transactional_email:read',
+    'transactional_email:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -319,9 +452,23 @@ export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
-export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
-    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
-)
+// A preset must not set a level the key picker cannot show, or the picker shows the level on a
+// disabled segment. A write on a write-disabled object falls back to read, which write implies on the
+// server anyway. A scope with no allowed level is dropped.
+export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
+    ...new Set(
+        scopes.flatMap((scope) => {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+                return [scope]
+            }
+            const [object, action] = scope.split(':')
+            const read = `${object}:read`
+            return action === 'write' && API_KEY_CREATION_RENDERABLE_SCOPES.has(read) ? [read] : []
+        })
+    ),
+]
+
+export const AGENT_CLI_API_KEY_SCOPES = clampToKeyCreationScopes(AGENT_USE_CASE_SCOPES)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -357,9 +504,11 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
-        scopes: API_SCOPES.filter(
-            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
-        ).map(({ key }) => `${key}:write`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system').map(
+                ({ key }) => `${key}:write`
+            )
+        ),
         access_type: 'all',
     },
     {
@@ -371,7 +520,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`)
+        ),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -392,12 +543,13 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+    { value: 'recipient_preferences', label: 'Set recipient preferences', scopes: ['messaging_preference:write'] },
+    { value: 'transactional_email', label: 'Send transactional email', scopes: ['transactional_email:write'] },
 ]
 
-// The product areas that the scope pickers use to group objects, in display order. Each grantable
-// scope object in `ScopeObjectEnumApi` is in exactly one group, and scopes.test.ts fails until a new
-// object has a group. OAuth-hidden objects go in the last group, "Internal tools". The pickers do not
-// show those objects, so a person never sees that group.
+// The product areas that the scope pickers use to group objects, in display order. Each scope object
+// in `ScopeObjectEnumApi` is in exactly one group, except the OAuth-hidden ones, which no picker shows.
+// scopes.test.ts fails until a new object has a group.
 export type APIScopeGroup = {
     label: string
     objects: APIScopeObject[]
@@ -411,6 +563,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'insight_variable',
             'dashboard',
             'dashboard_template',
+            'cross_project_dashboard',
             'query',
             'notebook',
             'canvas',
@@ -461,7 +614,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Developer experience',
-        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+        objects: ['engineering_analytics', 'knowledge_writer', 'stamphog', 'visual_review'],
     },
     {
         label: 'LLM & MCP analytics',
@@ -499,6 +652,10 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         ],
     },
     {
+        label: 'Messaging',
+        objects: ['transactional_email'],
+    },
+    {
         label: 'AI & context management tools',
         objects: [
             'conversation',
@@ -507,9 +664,11 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'inbox',
             'today',
             'loop',
             'signal_scout',
+            'signal_usage',
             'review_hog',
             'approvals',
             'autoresearch',
@@ -548,6 +707,8 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization',
             'organization_member',
             'project',
+            'workload_trust_policy',
+            'workload_trust_policy_request',
             'user',
             'billing',
             'access_control',
@@ -558,10 +719,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'file_system',
             'file_system_shortcut',
         ],
-    },
-    {
-        label: 'Internal tools',
-        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 
@@ -574,6 +731,44 @@ const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
 
 export const getScopeGroupLabel = (scopeObject: string): string =>
     SCOPE_GROUP_LABEL_BY_OBJECT[scopeObject] ?? OTHER_SCOPE_GROUP_LABEL
+
+// The rows grouped by product area in API_SCOPE_GROUPS order. An object that is in no group goes in
+// the "Other" group at the end, so it still shows. A group with no row is left out.
+export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePickerGroup<Row>[] => {
+    const rowsByLabel = new Map<string, Row[]>()
+    for (const row of rows) {
+        const label = getScopeGroupLabel(row.key)
+        rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
+        .filter((label) => rowsByLabel.has(label))
+        .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+}
+
+export type ScopeGroupSummary = { label: string; write: number; read: number }
+
+// Counts the objects in each product area that a key can write, or only read, in API_SCOPE_GROUPS order.
+// `insight:read` and `insight:write` together count once, as write.
+export const summarizeScopesByGroup = (scopes: readonly string[]): ScopeGroupSummary[] => {
+    const levelByObject = new Map<string, 'read' | 'write'>()
+    for (const scope of scopes) {
+        const [object, action] = scope.split(':')
+        if (levelByObject.get(object) !== 'write') {
+            levelByObject.set(object, action === 'write' ? 'write' : 'read')
+        }
+    }
+    const summaryByLabel = new Map<string, ScopeGroupSummary>()
+    for (const [object, level] of levelByObject) {
+        const label = getScopeGroupLabel(object)
+        const summary = summaryByLabel.get(label) ?? { label, write: 0, read: 0 }
+        summary[level] += 1
+        summaryByLabel.set(label, summary)
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL].flatMap((label) => {
+        const summary = summaryByLabel.get(label)
+        return summary ? [summary] : []
+    })
+}
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

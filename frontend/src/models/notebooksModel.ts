@@ -7,7 +7,8 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { retryImport } from 'lib/utils/retryImport'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -26,17 +27,14 @@ import type { NotebookType } from '../scenes/notebooks/types'
 // kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
 const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
 
-export function drainPendingNotebookOperations(shortId: string): void {
+export function drainPendingNotebookOperations(shortId: string, logic: BuiltLogic<notebookLogicType>): void {
     const ops = pendingNotebookOperations.get(shortId)
     if (!ops?.length) {
         return
     }
     pendingNotebookOperations.delete(shortId)
-    const logic = notebookLogic.findMounted({ shortId })
-    if (logic) {
-        for (const op of ops) {
-            op(logic)
-        }
+    for (const op of ops) {
+        op(logic)
     }
 }
 
@@ -59,20 +57,22 @@ export const openNotebook = async (
         thePanelLogic.actions.selectNotebook(notebookId)
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
-            router.actions.replace(urls.notebook(notebookId))
+            router.actions.replace(withBackLink(urls.notebook(notebookId)))
         } else {
-            router.actions.push(urls.notebook(notebookId))
+            router.actions.push(withBackLink(urls.notebook(notebookId)))
         }
     }
 
     if (onOpen) {
+        // Queued before the import, so a failed import still leaves the callback for the logic to drain on mount.
+        const ops = pendingNotebookOperations.get(notebookId) || []
+        ops.push(onOpen)
+        pendingNotebookOperations.set(notebookId, ops)
+        // A dynamic import keeps the notebook editor and its rich text stack out of every scene that can open a notebook.
+        const { notebookLogic } = await retryImport(() => import('scenes/notebooks/Notebook/notebookLogic'))
         const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
         if (mountedLogic) {
-            onOpen(mountedLogic)
-        } else {
-            const ops = pendingNotebookOperations.get(notebookId) || []
-            ops.push(onOpen)
-            pendingNotebookOperations.set(notebookId, ops)
+            drainPendingNotebookOperations(notebookId, mountedLogic)
         }
     }
 }

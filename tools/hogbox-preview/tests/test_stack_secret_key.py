@@ -52,6 +52,7 @@ class _RecordingBackend:
 
     def __init__(self, stored_key: str = "", mints: bool = True):
         self.web_url = "https://pen-test.boxes.example.dev"
+        self.web_port = 8000
         self.files: dict[str, str] = {}
         self.stored_key = stored_key
         self.mints = mints

@@ -5,7 +5,7 @@ from posthog.models.utils import UUIDModel
 
 
 class PlaygroundTurn(TeamScopedRootMixin, UUIDModel):
-    """One question in a playground chat, pointing at a sandbox task."""
+    """One question in a playground chat. `run_id` is the run that answered it."""
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -18,13 +18,14 @@ class PlaygroundTurn(TeamScopedRootMixin, UUIDModel):
     chat = models.ForeignKey("business_knowledge.PlaygroundChat", on_delete=models.CASCADE, related_name="turns")
     question = models.TextField()
     task_id = models.UUIDField()
+    # A null id reads the task's latest run, so a follow-up records the current run before starting another.
+    run_id = models.UUIDField(null=True, blank=True)
     position = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["chat", "position"], name="bk_pg_turn_chat_pos"),
-            models.UniqueConstraint(fields=["task_id"], name="bk_pg_turn_task_id"),
         ]
 
     def __str__(self) -> str:

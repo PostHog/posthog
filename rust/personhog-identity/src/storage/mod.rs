@@ -24,6 +24,12 @@ pub trait IdentityStorage: Send + Sync {
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>>;
 
+    /// Person ids from live distinct id rows, without reading the person table.
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), i64>>;
+
     /// Expand person ids to their live distinct id rows on the primary.
     /// With a per-person limit, identified ids survive the cut and the
     /// scan is capped for pathological persons — the same ordering

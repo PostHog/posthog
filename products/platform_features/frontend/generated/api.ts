@@ -25,6 +25,7 @@ import type {
     CommentsListParams,
     DiagnosticReportApi,
     ListParams,
+    MemberOffboardingResourceApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
@@ -324,6 +325,24 @@ export const membersGithubLoginRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getMembersOffboardingPreviewRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_preview/`
+}
+
+export const membersOffboardingPreviewRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingResourceApi[]> => {
+    return apiMutator<MemberOffboardingResourceApi[]>(
+        getMembersOffboardingPreviewRetrieveUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {

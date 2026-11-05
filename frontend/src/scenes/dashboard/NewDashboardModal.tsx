@@ -15,11 +15,11 @@ import { DashboardTemplateChooser } from './dashboards/templates/DashboardTempla
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 
-export function NewDashboardModal(): JSX.Element {
+export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAfterCreation?: boolean }): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal, clearActiveDashboardTemplate, createDashboardFromTemplate } =
         useActions(newDashboardLogic)
-    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible } =
+    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible, isLoading } =
         useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
@@ -34,8 +34,9 @@ export function NewDashboardModal(): JSX.Element {
             dashboardTemplateChooserLogic({
                 scope: templateScope,
                 availabilityContexts: undefined,
+                redirectAfterCreation,
             }),
-        [templateScope]
+        [redirectAfterCreation, templateScope]
     )
     const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
     const { blankTileClicked } = useActions(createChooserLogic)
@@ -105,7 +106,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={templateScope} />
+                        <DashboardTemplateChooser scope={templateScope} redirectAfterCreation={redirectAfterCreation} />
                     )}
                 </div>
             </div>
@@ -120,9 +121,13 @@ export function NewDashboardModal(): JSX.Element {
                     )}
                     <LemonButton
                         onClick={() => {
-                            activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
+                            if (activeDashboardTemplate) {
+                                createDashboardFromTemplate(activeDashboardTemplate, variables, redirectAfterCreation)
+                            }
                         }}
                         type="primary"
+                        loading={isLoading}
+                        disabled={isLoading}
                     >
                         Create
                     </LemonButton>

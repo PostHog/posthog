@@ -8,7 +8,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-from posthog.schema import NativeMarketingSource, SourceMap
+from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource, SourceMap
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -52,6 +52,7 @@ from .google_ads import GoogleAdsAdapter
 from .openai_ads import OpenAIAdsAdapter
 from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
+from .twitter_ads import TwitterAdsAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +86,7 @@ class MarketingSourceFactory:
         "AppleSearchAds": AppleSearchAdsAdapter,
         "OpenAIAds": OpenAIAdsAdapter,
         "RoktAds": RoktAdsAdapter,
+        "TwitterAds": TwitterAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -109,6 +111,7 @@ class MarketingSourceFactory:
         "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
         "OpenAIAds": (NativeMarketingSource.OPEN_AI_ADS, HierarchicalNativeAdsConfig),
         "RoktAds": (NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig),
+        "TwitterAds": (NativeMarketingSource.TWITTER_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
@@ -425,6 +428,16 @@ class MarketingSourceFactory:
             except Exception as e:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
+
+    @staticmethod
+    def build_materialization_queries(
+        adapters: list[MarketingSourceAdapter], grain: MarketingAnalyticsDrillDownLevel
+    ) -> dict[str, ast.SelectQuery | None]:
+        return {
+            str(adapter.get_source_id()): adapter.build_materialization_query(adapter.get_source_id())
+            for adapter in adapters
+            if adapter.supports_level(grain)
+        }
 
     def get_validation_errors(self, adapters: list[MarketingSourceAdapter]) -> dict[str, list[str]]:
         errors_by_source: dict[str, list[str]] = {}

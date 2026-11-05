@@ -256,7 +256,8 @@ class TestExplainConversionGoal(_InspectorMixin):
             ("uuid-1", ts1, "user-a", "purchase", "facebook", "spring_sale"),
             ("uuid-2", ts1, "user-b", "purchase", "google", "spring_sale"),
             ("uuid-3", ts2, "user-c", "purchase", None, None),
-            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),  # no alias hit
+            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),
+            ("uuid-5", ts2, "user-e", "purchase", "unmapped_source", "summer_sale"),
         ]
         with patch(
             "products.marketing_analytics.backend.services.conversion_goals_inspector._query_goal_events",
@@ -268,25 +269,27 @@ class TestExplainConversionGoal(_InspectorMixin):
                 period=DateRange(date_from="2026-04-01T00:00:00+00:00", date_to="2026-04-03T00:00:00+00:00"),
             )
 
-        assert explanation.total_count == 4
-        assert explanation.integrated_count == 2
-        # 1 row had utm_source=None (without_utm), 1 row had utm_source='twitter' (unmatched_with_utm)
+        assert explanation.total_count == 5
+        assert explanation.integrated_count == 3
+        # 1 row had utm_source=None (without_utm), 1 row had utm_source='unmapped_source' (unmatched_with_utm)
         assert explanation.events_without_utm_source == 1
         assert explanation.events_with_unmatched_utm_source == 1
         assert explanation.non_integrated_count == 2
-        assert dict(explanation.by_event) == {"purchase": 4}
+        assert dict(explanation.by_event) == {"purchase": 5}
 
         utm_dict = dict(explanation.by_utm_source)
         assert utm_dict.get("facebook") == 1
         assert utm_dict.get("google") == 1
         assert utm_dict.get("twitter") == 1
+        assert utm_dict.get("unmapped_source") == 1
 
         integration_dict = dict(explanation.by_matched_integration)
         assert integration_dict.get("meta_ads") == 1
         assert integration_dict.get("google_ads") == 1
-        assert "twitter" not in integration_dict
+        assert integration_dict.get("twitter_ads") == 1
+        assert "unmapped_source" not in integration_dict
 
-        assert len(explanation.samples) == 4
+        assert len(explanation.samples) == 5
 
     @pytest.mark.asyncio
     async def test_events_goal_caps_samples(self):

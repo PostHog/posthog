@@ -23,9 +23,10 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Element, Filter, Team
+from posthog.models import Element, Team
 from posthog.models.element.chain_query import normalized_elements_chain_expr
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
+from posthog.models.property.parse import parse_properties_for_team
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import format_query_params_absolute_url
 
@@ -181,9 +182,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             timer = ServerTimingsGathered()
 
             with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
-                # Filter parses the properties param (including property groups) and folds the
-                # team's test-account filters in when filter_test_accounts is set
-                filter = Filter(request=request, team=self.team)
+                property_groups = parse_properties_for_team(request.GET.dict(), self.team)
                 date_range = QueryDateRange(
                     date_range=DateRange(
                         date_from=request.query_params.get("date_from", "-7d"),
@@ -257,7 +256,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "event_types": ast.Constant(value=list(events_filter)),
                         "date_from": ast.Constant(value=query_date_from),
                         "date_to": ast.Constant(value=date_range.date_to()),
-                        "property_filters": property_to_expr(filter.property_groups, team=self.team),
+                        "property_filters": property_to_expr(property_groups, team=self.team),
                         "limit": ast.Constant(value=limit + 1),
                         "offset": ast.Constant(value=offset),
                     },

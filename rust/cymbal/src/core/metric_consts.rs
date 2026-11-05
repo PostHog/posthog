@@ -22,6 +22,8 @@ pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error
 pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";
 pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
+// Source-map ignore-list matches, labelled by `runtime` (`browser` / `node`).
+pub const SOURCEMAP_IGNORED_FRAME: &str = "cymbal_sourcemap_ignored_frame";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
@@ -52,6 +54,9 @@ pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
 // Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
 // (`sourcemap` / `hermes` / `proguard` / `apple`).
 pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
+// Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
+pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
+pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
 
 // Histogram buckets for the byte-shaped metrics above. The default
 // `common_metrics` buckets are tuned for milliseconds of latency and saturate
@@ -111,7 +116,7 @@ pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_faile
 
 // HTTP /process observability metrics
 pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
-pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_duration_seconds";
+pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_ms";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 

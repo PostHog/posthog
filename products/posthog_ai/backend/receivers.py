@@ -1,6 +1,6 @@
 """Keep a copied chat and its task in step once the task runs for real.
 
-Both hooks connect through the tasks facade so no model class crosses the product boundary.
+Every hook connects through the tasks facade so no model class crosses the product boundary.
 
 - Before a run starts: the copy runs a few seconds behind the chat, so a run started in that window
   would resume without the last turn. The guard copies what is still missing and refuses the run
@@ -10,6 +10,7 @@ Both hooks connect through the tasks facade so no model class crosses the produc
   path too, so a chat can never fork back into LangGraph after it has been continued as a task.
 - When tasks are read: a user without the sandbox runtime does not see the copies of their chats. The
   copy is written for everyone so the switch is instant later, but until then their chats are chats.
+- After a turn completes: the end-of-turn suggestion is queued (``turn_suggestions/dispatch.py``).
 """
 
 import logging
@@ -22,9 +23,11 @@ from asgiref.sync import async_to_sync
 from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion_on_turn_completed
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_post_save,
+    connect_task_run_turn_completed,
     register_task_read_exclusion,
     register_task_run_start_guard,
 )
@@ -45,11 +48,21 @@ def _feature_flags() -> Any:
     return feature_flags
 
 
+def _has_posthog_ai_access(team: Team, user: User) -> bool:
+    # Deferred for the same reason as the flag helpers: the gate pulls in the tasks API stack.
+    from products.tasks.backend.facade.access import get_posthog_ai_access_decision  # noqa: PLC0415
+
+    return get_posthog_ai_access_decision(user, team.organization).allowed
+
+
 def connect() -> None:
     register_task_read_exclusion(copied_chats_hidden_without_sandbox_mode, name="posthog_ai_copied_chats")
     register_task_run_start_guard(catch_up_conversation_copy_before_run, name="posthog_ai_conversation_copy")
     connect_task_run_post_save(
         mark_conversation_sandbox_on_first_run, dispatch_uid="posthog_ai_conversation_follows_task_run"
+    )
+    connect_task_run_turn_completed(
+        enqueue_turn_suggestion_on_turn_completed, dispatch_uid="posthog_ai_turn_suggestion_on_turn_completed"
     )
 
 
@@ -72,7 +85,7 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
         return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
-    if team is None or user is None or flags.has_sandbox_mode_feature_flag(team, user):
+    if team is None or user is None or _has_posthog_ai_access(team, user):
         return ()
     return copied_task_ids
 
@@ -92,7 +105,7 @@ def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: i
     )
     if conversation is None:
         return None
-    if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+    if not _has_posthog_ai_access(conversation.team, conversation.user):
         return SANDBOX_MODE_REQUIRED_MESSAGE
     if not flags.has_conversation_task_mirror_feature_flag(conversation.team, conversation.user):
         # The kill switch stops copying altogether; a stale copy is then expected, not a reason to refuse.
@@ -124,7 +137,7 @@ def mark_conversation_sandbox_on_first_run(sender: type, instance: Any, created:
             task_id=instance.task_id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
         )
         for conversation in conversations:
-            if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+            if not _has_posthog_ai_access(conversation.team, conversation.user):
                 # Without the flag the legacy screen cannot send to the sandbox path, so the chat stays put.
                 continue
             Conversation.objects.filter(id=conversation.id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH).update(

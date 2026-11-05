@@ -170,12 +170,6 @@ const billingProjectsList = (): ToolBase<
 const BillingSpendGetSchema = () => {
     const BillingSpendRetrieveQueryParams = orvalSchemas.BillingSpendRetrieveQueryParams()
     return BillingSpendRetrieveQueryParams.extend({
-        start_date: BillingSpendRetrieveQueryParams.shape['start_date'].describe(
-            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-        ),
-        end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe(
-            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-        ),
         team_ids: BillingTeamIdsSchema,
         usage_types: BillingUsageTypesSchema,
         breakdowns: BillingSpendBreakdownsSchema,
@@ -239,12 +233,6 @@ const billingSpendSummaryGet = (): ToolBase<
 const BillingSpendTimeseriesGetSchema = () => {
     const BillingSpendTimeseriesRetrieveQueryParams = orvalSchemas.BillingSpendTimeseriesRetrieveQueryParams()
     return BillingSpendTimeseriesRetrieveQueryParams.extend({
-        start_date: BillingSpendTimeseriesRetrieveQueryParams.shape['start_date'].describe(
-            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-        ),
-        end_date: BillingSpendTimeseriesRetrieveQueryParams.shape['end_date'].describe(
-            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-        ),
         team_ids: BillingSpendTimeseriesRetrieveQueryParams.shape['team_ids'].describe(
             "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
         ),
@@ -315,12 +303,6 @@ const billingSubscriptionGet = (): ToolBase<
 const BillingUsageGetSchema = () => {
     const BillingUsageRetrieveQueryParams = orvalSchemas.BillingUsageRetrieveQueryParams()
     return BillingUsageRetrieveQueryParams.extend({
-        start_date: BillingUsageRetrieveQueryParams.shape['start_date'].describe(
-            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-        ),
-        end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe(
-            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-        ),
         team_ids: BillingTeamIdsSchema,
         usage_types: BillingUsageTypesSchema,
         breakdowns: BillingUsageBreakdownsSchema,
@@ -408,12 +390,6 @@ const billingUsageSummaryGet = (): ToolBase<
 const BillingUsageTimeseriesGetSchema = () => {
     const BillingUsageTimeseriesRetrieveQueryParams = orvalSchemas.BillingUsageTimeseriesRetrieveQueryParams()
     return BillingUsageTimeseriesRetrieveQueryParams.extend({
-        start_date: BillingUsageTimeseriesRetrieveQueryParams.shape['start_date'].describe(
-            'Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use "all", also pass end_date.'
-        ),
-        end_date: BillingUsageTimeseriesRetrieveQueryParams.shape['end_date'].describe(
-            "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
-        ),
         team_ids: BillingUsageTimeseriesRetrieveQueryParams.shape['team_ids'].describe(
             "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
         ),

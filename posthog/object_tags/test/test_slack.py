@@ -19,7 +19,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("dashboard", "123", "/dashboard/123"),
             ("error", UUID, f"/error_tracking/{UUID}"),
             ("replay", "0190f8a1-sess", "/replay/0190f8a1-sess"),
-            ("flag", "42", "/feature_flags/42"),
+            ("flag", "42", "/feature-flags/42"),
             ("experiment", "7", "/experiments/7"),
             ("survey", UUID, f"/surveys/{UUID}"),
             ("ticket", UUID, f"/support/tickets/{UUID}"),
@@ -34,8 +34,8 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("session-replay", "sess", "/replay/sess"),
             ("session_replay", "sess", "/replay/sess"),
             ("recording", "sess", "/replay/sess"),
-            ("feature-flag", "42", "/feature_flags/42"),
-            ("feature_flag", "42", "/feature_flags/42"),
+            ("feature-flag", "42", "/feature-flags/42"),
+            ("feature_flag", "42", "/feature-flags/42"),
             ("sql", "SELECT 1", "/sql?open_query=SELECT%201"),
         ]
     )
@@ -62,7 +62,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             (
                 "self_closing_inline_uses_kind_and_id_as_label",
                 'Rolled out <flag id="42"/> yesterday.',
-                f"Rolled out [Feature flag 42]({PROJECT}/feature_flags/42?unfurl=false) yesterday.",
+                f"Rolled out [Feature flag 42]({PROJECT}/feature-flags/42?unfurl=false) yesterday.",
             ),
             (
                 "block_insight_keeps_unfurl_on",
@@ -210,17 +210,17 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         text = " ".join('`<flag id="1"/>` <flag id="2">live</flag>' for _ in range(200))
         rendered = rewrite(text)
         assert rendered.count('`<flag id="1"/>`') == 200
-        assert rendered.count(f"[live]({PROJECT}/feature_flags/2?unfurl=false)") == 200
+        assert rendered.count(f"[live]({PROJECT}/feature-flags/2?unfurl=false)") == 200
 
     def test_long_backtick_runs_do_not_hide_tags_or_stall(self) -> None:
         # Runs of different lengths never pair into a code span, so the tag between them is live.
         text = "x " + "`" * 20000 + ' <flag id="42">beta</flag> ' + "`" * 19999
-        assert rewrite(text).count(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)") == 1
+        assert rewrite(text).count(f"[beta]({PROJECT}/feature-flags/42?unfurl=false)") == 1
 
     def test_unmatched_openers_do_not_stop_later_tags_rewriting(self) -> None:
         text = ('<insight id="open"> ' * 300) + '<flag id="42">beta</flag>'
         rendered = rewrite(text)
-        assert rendered.endswith(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)")
+        assert rendered.endswith(f"[beta]({PROJECT}/feature-flags/42?unfurl=false)")
         assert rendered.count('<insight id="open">') == 300
 
 

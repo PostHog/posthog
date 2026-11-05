@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 enabled ops
+ * PostHog API - MCP 73 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -16,9 +16,16 @@ export const AccountRelationshipDefinitionsListParams = () => zod.object({
         ),
 })
 
+export const accountRelationshipDefinitionsListQueryLimitMax = 1000
+
 export const AccountRelationshipDefinitionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(accountRelationshipDefinitionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
 
 export const AccountRelationshipDefinitionsCreateParams = () => zod.object({
@@ -113,14 +120,22 @@ export const AccountsListParams = () => zod.object({
         ),
 })
 
+export const accountsListQueryInactiveLastDefault = false
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
+export const accountsListQueryLimitMax = 1000
 
 export const AccountsListQueryParams = () => zod.object({
     all_roles_unassigned: zod
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    inactive_last: zod
+        .boolean()
+        .default(accountsListQueryInactiveLastDefault)
+        .describe(
+            'When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.'
+        ),
     include_churned: zod
         .boolean()
         .default(accountsListQueryIncludeChurnedDefault)
@@ -129,7 +144,7 @@ export const AccountsListQueryParams = () => zod.object({
         .boolean()
         .default(accountsListQueryIncludeIgnoredDefault)
         .describe('Include ignored accounts. Ignored accounts are hidden by default.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(accountsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
     search: zod
@@ -216,6 +231,12 @@ export const AccountsCreateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -434,6 +455,12 @@ export const AccountsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -455,8 +482,14 @@ export const AccountsMeetingsListParams = () => zod.object({
         ),
 })
 
+export const accountsMeetingsListQueryLimitMax = 1000
+
 export const AccountsMeetingsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(accountsMeetingsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Filter meetings by title or attendee email\/name.'),
 })
@@ -470,8 +503,14 @@ export const AccountsSummariesListParams = () => zod.object({
         ),
 })
 
+export const accountsSummariesListQueryLimitMax = 1000
+
 export const AccountsSummariesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(accountsSummariesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -483,8 +522,14 @@ export const AnnouncementsListParams = () => zod.object({
         ),
 })
 
+export const announcementsListQueryLimitMax = 1000
+
 export const AnnouncementsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(announcementsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -496,8 +541,17 @@ export const AnnouncementsCreateParams = () => zod.object({
         ),
 })
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = () => zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -533,9 +587,16 @@ export const CustomPropertyDefinitionsListParams = () => zod.object({
         ),
 })
 
+export const customPropertyDefinitionsListQueryLimitMax = 1000
+
 export const CustomPropertyDefinitionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(customPropertyDefinitionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
 
 export const CustomPropertyDefinitionsCreateParams = () => zod.object({
@@ -757,8 +818,14 @@ export const CustomPropertySourcesListParams = () => zod.object({
         ),
 })
 
+export const customPropertySourcesListQueryLimitMax = 1000
+
 export const CustomPropertySourcesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(customPropertySourcesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -918,8 +985,14 @@ export const CustomPropertySourcesRunsListParams = () => zod.object({
         ),
 })
 
+export const customPropertySourcesRunsListQueryLimitMax = 1000
+
 export const CustomPropertySourcesRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(customPropertySourcesRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()
@@ -962,7 +1035,13 @@ export const CustomerTasksListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'all'])
         .default(customerTasksListQueryArchiveStateDefault)
         .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
-    assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
+    assigned_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.'
+        ),
     due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
     due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),
     has_due_at: zod.boolean().optional().describe('Filter tasks by whether a deadline exists.'),
@@ -1039,8 +1118,6 @@ export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = () => zod.object({
     account_id: zod.string().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1055,6 +1132,8 @@ export const CustomerTasksPartialUpdateBody = () => zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
 
 export const CustomerTasksActivitiesListParams = () => zod.object({
@@ -1384,6 +1463,8 @@ export const FeatureRequestsListParams = () => zod.object({
 })
 
 export const featureRequestsListQueryArchiveStateDefault = `active`
+export const featureRequestsListQueryLimitMax = 1000
+
 export const featureRequestsListQueryRequestOrderingDefault = `-updated_at`
 
 export const FeatureRequestsListQueryParams = () => zod.object({
@@ -1401,7 +1482,11 @@ export const FeatureRequestsListQueryParams = () => zod.object({
         .array(zod.number().min(1))
         .optional()
         .describe('Creator user IDs to include. Multiple values use OR semantics.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(featureRequestsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     priorities: zod
         .array(
@@ -1711,6 +1796,24 @@ export const FeatureRequestsHistoryListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const FeatureRequestsLinkGithubCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsLinkGithubCreateBody = () => zod.object({
+    integration_id: zod.number().min(1).describe('GitHub integration ID connected to this project.'),
+    issue_url: zod.url().describe('GitHub issue URL. Pull request URLs are not supported.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
 export const FeatureRequestsRemoveEvidenceCreateParams = () => zod.object({

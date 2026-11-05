@@ -1,15 +1,14 @@
 import re
-from datetime import time
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-MAX_RECALCULATION_TIMES = 2
-MIN_RECALCULATION_GAP_HOURS = 6
+from products.experiments.backend.facade.enums import MAX_RECALCULATION_TIMES, MIN_RECALCULATION_GAP_HOURS
 
 RECALCULATION_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):00:00$")
 
@@ -40,29 +39,12 @@ def validate_recalculation_times(value: object) -> None:
                 )
 
 
-def recalculation_times_from_legacy(legacy: time | None) -> list[str] | None:
-    return [f"{legacy.hour:02d}:00:00"] if legacy is not None else None
-
-
-def legacy_from_recalculation_times(times: list[str] | None) -> time | None:
-    return time(hour=int(times[0][:2])) if times else None
-
-
-class TeamExperimentsConfig(models.Model):
+class TeamExperimentsConfig(ModelActivityMixin, models.Model):
     class PrecomputationEnabledSetBy(models.TextChoices):
         MANUAL = "manual", "Manual"
         AUTO = "auto", "Auto"
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
-
-    experiment_recalculation_time = models.TimeField(
-        null=True,
-        blank=True,
-        help_text=(
-            "Deprecated in favor of experiment_recalculation_times, which takes precedence when set. "
-            "Kept in sync with its first entry for older clients."
-        ),
-    )
 
     experiment_recalculation_times = models.JSONField(
         null=True,

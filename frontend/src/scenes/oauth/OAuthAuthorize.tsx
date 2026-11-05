@@ -2,19 +2,18 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
+import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -25,8 +24,6 @@ import { AvailableFeature } from '~/types'
 import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
-import { OAuthScopeGroupControl } from './OAuthScopeGroupControl'
-import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
@@ -172,11 +169,18 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount, projectCreationForbiddenReason } =
+        useValues(organizationLogic)
+    // Plan and role data is only loaded for the current organization, so the backend decides for any other one
+    const isCurrentOrganizationSelected = selectedOrganization === currentOrganization?.id
 
     const handleShowCreateProject = (): void => {
+        if (!isCurrentOrganizationSelected) {
+            setShowCreateProject(true)
+            return
+        }
         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => setShowCreateProject(true), {
-            currentUsage: currentOrganization?.teams?.length,
+            currentUsage: currentOrganizationProjectCount,
         })
     }
 
@@ -388,7 +392,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                     disabledReason={
                                                         !selectedOrganization
                                                             ? 'Select an organization first'
-                                                            : (projectCreationForbiddenReason ?? undefined)
+                                                            : isCurrentOrganizationSelected
+                                                              ? (projectCreationForbiddenReason ?? undefined)
+                                                              : undefined
                                                     }
                                                     onClick={handleShowCreateProject}
                                                 />
@@ -442,54 +448,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 )}
                             </div>
                             <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                    <ul className="space-y-2">
-                                        {identityScopeDescriptions.map((description, idx) => (
-                                            <li key={idx} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{description}</span>
-                                            </li>
-                                        ))}
-                                        {requiredScopeRows.map((row) => (
-                                            <li key={row.key} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{row.description}</span>
-                                                {!allScopesRequired && (
-                                                    <Tooltip title={`${appName} requires this permission`}>
-                                                        <LemonTag>Required</LemonTag>
-                                                    </Tooltip>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                {scopeRowsGrouped ? (
-                                    <div className="flex flex-col">
-                                        {scopeGroups.map((group) => (
-                                            <OAuthScopeGroupControl
-                                                key={group.label}
-                                                label={group.label}
-                                                rows={group.rows}
-                                                appName={appName}
-                                                onChangeRow={setScopeAccess}
-                                                onChangeGroup={setScopeGroupAccess}
-                                            />
-                                        ))}
-                                    </div>
-                                ) : (
-                                    adjustableScopeRows.length > 0 && (
-                                        <div className="flex flex-col">
-                                            {adjustableScopeRows.map((row) => (
-                                                <OAuthScopeRowControl
-                                                    key={row.key}
-                                                    row={row}
-                                                    appName={appName}
-                                                    onChange={setScopeAccess}
-                                                />
-                                            ))}
-                                        </div>
-                                    )
-                                )}
+                                <OAuthScopeList
+                                    appName={appName}
+                                    identityScopeDescriptions={identityScopeDescriptions}
+                                    requiredScopeRows={requiredScopeRows}
+                                    adjustableScopeRows={adjustableScopeRows}
+                                    scopeGroups={scopeRowsGrouped ? scopeGroups : null}
+                                    allScopesRequired={allScopesRequired}
+                                    onChangeRow={setScopeAccess}
+                                    onChangeGroup={setScopeGroupAccess}
+                                    dataAttrPrefix="oauth-scope-group"
+                                />
                                 {accessControlsApply && (
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
                                         <strong className="block">Access controls still apply.</strong>

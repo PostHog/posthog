@@ -5,6 +5,7 @@ import tempfile
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -25,7 +26,7 @@ TRUE, NULL, STRING, INTEGER, RETURN = 29, 31, 32, 33, 38
 DECLARE_FN, CALLABLE = 41, 52
 
 
-class TestBytecodeWalker(BaseTest):
+class TestBytecodeWalker(SimpleTestCase):
     @parameterized.expand(
         [
             (

@@ -48,6 +48,7 @@ describe('parseDateInTimezone', () => {
         const tokyo = parseDateInTimezone('2026-03-08', 'Asia/Tokyo')
         expect(utc.format('YYYY-MM-DD')).toBe('2026-03-08')
         expect(tokyo.format('YYYY-MM-DD')).toBe('2026-03-08')
+        expect([utc.format('Z'), tokyo.format('Z')]).toEqual(['+00:00', '+09:00'])
     })
 })
 

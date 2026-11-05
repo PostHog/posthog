@@ -171,8 +171,10 @@ async def _instrumented_aiter(
     _record_stream_open(endpoint)
     started_at = time.monotonic()
     outcome = "completed"
+    iterator: AsyncIterator[bytes | str] | None = None
     try:
-        async for chunk in stream:
+        iterator = aiter(stream)
+        async for chunk in iterator:
             yield chunk
     except (GeneratorExit, asyncio.CancelledError):
         outcome = "client_disconnect"
@@ -181,8 +183,13 @@ async def _instrumented_aiter(
         outcome = "error"
         raise
     finally:
-        _record_stream_close(endpoint, outcome, started_at)
-        reservation.release()
+        try:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            _record_stream_close(endpoint, outcome, started_at)
+            reservation.release()
 
 
 def _instrumented_iter(

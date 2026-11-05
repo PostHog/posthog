@@ -99,8 +99,10 @@ export interface cohortsSceneLogicActions {
     }
     setCohortFilters: (
         filters: Partial<CohortFilters>,
-        replace?: boolean
+        replace?: boolean,
+        debounce?: boolean
     ) => {
+        debounce: boolean
         filters: Partial<CohortFilters>
         replace: boolean | undefined
     }
@@ -143,7 +145,11 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         actions: [exportsLogic, ['startExport']],
     })),
     actions(() => ({
-        setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean) => ({ filters, replace }),
+        setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean, debounce: boolean = true) => ({
+            filters,
+            replace,
+            debounce,
+        }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
@@ -284,8 +290,10 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 return () => clearTimeout(timerId)
             }, 'pollTimeout')
         },
-        setCohortFilters: async (_, breakpoint) => {
-            await breakpoint(300)
+        setCohortFilters: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(300)
+            }
             actions.loadCohorts()
         },
         deleteCohort: async ({ cohort }) => {
@@ -302,6 +310,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                         }
                     }
                 },
+                // The reducer already removed the row, so reload to show the cohort the server kept.
+                onError: () => actions.loadCohorts(),
             })
         },
         exportCohortPersons: async ({ id, columns }) => {
@@ -365,7 +375,11 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 filtersFromUrl.created_by_id = parseInt(created_by_id)
             }
 
-            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }, true)
+            const nextFilters = { ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }
+            // Skip the echo of our own URL write, or it sends a second request
+            if (!objectsEqual(nextFilters, values.cohortFilters)) {
+                actions.setCohortFilters(nextFilters, true, false)
+            }
 
             let currentSorting = values.cohortSorting
 
@@ -389,7 +403,10 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.setCohortSorting(currentSorting)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadCohorts()
+    afterMount(({ actions, values }) => {
+        // urlToAction runs first and already loads when the URL carries filters
+        if (!values.cohortsLoading) {
+            actions.loadCohorts()
+        }
     }),
 ])

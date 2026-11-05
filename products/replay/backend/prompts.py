@@ -335,3 +335,21 @@ Valid element property keys: `tag_name` (HTML tag), `text` (visible text on the 
 {"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
 </filter_examples>
 """.strip()
+
+EVENT_NEGATION_SUPPORTED_PROMPT = """
+# Excluding Sessions by Event
+To find sessions where an event did NOT happen, add an `events` filter with `"negation": true`.
+Combine it with AND, because a session must match every negated event and every positive filter.
+**Sessions with a checkout but no purchase**:
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"id":"checkout_started","type":"events"},{"id":"purchase_completed","type":"events","negation":true}]}]}}
+```
+""".strip()
+
+EVENT_NEGATION_UNSUPPORTED_PROMPT = """
+# Excluding Sessions by Event
+You cannot exclude sessions by event. Never set `negation` on an `events` filter.
+The user has no "did not perform" or "does not contain" event filter, so never tell them to add one.
+If the user asks for sessions without an event, say that this filter is not available.
+Then offer the closest filter that you can apply, for example the sessions that contain a related event.
+""".strip()

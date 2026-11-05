@@ -55,7 +55,8 @@ _SELECT = """
     WHERE service_name = {service_name} AND lower(attributes['repo']) = lower({repository})
         AND (
             (attributes['ci_engine'], attributes['run_id']) IN {run_keys}
-            OR (attributes['ci_engine'] = '' AND attributes['run_id'] IN {legacy_run_ids})
+            -- HogQL reads a missing map key as NULL, and legacy lines carry no ci_engine key at all.
+            OR (coalesce(attributes['ci_engine'], '') = '' AND attributes['run_id'] IN {legacy_run_ids})
         )
     ORDER BY toInt(attributes['run_id']) DESC, attributes['ci_engine'], toInt(attributes['job_id']), toInt(attributes['seq'])
     LIMIT {line_cap}
@@ -100,7 +101,7 @@ def _group_jobs(rows: list[tuple]) -> list[CIJobFailureLog]:
 def _legacy_run_ids(*, curated: CuratedGitHubSource, run_ids: list[int]) -> list[str]:
     # Old records did not stamp an engine. Keep them only for IDs with one engine in the source.
     response = curated.run(
-        f"SELECT id FROM {curated.run_source()} AS r WHERE id IN {{run_ids}} "
+        f"SELECT id FROM {curated.run_source(live=True)} AS r WHERE id IN {{run_ids}} "
         "GROUP BY id HAVING uniq(ci_engine) = 1 LIMIT 1000000",
         query_type="engineering_analytics.failure_logs_legacy_identity",
         placeholders={"run_ids": ast.Constant(value=run_ids)},

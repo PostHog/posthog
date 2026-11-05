@@ -14,8 +14,9 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
-    AIGateway = 'AIGateway',
     Alerts = 'Alerts',
+    PlatformAlerts = 'PlatformAlerts',
+    PlatformAlert = 'PlatformAlert',
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
     AutoresearchNew = 'AutoresearchNew',
@@ -27,8 +28,11 @@ export enum Scene {
     Billing = 'Billing',
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
+    BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
+    WorkloadTrustPolicyRequest = 'WorkloadTrustPolicyRequest',
     CLIAuthorize = 'CLIAuthorize',
+    OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
@@ -61,6 +65,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectAccessDenied = 'ProjectAccessDenied',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorSceneLoad = 'SceneLoadError',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
@@ -104,10 +109,10 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
-    Views = 'Views',
-    Link = 'Link',
-    Links = 'Links',
-    LiveDebugger = 'LiveDebugger',
+    AnalyticsList = 'AnalyticsList',
+    AnalyticsSpaces = 'AnalyticsSpaces',
+    AnalyticsProductHome = 'AnalyticsProductHome',
+    Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
@@ -127,6 +132,7 @@ export enum Scene {
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
     OnboardingCoupon = 'OnboardingCoupon',
+    OnboardingWelcome = 'OnboardingWelcome',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
@@ -163,6 +169,7 @@ export enum Scene {
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    ProductAnalyticsHomeTab = 'ProductAnalyticsHomeTab',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
     HealthAlerts = 'HealthAlerts',
@@ -200,13 +207,11 @@ export enum Scene {
     CodeChannelLink = 'CodeChannelLink',
     CodeTaskLink = 'CodeTaskLink',
     CodeLoopLink = 'CodeLoopLink',
-    UserInterview = 'UserInterview',
-    UserInterviewResponse = 'UserInterviewResponse',
-    UserInterviews = 'UserInterviews',
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WarehouseDestinations = 'WarehouseDestinations',
+    WarehouseDestinationConnect = 'WarehouseDestinationConnect',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
@@ -219,8 +224,10 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Broadcasts = 'Broadcasts',
+    Transactional = 'Transactional',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
+    WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
@@ -233,6 +240,7 @@ export enum Scene {
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityScorer = 'AIObservabilityScorer',
     AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
     AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
     AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
@@ -259,6 +267,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
+    TaskNewSession = 'TaskNewSession',
     TaskSpace = 'TaskSpace',
     TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
@@ -343,6 +352,7 @@ export interface SceneConfig {
      * @default 'app'
      */
     layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
+    deferSceneMeasurementsDuringResize?: boolean
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
@@ -415,7 +425,8 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
-    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.MarketingAnalytics]: AccessControlResourceType.MarketingAnalytics,
+    [Scene.MarketingAnalyticsSettings]: AccessControlResourceType.MarketingAnalytics,
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
@@ -438,14 +449,22 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
+    [Scene.Transactional]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
+    [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
@@ -475,7 +494,11 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
     [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityOfflineExperiments]: [
+        AccessControlResourceType.Evaluation,
+        AccessControlResourceType.LlmAnalytics,
+    ],
     [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,

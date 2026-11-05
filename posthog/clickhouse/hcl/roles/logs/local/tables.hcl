@@ -612,7 +612,7 @@ SELECT
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -629,22 +629,6 @@ SELECT
 FROM posthog.kafka_trace_spans_avro
 SQL
 
-  }
-
-  # Local stacks create every topic with one partition, so only one consumer of this group can
-  # get an assignment. The rest retry forever, which holds threads and floods the server log.
-  patch_table "kafka_metrics_avro2" {
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro2"
-      format               = "Avro"
-      num_consumers        = 1
-      skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 1000
-      thread_per_consumer  = true
-    }
   }
 
   patch_table "kafka_trace_spans_avro" {

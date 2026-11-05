@@ -75,8 +75,8 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
-/// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
-pub(crate) async fn load_supported_flags(
+/// The team's rows minus those this cache cannot carry.
+async fn load_supported_flags(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<Vec<FeatureFlag>, FlagError> {
@@ -86,15 +86,41 @@ pub(crate) async fn load_supported_flags(
     Ok(flags)
 }
 
+/// The flags the service evaluates when the hypercache has no entry for the team. It omits
+/// the same rows as the cache. Its metadata sets `has_unparseable_flags` when it omitted a row
+/// that Python's builder publishes, so the response sets `errorsWhileComputingFlags` and an
+/// SDK keeps that flag's stored value.
+pub(crate) async fn build_fallback_wrapper(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<HypercacheFlagsWrapper, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    let has_unparseable_flags = omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let evaluation_metadata = EvaluationMetadata {
+        has_unparseable_flags,
+        ..compute_flag_dependencies_or_single_stage(team_id, &flags)
+    };
+    Ok(HypercacheFlagsWrapper {
+        flags,
+        cohorts: None,
+        evaluation_metadata,
+    })
+}
+
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
 /// non-v1 documents unless active and their v2 parse succeeded, non-object documents
 /// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
 /// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
+///
+/// Returns true when it omitted an evaluable `UnreadableV1Object` row. Python's builder
+/// publishes such a row unless the row depends on a row that Python also rejects. When it
+/// returns false, Python's builder omits the same rows as this function.
 fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
-) {
+) -> bool {
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
@@ -103,14 +129,17 @@ fn omit_unsupported_flags(
             }
             match undecodable.get(&flag.id) {
                 Some(UndecodableDocument::NotAnObject) => true,
-                Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                Some(
+                    UndecodableDocument::MalformedV1Groups
+                    | UndecodableDocument::UnreadableV1Object,
+                ) => is_evaluable(flag),
                 None => false,
             }
         })
         .map(|flag| flag.id)
         .collect();
     if unsupported.is_empty() {
-        return;
+        return false;
     }
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
@@ -138,6 +167,9 @@ fn omit_unsupported_flags(
         "Omitted flags the service cache cannot carry"
     );
     flags.retain(|flag| !excluded.contains(&flag.id));
+    unsupported
+        .iter()
+        .any(|id| undecodable.get(id) == Some(&UndecodableDocument::UnreadableV1Object))
 }
 
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
@@ -189,6 +221,25 @@ pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<Co
         .collect()
 }
 
+/// Computes evaluation metadata for flags read straight from Postgres. On a graph error, it
+/// places every flag in one stage so that the flags still evaluate.
+///
+/// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
+/// removes every cycle before the stage computation runs. The fallback guards against a later
+/// change to the graph code. In one stage, a dependent can evaluate before its dependency. It
+/// also does not see a failure raised during that stage. In both cases its `flag_evaluates_to`
+/// condition reads as a non-match. A dependency that failed before evaluation, such as in
+/// persons DB preparation, still fails its dependents with `dependency_failed`.
+pub(crate) fn compute_flag_dependencies_or_single_stage(
+    team_id: TeamId,
+    flags: &[FeatureFlag],
+) -> EvaluationMetadata {
+    compute_flag_dependencies(flags).unwrap_or_else(|e| {
+        tracing::warn!(team_id, "Falling back to single-stage flag metadata: {e}");
+        EvaluationMetadata::single_stage(flags)
+    })
+}
+
 /// Compute flag dependency metadata via the shared `DependencyGraph` framework.
 ///
 /// Produces output identical to Python's `_compute_flag_dependencies()`:
@@ -237,6 +288,7 @@ pub fn compute_flag_dependencies(flags: &[FeatureFlag]) -> Result<EvaluationMeta
         dependency_stages: result.stages,
         flags_with_missing_deps: result.nodes_with_missing_deps,
         transitive_deps,
+        ..Default::default()
     })
 }
 
@@ -904,6 +956,29 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // omit_unsupported_flags tests
+    // -------------------------------------------------------------------------
+
+    #[test_case(true, true ; "active unreadable row is omitted and reported")]
+    #[test_case(false, false ; "inactive unreadable row is kept and not reported")]
+    fn test_omit_reports_an_omitted_row_python_publishes(active: bool, expect_reported: bool) {
+        let mut flags = vec![
+            make_flag(1, "unreadable", active, vec![]),
+            make_flag(2, "healthy", true, vec![group_with_properties(vec![])]),
+            make_flag(3, "not-an-object", true, vec![]),
+        ];
+        let undecodable = UndecodableFlags::from([
+            (1, UndecodableDocument::UnreadableV1Object),
+            (3, UndecodableDocument::NotAnObject),
+        ]);
+
+        let reported = omit_unsupported_flags(1, &mut flags, &undecodable);
+
+        assert_eq!(reported, expect_reported);
+        assert_eq!(flags.iter().any(|f| f.id == 1), !expect_reported);
+    }
+
+    // -------------------------------------------------------------------------
     // retain_evaluable_and_referenced_flags tests
     // -------------------------------------------------------------------------
 
@@ -1181,6 +1256,10 @@ mod tests {
         let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to build flags cache");
+        let fallback = build_fallback_wrapper(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to load flags");
+        assert!(!fallback.evaluation_metadata.has_unparseable_flags);
 
         let rows = fixture["flags"].as_array().unwrap();
         let published: HashMap<i32, &FeatureFlag> =

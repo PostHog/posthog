@@ -59,38 +59,28 @@ class AggregationStateTransformer(CloningVisitor):
 
     def __init__(self):
         super().__init__(clear_types=True)
-        # Tracks depth of queries to identify top-level vs nested
         self.query_depth = 0
-        # Tracks whether we're in a top-level SELECT list
         self.in_top_level_select = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        """Transform aggregations in SELECT queries."""
-        # Track the query depth and update flags
         old_query_depth = self.query_depth
         old_in_top_level_select = self.in_top_level_select
 
-        # Increment query depth for this query
         self.query_depth += 1
 
-        # Set flag for top-level select list of the main query
         is_top_level = self.query_depth == 1
         self.in_top_level_select = is_top_level
 
-        # Let CloningVisitor handle the cloning and transformation of child nodes
         result = super().visit_select_query(node)
 
-        # Restore state
         self.query_depth = old_query_depth
         self.in_top_level_select = old_in_top_level_select
 
         return result
 
     def visit_call(self, node: ast.Call) -> ast.Call:
-        """Visit a function call and transform it to a State function if it's an aggregation function."""
         result = super().visit_call(node)
 
-        # Only transform aggregation functions in the top-level SELECT list
         if self.in_top_level_select and result.name in AGGREGATION_TO_STATE_MAPPING:
             result.name = AGGREGATION_TO_STATE_MAPPING[result.name]
 
@@ -122,45 +112,36 @@ def wrap_state_query_in_merge_query(
     Input: SELECT uniqState(x) AS a, countState() AS b FROM table GROUP BY z
     Output: SELECT uniqMerge(a), countMerge(b) FROM (SELECT uniqState(x) AS a, countState() AS b FROM table GROUP BY z) GROUP BY z
     """
-    # Handle SelectSetQuery (UNION/UNION ALL/etc.)
     if isinstance(state_query, ast.SelectSetQuery):
-        # Transform each part of the SelectSetQuery
         transformed_initial = wrap_state_query_in_merge_query(state_query.initial_select_query)
         transformed_subsequent: list[ast.SelectSetNode] = []
 
         for node in state_query.subsequent_select_queries:
-            # Manually create a new SelectSetNode
             node_query = wrap_state_query_in_merge_query(node.select_query)
             transformed_node = ast.SelectSetNode(
                 set_operator=node.set_operator, select_query=cast(ast.SelectQuery, node_query)
             )
             transformed_subsequent.append(transformed_node)
 
-        # Create a new SelectSetQuery with the transformed parts
         return ast.SelectSetQuery(
             initial_select_query=cast(ast.SelectQuery, transformed_initial),
             subsequent_select_queries=transformed_subsequent,
         )
 
-    # From here on we're handling a regular SelectQuery
     state_query = cast(ast.SelectQuery, state_query)
 
-    # Create the outer select list with merge functions
     outer_select: list[ast.Expr] = []
     all_field_aliases: set[str] = set()
 
-    # First pass: collect all alias names
     for item in state_query.select:
         if isinstance(item, ast.Alias):
             alias_name = item.alias
             all_field_aliases.add(alias_name)
 
-    # Second pass: build the outer select
     for item in state_query.select:
         if isinstance(item, ast.Alias):
             alias_name = item.alias
             if isinstance(item.expr, ast.Call) and item.expr.name in STATE_TO_MERGE_MAPPING:
-                # Create a merge function call using the alias as its argument
                 merge_func = STATE_TO_MERGE_MAPPING[item.expr.name]
                 merge_call = ast.Call(name=merge_func, args=[ast.Field(chain=[alias_name])])
                 outer_select.append(ast.Alias(alias=alias_name, expr=merge_call))
@@ -172,12 +153,10 @@ def wrap_state_query_in_merge_query(
                         name="tupleElement", args=[ast.Field(chain=[alias_name]), ast.Constant(value=i + 1)]
                     )
                     if isinstance(tuple_element_expr, ast.Call) and tuple_element_expr.name in STATE_TO_MERGE_MAPPING:
-                        # If the tuple element is a state aggregation, wrap it in a merge function
                         merge_func_name = STATE_TO_MERGE_MAPPING[tuple_element_expr.name]
                         merged_element = ast.Call(name=merge_func_name, args=[tuple_accessor])
                         outer_tuple_elements.append(merged_element)
                     else:
-                        # Otherwise, just access the tuple element
                         outer_tuple_elements.append(tuple_accessor)
                 outer_select.append(ast.Alias(alias=alias_name, expr=ast.Tuple(exprs=outer_tuple_elements)))
             elif isinstance(item.expr, ast.Constant):
@@ -188,36 +167,26 @@ def wrap_state_query_in_merge_query(
                 # For non-agg functions, just reference the field directly without group by
                 outer_select.append(ast.Alias(alias=alias_name, expr=ast.Field(chain=[alias_name])))
         elif isinstance(item, ast.Constant):
-            # For direct constants (like NULL literals), just pass them through directly
             outer_select.append(item)
         else:
-            # For non-alias items, just reference them directly
             outer_select.append(item)
 
-    # Create the outer query with the inner query as a subquery
     outer_query = ast.SelectQuery(select=outer_select, select_from=ast.JoinExpr(table=state_query))
 
-    # If the state query has a GROUP BY, preserve it in the outer query
     if state_query.group_by and len(state_query.group_by) > 0:
         outer_group_by: list[ast.Expr] = []
 
-        # For each item in the original GROUP BY
         for group_item in state_query.group_by:
             if isinstance(group_item, ast.Alias):
-                # Group by the alias name as a field
                 outer_group_by.append(ast.Field(chain=[group_item.alias]))
             elif isinstance(group_item, ast.Field):
-                # If it's a field, try to find a matching alias in the SELECT
                 if len(group_item.chain) == 1:
-                    # Simple field reference - check if it's in our aliases
                     field_name = group_item.chain[0]
                     if field_name in all_field_aliases:
                         outer_group_by.append(ast.Field(chain=[field_name]))
                     else:
-                        # Field not aliased in SELECT, use it directly
                         outer_group_by.append(group_item)
                 else:
-                    # Complex field with a bigger chain. Let's also find a matching alias or use as is
                     found_alias = False
                     for select_item in state_query.select:
                         if (
@@ -229,10 +198,8 @@ def wrap_state_query_in_merge_query(
                             found_alias = True
                             break
                     if not found_alias:
-                        # No matching alias, use the field directly
                         outer_group_by.append(group_item)
             else:
-                # For expressions, try to find a matching alias in the SELECT
                 found_alias = False
                 for select_item in state_query.select:
                     if isinstance(select_item, ast.Alias) and select_item.expr == group_item:
@@ -245,14 +212,12 @@ def wrap_state_query_in_merge_query(
         if outer_group_by:
             outer_query.group_by = outer_group_by
 
-    # Copy ORDER BY clause from inner to outer query if present
     if state_query.order_by and len(state_query.order_by) > 0:
         outer_order_by: list[ast.OrderExpr] = []
 
         for order_item in state_query.order_by:
             cloned_order = ast.OrderExpr(expr=order_item.expr, order=order_item.order)
 
-            # If the order expression is a field, try to find a matching alias in the SELECT
             if isinstance(cloned_order.expr, ast.Field) and len(cloned_order.expr.chain) == 1:
                 field_name = cloned_order.expr.chain[0]
                 if field_name in all_field_aliases:
@@ -262,7 +227,6 @@ def wrap_state_query_in_merge_query(
 
         outer_query.order_by = outer_order_by
 
-    # Copy LIMIT and OFFSET from inner to outer query if present
     if state_query.limit is not None:
         outer_query.limit = state_query.limit
 

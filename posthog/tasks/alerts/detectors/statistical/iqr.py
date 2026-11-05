@@ -5,7 +5,7 @@ from scipy.special import erf
 
 from posthog.schema import DetectorType
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -26,8 +26,10 @@ def _iqr_distance_to_probability(distance: float, window_distances: np.ndarray) 
     Uses pyod's 'unify' approach: standardize the distance against the
     distribution of distances observed in the training window, then apply erf.
     """
-    mean_d = float(window_distances.mean())
-    std_d = float(window_distances.std())
+    return _normalize_iqr_distance(distance, float(window_distances.mean()), float(window_distances.std()))
+
+
+def _normalize_iqr_distance(distance: float, mean_d: float, std_d: float) -> float:
     if std_d == 0:
         return 1.0 if distance > mean_d else 0.0
     standardized = (distance - mean_d) / std_d
@@ -52,10 +54,18 @@ class IQRDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
+    DEFAULT_MULTIPLIER = 1.5
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        # An explicit 0 is valid, so only a missing or None multiplier takes the default.
+        multiplier = config.get("multiplier")
+        self.multiplier: float = self.DEFAULT_MULTIPLIER if multiplier is None else multiplier
+
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        multiplier = self.multiplier
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -117,9 +127,9 @@ class IQRDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        multiplier = self.multiplier
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -176,11 +186,68 @@ class IQRDetector(BaseDetector):
             all_scores=scores,
         )
 
+    def fit(self, history: np.ndarray) -> DetectorArtifact:
+        multiplier = self.multiplier
+        window = self.window
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
+        rows = self._fit_rows(history, min_rows=window + diffs_n)
+        values = rows if rows.ndim == 1 else rows[:, 0]
+        window_data = values[diffs_n:][-window:]
+        q1 = np.percentile(window_data, 25)
+        q3 = np.percentile(window_data, 75)
+        iqr = q3 - q1
+        lower_fence = q1 - multiplier * iqr
+        upper_fence = q3 + multiplier * iqr
+        window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
+        return self._artifact(
+            {
+                "q1": float(q1),
+                "q3": float(q3),
+                "iqr": float(iqr),
+                "lower_fence": float(lower_fence),
+                "upper_fence": float(upper_fence),
+                "mean_distance": float(window_distances.mean()),
+                "std_distance": float(window_distances.std()),
+            }
+        )
+
+    def _score_rows(
+        self, artifact: DetectorArtifact, rows: np.ndarray
+    ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        params = artifact.params
+        iqr = params["iqr"]
+        lower_fence = params["lower_fence"]
+        upper_fence = params["upper_fence"]
+        scores: list[float | None] = []
+        metadata: list[dict[str, Any]] = []
+        for value in rows if rows.ndim == 1 else rows[:, 0]:
+            if iqr == 0:
+                raw_distance = 0.0
+            elif value < lower_fence:
+                raw_distance = (lower_fence - value) / iqr
+            elif value > upper_fence:
+                raw_distance = (value - upper_fence) / iqr
+            else:
+                raw_distance = 0.0
+            scores.append(_normalize_iqr_distance(raw_distance, params["mean_distance"], params["std_distance"]))
+            metadata.append(
+                {
+                    "q1": params["q1"],
+                    "q3": params["q3"],
+                    "iqr": iqr,
+                    "lower_fence": lower_fence,
+                    "upper_fence": upper_fence,
+                    "value": float(value),
+                    "raw_distance": float(raw_distance),
+                }
+            )
+        return scores, metadata
+
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
         return {
             "type": DetectorType.IQR.value,
             "threshold": cls.DEFAULT_THRESHOLD,
-            "multiplier": 1.5,
+            "multiplier": cls.DEFAULT_MULTIPLIER,
             "window": 30,
         }

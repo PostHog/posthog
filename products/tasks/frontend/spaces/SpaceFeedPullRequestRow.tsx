@@ -105,11 +105,11 @@ export function SpaceFeedPullRequestRow({
                     )}
                 </div>
                 <Badge className="shrink-0">{known?.label ?? 'Open'}</Badge>
+                {avatar}
             </div>
             <Text size="xs" variant="muted" className="mt-1.5 truncate">
                 {pullRequest.repository}
             </Text>
-            {avatar && <div className="mt-3 flex justify-end">{avatar}</div>}
         </Card>
     )
 }

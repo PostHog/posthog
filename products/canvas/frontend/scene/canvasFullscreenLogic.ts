@@ -69,27 +69,12 @@ export const canvasFullscreenLogic = kea<canvasFullscreenLogicType>([
                             actions.setFullscreen(false)
                         }
                     }
-                    const onFullscreenChange = (): void => {
-                        if (!document.fullscreenElement) {
-                            actions.setFullscreen(false)
-                        }
-                    }
                     window.addEventListener('keydown', onKeyDown)
-                    document.addEventListener('fullscreenchange', onFullscreenChange)
-                    return () => {
-                        window.removeEventListener('keydown', onKeyDown)
-                        document.removeEventListener('fullscreenchange', onFullscreenChange)
-                        if (document.fullscreenElement) {
-                            void document.exitFullscreen().catch(() => {})
-                        }
-                    }
+                    return () => window.removeEventListener('keydown', onKeyDown)
                 },
                 'fullscreen',
                 { pauseOnPageHidden: false }
             )
-            if (!document.fullscreenElement && document.fullscreenEnabled) {
-                void document.documentElement.requestFullscreen().catch(() => {})
-            }
         },
     })),
 ])

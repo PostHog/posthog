@@ -7,16 +7,22 @@ import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/p
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
-import { PersonMergeCallFailedError, createDefaultSyncMergeMode } from './person-merge-types'
+import {
+    PersonMergeCallFailedError,
+    PersonMergeNotAppliedError,
+    createDefaultSyncMergeMode,
+} from './person-merge-types'
 import { EventOps, extractEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import {
+    HELD_LANES_LIMIT,
     PersonhogPersonsStore,
     PersonhogUnsupportedFieldError,
     personhogStoreCachePurgeCounter,
     personhogStoreFlushCounter,
     personhogStoreFlushErrorCounter,
     personhogStoreMergeDrainCounter,
+    personhogStorePrefetchAnswerCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
@@ -99,6 +105,15 @@ describe('PersonhogPersonsStore', () => {
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
+        repository.resolvePersonIdsByDistinctIds = jest.fn((keys, callerTag) =>
+            repository.resolvePersonsByDistinctIds(keys, callerTag).then((results) =>
+                results.map(({ teamId, distinctId, person }) => ({
+                    teamId,
+                    distinctId,
+                    personId: person?.id ?? null,
+                }))
+            )
+        ) as never
         store = new PersonhogPersonsStore(repository)
     })
 
@@ -270,12 +285,15 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({})
     })
 
-    it('memoizes update fetches per batch, resolving once and reading state once', async () => {
+    it('memoizes update fetches per batch, resolving once, reading state once, and handing out copies', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
         repository.fetchPersonById.mockResolvedValue({ ...person })
         const bound = store.forBatch(0)
-        await bound.fetchForUpdate(1, 'd1')
-        await bound.fetchForUpdate(1, 'd1')
+        const first = await bound.fetchForUpdate(1, 'd1')
+        // The personless step blanks properties on the person it reads.
+        first!.properties = {}
+        const second = await bound.fetchForUpdate(1, 'd1')
+        expect(second?.properties).toEqual({ plan: 'free' })
         expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
         expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
     })
@@ -342,9 +360,35 @@ describe('PersonhogPersonsStore', () => {
             expect((await bound.fetchForUpdate(1, distinctId))?.id).toBe('7')
         }
 
-        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toHaveLength(ids.length)
+        expect(repository.resolvePersonIdsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonIdsByDistinctIds.mock.calls[0][0]).toHaveLength(ids.length)
     })
+
+    it.each([['fetchForUpdate' as const], ['fetchForChecking' as const]])(
+        '%s issued while the prefetch is out waits for it instead of resolving the id alone',
+        async (read) => {
+            let answer: () => void = () => {}
+            repository.resolvePersonsByDistinctIds
+                .mockImplementationOnce(
+                    (() =>
+                        new Promise((resolve) => {
+                            answer = () => resolve([{ teamId: 1, distinctId: 'd1', person: { ...person } }])
+                        })) as never
+                )
+                .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person } }] as never)
+            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+            const bound = store.forBatch(0)
+
+            // The pipeline fires the prefetch without awaiting it.
+            const prefetching = store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+            const reading = bound[read](1, 'd1')
+            answer()
+            await prefetching
+
+            expect((await reading)?.id).toBe('7')
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        }
+    )
 
     it('a stale null result cannot downgrade a live mapping', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
@@ -371,8 +415,8 @@ describe('PersonhogPersonsStore', () => {
             { teamId: 1, distinctId: 'd1', batchId: 0 },
             { teamId: 1, distinctId: 'd1', batchId: 0 },
         ])
-        expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toEqual([{ teamId: 1, distinctId: 'd1' }])
+        expect(repository.resolvePersonIdsByDistinctIds).toHaveBeenCalledTimes(1)
+        expect(repository.resolvePersonIdsByDistinctIds.mock.calls[0][0]).toEqual([{ teamId: 1, distinctId: 'd1' }])
     })
 
     it('a failed prefetch falls back to first-touch resolution', async () => {
@@ -383,6 +427,40 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         const fetched = await bound.fetchForUpdate(1, 'd1')
         expect(fetched?.id).toBe('7')
+    })
+
+    it.each([
+        ['an answer nothing raced as cached', (): void => {}, 'cached_found'],
+        [
+            'an answer a same-team merge overtook as stale',
+            (): void => (store as any).bumpGeneration(1),
+            'stale_generation',
+        ],
+        [
+            'an answer another read beat as already resolved',
+            (): void => (store as any).setDistinctIdToPersonId('1:d1', '1:9'),
+            'already_resolved',
+        ],
+        [
+            'an answer that only fills a known edge as filled',
+            (): void => (store as any).setDistinctIdToPersonId('1:d1', '1:7'),
+            'filled',
+        ],
+    ])('a prefetch counts %s', async (_case, duringResolve, expected) => {
+        store.forBatch(0)
+        personhogStorePrefetchAnswerCounter.reset()
+        repository.resolvePersonsByDistinctIds.mockImplementation((() => {
+            duringResolve()
+            return Promise.resolve([{ teamId: 1, distinctId: 'd1', person: { ...person } }])
+        }) as never)
+        repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+
+        await store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+
+        const outcomes = (await personhogStorePrefetchAnswerCounter.get()).values
+            .filter((entry) => entry.value > 0)
+            .map((entry) => [entry.labels.outcome, entry.value])
+        expect(outcomes).toEqual([[expected, 1]])
     })
 
     describe('mergePersons runs the saga and folds it into the batch view', () => {
@@ -454,6 +532,22 @@ describe('PersonhogPersonsStore', () => {
             bound = store.forBatch(1)
             await expect(bound.mergePersons(mergeRequest())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
             expect(edgeOf('1:d1')).toBeUndefined()
+        })
+
+        it('a refusal marked not-applied is typed for the re-send, whatever its status code', async () => {
+            for (const code of [Code.Unavailable, Code.ResourceExhausted]) {
+                repository.mergePersons = jest
+                    .fn()
+                    .mockRejectedValue(
+                        new ConnectError('Server at capacity', code, new Headers({ 'x-not-applied': 'load_shed' }))
+                    )
+                const bound = store.forBatch(0)
+                await bound.fetchForUpdate(1, 'd1')
+                const error = await bound.mergePersons(mergeRequest()).catch((e) => e)
+                expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
+                expect(error.reason).toBe('load_shed')
+                expect(edgeOf('1:d1')).toBeUndefined()
+            }
         })
 
         it('derives one op id per delivery regardless of how the event payload drifts', async () => {
@@ -958,6 +1052,242 @@ describe('PersonhogPersonsStore', () => {
         expect((store as any).projections.get('1:9')).toBeUndefined()
     })
 
+    describe('held lanes', () => {
+        it('writes held ops, folded, to whoever owns the distinct id at flush and drops a cached absence', async () => {
+            const bound = store.forBatch(0)
+            ;(store as any).resolutions.set('1:d1', null)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'd1', ops({ $set: { b: '2' } }), 0)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+            ] as never)
+
+            await bound.flush()
+
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect(repository.updatePersonProperties).toHaveBeenCalledWith(
+                expect.objectContaining({ personId: '9', setProperties: { a: '1', b: '2' } }),
+                expect.any(String)
+            )
+            expect(edgeOf('1:d1')).toBeUndefined()
+        })
+
+        it('keeps held ops nobody owns yet across the shadow release and writes them once the id resolves', async () => {
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds
+                .mockResolvedValueOnce([] as never)
+                .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
+            personhogStoreFlushCounter.reset()
+
+            await store.forBatch(0).flush()
+            expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+            const outcomes = (await personhogStoreFlushCounter.get()).values
+                .filter((entry) => entry.value > 0)
+                .map((entry) => entry.labels.outcome)
+            expect(outcomes).toEqual(['held_deferred'])
+            store.abandonBatch(0)
+            // A flush inside the re-check interval asks identity nothing.
+            await store.forBatch(1).flush()
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+            const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 6_000)
+            try {
+                await store.forBatch(2).flush()
+            } finally {
+                later.mockRestore()
+            }
+
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(2)
+            expect(repository.updatePersonProperties).toHaveBeenCalledWith(
+                expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
+                expect.any(String)
+            )
+        })
+
+        it('resolves every held lane due in one identity call per flush', async () => {
+            for (const distinctId of ['d1', 'd2', 'd3']) {
+                store.holdEventOps(1, distinctId, ops({ $set: { a: distinctId } }), 0)
+            }
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+                { teamId: 1, distinctId: 'd2', person: null },
+                { teamId: 1, distinctId: 'd3', person: { ...person, id: '11' } },
+            ] as never)
+
+            await store.forBatch(0).flush()
+
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledWith(
+                [
+                    { teamId: 1, distinctId: 'd1' },
+                    { teamId: 1, distinctId: 'd2' },
+                    { teamId: 1, distinctId: 'd3' },
+                ],
+                expect.any(String)
+            )
+            const written = repository.updatePersonProperties.mock.calls.map(([request]) => [
+                (request as { personId: string }).personId,
+                (request as { setProperties: unknown }).setProperties,
+            ])
+            expect(written).toHaveLength(2)
+            expect(written).toEqual(
+                expect.arrayContaining([
+                    ['9', { a: 'd1' }],
+                    ['11', { a: 'd3' }],
+                ])
+            )
+        })
+
+        it('a failed held resolve still writes the lanes with an owner and leaves the held lane for the next flush', async () => {
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd2')
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds
+                .mockRejectedValueOnce(new Error('identity unavailable') as never)
+                .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
+
+            await bound.flush()
+            const writtenTo = () =>
+                repository.updatePersonProperties.mock.calls.map(
+                    ([request]) => (request as { personId: string }).personId
+                )
+            expect(writtenTo()).toEqual(['7'])
+
+            await bound.flush()
+            expect(writtenTo()).toEqual(['7', '9'])
+            expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+                expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
+                expect.any(String)
+            )
+        })
+
+        it('sheds the earliest-held lane, counted, once held lanes pass the cap', async () => {
+            personhogStoreFlushCounter.reset()
+            for (let i = 0; i <= HELD_LANES_LIMIT; i++) {
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+            }
+
+            expect(store.hasHeldOps(1, 'held-0')).toBe(false)
+            expect(store.hasHeldOps(1, 'held-1')).toBe(true)
+            expect(store.hasHeldOps(1, `held-${HELD_LANES_LIMIT}`)).toBe(true)
+            const shed = (await personhogStoreFlushCounter.get()).values.find(
+                (entry) => entry.labels.outcome === 'held_dropped_limit'
+            )
+            expect(shed?.value).toBe(1)
+        })
+
+        it('a lane that found its owner no longer counts toward the cap', async () => {
+            // 'waiting' is held before 'owned', so only the owned lane leaving the count keeps 'waiting' under the cap.
+            store.holdEventOps(1, 'waiting', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'owned', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
+                Promise.resolve(
+                    keys.map(({ distinctId }) => ({
+                        teamId: 1,
+                        distinctId,
+                        person: distinctId === 'owned' ? { ...person, id: '9' } : null,
+                    }))
+                )) as never)
+            await store.forBatch(0).flush()
+            personhogStoreFlushCounter.reset()
+
+            for (let i = 0; i < HELD_LANES_LIMIT - 1; i++) {
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+            }
+
+            expect(store.hasHeldOps(1, 'waiting')).toBe(true)
+            const shed = (await personhogStoreFlushCounter.get()).values.find(
+                (entry) => entry.labels.outcome === 'held_dropped_limit'
+            )
+            expect(shed).toBeUndefined()
+        })
+
+        it('drops held ops, counted, once nobody has owned the distinct id for the whole window', async () => {
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            personhogStoreFlushCounter.reset()
+            const now = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+            try {
+                await store.forBatch(0).flush()
+            } finally {
+                now.mockRestore()
+            }
+
+            expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+            const outcomes = (await personhogStoreFlushCounter.get()).values
+                .filter((entry) => entry.value > 0)
+                .map((entry) => entry.labels.outcome)
+            expect(outcomes).toEqual(['held_unowned'])
+            store.abandonBatch(0)
+            expect((store as any).entries.size).toBe(0)
+        })
+
+        it('a held write whose owner was merged away in between follows the redirect', async () => {
+            const bound = store.forBatch(0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '11' } }] as never)
+            repository.updatePersonProperties
+                .mockRejectedValueOnce(new NoRowsUpdatedError('merged away'))
+                .mockResolvedValue({ person: { ...person, id: '11', version: 3 }, updated: true } as never)
+
+            await bound.flush()
+
+            expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+                expect.objectContaining({ personId: '11', setProperties: { a: '1' } }),
+                expect.any(String)
+            )
+        })
+
+        it('does not hold an op the denylist keeps off persons', () => {
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }, '$exception'), 0)
+            expect((store as any).entries.size).toBe(0)
+        })
+
+        const creation = (properties: Record<string, unknown>) => ({
+            set: {},
+            setOnce: properties,
+            unset: [],
+            denied: false,
+            shouldForceUpdate: true,
+            eventName: '$create_person',
+        })
+
+        it('reports held ops until the flush writes them', async () => {
+            const bound = store.forBatch(0)
+            expect(store.hasHeldOps(1, 'd1')).toBe(false)
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+            expect(store.hasHeldOps(1, 'd1')).toBe(true)
+            expect(store.hasHeldOps(1, 'd2')).toBe(false)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+            ] as never)
+
+            await bound.flush()
+
+            expect(store.hasHeldOps(1, 'd1')).toBe(false)
+        })
+
+        it('ops held into a lane a flush already resolved and wrote resolve the owner afresh', async () => {
+            const bound = store.forBatch(0)
+            store.holdEventOps(1, 'd1', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }] as never)
+                .mockResolvedValueOnce([{ teamId: 1, distinctId: 'd1', person: { ...person, id: '11' } }] as never)
+            await bound.flush()
+            // The batch still references the emptied lane, so it is the same entry the next hold lands in.
+            store.holdEventOps(1, 'd1', creation({ k: 'initial' }), 0)
+
+            await bound.flush()
+
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(2)
+            expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+                expect.objectContaining({ personId: '11', setOnceProperties: { k: 'initial' } }),
+                expect.any(String)
+            )
+        })
+    })
+
     describe('round-6 closures', () => {
         const mergeReq = (sources = ['anon-1', 'anon-2']) => ({
             teamId: 1,
@@ -1321,22 +1651,22 @@ describe('PersonhogPersonsStore', () => {
             expect(hasProjection('1:7')).toBe(false)
         })
 
-        it('a person gone from identity fails the flush to redeliver, releasing the id', async () => {
+        it('a person gone from identity drops its ops without failing the flush, releasing the id', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
             expect(edgeOf('1:d1')).toBe('1:7')
             // The person is deleted rather than merged, so the redirect's
-            // resolve answers nobody. Redelivery recreates through the
-            // normal pipeline, as Postgres does; dropping here would lose
-            // the ops.
+            // resolve answers nobody. Postgres drops the update here; a
+            // failed flush would restart the processor instead.
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('deleted') as never)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([] as never)
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
-            expect((store as any).entries.get('1:7').segments).toHaveLength(1)
-            // Released, so the redelivered events re-resolve rather than
-            // folding onto the deleted person again.
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
+            // Released, so later events re-resolve rather than folding onto
+            // the deleted person again.
             expect(edgeOf('1:d1')).toBeUndefined()
             expect(hasProjection('1:7')).toBe(false)
         })
@@ -2115,21 +2445,63 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('convergence closures', () => {
-        it('a fence bounce counts as coordination, not on the flush error series', async () => {
+        it('a fence bounce waits for the fence to clear and then writes the lane', async () => {
             personhogStoreFlushCounter.reset()
             personhogStoreFlushErrorCounter.reset()
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
-            )
+            jest.useFakeTimers()
+            try {
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValueOnce(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
 
-            await expect(bound.flush()).rejects.toThrow(PersonhogFencedError)
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await expect(flushing).resolves.toEqual([])
 
-            const outcomes = (await personhogStoreFlushCounter.get()).values
-            expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
-            expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
-            expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
+                expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
+                expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a fence that outlasts the merge timeout fails the flush with the lane kept', async () => {
+            personhogStoreFlushCounter.reset()
+            jest.useFakeTimers()
+            try {
+                store = new PersonhogPersonsStore(repository, { requestTimeoutMs: 1_000, mergeTimeoutMs: 20_000 })
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValue(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
+
+                const flushing = bound.flush()
+                const settled = flushing.then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                let done = false
+                void settled.then(() => {
+                    done = true
+                })
+                await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
+                expect(done).toBe(false)
+
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(await settled).toMatch(/still fenced by a lifecycle op/)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fence_exhausted')?.value).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         const mergeReq = (sources = ['anon-1']) => ({
@@ -2357,7 +2729,8 @@ describe('PersonhogPersonsStore', () => {
                     () => 'acked' as const,
                     (error: Error) => error.message
                 )
-                await jest.advanceTimersByTimeAsync(10_000)
+                // One round past the budget, which rounds up to a whole round.
+                await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
                 expect(await settled).toMatch(/flush cannot complete/)
                 expect((store as any).entries.get('1:7').segments).toHaveLength(1)
             } finally {
@@ -2475,11 +2848,12 @@ describe('PersonhogPersonsStore', () => {
                 return [] as never
             })
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
+            // The deleted person's owed segment drops; the fold this pass
+            // never attempted stays for the next one.
             const sets = (store as any).entries.get('1:7').segments.map((segment: EventOps) => segment.set)
-            expect(sets).toContainEqual({ later: 'fold' })
-            expect(sets).toContainEqual({ b: '2' })
+            expect(sets).toEqual([{ later: 'fold' }])
         })
 
         it('a replayed merged verdict purges again and keeps the live lane', async () => {

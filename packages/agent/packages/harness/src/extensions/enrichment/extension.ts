@@ -1,11 +1,22 @@
 import { resolve } from "node:path";
-import {
-  type ExtensionAPI,
-  type ExtensionFactory,
-  isReadToolResult,
+import type {
+  ExtensionAPI,
+  ExtensionFactory,
+  ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/agent-contracts/rich-output-prompt";
 import { createEnrichment, enrichFileForAgent } from "./file-enricher";
+
+type ReadToolResultEvent = Extract<ToolResultEvent, { toolName: "read" }>;
+
+function isReadToolResult(
+  event: ToolResultEvent,
+): event is ReadToolResultEvent {
+  return event.toolName === "read";
+}
 
 export interface PiEnrichmentConfig {
   apiUrl: string;
@@ -26,6 +37,10 @@ export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
         systemPrompt: appendRichOutputPrompt(
           event.systemPrompt,
           config.interactionOrigin,
+          getProjectWebUrl(
+            config.publicApiUrl ?? config.apiUrl,
+            config.projectId,
+          ),
         ),
       }));
 

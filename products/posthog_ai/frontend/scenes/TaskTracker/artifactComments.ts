@@ -1,5 +1,6 @@
 import type { CommentApi } from 'products/platform_features/frontend/generated/api.schemas'
 
+import type { CommentContext } from '../../utils/commentContext'
 import type { ArtifactPreviewKind, RunArtifact } from './taskRunArtifacts'
 
 // Artifact comments are ordinary PostHog comments with scope "task_artifact" and the artifact version id as
@@ -66,8 +67,48 @@ export interface ResolvedTextAnchor {
     status: 'exact' | 'reanchored'
 }
 
+const CHAT_LABEL_LENGTH = 48
+const CHAT_QUOTE_LABEL_LENGTH = 32
+
+function truncateForLabel(value: string, maxLength: number): string {
+    const flat = value.replace(/\s+/g, ' ').trim()
+    return flat.length > maxLength ? `${flat.slice(0, maxLength - 1)}…` : flat
+}
+
+export function artifactCommentChatContext(anchor: ArtifactCommentAnchor | null, artifactName: string): CommentContext {
+    const resourceLine = `- **Artifact** ${artifactName}`
+    if (anchor?.kind === 'text') {
+        return {
+            label: truncateForLabel(
+                `${artifactName} "${truncateForLabel(anchor.quote, CHAT_QUOTE_LABEL_LENGTH)}"`,
+                CHAT_LABEL_LENGTH + CHAT_QUOTE_LABEL_LENGTH
+            ),
+            body: [resourceLine, '', ...anchor.quote.split('\n').map((line) => `> ${line}`)].join('\n'),
+        }
+    }
+    if (anchor?.kind === 'region') {
+        const percent = (value: number): string => `${Math.round(value * 100)}%`
+        return {
+            label: truncateForLabel(`${artifactName} (region)`, CHAT_LABEL_LENGTH),
+            body: [
+                resourceLine,
+                `- **Region** left ${percent(anchor.x)}, top ${percent(anchor.y)}, width ${percent(anchor.width)}, height ${percent(anchor.height)}`,
+            ].join('\n'),
+        }
+    }
+    return { label: truncateForLabel(artifactName, CHAT_LABEL_LENGTH), body: resourceLine }
+}
+
 export function anchorKindLabel(anchor: ArtifactCommentAnchor | null): ArtifactCommentAnchorKind {
     return anchor?.kind === 'region' ? 'image' : anchor?.kind === 'text' ? 'selection' : 'document'
+}
+
+/** The accessible name of a thread: the text or the pin it is about. */
+export function threadAnchorLabel(thread: ArtifactCommentThread): string {
+    if (thread.anchor?.kind === 'text') {
+        return `Comments on "${thread.anchor.quote}"`
+    }
+    return thread.pinNumber ? `Comments on pin ${thread.pinNumber}` : 'Comments on this file'
 }
 
 /** Comments need a stable artifact id the server can find on the task. Cited objects and living documents have none. */

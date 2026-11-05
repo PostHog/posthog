@@ -5,6 +5,11 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional, ParamSpec, TypeVar
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
+
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 
@@ -36,6 +41,10 @@ class RequestPacer:
     waiting for a slot. Each quiet window after that doubles the rate back until the base rate
     is restored.
 
+    A hold is never longer than `max_retry_after_seconds()`, whatever the vendor sends. A wait ends
+    early when the worker starts to shut down: the request then goes out at once, so its thread
+    returns and the source can hand the run off. `sleep` returns True to report that.
+
     The budget being protected belongs to the customer's own account on the vendor, so this is a
     caller-side courtesy rather than a shared PostHog budget. An API whose credential PostHog owns
     belongs in `posthog/egress/` instead.
@@ -45,7 +54,7 @@ class RequestPacer:
         self,
         per_second: float,
         clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], bool | None] = interruptible_wait,
         hold_seconds: float = RATE_LIMIT_HOLD_SECONDS,
     ) -> None:
         self._base_interval = 1.0 / per_second
@@ -62,8 +71,8 @@ class RequestPacer:
         start = self._reserve_slot()
         while True:
             delay = start - self._clock()
-            if delay > 0:
-                self._sleep(delay)
+            if delay > 0 and self._sleep(delay):
+                return
             with self._lock:
                 if self._hold_until <= start:
                     return
@@ -81,6 +90,8 @@ class RequestPacer:
             return start
 
     def throttled(self, retry_after: Optional[float]) -> None:
+        if retry_after is not None:
+            retry_after = min(retry_after, max_retry_after_seconds())
         with self._lock:
             now = self._clock()
             if now < self._hold_until:

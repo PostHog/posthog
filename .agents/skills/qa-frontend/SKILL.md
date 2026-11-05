@@ -4,14 +4,16 @@ description: >
   Internal PostHog developer frontend/browser QA skill. Use only when a PostHog
   developer explicitly asks to run frontend QA, browser-test a PR, verify a UI
   flow against the local PostHog stack, use qa-frontend, or QA current frontend
-  changes with browser/runtime evidence. Do not use for generic code review, PR
-  review, "check my changes", CI debugging, or security audit; use qa-team,
+  changes with browser/runtime evidence, or to make a feature reel (see reel
+  mode below). Do not use for generic code review, PR review, "check my
+  changes", CI debugging, or security audit; use qa-team,
   debugging-ci-failures, or security-audit instead. QA runs in PR mode or local
   mode, plans adaptive browser and visual checks, drives browser MCP/tooling
   such as Playwright MCP or Chrome DevTools MCP, captures evidence, and applies
   only approved/narrow fixes. Reel mode makes a feature reel instead: a short,
-  sharp animated WebP of a new UI flow from Storybook stills, for a PR
-  description. Use it when asked for a reel, GIF, or animated demo of a flow.
+  sharp animated WebP of one UI flow for a PR description. Use it when asked
+  for a reel, GIF, or animated demo, or when writing-pr-descriptions calls for
+  a reel: a new action and its effect that one screenshot cannot show.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, mcp__chrome-devtools__*, mcp__phrocs__*
 ---
 
@@ -21,7 +23,7 @@ Run the code, not just the diff. This is a repo-local skill for PostHog develope
 
 - **PR mode** - user references a specific PR (URL, number, or branch). The skill checks out the PR, runs QA, optionally uploads final evidence after approval, and posts a single PR comment after approval. Requires a clean working tree.
 - **Local mode** - user asks to QA their current work with no PR reference. The skill QAs the current checkout against the repo's default branch (`origin/HEAD`) by default, or an explicit local base ref when the user provides one, plus staged, unstaged, and untracked changes. It writes a report locally and does **not** upload evidence or touch GitHub. A dirty working tree is fine in this mode.
-- **Reel mode** - user asks for a reel, GIF, or animated demo of a UI flow for a PR description. The skill skips the QA loop and follows `references/feature-reel.md`: Storybook stills become an animated WebP with a cursor and zoom. It needs Storybook, not the local stack.
+- **Reel mode** - user asks for a reel, GIF, or animated demo of a UI flow for a PR description, or "Screenshots and reels" in `/writing-pr-descriptions` calls for one. The skill skips the QA loop and follows `references/feature-reel.md`: stills from a Storybook story or a test workspace in the running app become an animated WebP with a cursor and zoom.
 
 Use this skill only for explicit frontend/browser/runtime QA or a feature reel. If the prompt is a generic review, code-review, "check my changes", CI-debugging, or security-audit request, use the more specific repo skill instead.
 
@@ -44,7 +46,7 @@ Claude Code ships built-in `/run` and `/verify` skills. This skill composes with
 7. Confirm every candidate issue with one retry before calling it a finding.
 8. In PR mode, apply at most 3 confident fixes, only inside files already changed by the PR. In local mode, default to suggested patches, only edit after explicit approval, and never stage or commit those edits.
 9. Annotate key screenshots (caption bar, PASS/FAIL chip, highlight box) and assemble them into a small animated WebP demo reel with `scripts/annotate-evidence.py`.
-10. PR mode only: after approval, upload selected evidence with `hogli pr:upload-image`, verify PR comment connectivity, and post one final PR comment for every completed run, including clean runs. Push only after explicit approval.
+10. PR mode only: after approval, upload selected evidence with `hogli pr:upload-image --print-markdown` (without the flag it attaches to a PR description instead), verify PR comment connectivity, and post one final PR comment for every completed run, including clean runs. Push only after explicit approval.
 11. Local mode only: write the rendered report to stdout and to `.qa-frontend/runs/<run-id>/report.md`. No upload, no PR comment, no push.
 12. In PR mode, restore the original branch in a finally-style cleanup.
 
@@ -73,7 +75,7 @@ Load these files only when the matching phase starts:
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and PR/local report rendering.
 - `references/pr-comment-template.md` - final PR comment structure.
 - `references/cleanup.md` - checkout, browser session, stack, and generated-file cleanup after the report is written.
-- `references/feature-reel.md` - reel mode: shot list, Storybook capture, render, and upload of a feature reel.
+- `references/feature-reel.md` - reel mode: when a reel earns its place, shot list, capture, render, and upload of a feature reel.
 
 Skill scripts live next to this file (under `scripts/`). When Claude Code activates this skill, it emits a line at the top of the prompt:
 
@@ -254,7 +256,7 @@ Evidence files live under `.qa-frontend/runs/<run-id>/` and stay uncommitted. Us
 
 Annotate the key screenshots so a reviewer can read the run without replaying it: each frame gets a caption bar stating what is happening plus a PASS/FAIL/INFO chip, and findings get a highlight box around the element that matters. Then assemble 2-5 annotated key frames into a slow animated WebP demo reel named `.qa-frontend/runs/<run-id>/frontend-qa.webp`. Both steps use `<skill_dir>/scripts/annotate-evidence.py` through `uv run python`, run from a trusted checkout rather than the PR checkout (`uv run` resolves that tree's dependencies) - it needs only the repo's existing Pillow dependency, so do not install packages or use `ffmpeg` for this. Use the recipes and the highlight-rect capture pattern in `references/browser-mcp-patterns.md`. Aim for about 1.5-2 seconds per frame, slightly longer on frames that show a finding. Before uploading or embedding the reel, inspect it. If text is fuzzy or the sequence is less useful than the stills, fall back to the annotated PNGs as primary evidence.
 
-After the QA loop settles, run the recorded demo pass from `references/browser-mcp-patterns.md` by default: re-run the key flow once with the browser tool's recording on and the `scripts/cursor-overlay.js` visible cursor injected, then transcode to H.264 MP4. Skip it only when `NO_VIDEO` was set, the browser tool cannot record video, or `ffmpeg` is missing - and record the skip and its reason in run notes and the report's Setup section. The MP4 is linked from the local report; in PR mode it may join the approved upload set through `hogli pr:upload-video`, which yields a download link in the comment - an inline player still requires the developer to drag the file into the comment editor by hand.
+After the QA loop settles, run the recorded demo pass from `references/browser-mcp-patterns.md` by default: re-run the key flow once with the browser tool's recording on and the `scripts/cursor-overlay.js` visible cursor injected, then transcode to H.264 MP4. Skip it only when `NO_VIDEO` was set, the browser tool cannot record video, or `ffmpeg` is missing - and record the skip and its reason in run notes and the report's Setup section. The MP4 is linked from the local report; in PR mode it may join the approved upload set through `hogli pr:upload-video --print-markdown`, which yields a download link in the comment - an inline player still requires the developer to drag the file into the comment editor by hand.
 
 Candidate issues must pass one reproducibility retry. Re-run the same action sequence in the same browser session. If it does not reproduce, do not fix or report it as a finding; record it as an `INTERMITTENT` coverage row with the first failure's evidence, per `references/browser-mcp-patterns.md`.
 

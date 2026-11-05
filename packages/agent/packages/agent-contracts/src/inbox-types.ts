@@ -108,6 +108,42 @@ export const EXTERNAL_INBOX_SOURCES = [
     recordKind: "issue",
     setup: "dynamic",
   },
+  {
+    product: "clickup",
+    label: "ClickUp",
+    description: ISSUE,
+    dwSourceType: "ClickUp",
+    requiredTables: ["tasks"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "wrike",
+    label: "Wrike",
+    description: ISSUE,
+    dwSourceType: "Wrike",
+    requiredTables: ["tasks"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "trello",
+    label: "Trello",
+    description: ISSUE,
+    dwSourceType: "Trello",
+    requiredTables: ["cards"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "bugherd",
+    label: "BugHerd",
+    description: ISSUE,
+    dwSourceType: "Bugherd",
+    requiredTables: ["Tasks"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
   // Error tracking
   {
     product: "bugsnag",
@@ -115,6 +151,25 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: ERROR,
     dwSourceType: "Bugsnag",
     requiredTables: ["errors"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "checkly",
+    label: "Checkly",
+    description: ERROR,
+    dwSourceType: "Checkly",
+    requiredTables: ["error_groups"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "datadog",
+    label: "Datadog",
+    description:
+      "Surface monitor alerts and new errors from APM, logs and error tracking",
+    dwSourceType: "Datadog",
+    requiredTables: ["error_tracking_issues", "monitor_alerts"],
     recordKind: "issue",
     setup: "dynamic",
   },
@@ -137,6 +192,15 @@ export const EXTERNAL_INBOX_SOURCES = [
     setup: "dynamic",
   },
   {
+    product: "roark",
+    label: "Roark",
+    description: ERROR,
+    dwSourceType: "Roark",
+    requiredTables: ["issue"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
     product: "rollbar",
     label: "Rollbar",
     description: ERROR,
@@ -151,6 +215,15 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: ERROR,
     dwSourceType: "Sentry",
     requiredTables: ["issues"],
+    recordKind: "issue",
+    setup: "dynamic",
+  },
+  {
+    product: "trigger_dev",
+    label: "Trigger.dev",
+    description: ERROR,
+    dwSourceType: "TriggerDev",
+    requiredTables: ["errors"],
     recordKind: "issue",
     setup: "dynamic",
   },
@@ -313,10 +386,28 @@ export const EXTERNAL_INBOX_SOURCES = [
     setup: "dynamic",
   },
   {
+    product: "bettermode",
+    label: "Bettermode",
+    description: FEEDBACK,
+    dwSourceType: "Bettermode",
+    requiredTables: ["posts"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
     product: "canny",
     label: "Canny",
     description: FEEDBACK,
     dwSourceType: "Canny",
+    requiredTables: ["posts"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "discourse",
+    label: "Discourse",
+    description: FEEDBACK,
+    dwSourceType: "Discourse",
     requiredTables: ["posts"],
     recordKind: "feedback",
     setup: "dynamic",
@@ -340,6 +431,33 @@ export const EXTERNAL_INBOX_SOURCES = [
     setup: "dynamic",
   },
   {
+    product: "gainsight_px",
+    label: "Gainsight PX",
+    description: FEEDBACK,
+    dwSourceType: "GainsightPx",
+    requiredTables: ["survey_responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "langsmith",
+    label: "LangSmith",
+    description: FEEDBACK,
+    dwSourceType: "LangSmith",
+    requiredTables: ["feedback"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "mintlify",
+    label: "Mintlify",
+    description: FEEDBACK,
+    dwSourceType: "Mintlify",
+    requiredTables: ["feedback"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
     product: "productboard",
     label: "Productboard",
     description: FEEDBACK,
@@ -354,6 +472,24 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: FEEDBACK,
     dwSourceType: "Retently",
     requiredTables: ["feedback"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "sleekplan",
+    label: "Sleekplan",
+    description: FEEDBACK,
+    dwSourceType: "Sleekplan",
+    requiredTables: ["Posts"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "sprig",
+    label: "Sprig",
+    description: FEEDBACK,
+    dwSourceType: "Sprig",
+    requiredTables: ["Responses"],
     recordKind: "feedback",
     setup: "dynamic",
   },
@@ -394,6 +530,24 @@ export const EXTERNAL_INBOX_SOURCES = [
     recordKind: "review",
     setup: "dynamic",
   },
+  {
+    product: "okendo",
+    label: "Okendo",
+    description: REVIEW,
+    dwSourceType: "Okendo",
+    requiredTables: ["reviews"],
+    recordKind: "review",
+    setup: "dynamic",
+  },
+  {
+    product: "trustpilot",
+    label: "Trustpilot",
+    description: REVIEW,
+    dwSourceType: "TrustPilot",
+    requiredTables: ["service_reviews"],
+    recordKind: "review",
+    setup: "dynamic",
+  },
   // Search analytics
   {
     product: "google_search_console",
@@ -419,6 +573,7 @@ export type SourceProduct =
   | "error_tracking"
   | "health_checks"
   | "llm_analytics"
+  | "logs"
   | "replay_vision"
   | "session_replay"
   | "signals_scout"
@@ -430,11 +585,12 @@ export type SourceProduct =
  * `signals_scout` appears only as a signal origin and is always on. `replay_vision` authorizes
  * itself through each scanner's own `emits_signals` flag, so there is no config row to toggle.
  * `session_replay` is retired: the session summarization behind it is gone, and it survives here
- * only so reports emitted before that still render their source.
+ * only so reports emitted before that still render their source. `logs` signals come from logs
+ * alerts, which are configured in the logs product rather than toggled here.
  */
 export type ToggleableSourceProduct = Exclude<
   SourceProduct,
-  "signals_scout" | "replay_vision" | "session_replay"
+  "signals_scout" | "replay_vision" | "session_replay" | "logs"
 >;
 
 /**

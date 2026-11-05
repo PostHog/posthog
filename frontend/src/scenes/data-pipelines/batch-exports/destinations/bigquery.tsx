@@ -4,7 +4,7 @@ import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { PERSON_PROPERTIES_EVENT_FIELD } from './common'
+import { PERSON_EVENT_FIELDS } from './common'
 import type { DestinationDefinition } from './types'
 
 export const bigqueryDefinition: DestinationDefinition = {
@@ -16,7 +16,7 @@ export const bigqueryDefinition: DestinationDefinition = {
     configKeys: ['dataset_id', 'table_id', 'use_json_type'],
     eventTableOverrides: { teamIdHogql: 'team_id' },
     eventTableExtraFields: {
-        ...PERSON_PROPERTIES_EVENT_FIELD,
+        ...PERSON_EVENT_FIELDS,
         bq_ingested_timestamp: {
             name: 'bq_ingested_timestamp',
             hogql_value: 'NOW64()',

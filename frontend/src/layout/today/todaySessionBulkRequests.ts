@@ -25,10 +25,6 @@ export function pinSessions(teamId: string, ids: string[], pinned: boolean): Pro
     return runEach(ids, (id) => tasksPinCreate(teamId, id, { pinned }))
 }
 
-export function fileSessions(teamId: string, ids: string[], spaceId: string): Promise<string[]> {
-    return runEach(ids, (id) => tasksPartialUpdate(teamId, id, { channel: spaceId }))
-}
-
 export function archiveSessions(teamId: string, sessions: TodayWorkItem[]): Promise<string[]> {
     const runIds = new Map(sessions.map((item) => [item.id, activeCloudRunId(item)]))
     return runEach([...runIds.keys()], async (id) => {

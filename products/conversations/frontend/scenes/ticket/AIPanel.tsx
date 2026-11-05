@@ -213,7 +213,9 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                         hasData && aiTriage ? (
                             <AITriageDetails aiTriage={aiTriage} />
                         ) : (
-                            <div className="text-muted-alt text-xs">AI has not processed this ticket yet.</div>
+                            <div className="text-muted-alt text-xs">
+                                No AI draft yet. AI skips tickets your team already replied to.
+                            </div>
                         ),
                 },
             ]}

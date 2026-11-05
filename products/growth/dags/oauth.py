@@ -9,7 +9,7 @@ from django.utils import timezone
 import dagster
 
 from posthog.dags.common import JobOwners
-from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthDeviceGrant, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
 def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:
@@ -58,7 +58,7 @@ def clear_expired_tokens_by_type(
 def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
     """
     Clear expired OAuth tokens from the database.
-    This function deletes expired refresh tokens, access tokens, ID tokens, and grants
+    This function deletes expired refresh tokens, access tokens, ID tokens, grants and device grants
     """
     now = timezone.now()
     retention_cutoff = now - timedelta(seconds=settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD)
@@ -104,6 +104,12 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
                 "expired": Q(expires__lt=retention_cutoff),
             },
         ),
+        (
+            OAuthDeviceGrant,
+            {
+                "expired": Q(expires__lt=retention_cutoff),
+            },
+        ),
     ]
 
     total_deleted = 0
@@ -128,7 +134,7 @@ def oauth_clear_expired_oauth_tokens_job():
 
 oauth_clear_expired_oauth_tokens_schedule = dagster.ScheduleDefinition(
     job=oauth_clear_expired_oauth_tokens_job,
-    cron_schedule="0 2 * * *",
+    cron_schedule="19 2 * * *",
     execution_timezone="UTC",
     name="oauth_cleanup_daily_schedule",
 )

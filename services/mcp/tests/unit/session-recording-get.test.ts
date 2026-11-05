@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { PostHogApiError } from '@/lib/errors'
-import getSessionRecording from '@/tools/replay/getSessionRecording'
+import { GENERATED_TOOLS } from '@/tools/generated/replay'
 import type { Context } from '@/tools/types'
 
 const recordingUrl = 'https://us.posthog.com/api/projects/42/session_recordings/session-123/'
@@ -21,7 +21,7 @@ function apiError(status: number, url = recordingUrl, body = ''): PostHogApiErro
 }
 
 describe('session-recording-get', () => {
-    const tool = getSessionRecording()
+    const tool = GENERATED_TOOLS['session-recording-get']!()
 
     it('preserves the generated tool schema and UI app metadata', () => {
         expect(tool.name).toBe('session-recording-get')

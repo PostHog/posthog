@@ -323,7 +323,8 @@ export interface personsLogicMeta {
                 hash: string
                 pathname: string
                 search: string
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
         sidePanelContext: (person: PersonType | null) => SidePanelSceneContext
         exporterProps: (listFilters: PersonListParams, arg: any) => TriggerExportProps[]
@@ -613,16 +614,19 @@ export const personsLogic = kea<personsLogicType>([
             (feedEnabled: boolean) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
-            (s) => [s.person, router.selectors.location],
+            (s) => [s.person, router.selectors.location, s.featureFlags],
             (
                 person: PersonType | null,
                 location: {
                     hash: string
                     pathname: string
                     search: string
-                }
+                },
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
-                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                // The Today rail names recent persons from this crumb, and opens them by UUID under `/persons/`.
+                const personPath = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? /\/persons?\/.+/ : /\/person\/.+/
+                const showPerson = person && location.pathname.match(personPath)
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.Persons,

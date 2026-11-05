@@ -1,6 +1,6 @@
 """Scorer scanner: produces a numeric score on a configured scale."""
 
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field, create_model, model_validator
 
@@ -11,8 +11,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
     Segment,
     confidence_field,
     key_moment_field,
-    notability_field,
-    notability_reason_field,
     thumbnail_field,
 )
 
@@ -32,12 +30,16 @@ class ScoreScale(BaseModel, frozen=True):
 # Applied when a stored config carries no scale (legacy or direct-write rows). Lives with the contract so
 # the proposer's grounding and the patch fallback can't drift from what `ScoreScale` accepts.
 DEFAULT_SCORE_SCALE = ScoreScale(min=1.0, max=5.0)
+_REASONING_DESCRIPTION = (
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the score in "
+    "concrete moments."
+)
 
 
 class ScorerOutput(BaseScannerOutput, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
     score: float = Field(description="Numeric score on the configured scale.")
-    reasoning: str = Field(description="One paragraph grounding the score in concrete moments.")
+    reasoning: str = Field(description=_REASONING_DESCRIPTION)
     reasoning_segments: list[Segment] = Field(default_factory=list)
     label: str | None = Field(
         default=None, description="Echoes `scanner_config.scale.label`; workflow-stamped, not model-generated."
@@ -58,13 +60,14 @@ class ScorerScanner(BaseScanner, frozen=True):
         # Field order is load-bearing: reasoning first (reason before scoring), confidence last.
         return create_model(
             "ScorerLlmResponse",
-            reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
+            reasoning=(
+                str,
+                Field(description=_REASONING_DESCRIPTION),
+            ),
             score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
-            notability_reason=(str | None, notability_reason_field()),
-            notability=(float | None, notability_field()),
             confidence=(float, confidence_field()),
-            key_moment_t=(int | None, key_moment_field()),
-            thumbnail_t=(int | None, thumbnail_field()),
+            key_moment_t=(cast(Any, int | None), key_moment_field()),
+            thumbnail_t=(cast(Any, int | None), thumbnail_field()),
         )
 
     def prompt_context(self) -> dict[str, Any]:

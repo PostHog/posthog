@@ -253,9 +253,12 @@ class ProjectRouteMatch(Scorer):
 
         got = _routes_to(output)
         wanted = want.get("integration_id")
+        # Null keeps the run on the default, so naming the default and answering null
+        # answer from the same data.
+        matched = got == wanted or (got is None and want.get("is_default", False))
         return Score(
             name=self._name(),
-            score=1.0 if got == wanted else 0.0,
+            score=1.0 if matched else 0.0,
             metadata={"expected_integration_id": wanted, "actual_integration_id": got},
         )
 
@@ -348,4 +351,259 @@ class NoUnaskedWake(Scorer):
             name=self._name(),
             score=0.0 if (output or {}).get("agent_directed") else 1.0,
             metadata={"actual": (output or {}).get("agent_directed")},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Reply suggestions
+# ---------------------------------------------------------------------------
+
+REPLY_OFFER_KEY = "reply_offer"
+
+
+class ReplyOfferMatch(Scorer):
+    """Did buttons appear exactly when the answer waits for the reader?"""
+
+    def _name(self) -> str:
+        return REPLY_OFFER_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(REPLY_OFFER_KEY) or {}
+        if "offer" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        suggestions = (output or {}).get("suggestions") or []
+        return Score(
+            name=self._name(),
+            score=1.0 if bool(suggestions) == want["offer"] else 0.0,
+            metadata={"expected_offer": want["offer"], "suggestions": suggestions},
+        )
+
+
+class NoUnaskedButtons(Scorer):
+    """Buttons under an answer that asks nothing. Skips cases that wait for the reader, so the score is a rate."""
+
+    def _name(self) -> str:
+        return "no_unasked_buttons"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(REPLY_OFFER_KEY) or {}
+        if want.get("offer", True):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case waits for the reader"})
+        if output and output.get("error"):
+            # A failed call offers nothing, this scorer's passing answer.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        suggestions = (output or {}).get("suggestions") or []
+        return Score(name=self._name(), score=0.0 if suggestions else 1.0, metadata={"suggestions": suggestions})
+
+
+class SuggestedRepliesFit(JudgedScorer):
+    """Binary: would the reader send every offered reply as it is?
+
+    Grades only cases that offered replies; ``reply_offer`` already scores a missing offer.
+    """
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        want = (expected or {}).get(REPLY_OFFER_KEY) or {}
+        if not want.get("offer"):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case expects no replies"})
+        suggestions = (output or {}).get("suggestions") or []
+        if not suggestions:
+            return Score(name=self._name(), score=None, metadata={"reason": "No replies to grade"})
+        return {
+            "output": {
+                "answer": (output or {}).get("prompt", ""),
+                "person_message": (output or {}).get("person_message") or "(not known)",
+                "replies": "\n".join(f'- button "{s["label"]}" sends "{s["reply"]}"' for s in suggestions),
+            }
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="suggested_replies_fit",
+            prompt_template="""
+You are evaluating reply buttons in a Slack thread. The PostHog agent posted the answer below. A person who reads it can send one of the replies to the agent with one click.
+
+The person's last message before the answer:
+<person_message>
+{{output.person_message}}
+</person_message>
+
+Agent's answer:
+<answer>
+{{output.answer}}
+</answer>
+
+Offered replies:
+<replies>
+{{output.replies}}
+</replies>
+
+Each reply has a short button label and the full text the button sends. Every reply must:
+- have a label that means the same as the text it sends
+- have a label that names the choice in words, not only by its number or letter, such as "Option 2"
+- read like a short message a person typed, and not every label starts with the same word, such as "Use" or "Yes"
+- if the answer asks more than one question, answer every question, and not offer near-copies that change one part of a combination
+- be written by the person, to the agent, as their next message in the thread
+- make sense on its own, without the person typing more
+- ask only for actions the answer names or clearly implies
+- not guess information the answer asks the person for, such as a name, a value or a repository
+- be in the same language as the answer
+- mean something different from every other reply
+- if the answer offers to check something first and then make a change, such as a pull request, not ask for the check and the change together unless another reply asks for the check alone
+
+One reply is fixed on purpose. When the answer offers to fix a bug or an error, the reply that accepts the fix has the label "Fix it, make no mistakes", or its translation, and its text starts with the same words. "Make no mistakes" is not an extra action. The label stands for the fix and for the step that its text adds, such as opening a pull request.
+
+Answer `yes` if every reply follows all of these rules. Answer `no` if one reply breaks one rule.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=256,
+            **kwargs,
+        )
+
+
+UNTAGGED_QUESTION_KEY = "untagged_question"
+
+
+class UntaggedQuestionMatch(Scorer):
+    """Did the classifier decide about answering the way a person in the channel would?"""
+
+    def _name(self) -> str:
+        return UNTAGGED_QUESTION_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
+        if "answerable" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("answerable")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["answerable"] else 0.0,
+            metadata={"expected": want["answerable"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoUnaskedAnswer(Scorer):
+    """The expensive direction: answering a channel message PostHog cannot or should not answer.
+
+    Skips on cases PostHog should answer, so the score reads as a rate over the messages it
+    should have left alone.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_answer"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(UNTAGGED_QUESTION_KEY) or {}
+        if want.get("answerable", True):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is answerable"})
+        if output and output.get("error"):
+            # A failed call answers nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        return Score(
+            name=self._name(),
+            score=0.0 if (output or {}).get("answerable") else 1.0,
+            metadata={"actual": (output or {}).get("answerable"), "verdict": (output or {}).get("verdict")},
+        )
+
+
+FEATURE_TIP_KEY = "feature_tip"
+
+
+class FeatureTipMatch(Scorer):
+    def _name(self) -> str:
+        return FEATURE_TIP_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FEATURE_TIP_KEY) or {}
+        if "feature" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("feature")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["feature"] else 0.0,
+            metadata={"expected": want["feature"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoForcedTip(Scorer):
+    """The expensive direction: a pick for a message that no candidate fits, which makes the tip read as an ad.
+
+    Skips on cases with a real match, so the score reads as a rate over the messages that fit nothing.
+    """
+
+    def _name(self) -> str:
+        return "no_forced_tip"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(FEATURE_TIP_KEY) or {}
+        if want.get("feature") != "none":
+            return Score(name=self._name(), score=None, metadata={"reason": "Case has a matching feature"})
+        if output and output.get("error"):
+            # A failed call picks nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("feature")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == "none" else 0.0,
+            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+INTERVIEW_SENTIMENT_KEY = "interview_sentiment"
+
+
+class InterviewSentimentMatch(Scorer):
+    def _name(self) -> str:
+        return INTERVIEW_SENTIMENT_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
+        if "unhappy" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("unhappy")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["unhappy"] else 0.0,
+            metadata={"expected": want["unhappy"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoUnaskedInvite(Scorer):
+    """The expensive direction: an interview invitation to a person who is not unhappy reads as spam.
+
+    Skips on unhappy cases, so the score reads as a rate over the calm messages.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_invite"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
+        if want.get("unhappy") is not False:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is unhappy"})
+        if output and output.get("error"):
+            # A failed call invites nobody, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("unhappy")
+        return Score(
+            name=self._name(),
+            score=1.0 if got is False else 0.0,
+            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
         )

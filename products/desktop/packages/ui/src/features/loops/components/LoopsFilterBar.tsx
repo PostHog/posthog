@@ -6,20 +6,17 @@ import type {
   LoopCounts,
   LoopListFilters,
   LoopScopeFilter,
-  LoopVisibilityFilter,
 } from "../loopListFilters";
 
 export function LoopsFilterBar({
   filters,
   counts,
   showScope,
-  showVisibility,
   onChange,
 }: {
   filters: LoopListFilters;
   counts: LoopCounts;
   showScope: boolean;
-  showVisibility: boolean;
   onChange: (patch: Partial<LoopListFilters>) => void;
 }) {
   const summary = [`${counts.active} active`];
@@ -49,22 +46,6 @@ export function LoopsFilterBar({
           className="h-8 w-44"
         />
       ) : null}
-      {showVisibility ? (
-        <SettingsOptionSelect
-          value={filters.visibility}
-          options={[
-            { value: "all", label: "Team and personal" },
-            { value: "team", label: `Team loops (${counts.team})` },
-            { value: "personal", label: `Personal loops (${counts.personal})` },
-          ]}
-          onValueChange={(value) =>
-            onChange({ visibility: value as LoopVisibilityFilter })
-          }
-          size="default"
-          ariaLabel="Filter by visibility"
-          className="h-8 w-44"
-        />
-      ) : null}
       <SearchInput
         className="w-64"
         value={filters.search}
@@ -83,11 +64,6 @@ export function LoopsFilterBar({
       </Button>
       <span className="ml-auto text-[12px] text-gray-10">
         {summary.join(" · ")}
-        {counts.autoPaused > 0 ? (
-          <span className="text-(--amber-11)">
-            {` · ${counts.autoPaused} auto-paused`}
-          </span>
-        ) : null}
       </span>
     </div>
   );

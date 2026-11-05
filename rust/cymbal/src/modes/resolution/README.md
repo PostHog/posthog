@@ -48,6 +48,8 @@ The contract is intentionally split across two streams:
 - **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`. A `Done` carries the resolved exception JSON plus a `release_id`: the newest release bound to a symbol set the item's frames reference. It is empty when no referenced symbol set has a release, and on servers that predate the field, so callers treat empty as "no release".
 - **`Subscribe`** is endpoint freshness, draining, and soft load state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot plus an `in_flight` / `max_in_flight` routing bias. `LoadEvent` does not carry overload state or suggested batch sizing.
 
+Resolve requests and responses accept encoded messages up to 8 MiB. The processing client and resolution server use the same limit from `cymbal-proto`.
+
 `Error.kind` is the shared control-flow surface:
 
 - `ERROR_KIND_INVALID_PAYLOAD` means the exception payload or `metadata` bytes do not match the wire convention.
@@ -121,11 +123,17 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `INTERNAL_API_SECRET` | _empty_ | Shared secret required as `X-Internal-Api-Secret` metadata on every gRPC request. Empty configuration rejects all RPCs. |
 | `MAX_CONCURRENT_REQUESTS` | `256` | Hard cap on in-flight gRPC streams. Excess returns `UNAVAILABLE` from the gRPC load-shed layer. `0` disables the cap. |
 | `SYMBOL_RESOLUTION_CONCURRENCY` | `64` | Cap on concurrent symbol-resolution operations across all in-flight items. |
+| `SYMBOL_SET_LARGE_PARSE_BYTES` | `10000000` | Decompressed size, in bytes, at which a symbol set parse counts as large. Large parses share the memory budget below, because their transient memory is not counted by the symbol store cache. |
+| `SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES` | `2` | Cap on concurrent large symbol set parses across all providers. Each large parse reserves at least this share of the memory budget. |
+| `SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES` | `1000000000` | Shared budget for the estimated peak memory of large parses. A parse waits until its estimate fits. A parse estimated above the whole budget runs alone. |
+| `SYMBOL_SET_PARSE_MEMORY_MULTIPLIER` | `8` | Estimated peak parse memory, as a multiple of the decompressed symbol set size. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
 | `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |
 | `SUBSCRIBE_MIN_TICK_MS` | `100` | Lower bound for the Subscribe tick cadence. |
 | `SUBSCRIBE_MAX_TICK_MS` | `10000` | Upper bound for the Subscribe tick cadence. |
+
+All four symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
 
 The server inherits the narrow subset of cymbal's env-var surface needed by `build_symbol_resolver` and internal gRPC authentication: `INTERNAL_API_SECRET`, Postgres, object storage, symbol-store cache/resolver tuning, and outbound HTTP controls. Frame result cache knobs such as `FRAME_RESOLVED_TTL_SECONDS` and `FRAME_UNRESOLVED_TTL_SECONDS` are read through cymbal's shared symbol resolver config, not duplicated in `cymbal-resolution`'s own `Config`. It does not connect to Kafka, Redis, or the signals API.
 
@@ -146,6 +154,7 @@ Shared-secret callers are service-scoped today, so authenticated cymbal pods are
 
 These metric names are exported by the cymbal client unless noted. Definitions live in [`cymbal/src/metric_consts.rs`](../cymbal/src/metric_consts.rs) and the server's Resolve/LoadMonitor modules.
 
+- **Symbol set parse sizes**: `cymbal_symbol_set_parse_input_bytes{kind}` records known sizes before parsing, including decompressed sizes for supported symbol data. Use its byte-sized buckets to inspect the distribution without relying on per-parse logs. Unknown sizes do not enter this histogram. Logs before parsing still identify fetched blobs of at least 10 MB and known parse inputs of at least 50 MB. These sizes do not measure peak memory.
 - **Item attempts and latency**: `cymbal_remote_resolution_requests_total{outcome, reason?}` and `cymbal_remote_resolution_latency_ms`. The counter is emitted on logical item attempts; `reason` is only a bounded transport status tag.
 - **Reroute shape**: `cymbal_remote_resolution_reroute_depth{outcome}` records how many endpoint changes happened before the terminal item result. The legacy attempts histogram may still be emitted for dashboard continuity, but new alerts should use reroute depth.
 - **Protocol error taxonomy**: client-observed `cymbal_remote_resolution_error_kinds_total{kind}` and server-emitted `cymbal_remote_resolution_server_error_kinds_total{kind}` count `ErrorKind` values with bounded labels.

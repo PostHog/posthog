@@ -4,6 +4,7 @@ import {
     BarChart,
     type BarChartConfig,
     type ChartTheme,
+    type PointClickData,
     type Series,
     type TooltipContext,
     ValueLabels,
@@ -29,10 +30,16 @@ export function ToolErrorRateChart({
     rows,
     loading,
     theme,
+    onToolClick,
+    title = 'Tools with the highest error rate',
+    emptyMessage = 'No tool calls yet.',
 }: {
     rows: ToolRow[]
     loading: boolean
     theme: ChartTheme
+    onToolClick?: (tool: string) => void
+    title?: string
+    emptyMessage?: string
 }): JSX.Element {
     const sorted = useMemo(
         () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
@@ -86,9 +93,10 @@ export function ToolErrorRateChart({
         },
         [byTool]
     )
+    const handlePointClick = useCallback((data: PointClickData) => onToolClick?.(data.label), [onToolClick])
 
     return (
-        <Card title="Tools with the highest error rate">
+        <Card title={title}>
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
@@ -99,10 +107,17 @@ export function ToolErrorRateChart({
                         ))}
                     </div>
                 }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
+                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
             >
                 <div className="flex min-h-80 flex-1 flex-col">
-                    <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
+                    <BarChart
+                        series={series}
+                        labels={labels}
+                        config={config}
+                        theme={theme}
+                        tooltip={renderTooltip}
+                        onPointClick={onToolClick ? handlePointClick : undefined}
+                    >
                         <ValueLabels
                             valueFormatter={(value) => formatPercentage(value, { compact: true })}
                             offset={6}

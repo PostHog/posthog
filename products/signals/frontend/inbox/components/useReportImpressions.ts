@@ -14,12 +14,31 @@ interface SectionImpressionState {
     totalCount: number | null
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
+    loadedRankingPill: boolean
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
-    const { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic(sectionListLogicProps(sectionKey)))
-    return { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext }
+    const {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+        loadedRankingPill,
+    } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    return {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+        loadedRankingPill,
+    }
 }
 
 /**
@@ -38,8 +57,11 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const sections: Record<InboxReportSectionKey, SectionImpressionState> = {
         monitoring: useSectionImpressionState('monitoring'),
         'needs-decision': useSectionImpressionState('needs-decision'),
+        'outcome-monitoring': useSectionImpressionState('outcome-monitoring'),
         resolved: useSectionImpressionState('resolved'),
+        closed: useSectionImpressionState('closed'),
         dismissed: useSectionImpressionState('dismissed'),
+        'held-back': useSectionImpressionState('held-back'),
         'not-actionable': useSectionImpressionState('not-actionable'),
     }
     // The list stays mounted (hidden) while a report/scout detail is open, so gate impressions on the
@@ -59,7 +81,15 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const settled = selectedSections.every(
         (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
     )
-    const contextKey = JSON.stringify(selectedSections.map((key) => [key, sections[key].loadedQueryKey]))
+    // The ranker and pill setting are in the key because `sort=recommended` keeps the same query when the server switches arms.
+    const contextKey = JSON.stringify(
+        selectedSections.map((key) => [
+            key,
+            sections[key].loadedQueryKey,
+            sections[key].loadedRanker,
+            sections[key].loadedRankingPill,
+        ])
+    )
 
     const impressedIdsRef = useRef(new Set<string>())
     const impressionContextKeyRef = useRef('')
@@ -103,6 +133,8 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 sortField: context.sortField,
                 sortDirection: context.sortDirection,
                 createdWindow: context.createdWindow,
+                rankerId: sections[sectionKey].loadedRanker,
+                rankingPill: sections[sectionKey].loadedRankingPill,
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

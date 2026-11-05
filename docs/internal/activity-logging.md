@@ -53,6 +53,7 @@ model.save()
 The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
+A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
@@ -127,6 +128,34 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+A relation field stores the related object as `{"id": <pk>}`.
+To store more, such as a name for the describer to show, add a branch for the model to `ActivityDetailEncoder` in `posthog/models/utils.py`.
+Never put a credential field in that branch.
+
+Destination activity logs record changes to `mappings` without their values.
+For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
+Rows written before a field joined `field_with_masked_contents` still store its values.
+Guided Inbox onboarding first saves a draft when the sources step is completed; opening or editing that first step keeps the draft local.
+Later setup changes are recorded while masking the saved draft, including scout instructions and project evidence.
+Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
+The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
+The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+`python manage.py clean_destination_secrets --step activity-logs` rewrites them. It is a dry run until you pass `--commit`.
+These protections do not revoke exposed credentials.
+
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
+An explicit replacement value can be stored as a non-secret input.
+Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
+Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+
+New browser configuration builds leave out a site function while one of its secret values would reach the browser.
+That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
@@ -166,6 +195,24 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+An MCP read writes no activity row, so its intent never reaches the audit log.
+When `ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED` is on, `ActivityLoggingMiddleware` also hands the intent of a successful MCP request to a best-effort Redis buffer for the activity summary (`products/signals/backend/activity_summary/mcp_buffer.py`).
+It does this only for a personal API key or an OAuth token without a sandbox task binding or impersonation, and only for a team that the `activity-summary` flag payload enrolls with `mcp_buffer_enabled`.
+The request thread only appends to an in-process queue; a background thread writes to Redis, so the buffer can drop records but cannot slow down or fail the request.
+When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
+A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
+
+### Workload writes
+
+A row written with a workload access token (credential type `oidc_workload`) records the workload on the row itself, so it renders after the token expires.
+When the product passes no trigger of its own, `log_activity` fills it with `Trigger(job_type="workload", job_id=<trust policy id>, payload=...)`.
+The payload holds the provider, the actor label, the subject name, the claims the provider's registry entry records (`claims`) with their labels (`claim_labels`), the run link, and the trust policy's id and name.
+The actor label and the run link come from the provider's templates, formatted with the recorded claims.
+A workload trigger comes before an agent trigger, because the server verified the workload and agent intent is a claim.
+The row also gets the server-derived client tag `workload:<subject name>`, and the API drops an `x-posthog-client` header that claims the `workload:` prefix.
+The activity log names the workload as the actor, using its provider's actor label, linked to its run and its trust policy, instead of the organization owner the token acts as.
+Filter these rows with the client filter, or with a detail filter on `trigger.payload.subject_name` or a recorded claim such as `trigger.payload.claims.run_id`.
+
 ### Client IP
 
 `ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
@@ -198,34 +245,37 @@ The session also applies only while `request.user` is still the session's user: 
 The values come from the authenticated object, never from a request header, so a caller cannot choose them.
 Unlike `client`, they are evidence of which credential made a change.
 
-| `credential_type`        | user                     | `credential_id`                                                                                                          |
-| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `session`                | the session user         | the session's public id, from `session_public_id`                                                                        |
-| `personal_api_key`       | the key owner            | the key id                                                                                                               |
-| `oauth`                  | the token user           | the OAuth application UUID                                                                                               |
-| `project_secret_key`     | none                     | the key id                                                                                                               |
-| `team_secret_token`      | none                     | none                                                                                                                     |
-| `id_jag`                 | the token user           | the `client_id` claim                                                                                                    |
-| `internal_jwt`           | the token user           | none                                                                                                                     |
-| `service_jwt`            | none                     | the audience of the scoped service JWT                                                                                   |
-| `internal_api_secret`    | none                     | none                                                                                                                     |
-| `scim`                   | none                     | the SCIM identity provider config id                                                                                     |
-| `vercel`                 | none                     | the Vercel installation id                                                                                               |
-| `partner`                | none                     | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
-| `sharing_access_token`   | none                     | the sharing configuration id                                                                                             |
-| `sharing_password`       | none                     | the share password id                                                                                                    |
-| `widget_token`           | none                     | none                                                                                                                     |
-| `billing_service`        | none                     | none                                                                                                                     |
-| `gateway_agent`          | none                     | the gateway agent's service account id                                                                                   |
-| `export_renderer`        | the export's creator     | the exported asset id                                                                                                    |
-| `webhook`                | none                     | none                                                                                                                     |
-| `cross_region_signature` | none                     | none                                                                                                                     |
-| `unattributed`           | the session user, if any | none                                                                                                                     |
+| `credential_type`        | user                        | `credential_id`                                                                                                          |
+| ------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `session`                | the session user            | the session's public id, from `session_public_id`                                                                        |
+| `personal_api_key`       | the key owner               | the key id                                                                                                               |
+| `oauth`                  | the token user              | the OAuth application UUID                                                                                               |
+| `project_secret_key`     | none                        | the key id                                                                                                               |
+| `team_secret_token`      | none                        | none                                                                                                                     |
+| `id_jag`                 | the token user              | the `client_id` claim                                                                                                    |
+| `oidc_workload`          | the owner the token acts as | the workload trust policy id                                                                                             |
+| `internal_jwt`           | the token user              | none                                                                                                                     |
+| `service_jwt`            | none                        | the audience of the scoped service JWT                                                                                   |
+| `internal_api_secret`    | none                        | none                                                                                                                     |
+| `scim`                   | none                        | the SCIM identity provider config id                                                                                     |
+| `vercel`                 | none                        | the Vercel installation id                                                                                               |
+| `partner`                | none                        | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
+| `sharing_access_token`   | none                        | the sharing configuration id                                                                                             |
+| `sharing_password`       | none                        | the share password id                                                                                                    |
+| `widget_token`           | none                        | none                                                                                                                     |
+| `billing_service`        | none                        | none                                                                                                                     |
+| `gateway_agent`          | none                        | the gateway agent's service account id                                                                                   |
+| `export_renderer`        | the export's creator        | the exported asset id                                                                                                    |
+| `webhook`                | none                        | none                                                                                                                     |
+| `cross_region_signature` | none                        | none                                                                                                                     |
+| `unattributed`           | the session user, if any    | none                                                                                                                     |
 
 - A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
 - The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
-- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- Customers can read `credential_type` and some ids. `ActivityLogSerializer` in `posthog/api/advanced_activity_logs/viewset.py` serves the `activity_log` and `advanced_activity_logs` endpoints. It returns `credential_type`, and `credential_id` only for the types in `CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES` (`session`, `personal_api_key`, `project_secret_key`). It returns null for every other type and for impersonated rows, whose session belongs to the staff user. `ActivityLog.customer_visible_credential_id` applies that rule. The advanced serializer also builds `$activity_log_entry_created` for customer destinations. The CSV export serializer (`ActivityLogFlatExportSerializer`) carries the same two values in its last columns. The OCSF schema puts `credential_type` under `unmapped`, a session id in `actor.session.uid`, and a key id in `actor.session.credential_uid`.
+- `impersonated_by_id` is internal everywhere. The notifications serializer leaves out all three fields.
+- `system.activity_logs` has `credential_type` and no `credential_id`. A query can select a hidden column by name, so a hidden raw column cannot keep the other ids out.
 - Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
 - The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
 - A partner OAuth class declares `oauth` and passes the token's application id and `impersonated_by_id` to the recorder, as the main OAuth path does, so its rows read the same.
@@ -272,6 +322,14 @@ When a reader is unavailable, stop using that reader for the run and record the 
 To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
 Do not infer that no configuration change occurred from missing access.
 
+### Available filters
+
+`advanced_activity_logs/available_filters/` checks the organization-wide cache before counting activity rows.
+For organizations with at most 20,000 rows, cache hits reuse detail field names without fetching detail documents.
+Static options (users, scopes, activities, and clients) still use distinct values from the request's visibility-filtered queryset.
+Small organizations cache discovered detail fields for 12 hours, so new detail field names can take that long to appear.
+On a cache miss, organizations with at most 20,000 rows run discovery in the request; larger organizations return empty filters until the background refresh populates the cache.
+
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
 Most scenes do not need this; the side panel and deep links work without it.
 
@@ -281,6 +339,7 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 
 - One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
 - One test per bulk-write site that its explicit logging produces the expected rows.
+- Batch object access-rule writes preserve the same changes and actor details as individual writes through `bulk_log_activity`.
 - A `changes_between` test only when the scope adds exclusions or masks.
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 

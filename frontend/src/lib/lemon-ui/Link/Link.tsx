@@ -46,8 +46,6 @@ export type LinkPrimitiveProps = Pick<
 }
 
 export type LinkProps = LinkPrimitiveProps & {
-    /** If true, docs links will not be opened in the docs panel */
-    disableDocsPanel?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     /**
@@ -113,6 +111,10 @@ function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: bo
 }
 
 export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
+
+const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
+    return /^https:\/\/(www\.)?posthog\.com\/docs(\/|$|[?#])/.test(url)
+}
 
 /**
  * LinkPrimitive — styling-neutral routing core.
@@ -231,10 +233,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
     (
         {
             to,
-            target,
+            target: targetRaw,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -255,6 +256,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const href = resolveHref(to, disableClientSideRouting)
+        // Docs open in a new tab so that a click does not unload the app and lose unsaved edits.
+        const target = targetRaw ?? (typeof to === 'string' && isPostHogComDocs(to) ? '_blank' : undefined)
 
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)

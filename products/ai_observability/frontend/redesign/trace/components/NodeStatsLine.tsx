@@ -1,10 +1,10 @@
 import { cn } from 'lib/utils/css-classes'
 
-import { NodeStats } from '../types'
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import { compactStatParts, statParts } from './formatStats'
 
 export interface NodeStatsLineProps {
-    stats: NodeStats
+    stats: TraceNodeStatsApi
     model?: string | null
     compact?: boolean
     className?: string

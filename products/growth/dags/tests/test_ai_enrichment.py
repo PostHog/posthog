@@ -19,7 +19,7 @@ from products.growth.backend.models import (
     OrganizationEnrichmentFetch,
 )
 from products.growth.dags import ai_enrichment
-from products.growth.dags.ai_enrichment import ai_enrichment_job, count_pending_candidates, is_ai_enrichment_registered
+from products.growth.dags.ai_enrichment import ai_enrichment_job, count_pending_candidates
 
 _MODULE = "products.growth.dags.ai_enrichment"
 
@@ -422,17 +422,3 @@ class TestCountProjectedScores(_EnrichmentDagTestCase):
         config.save()
 
         assert ai_enrichment.count_projected_scores(config.name, config.version, started_at) == 0
-
-
-@parameterized.expand(
-    [
-        ("unset", None, True),
-        ("local", "LOCAL", True),
-        ("dev", "DEV", True),
-        ("us", "US", True),
-        ("eu", "EU", False),
-    ]
-)
-def test_ai_enrichment_registered_per_environment(_name: str, cloud_deployment: str | None, registered: bool) -> None:
-    with patch.object(ai_enrichment.settings, "CLOUD_DEPLOYMENT", cloud_deployment):
-        assert is_ai_enrichment_registered() is registered

@@ -56,6 +56,10 @@ func NewRedisEventBrokerFromClient(client rueidis.Client, bufferSize, numWorkers
 	}
 }
 
+func (b *RedisEventBroker) ShouldPublish(token string) bool {
+	return b.gate == nil || b.gate.ShouldPublish(token)
+}
+
 // Publish enqueues an event for async publishing to Redis. Non-blocking, drops and emits a metric if buffer is full.
 func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	if event.Token == "" {

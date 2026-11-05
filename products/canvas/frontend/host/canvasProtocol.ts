@@ -89,10 +89,20 @@ export const CANVAS_DATA_METHODS = [
     'stateSet',
     'stateList',
     'actionInvoke',
+    'toolRead',
+    'toolCall',
     'agentRequest',
     'connectorCall',
 ] as const
 export type CanvasDataMethod = (typeof CANVAS_DATA_METHODS)[number]
+
+const canvasRectSchema = z.object({
+    top: z.number().finite(),
+    right: z.number().finite(),
+    bottom: z.number().finite(),
+    left: z.number().finite(),
+})
+export type CanvasRect = z.infer<typeof canvasRectSchema>
 
 const canvasTextSelectionSchema = z
     .object({
@@ -101,12 +111,7 @@ const canvasTextSelectionSchema = z
         suffix: z.string(),
         start: z.number().int().min(0),
         end: z.number().int().min(0),
-        rect: z.object({
-            top: z.number().finite(),
-            right: z.number().finite(),
-            bottom: z.number().finite(),
-            left: z.number().finite(),
-        }),
+        rect: canvasRectSchema,
     })
     .refine(({ start, end }) => end > start)
 /** A selection the canvas reported, in the frame's own coordinates. */
@@ -145,7 +150,12 @@ export const canvasToHostMessageSchema = z.discriminatedUnion('type', [
     }),
     z.object({ channel, type: z.literal('text-selection'), selection: canvasTextSelectionSchema }),
     z.object({ channel, type: z.literal('text-selection-cleared') }),
-    z.object({ channel, type: z.literal('comment-activate'), id: z.string().min(1).max(128) }),
+    z.object({
+        channel,
+        type: z.literal('comment-activate'),
+        id: z.string().min(1).max(128),
+        rect: canvasRectSchema.optional(),
+    }),
     z.object({
         channel,
         type: z.literal('keydown'),

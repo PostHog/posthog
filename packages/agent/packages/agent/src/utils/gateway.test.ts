@@ -69,6 +69,11 @@ describe("resolveGatewayProduct", () => {
       expected: "posthog_ai",
     },
     {
+      isInternal: true,
+      originProduct: "metrics_import",
+      expected: "posthog_ai",
+    },
+    {
       isInternal: false,
       originProduct: "support_reply",
       expected: "conversations",
@@ -91,6 +96,16 @@ describe("resolveGatewayProduct", () => {
     {
       isInternal: false,
       originProduct: "review_hog",
+      expected: "posthog_code",
+    },
+    {
+      isInternal: true,
+      originProduct: "account_audit",
+      expected: "account_audit",
+    },
+    {
+      isInternal: false,
+      originProduct: "account_audit",
       expected: "posthog_code",
     },
     {
@@ -515,47 +530,56 @@ describe("resolveGatewayTarget", () => {
     });
   });
 
-  it("keeps the review_hog legacy leg on the background_agents slug", () => {
-    expect(
-      resolveGatewayTarget({
-        product: "review_hog",
+  it.each(["review_hog", "account_audit"] as const)(
+    "keeps the %s legacy leg on the background_agents slug",
+    (product) => {
+      expect(
+        resolveGatewayTarget({
+          product,
+          aiStage: "validation-c1",
+          posthogHost: PY_HOST,
+          env: {},
+        }),
+      ).toEqual({
+        baseUrl: "https://gateway.us.posthog.com/background_agents",
+        isAiGateway: false,
+        aiProduct: product,
         aiStage: "validation-c1",
-        posthogHost: PY_HOST,
-        env: {},
-      }),
-    ).toEqual({
-      baseUrl: "https://gateway.us.posthog.com/background_agents",
-      isAiGateway: false,
-      aiProduct: "review_hog",
-      aiStage: "validation-c1",
-    });
-  });
+      });
+    },
+  );
 
-  it("keeps the legacy override on an LLM_GATEWAY_URL base too", () => {
-    expect(
-      resolveGatewayTarget({
-        product: "review_hog",
-        posthogHost: PY_HOST,
-        env: { LLM_GATEWAY_URL: "https://gateway.dev.posthog.dev" },
-      }).baseUrl,
-    ).toBe("https://gateway.dev.posthog.dev/background_agents");
-  });
+  it.each(["review_hog", "account_audit"] as const)(
+    "keeps the %s legacy override on an LLM_GATEWAY_URL base too",
+    (product) => {
+      expect(
+        resolveGatewayTarget({
+          product,
+          posthogHost: PY_HOST,
+          env: { LLM_GATEWAY_URL: "https://gateway.dev.posthog.dev" },
+        }).baseUrl,
+      ).toBe("https://gateway.dev.posthog.dev/background_agents");
+    },
+  );
 
-  it("routes review_hog to the Go gateway slugless once listed", () => {
-    expect(
-      resolveGatewayTarget({
-        product: "review_hog",
+  it.each(["review_hog", "account_audit"] as const)(
+    "routes %s to the Go gateway slugless once listed",
+    (product) => {
+      expect(
+        resolveGatewayTarget({
+          product,
+          aiStage: "validation-c1",
+          posthogHost: PY_HOST,
+          env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: product },
+        }),
+      ).toEqual({
+        baseUrl: GO,
+        isAiGateway: true,
+        aiProduct: product,
         aiStage: "validation-c1",
-        posthogHost: PY_HOST,
-        env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: "review_hog" },
-      }),
-    ).toEqual({
-      baseUrl: GO,
-      isAiGateway: true,
-      aiProduct: "review_hog",
-      aiStage: "validation-c1",
-    });
-  });
+      });
+    },
+  );
 
   it("honours an LLM_GATEWAY_URL override on the unrouted path", () => {
     expect(

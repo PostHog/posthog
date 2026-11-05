@@ -1,5 +1,5 @@
 import guidelines from '@shared/guidelines.md'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -8,8 +8,10 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
@@ -79,6 +81,65 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('error issue rows for text-only callers', () => {
+        const issue = {
+            id: '00000000-0000-4000-8000-000000000123',
+            name: 'ExampleError',
+            status: 'active',
+            severity: 'high',
+            first_seen: '2026-01-02T12:00:00Z',
+            last_seen: '2026-01-03T12:00:00Z',
+            aggregations: { occurrences: 12, users: 4, sessions: 5, volumeRange: [3, 9] },
+        }
+
+        it.each([false, true])('exposes issue rows and pagination through exec (empty=%s)', async (empty) => {
+            const rows = empty ? [] : [issue]
+            const request = vi.fn().mockResolvedValue({
+                results: rows,
+                hasMore: !empty,
+                limit: 1,
+                offset: 0,
+                ...(!empty ? { nextOffset: 1 } : {}),
+            })
+            const context = {
+                ...mockContext,
+                stateManager: { getProjectId: async () => '1' },
+                api: { request, getProjectBaseUrl: () => 'https://example.com/project/1' },
+            } as unknown as Context
+            const tool = makeMockTool(GENERATED_TOOL_MAP['query-error-tracking-issues-list']!())
+            const exec = createExecTool([tool], context, '', '', 'posthog-code')
+            const params = { limit: 1 }
+            const result = (await exec.handler(context, {
+                command: `call query-error-tracking-issues-list ${JSON.stringify(params)}`,
+            })) as ToolResultPayload
+            const text = result.content.map((block) => block.text).join('\n')
+
+            expect(request).toHaveBeenCalledWith(expect.objectContaining({ body: expect.objectContaining(params) }))
+            expect(text).not.toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(text).toContain(`results[${rows.length}]`)
+            expect(text).toContain(`hasMore: ${!empty}`)
+            expect(text).toContain('offset: 0')
+            if (!empty) {
+                expect(text).toContain(issue.id)
+                expect(text).toContain(issue.name)
+                expect(text).toContain('occurrences: 12')
+                expect(text).toContain('users: 4')
+                expect(text).toContain('sessions: 5')
+                expect(text).toContain(issue.last_seen)
+                expect(text).toContain('nextOffset: 1')
+                expect(text).not.toContain('volumeRange')
+            }
+            expect(result.structuredContent).toBeUndefined()
+            expect(result._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: rows })
+            expect(result._meta?.ui).toEqual(tool._meta?.ui)
+
+            const jsonResult = (await exec.handler(context, {
+                command: `call --json query-error-tracking-issues-list ${JSON.stringify(params)}`,
+            })) as ToolResultPayload
+            expect(JSON.parse(jsonResult.content[0]!.text)).toMatchObject({ results: rows })
+        })
+    })
+
     describe('help command', () => {
         it('lists available commands and their argument shapes', async () => {
             const result = await createExec().handler(mockContext, { command: 'help' })
@@ -100,10 +161,11 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
         })
 
-        it('directs unknown help topics to the command list', async () => {
-            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+        it('directs unknown help topics to the command list and to search', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help workflows' })).rejects.toMatchObject({
                 reason: 'unknown_command',
-                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+                message:
+                    'Unknown command: "workflows". Run "help" to list available commands, or "search workflows" to find tools for it.',
             })
         })
     })
@@ -468,6 +530,9 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
                 JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
             )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool --confirm --json' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+            )
         })
 
         it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
@@ -508,13 +573,12 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
-        // Cowork (via the client-profile flag). All three surface structuredContent to
-        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code (via
+        // the client-profile flag). Both surface structuredContent to the model, so it
+        // must be dropped and the UI data re-homed onto _meta.
         it.each([
             ['posthog-code consumer', 'posthog-code', undefined],
             ['claude-code client', undefined, { isInlineExecUiHost: true }],
-            ['cowork client', undefined, { isInlineExecUiHost: true }],
         ])(
             'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
             async (_label, consumer, options) => {
@@ -665,16 +729,25 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
-        it('passes inline JSON arguments to the inner tool', async () => {
+        it.each([
+            'call --json mock-tool {"name":"foo","tags":["a","b"]}',
+            'call mock-tool --json {"name":"foo","tags":["a","b"]}',
+            'call mock-tool {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+        ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, {
-                command: 'call --json mock-tool {"name":"foo","tags":["a","b"]}',
-            })
+            const result = await exec.handler(mockContext, { command })
             expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
+        })
+
+        it('reads a flag after the tool name when no JSON follows it', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call mock-tool --json' })
+            expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
         it('preserves quote-heavy and multi-line content in inline JSON', async () => {
@@ -1127,14 +1200,19 @@ describe('exec tool', () => {
         }
 
         it.each([
-            ['proposed', { status: 'proposed', is_drifted: false }],
-            ['drifted approved', { status: 'approved', is_drifted: true }],
-            ['deprecated', { status: 'deprecated', is_drifted: false }],
-        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
+            [
+                'drifted proposed',
+                { status: 'proposed', is_drifted: true },
+                '(<url>), not yet approved, and its source insight',
+            ],
+            ['drifted approved', { status: 'approved', is_drifted: true }, '(<url>), approved, and its source insight'],
+            ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
+        ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
             const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
             expect(result).toContain('NONCANONICAL')
-            expect(result).toContain('Do not present this as the answer')
+            expect(result).toContain(guidance)
         })
 
         it('leaves an approved, non-drifted result unmarked', async () => {
@@ -1147,6 +1225,95 @@ describe('exec tool', () => {
             const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(result).not.toContain('NONCANONICAL')
+        })
+    })
+
+    describe('ignored input keys', () => {
+        const ignoredKeysTool = makeMockTool({
+            schema: z.preprocess(
+                normalizeParamAliases({ id: ['insightId'] }),
+                z.object({
+                    id: z.string().optional(),
+                    name: z.string().optional(),
+                    query: z.object({ kind: z.string() }).optional(),
+                    series: z.array(z.object({ event: z.string() })).optional(),
+                })
+            ) as unknown as ZodObjectAny,
+            handler: async () => ({ ok: true }),
+        })
+
+        it.each([
+            ['an unknown top-level key', '{"title":"x"}', ['title']],
+            ['an unknown nested key', '{"query":{"kind":"a","serie":1}}', ['query.serie']],
+            [
+                'an unknown key inside an array item',
+                '{"series":[{"event":"a"},{"event":"b","extra":1}]}',
+                ['series.1.extra'],
+            ],
+            ['several unknown keys', '{"title":"x","name":"y","other":1}', ['title', 'other']],
+            ['a key name with a newline', '{"a\\nb":1}', ['a?b']],
+            ['an undeclared key named like an inherited property', '{"constructor":"x"}', ['constructor']],
+            ['a declared alias that the schema folds', '{"insightId":"abc"}', undefined],
+            ['only declared keys', '{"id":"abc","name":"y"}', undefined],
+        ])('reports %s', async (_label, input, expected) => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed._ignoredKeys).toEqual(expected)
+            expect(parsed._ignoredKeysNote === undefined).toBe(expected === undefined)
+        })
+
+        it.each([
+            ['read-data-schema folding its own aliases', ReadDataSchemaSchema, '{"event":"$pageview"}'],
+            ['a union schema that normalizes with a transform', OrganizationSetActiveSchema, '{"id":"abc"}'],
+            [
+                'a root transform that renames a key',
+                z.object({ a: z.string() }).transform((v) => ({ b: v.a })),
+                '{"a":"x"}',
+            ],
+        ])('reports nothing for %s', async (_label, schema, input) => {
+            const exec = createExec([
+                makeMockTool({ schema: schema as unknown as ZodObjectAny, handler: async () => ({ ok: true }) }),
+            ])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            expect(JSON.parse(result)).toEqual({ ok: true })
+        })
+
+        it('appends the notice to the formatted text the agent reads', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => ({
+                    results: [1],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'table',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"title":"x"}' })) as string
+            expect(result).toContain('table')
+            expect(result).toContain('Ignored input keys: "title".')
+        })
+
+        it('keeps the informational wrapper on an array result and quotes key names in the notice', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => withInformationalResponse([{ id: 1 }], 'rows'),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"bad\\nkey":"x"}',
+            })) as string
+            expect(result).toContain('<rows informational="true"')
+            expect(result).toContain('Ignored input keys: "bad?key".')
+        })
+
+        it('leaves a clean call without a notice in text mode', async () => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"name":"x"}' })) as string
+            expect(result).not.toContain('Ignored input keys')
         })
     })
 
@@ -1609,6 +1776,54 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        const catalogTools = [
+            makeMockTool({ name: 'metric-list', title: 'List metrics' }),
+            makeMockTool({ name: 'metric-describe', title: 'Describe a metric' }),
+            makeMockTool({ name: 'data-catalog-metric-run', title: 'Run a metric' }),
+        ]
+
+        it('leaves out the metric catalog hint when the only data-domain match is incidental', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'persons-list', title: 'List persons' }),
+                makeMockTool({ name: 'persons-retrieve', title: 'Get person' }),
+                makeMockTool({ name: 'persons-property-set', title: 'Set person properties' }),
+                makeMockTool({
+                    name: 'query-logs',
+                    title: 'Query logs',
+                    description: 'Query logs for persons-related events.',
+                }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search persons-' })) as string)
+
+            expect(result.hint).toBeUndefined()
+        })
+
+        it('keeps the metric catalog hint when catalog order puts other matches first', async () => {
+            // searchToolsRegex filters without ranking, so description matches on unrelated
+            // tools come back ahead of the query tools a `query-` search is actually about.
+            const exec = createExec([
+                makeMockTool({ name: 'cohorts-create', title: 'Create cohort', description: 'Cohorts for a query-.' }),
+                makeMockTool({ name: 'cohorts-partial-update', title: 'Update cohort', description: 'A query- edit.' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight', description: 'Insights use query-.' }),
+                makeMockTool({ name: 'query-logs', title: 'Query logs' }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search query-' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
+        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
+            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
             const longPattern = 'a'.repeat(801)
@@ -1624,12 +1839,14 @@ describe('exec tool', () => {
                     title: 'Refresh available schemas',
                     description: 'Fetch the latest table list from the remote database',
                     missingScopes: ['external_data_source:write'],
+                    requiredScopes: ['external_data_source:write'],
                 },
                 {
                     name: 'external-data-schemas-list',
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = JSON.parse(
@@ -1654,6 +1871,7 @@ describe('exec tool', () => {
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
@@ -1699,6 +1917,7 @@ describe('exec tool', () => {
                     title: 'Create experiment',
                     description: 'Create a new experiment',
                     missingScopes: ['experiment:write'],
+                    requiredScopes: ['experiment:write'],
                 },
             ])
             const result = JSON.parse(
@@ -1726,6 +1945,62 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
                 /invalid regex pattern/i
             )
+        })
+
+        it.each(['search "project"', "search 'switch project'", 'search `switch-project`'])(
+            'ignores quotes around the query: %s',
+            async (command) => {
+                const exec = createExec([makeMockTool({ name: 'switch-project', title: 'Switch active project' })])
+                const result = JSON.parse((await exec.handler(mockContext, { command })) as string)
+                expect(Array.isArray(result) ? result : result.matches).toEqual(['switch-project'])
+            }
+        )
+
+        it('falls back to word ranking when a guessed tool name matches nothing', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(
+                [
+                    makeMockTool({ name: 'project-settings-update', title: 'Update project settings' }),
+                    makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+                ],
+                undefined,
+                { trackCommand: (meta) => tracked.push(meta) }
+            )
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search project-update' })) as string)
+            expect(result.matches).toEqual(['project-settings-update'])
+            expect(result.hint).toContain('No tool is named "project-update"')
+            expect(tracked.at(-1)).toMatchObject({
+                exec_search_match_count: 0,
+                exec_search_fallback_match_count: 1,
+            })
+        })
+
+        it('tells the agent to retry with plain words when nothing matches at all', async () => {
+            const exec = createExec([makeMockTool()])
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search zzz-qqq' })) as string)
+            expect(result.matches).toEqual([])
+            expect(result.hint).toContain('plain words')
+        })
+    })
+
+    describe('held tool set', () => {
+        const heldTools = new Set(['notebooks-create-markdown'])
+        const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
+
+        // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
+        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+            'refuses a catalog tool outside the held set as not granted on %s',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'tool_not_granted',
+                })
+            }
+        )
+
+        it('still reports a name the catalog does not have as unknown', async () => {
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
+                reason: 'unknown_tool',
+            })
         })
     })
 
@@ -1820,10 +2095,19 @@ describe('exec tool', () => {
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
+            ['llma-tagger-create', 'llma-evaluation-create'],
+            ['vision-scanners-suggest-tags', 'vision-scanners-update'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
                 new RegExp(`was removed[\\s\\S]*${replacement}`)
+            )
+        })
+
+        it('explains that a workflow test run does not replace a real loop run', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'call loops-run-create {}' })).rejects.toThrow(
+                /workflows-test-run[\s\S]*does not start a real task run[\s\S]*Run now/
             )
         })
 
@@ -1862,6 +2146,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ])
 
@@ -1882,9 +2167,15 @@ describe('exec tool', () => {
                 apiToken: 'unrecognized-token',
                 recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
             },
+            {
+                apiToken: 'pha_test',
+                oauthClientId: CHATGPT_APP_OAUTH_CLIENT_ID,
+                recovery:
+                    'If the user already reconnected and approved all access, this tool is not available through the app yet.',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken)',
-            async ({ apiToken, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
+            async ({ apiToken, oauthClientId, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -1892,9 +2183,21 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ]
-                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+                const exec = createExecTool(
+                    [makeMockTool()],
+                    context,
+                    'desc',
+                    'cmd',
+                    undefined,
+                    undefined,
+                    scopeGated,
+                    {
+                        oauthClientId,
+                    }
+                )
 
                 await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
                 const search = JSON.parse(
@@ -2877,6 +3180,71 @@ describe('exec tool', () => {
                 })
 
                 expect(message).toContain('parameter "series.0.nodes.0.properties.0.value"')
+            })
+        })
+
+        // Production traces show experiment-update rejections where a metrics
+        // payload failing deep validation read "parameter 'metrics_secondary':
+        // Invalid input: expected null, received array" — the null branch of the
+        // nullable metrics union, not the real error inside the array branch.
+        describe('a nullable field whose non-null branch failed inside', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('experiment-update', result.error!, input, tool.schema)
+            }
+
+            // Two invalid entries, not one: a single bad metric yields one array-branch
+            // issue, which TIES the null branch's single complaint, and the pre-fix
+            // formatter already broke that tie in the array branch's favor. Two bad
+            // metrics make the array branch "noisier" than the null branch, which is
+            // the real production shape the old fewest-issues heuristic got wrong.
+            it.each(['metrics', 'metrics_secondary'] as const)(
+                'names the field inside the %s array, not the null branch',
+                (field) => {
+                    const message = formatFor({
+                        id: 1,
+                        [field]: [
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                        ],
+                    })
+
+                    expect(message).toContain(`${field}.0.metric_type`)
+                    expect(message).not.toContain('expected null')
+                }
+            )
+
+            it('still accepts an explicit null', () => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse({ id: 1, metrics_secondary: null }, { reportInput: true })
+                expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            })
+
+            it('keeps the honest type error when the value matches no branch at all', () => {
+                const message = formatFor({ id: 1, metrics_secondary: 'garbage' })
+
+                expect(message).toContain('metrics_secondary')
+                expect(message).toContain('expected array')
+            })
+
+            // The synthetic shape pins the mechanism down without the generated
+            // schema's size: the null branch's single root complaint must lose to
+            // the branch that engaged with the array's contents, even when the
+            // engaged branch carries MORE issues (two bad entries) than null's one.
+            it('prefers the engaged branch on a minimal union([array, null])', () => {
+                const schema = z.object({
+                    metrics: z.union([z.array(z.object({ metric_type: z.enum(['mean', 'funnel']) })), z.null()]),
+                })
+                const input = { metrics: [{ metric_type: 'bogus' }, { metric_type: 'bogus' }] }
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, schema)
+
+                expect(message).toContain('metrics.0.metric_type')
+                expect(message).not.toContain('expected null')
             })
         })
     })

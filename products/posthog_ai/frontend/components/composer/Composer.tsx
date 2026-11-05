@@ -8,6 +8,7 @@ import {
     type RefObject,
     useCallback,
     useContext,
+    useEffect,
     useId,
     useMemo,
     useRef,
@@ -305,6 +306,7 @@ export interface ComposerTextareaProps {
     onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
     /** Lets a host claim a paste before the textarea takes it — used to attach pasted files. */
     onPaste?: ClipboardEventHandler<HTMLTextAreaElement>
+    'aria-label'?: string
     'data-attr'?: string
 }
 
@@ -317,6 +319,14 @@ function ComposerTextarea({
     ...rest
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
+    const previousValue = useRef('')
+    useEffect(() => {
+        const textArea = textAreaRef.current
+        if (!previousValue.current && value.length > 1 && textArea && document.activeElement === textArea) {
+            textArea.setSelectionRange(value.length, value.length)
+        }
+        previousValue.current = value
+    }, [value, textAreaRef])
     return (
         <LemonTextArea
             id={id}

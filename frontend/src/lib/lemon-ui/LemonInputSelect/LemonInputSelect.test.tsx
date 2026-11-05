@@ -58,23 +58,25 @@ describe('LemonInputSelect', () => {
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('works with string values (backwards compatibility)', () => {
-        const onChange = jest.fn()
-
+    it('renders selected string values with indexed option lookups', () => {
+        let reads = 0
+        const options = Array.from({ length: 100 }, (_, index) => ({
+            get key(): string {
+                reads++
+                return 'option-' + index
+            },
+            label: 'Option ' + index,
+        }))
         render(
             <LemonInputSelect
                 mode="multiple"
-                options={[
-                    { key: 'string-option-1', label: 'Option 1' },
-                    { key: 'string-option-2', label: 'Option 2' },
-                ]}
-                value={['string-option-1']}
-                onChange={onChange}
+                options={options}
+                value={Array.from({ length: 100 }, (_, index) => 'option-' + index)}
+                onChange={jest.fn()}
             />
         )
-
-        // Verify the selected option is displayed
-        expect(screen.getByText('Option 1')).toBeInTheDocument()
+        expect(screen.getByText('Option 99')).toBeInTheDocument()
+        expect(reads).toBeLessThan(options.length * 15)
     })
 
     it('works with boolean values', () => {
@@ -432,6 +434,43 @@ describe('LemonInputSelect', () => {
 
     it.each([
         {
+            name: 'commits it unchanged when the text was not touched',
+            typed: '',
+            expected: ['Acme Corp '],
+        },
+        {
+            name: 'trims what the person typed over it',
+            typed: '  Other Corp  ',
+            expected: ['Other Corp'],
+        },
+    ])('multiple-select mode: editing a value snack $name', async ({ typed, expected }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[{ key: 'Acme Corp ', label: 'Acme Corp ' }]}
+                value={['Acme Corp ']}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        // Clicking the snack's text opens it for editing, seeding the input with its value
+        await userEvent.click(container.querySelector('[title="Acme Corp "]')!)
+        const input = container.querySelector('input[type="text"]') as HTMLInputElement
+        expect(input.value).toBe('Acme Corp ')
+        if (typed) {
+            await userEvent.clear(input)
+            await userEvent.type(input, typed)
+        }
+        await userEvent.click(document.body)
+
+        expect(onChange).toHaveBeenLastCalledWith(expected)
+    })
+
+    it.each([
+        {
             name: 'adds nothing when the limit is reached',
             keys: '{ArrowDown}{ArrowDown}{Enter}',
             expectedSelections: [],
@@ -463,4 +502,30 @@ describe('LemonInputSelect', () => {
 
         expect(onChange.mock.calls.map((call) => call[0])).toEqual(expectedSelections)
     })
+
+    it.each(['single', 'multiple'] as const)(
+        '%s-select mode: pressing Enter on a typed option key picks it when filtering is disabled',
+        async (mode) => {
+            const onChange = jest.fn()
+
+            const { container } = render(
+                <LemonInputSelect<string>
+                    mode={mode}
+                    options={[
+                        { key: 'anon-id', label: 'anon-id' },
+                        { key: 'user-id', label: 'user-id' },
+                    ]}
+                    value={[]}
+                    onChange={onChange}
+                    allowCustomValues
+                    disableFiltering
+                />
+            )
+
+            const input = await openDropdown(container)
+            await userEvent.type(input, 'user-id{Enter}')
+
+            expect(onChange).toHaveBeenLastCalledWith(['user-id'])
+        }
+    )
 })

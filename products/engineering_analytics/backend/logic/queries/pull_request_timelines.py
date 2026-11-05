@@ -233,18 +233,31 @@ class PullRequestTimelinesQuery:
             # An open PR is listed whatever its age, and one old PR would stretch every scan back months.
             # A listed PR's CI is read from the same lookback the summary uses, and its timeline starts there.
             run_from = max(run_from, self._date_from - CI_LOOKBACK)
-        ready_at = self._query_ready_at(pr_numbers, run_from)
-        reviews = self._query_reviews(pr_numbers) if include_details else None
-        attempts = self._query_run_attempts(pr_numbers, run_from)
-        pushes = self._query_pushes(pr_numbers, run_from)
-        gates = self._query_gate_attempts(pr_numbers)
         default_branch = next((row[9] for row in prs if row[9]), "")
-        master_failures = self._query_master_failures(attempts, default_branch, run_from)
-        out_of_queue = self._query_out_of_queue(pr_numbers)
-        # Floored like the runs scan: an unfloored cost read scans the whole jobs history for a team scope.
-        costs = (
-            query_pr_costs(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from) if include_details else {}
-        )
+        with self._curated.concurrent_reads() as reads:
+            ready_at_read = reads.submit(lambda: self._query_ready_at(pr_numbers, run_from))
+            attempts_read = reads.submit(
+                lambda: self._query_run_attempts_and_master_failures(pr_numbers, run_from, default_branch)
+            )
+            pushes_read = reads.submit(lambda: self._query_pushes(pr_numbers, run_from))
+            gates_read = reads.submit(lambda: self._query_gate_attempts(pr_numbers))
+            out_of_queue_read = reads.submit(lambda: self._query_out_of_queue(pr_numbers))
+            reviews_read = reads.submit(lambda: self._query_reviews(pr_numbers) if include_details else None)
+            # Floored like the runs scan: an unfloored cost read scans the whole jobs history for a team scope.
+            costs_read = reads.submit(
+                lambda: (
+                    query_pr_costs(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from)
+                    if include_details
+                    else {}
+                )
+            )
+        ready_at = ready_at_read.result()
+        attempts, master_failures = attempts_read.result()
+        pushes = pushes_read.result()
+        gates = gates_read.result()
+        out_of_queue = out_of_queue_read.result()
+        reviews = reviews_read.result()
+        costs = costs_read.result()
 
         items: list[PRTimeline] = []
         for row in prs:
@@ -390,7 +403,9 @@ class PullRequestTimelinesQuery:
             "run_started_floor": run_started_floor_constant(run_from),
         }
 
-    def _query_run_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[RunAttempt]]:
+    def _query_run_attempts_and_master_failures(
+        self, pr_numbers: list[int], run_from: datetime, default_branch: str
+    ) -> tuple[dict[int, list[RunAttempt]], MasterFailureIndex]:
         rows = self._curated.run_paged(
             _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
             page_key=(("id", 0), ("ci_engine", 11)),
@@ -401,11 +416,25 @@ class PullRequestTimelinesQuery:
         # A run on its first attempt that did not fail has exactly one attempt, and its run row already
         # describes it. Only re-runs (earlier attempts), failures (failed job names) and runs that stopped
         # reporting (whose job rows are the only settled outcome) need the jobs.
-        job_attempts = self._query_job_attempts(
-            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS or row[10]],
-            run_from,
-        )
+        runs_with_jobs = [
+            row for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS or row[10]
+        ]
+        # Only these runs can report a failed job, so their workflows cover every failure the index has to
+        # explain. The master failures read therefore does not wait for the job attempts.
+        workflow_names = sorted({row[2] or "" for row in runs_with_jobs})
+        with self._curated.concurrent_reads() as reads:
+            job_attempts_read = reads.submit(
+                lambda: self._query_job_attempts([int(row[0]) for row in runs_with_jobs], run_from)
+            )
+            master_failures_read = reads.submit(
+                lambda: self._query_master_failures(workflow_names, default_branch, run_from)
+            )
+        return self._run_attempts(runs, job_attempts_read.result()), master_failures_read.result()
 
+    @staticmethod
+    def _run_attempts(
+        runs: list[tuple], job_attempts: dict[tuple[str, int], list[_JobAttempt]]
+    ) -> dict[int, list[RunAttempt]]:
         attempts: dict[int, list[RunAttempt]] = defaultdict(list)
         for (
             run_id,
@@ -550,18 +579,10 @@ class PullRequestTimelinesQuery:
         return by_run
 
     def _query_master_failures(
-        self, attempts: dict[int, list[RunAttempt]], default_branch: str, run_from: datetime
+        self, workflow_names: list[str], default_branch: str, run_from: datetime
     ) -> MasterFailureIndex:
         # Filtered by workflow, not by job name: the index compares job names without their shard
         # suffix, and an exact-name filter would drop the other shards of the same job.
-        workflow_names = sorted(
-            {
-                attempt.workflow_name
-                for pr_attempts in attempts.values()
-                for attempt in pr_attempts
-                if attempt.failed_jobs
-            }
-        )
         jobs_source = self._curated.jobs_source(created_floor=True)
         if not workflow_names or not default_branch or jobs_source is None:
             return MasterFailureIndex([])

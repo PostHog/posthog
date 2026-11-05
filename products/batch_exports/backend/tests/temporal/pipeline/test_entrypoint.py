@@ -19,7 +19,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
+from products.batch_exports.backend.service import (
+    BaseBatchExportInputs,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportInsertInputs,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -158,7 +163,6 @@ class DummyExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=None,
             exception_to_raise=inputs.exception_to_raise,
@@ -243,7 +247,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             exception_to_raise="DummyNonRetryableError",
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)
@@ -260,7 +264,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             exception_to_raise="DummyRetryableError",
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
@@ -282,8 +286,8 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            batch_export_model=BatchExportHogQLModel(
+                query="SELECT event AS event FROM events", user_id=1, modifiers={}
             ),
         )
         with patch(
@@ -303,7 +307,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
         )
         with patch(
             "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
@@ -321,7 +325,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export_by_interval.id),
             interval=interval,
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)
         assert run.status == "Completed"
@@ -334,7 +338,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             records_failed_count=5,
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)

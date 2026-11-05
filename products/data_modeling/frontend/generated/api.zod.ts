@@ -9,65 +9,12 @@
  */
 import * as zod from 'zod'
 
-export const dataModelingDagsCreateBodyNameMax = 2048
-
-export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingDagsCreateBodyNameMax).describe('Human-readable name for this DAG'),
-    description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod
-        .string()
-        .nullish()
-        .describe(
-            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
-        ),
-})
-
-export const dataModelingDagsPartialUpdateBodyNameMax = 2048
-
-export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(dataModelingDagsPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Human-readable name for this DAG'),
-    description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod
-        .string()
-        .nullish()
-        .describe(
-            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
-        ),
-})
-
-export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid(),
-    properties: zod.unknown().optional(),
-})
-
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid().optional(),
     properties: zod.unknown().optional(),
-})
-
-export const dataModelingNodesCreateBodyNameMax = 2048
-
-export const dataModelingNodesCreateBodyDescriptionMax = 1024
-
-export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
-        .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
-        ),
-    dag: zod.uuid(),
-    description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
 export const dataModelingNodesUpdateBodyNameMax = 2048
@@ -82,8 +29,22 @@ export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
         ),
-    dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
+    sync_frequency: zod
+        .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
+        .describe(
+            '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+        )
+        .optional()
+        .describe(
+            "How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+        ),
+    pinned: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again.'
+        ),
 })
 
 export const dataModelingNodesPartialUpdateBodyNameMax = 2048
@@ -98,49 +59,32 @@ export const DataModelingNodesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
         ),
-    dag: zod.uuid().optional(),
     description: zod.string().max(dataModelingNodesPartialUpdateBodyDescriptionMax).optional(),
-})
-
-/**
- * Materialize just this single node.
- */
-export const dataModelingNodesMaterializeCreateBodyNameMax = 2048
-
-export const dataModelingNodesMaterializeCreateBodyDescriptionMax = 1024
-
-export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesMaterializeCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+    sync_frequency: zod
+        .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
+        .describe(
+            '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+        )
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            "How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
         ),
-    dag: zod.uuid(),
-    description: zod.string().max(dataModelingNodesMaterializeCreateBodyDescriptionMax).optional(),
+    pinned: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pin this view to its own cadence. A pinned view does not refresh more often when downstream views or endpoints need fresher data, so they read data up to one pinned interval old. Requires a cadence. Set false to refresh as often as downstream views need again.'
+        ),
 })
 
 /**
- * Run this node and its upstream or downstream dependencies.
- *
- * Request body:
- *     direction: "upstream" | "downstream" (required)
- *         - "upstream": Run all ancestors of this node, plus this node
- *         - "downstream": Run this node and all its descendants
+ * Run this node with its upstream dependencies or downstream dependents.
  */
-export const dataModelingNodesRunCreateBodyNameMax = 2048
-
-export const dataModelingNodesRunCreateBodyDescriptionMax = 1024
-
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesRunCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
+    direction: zod
+        .enum(['upstream', 'downstream'])
+        .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            'Run this view with all upstream dependencies or all downstream dependents.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
         ),
-    dag: zod.uuid(),
-    description: zod.string().max(dataModelingNodesRunCreateBodyDescriptionMax).optional(),
 })

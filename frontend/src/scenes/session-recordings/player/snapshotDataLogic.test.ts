@@ -1,4 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -9,7 +11,8 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
@@ -63,6 +66,26 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
+        it('marks the recording deleted when the sources listing returns 410, and a later block load keeps it so', async () => {
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [
+                        410,
+                        { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'admin@example.com' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesFailure'])
+                .toMatchValues({ isRecordingDeleted: true, recordingDeletedBy: 'admin@example.com' })
+
+            logic.actions.loadSnapshotsForSourceSuccess({ sources: [BLOB_SOURCE] })
+            expect(logic.values.isRecordingDeleted).toBe(true)
+        })
+
         it('recordingDeletedAt is null when deleted_at is not provided', () => {
             const error = new RecordingDeletedError(null, null)
             logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
@@ -82,6 +105,16 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
+        it('gives up on the first 429, because retrying within seconds cannot outlast the per-user quota', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Too many requests', new ApiError('Throttled', 429))
+            })
+                .toDispatchActions(['snapshotSourceLoadExhausted'])
+                .toMatchValues({ snapshotLoadErrorKind: 'snapshotRateLimited' })
             consoleError.mockRestore()
         })
 
@@ -119,6 +152,97 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
+        })
+    })
+
+    describe('replay proxy token', () => {
+        it.each([
+            ['the token from the sources listing', 'header.payload.signature', 'header.payload.signature'],
+            ['null when the listing has a null token', null, null],
+            ['null when the listing has no token field', undefined, null],
+        ])('stores %s', async (_, replayProxyToken, expected) => {
+            overrideSessionRecordingMocks({ snapshotSources: [BLOB_SOURCE], replayProxyToken })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesSuccess'])
+                .toMatchValues({ replayProxyToken: expected })
+        })
+    })
+
+    describe('direct block fetch', () => {
+        const BLOCK_PATH = '/replay-blocks/1/2/u1/v1.ref0'
+        const DIRECT_SOURCE: SessionRecordingSnapshotSource = {
+            ...BLOB_SOURCE,
+            url: `${window.location.origin}${BLOCK_PATH}`,
+        }
+
+        it.each([
+            ['reads the block from its url', 200, false, 'loadSnapshotsForSourceSuccess', null],
+            [
+                'falls back to the snapshots endpoint when the block fetch fails',
+                500,
+                true,
+                'loadSnapshotsForSourceSuccess',
+                'http_error',
+            ],
+            [
+                'falls back when the block route answers with the app shell',
+                'html',
+                true,
+                'loadSnapshotsForSourceSuccess',
+                'not_a_block',
+            ],
+            ['shows the recording as deleted on a 410', 410, false, 'loadSnapshotsForSourceFailure', null],
+            [
+                'reports a rate limit instead of reading through the snapshots endpoint',
+                429,
+                false,
+                'loadSnapshotsForSourceFailure',
+                null,
+            ],
+        ] as const)('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction, fallbackReason) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            let snapshotsEndpointBlockReads = 0
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                            snapshotsEndpointBlockReads += 1
+                            return new HttpResponse(snapshotsAsJSONLines())
+                        }
+                        return [200, { sources: [DIRECT_SOURCE], block_token: 'block.token.sig' }]
+                    },
+                    [BLOCK_PATH]: () =>
+                        blockStatus === 200
+                            ? new HttpResponse(snapshotsAsJSONLines(), {
+                                  headers: { 'Content-Type': 'application/octet-stream' },
+                              })
+                            : blockStatus === 'html'
+                              ? new HttpResponse('<!doctype html><html></html>', {
+                                    headers: { 'Content-Type': 'text/html' },
+                                })
+                              : [blockStatus, { error: 'recording_deleted', deleted_at: 1700000000 }],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSnapshotSources()).toDispatchActions([
+                'loadSnapshotSourcesSuccess',
+            ])
+
+            await expectLogic(logic, () => logic.actions.loadSnapshotsForSource([DIRECT_SOURCE])).toDispatchActions([
+                expectedAction,
+            ])
+
+            expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
+            expect(logic.values.isRecordingDeleted).toBe(blockStatus === 410)
+            const fallbackEvents = capture.mock.calls.filter(
+                ([event]) => event === 'replay direct block fetch fell back'
+            )
+            expect(fallbackEvents.map(([, properties]) => properties?.reason)).toEqual(
+                fallbackReason ? [fallbackReason] : []
+            )
+            capture.mockRestore()
         })
     })
 

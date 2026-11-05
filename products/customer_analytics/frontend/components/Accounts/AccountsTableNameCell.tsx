@@ -11,6 +11,7 @@ import type { AccountPresenceViewerApi } from 'products/customer_analytics/front
 
 import { AccountNameCell } from './AccountNameCell'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { accountsViewsLogic } from './accountsViewsLogic'
 import { AccountsEvents } from './constants'
 
 export interface AccountsTableNameCellProps {
@@ -51,6 +52,7 @@ export function AccountsTableNameCell({
         }
 
         if (accountSceneEnabled) {
+            accountsViewsLogic.findMounted()?.actions.prepareAccountReturn()
             posthog.capture(AccountsEvents.AccountOpened)
             return
         }

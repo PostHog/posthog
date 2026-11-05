@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import timedelta
 from enum import Enum
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -65,7 +66,9 @@ class ScoutRunRejection:
     detail: str
 
 
-def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
+def check_fleet_gates(
+    team_id: int, *, check_run_budget: bool = True, requested_runs: int = 1
+) -> ScoutRunRejection | None:
     """The fleet-level controls the scheduled coordinator enforces, applied to an off-schedule run.
 
     Reads the `signals-scout` flag payload once, the same snapshot the coordinator plans off, for
@@ -84,20 +87,28 @@ def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
             detail="Signals scouts are not enabled for this project.",
         )
 
+    if not check_run_budget or requested_runs == 0:
+        return None
+
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
     if per_day is not None:
         runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
-        if runs_today >= per_day:
+        if runs_today + requested_runs > per_day:
             return ScoutRunRejection(
                 kind=ScoutRunRejectionKind.THROTTLED,
                 reason="daily_run_budget",
-                detail="This project has reached its daily scout run budget. Try again later.",
+                detail=(
+                    "This project has reached its daily scout run budget. Try again later."
+                    if requested_runs == 1
+                    else f"This request needs {requested_runs} scout runs, but only {max(0, per_day - runs_today)} "
+                    "remain in the project's daily scout run budget. Try again later."
+                ),
             )
     return None
 
 
-def check_spend_gates(team: Team) -> ScoutRunRejection | None:
+def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRunRejection | None:
     """Fail fast on the two spend gates `run_signals_scout_activity` re-checks authoritatively, so
     a caller gets a clean throttle instead of a 202 whose run only skips.
 
@@ -106,7 +117,7 @@ def check_spend_gates(team: Team) -> ScoutRunRejection | None:
     pause is recorded. `team.organization` must be loaded for that capture.
     """
     quota_gate = self_driving_quota_gate(team)
-    if quota_gate.limited:
+    if quota_gate.limited and capture_analytics:
         capture_signal_report_quota_paused(team, report_id=None, stage="scout_run", enforced=quota_gate.enforced)
     if quota_gate.enforced:
         return ScoutRunRejection(
@@ -126,6 +137,25 @@ def check_spend_gates(team: Team) -> ScoutRunRejection | None:
     return None
 
 
+def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
+    """Return whether one of `lane_runs` has a QUEUED or IN_PROGRESS TaskRun newer than `STALE_RUN_CUTOFF_S`.
+
+    The read has two steps on purpose. As one join, the planner can start from `posthog_task_run`
+    and read many task runs of other products to find the few that belong to this lane. The first
+    step reads only the lane's runs inside the cutoff from `signal_scout_run_recent_idx`. The
+    second step joins those few runs to their TaskRuns by primary key.
+    """
+    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    recent_run_ids = list(lane_runs.filter(created_at__gte=live_cutoff).values_list("id", flat=True))
+    if not recent_run_ids:
+        return False
+    return lane_runs.filter(
+        id__in=recent_run_ids,
+        task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+        task_run__created_at__gte=live_cutoff,
+    ).exists()
+
+
 def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
     """Reject when a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
 
@@ -138,21 +168,10 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     `_self_heal_stale_runs` reap can clear it, wedging the lane until a scheduled tick happens to
     reap it — which never comes for a disabled scout, whose only run path is a trigger.
     """
-    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    in_flight = (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(
-            skill_name=skill_name,
-            # Floors the range scan on signal_scout_run_recent_idx (team, skill_name, -created_at)
-            # instead of the scout's whole unpruned history. Same result set as the task_run floor
-            # below, since the scout row is written only after its TaskRun exists.
-            created_at__gte=live_cutoff,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__gte=live_cutoff,
-        )
-        .exists()
+    lane_runs = (
+        SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
     )
-    if not in_flight:
+    if not lane_has_live_run(lane_runs):
         return None
     return ScoutRunRejection(
         kind=ScoutRunRejectionKind.CONFLICT,

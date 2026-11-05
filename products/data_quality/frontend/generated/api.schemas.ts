@@ -666,8 +666,10 @@ export interface DataQualityCheckRunApi {
      * @nullable
      */
     readonly observed_value: number | null
-    /** The HogQL that ran. Re-run it to see the offending rows. */
+    /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. Empty when there is nothing to replay: retention cleared it, or a staged run could not build its replay query. */
     readonly compiled_query: string
+    /** True when the run audited a refresh that was staged but not yet published, under the materialization gate. */
+    readonly audited_staged_refresh: boolean
     /** Compilation or execution failure, when status is 'errored'. */
     readonly error: string
     /** @nullable */
@@ -1033,6 +1035,48 @@ export const DataQualityChecksScheduleRetrieveSubjectType = {
     PosthogTable: 'posthog_table',
     Table: 'table',
     View: 'view',
+} as const
+
+export type DataQualityChecksSubjectsListParams = {
+    /**
+     * Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.
+     */
+    include_columns?: boolean
+    /**
+     * Maximum number of subjects to return. Omit to return every match.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Return only subjects whose name or display name contains this text, ignoring case.
+     */
+    search?: string
+    /**
+     * Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric
+     * * `posthog_table` - posthog_table
+     * @minLength 1
+     */
+    subject_type?: DataQualityChecksSubjectsListSubjectType
+}
+
+export type DataQualityChecksSubjectsListSubjectType =
+    (typeof DataQualityChecksSubjectsListSubjectType)[keyof typeof DataQualityChecksSubjectsListSubjectType]
+
+export const DataQualityChecksSubjectsListSubjectType = {
+    Table: 'table',
+    View: 'view',
+    Metric: 'metric',
+    PosthogTable: 'posthog_table',
 } as const
 
 export type DataQualityRunsListParams = {

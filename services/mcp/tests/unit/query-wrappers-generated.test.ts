@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
+import type { Context } from '@/tools/types'
 
 const behavioralFilter = {
     type: 'behavioral',
@@ -45,6 +46,53 @@ describe('generated query wrappers', () => {
         expect(tool.schema.safeParse({ ...query, properties: [behavioralFilter] }).success).toBe(true)
     })
 
+    it('runs a saved funnel with total math once and keeps raw entrant counts', async () => {
+        const results = [
+            {
+                days: ['2026-10-05'],
+                data: [42],
+                reached_from_step_count: [100],
+                reached_to_step_count: [42],
+            },
+        ]
+        const runQuery = vi.fn().mockResolvedValue({ results, formatted_results: '42% conversion' })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: {
+                getProjectId: vi.fn().mockResolvedValue('1'),
+                getCachedOrFetchProject: vi.fn().mockResolvedValue({ test_account_filters_default_checked: false }),
+            },
+        } as unknown as Context
+        const tool = GENERATED_TOOLS['query-funnel']!()
+        const params = tool.schema.parse({
+            kind: 'FunnelsQuery',
+            series: [
+                { kind: 'EventsNode', event: 'sign up', math: 'total' },
+                { kind: 'EventsNode', event: 'purchase', math: 'total' },
+            ],
+            dateRange: { date_from: '-8w' },
+            interval: 'week',
+            funnelsFilter: { funnelVizType: 'trends' },
+            output_format: 'json',
+        })
+        const result = await tool.handler(context, params)
+
+        expect(runQuery).toHaveBeenCalledTimes(1)
+        expect(runQuery).toHaveBeenCalledWith({
+            query: expect.objectContaining({
+                kind: 'FunnelsQuery',
+                series: [
+                    expect.objectContaining({ event: 'sign up', math: 'total' }),
+                    expect.objectContaining({ event: 'purchase', math: 'total' }),
+                ],
+            }),
+        })
+        expect(result).toMatchObject({ results })
+    })
+
     it('rejects unsupported behavioral count operators', () => {
         const tool = GENERATED_TOOLS['query-trends']!()
 
@@ -75,6 +123,20 @@ describe('generated query wrappers', () => {
 
         expect(querySchema.properties).not.toHaveProperty('aggregation_group_type_index')
         expect(actorsSchema.properties?.source).not.toHaveProperty('properties.aggregation_group_type_index')
+    })
+
+    it('describes every trends display type it accepts', () => {
+        const schema = z.toJSONSchema(GENERATED_TOOLS['query-trends']!().schema, { io: 'input', reused: 'inline' })
+        const display = (schema.properties!.trendsFilter as any).properties.display
+        // The MCP formatter and chart app ignore calendar_heatmap_data, so agents should not pick it yet.
+        const undescribed = ['CalendarHeatmap']
+
+        for (const value of display.enum.filter((v: string) => !undescribed.includes(v))) {
+            expect(display.description).toContain(`\`${value}\` - `)
+        }
+        for (const unsupported of ['Auto', 'ScatterPlot', 'TwoDimensionalHeatmap']) {
+            expect(display.enum).not.toContain(unsupported)
+        }
     })
 
     it.each([

@@ -19,6 +19,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { MAX_RUBRIC_CONTEXT_LENGTH, MAX_SCOUT_RUBRICS, scoutRubricsLogic } from '../../../logics/scoutRubricsLogic'
 import { ScoutRubricCriterionEditor } from './ScoutRubricCriterionEditor'
+import { ScoutRubricReference } from './ScoutRubricReference'
 
 export function ScoutRubricsModal({
     teamId,
@@ -40,6 +41,7 @@ export function ScoutRubricsModal({
         customCriteria,
         sharedCriteria,
         draftRevision,
+        draftAdoptGenerationId,
         expandedCriterionId,
         generation,
         generationActive,
@@ -66,6 +68,7 @@ export function ScoutRubricsModal({
         addCriterion,
         setExpandedCriterion,
         toggleSuggestion,
+        adoptGenerationReference,
         toggleAllSuggestions,
         generateSuggestions,
         setGenerationContext,
@@ -276,6 +279,26 @@ export function ScoutRubricsModal({
                             )}
                         </LemonCard>
 
+                        <LemonBanner
+                            type={rubricDocument.reference_context || draftAdoptGenerationId ? 'info' : 'warning'}
+                        >
+                            {draftAdoptGenerationId
+                                ? 'Saving will use this generation’s captured reference for the whole checklist, including existing criteria.'
+                                : rubricDocument.reference_context
+                                  ? 'Scoring uses the saved scout reference. Editing this scout or its criteria keeps that reference until you explicitly adopt another generation.'
+                                  : 'Scoring needs a saved scout reference. Generate suggestions, review the captured reference, then use it and save your rubric. You can keep your existing criteria.'}
+                        </LemonBanner>
+                        {rubricDocument.reference_context && (
+                            <LemonCollapse
+                                panels={[
+                                    {
+                                        key: 'saved-reference',
+                                        header: 'Saved scoring reference',
+                                        content: <ScoutRubricReference reference={rubricDocument.reference_context} />,
+                                    },
+                                ]}
+                            />
+                        )}
                         {(generationError || generation?.status === 'failed') && (
                             <LemonBanner type="error">
                                 {generationError ||
@@ -312,6 +335,49 @@ export function ScoutRubricsModal({
                                         </LemonButton>
                                     )}
                                 </div>
+                                {generation.reference_context ? (
+                                    <div className="mb-4 flex flex-col items-start gap-3">
+                                        <p className="m-0 text-sm text-secondary">
+                                            Review the captured scout reference. Selecting suggestions or choosing this
+                                            reference applies it to the whole checklist when you save.
+                                        </p>
+                                        <LemonCollapse
+                                            className="w-full"
+                                            panels={[
+                                                {
+                                                    key: 'generated-reference',
+                                                    header: 'Captured scout reference',
+                                                    content: (
+                                                        <ScoutRubricReference
+                                                            reference={generation.reference_context}
+                                                        />
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={adoptGenerationReference}
+                                            disabledReason={
+                                                saving
+                                                    ? 'Saving rubrics'
+                                                    : draftAdoptGenerationId === generation.id
+                                                      ? 'This reference will be adopted when you save'
+                                                      : rubricDocument.reference_generation_id === generation.id
+                                                        ? 'This reference is already saved'
+                                                        : undefined
+                                            }
+                                            data-attr="scout-rubrics-adopt-reference"
+                                        >
+                                            Use this reference
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <LemonBanner type="warning" className="mb-4">
+                                        These suggestions have no captured scout reference. Generate new suggestions
+                                        before adopting them for scoring.
+                                    </LemonBanner>
+                                )}
                                 {availableSuggestions.length > 0 && (
                                     <LemonCard
                                         hoverEffect={false}
@@ -388,7 +454,9 @@ export function ScoutRubricsModal({
                                 <LemonCard hoverEffect={false} className="divide-y overflow-hidden p-0">
                                     {criteria.length === 0 && (
                                         <p className="m-0 p-6 text-center text-sm text-secondary">
-                                            No scout-specific criteria yet. Add one, or generate suggestions.
+                                            {custom
+                                                ? 'No scout-specific criteria yet. Add one, or generate suggestions.'
+                                                : 'No shared defaults in this rubric.'}
                                         </p>
                                     )}
                                     {criteria.map((criterion) => (

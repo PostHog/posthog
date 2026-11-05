@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
@@ -17,7 +17,7 @@ VALID_ISSUE_ID = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
 VALID_ROLE_ID = "01936e80-5e69-7e70-b837-871f5cdad28b"
 
 
-class TestPendingUpdateUnionBuilder(BaseTest):
+class TestPendingUpdateUnionBuilder(SimpleTestCase):
     def _sanitized_row(self, **overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
             "fingerprint": "fp-1",

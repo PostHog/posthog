@@ -25,7 +25,7 @@ export function CanvasFullscreenToggle(): JSX.Element | null {
                     <Button
                         size="icon-sm"
                         variant="default"
-                        aria-label="Full screen"
+                        aria-label="Open full page"
                         onClick={() => setFullscreen(true)}
                         data-attr="canvas-fullscreen-enter"
                     />
@@ -33,7 +33,7 @@ export function CanvasFullscreenToggle(): JSX.Element | null {
             >
                 <IconExpand45 />
             </TooltipTrigger>
-            <TooltipContent>Full screen</TooltipContent>
+            <TooltipContent>Open full page</TooltipContent>
         </Tooltip>
     )
 }

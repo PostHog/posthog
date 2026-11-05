@@ -5,23 +5,35 @@
 //! reviewable line by line. The checker exhaustively interleaves every
 //! action from every reachable state and verifies the properties at each.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+mod migration;
 
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use personhog_coordination::changelog::warm_sources;
 use personhog_coordination::pod::{desired_state, DesiredState};
+use personhog_coordination::protocol::migration::{
+    fleet_quiet, migration_unsealed, migration_unsettled, plan_freeze, plan_resume,
+    planner_may_place, seal_targets,
+};
 use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied, PlannedHandoff,
 };
 use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
-    AssignmentStatus, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
-    RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    AssignmentStatus, ChangelogConfig, Generation as ProductionGeneration, HandoffState,
+    MigrationPhase, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod,
+    RegisteredRouter, RouterFreezeAck, SealAck,
 };
 use stateright::{Model, Property};
 
 use crate::types::{
-    Action, Changelog, Handoff, HandoffId, Partition, PendingUnit, PendingWarm, Phase, Pod, PodId,
-    Router, RouterId, StashedRequest, SystemState, WarmState,
+    Action, Changelog, Config, Epoch, Generation, Handoff, HandoffId, Key, Migration, Partition,
+    PendingUnit, PendingWarm, Phase, Pod, PodId, Router, RouterId, StashedRequest, SystemState,
+    WarmState,
 };
+
+/// The one migration id the model ever runs.
+const MIGRATION_ID: &str = "m";
 
 /// Deterministic names bridging the model's compact u8 ids to the
 /// string-keyed production types.
@@ -33,6 +45,20 @@ fn pod_id(name: &str) -> PodId {
 }
 fn router_name(r: RouterId) -> String {
     format!("r{r}")
+}
+fn generation_topic(epoch: Epoch) -> String {
+    format!("g{epoch}")
+}
+fn topic_epoch(topic: &str) -> Epoch {
+    topic
+        .trim_start_matches('g')
+        .parse()
+        .expect("generation topic")
+}
+
+/// The identity hash: a key's home is its remainder.
+fn home(key: Key, partitions: u8) -> Partition {
+    key % partitions
 }
 
 /// Materialize the production `HandoffState` view of a model handoff, so
@@ -55,7 +81,96 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
+        held_by: h.held.then(|| MIGRATION_ID.to_string()),
+        config_epoch: h.config_epoch as u64,
     }
+}
+
+fn production_config(config: &Config) -> ChangelogConfig {
+    ChangelogConfig {
+        topic: generation_topic(config.live.epoch),
+        partitions: config.live.partitions as u32,
+        epoch: config.live.epoch as u64,
+        writer_group: String::new(),
+        retire_groups: vec![],
+        draining: config
+            .draining
+            .map(|g| ProductionGeneration {
+                topic: generation_topic(g.epoch),
+                partitions: g.partitions as u32,
+                epoch: g.epoch as u64,
+            })
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn production_assignments(state: &SystemState) -> Vec<PartitionAssignment> {
+    state
+        .assignments
+        .iter()
+        .map(|(p, owner)| PartitionAssignment {
+            partition: *p as u32,
+            owner: pod_name(*owner),
+            advertise_address: None,
+            status: AssignmentStatus::Active,
+        })
+        .collect()
+}
+
+fn production_registered(state: &SystemState) -> Vec<RegisteredPod> {
+    state
+        .pods
+        .iter()
+        .filter(|(_, pod)| pod.registered)
+        .map(|(x, _)| RegisteredPod {
+            pod_name: pod_name(*x),
+            generation: String::new(),
+            status: PodStatus::Ready,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: None,
+            advertise_address: None,
+        })
+        .collect()
+}
+
+fn production_seal_acks(state: &SystemState) -> Vec<SealAck> {
+    state
+        .seal_acks
+        .iter()
+        .map(|(x, sealed)| SealAck {
+            migration_id: MIGRATION_ID.to_string(),
+            pod_name: pod_name(*x),
+            sealed: sealed.iter().map(|p| *p as u32).collect(),
+        })
+        .collect()
+}
+
+/// The modulus a captured epoch hashes with; `None` once that generation is gone.
+fn modulus_of(config: &Config, epoch: Epoch) -> Option<u8> {
+    if config.live.epoch == epoch {
+        Some(config.live.partitions)
+    } else {
+        config
+            .draining
+            .filter(|g| g.epoch == epoch)
+            .map(|g| g.partitions)
+    }
+}
+
+/// Which old partitions a pod seals; `Residency` is the rejected rule, kept as the record of why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SealRule {
+    Assignment,
+    Residency,
+}
+
+/// Where a restart's warm reads from; `LiveOnly` is the rejected rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WarmReplay {
+    Sources,
+    LiveOnly,
 }
 
 /// The membership a model handoff was created with, in the form the
@@ -145,6 +260,30 @@ pub struct HandoffModel {
     /// than assume, which configurations actually reach them. Off in the
     /// verdict tests: an unreached probe would fail `assert_properties`.
     pub probes: bool,
+    /// Migrations the control plane may start (at most one draining generation).
+    pub migrations: u8,
+    /// Partition count a migration moves to.
+    pub migrate_to: u8,
+    /// Distinct keys the workload writes and reads, at least one per starting
+    /// partition so every partition takes writes.
+    pub keys: u8,
+    pub seal_rule: SealRule,
+    pub warm_replay: WarmReplay,
+    /// Budget of pods whose seal breaks (`Action::BreakSeal`).
+    pub seal_breaks: u8,
+    /// Whether peers seal overdue partitions; `false` keeps the rejected no-exit rule.
+    pub seal_grace: bool,
+    /// Whether a plan's later units stand down when its basis moved; `false`
+    /// keeps the rejected unguarded planner.
+    pub plan_basis_guard: bool,
+    /// Whether a saga starts only once the fleet is quiet (`fleet_quiet`);
+    /// `false` keeps the rejected start that freezes a fleet in motion.
+    pub quiet_start: bool,
+    /// Whether the freeze cancels on an ordinary handoff (`plan_freeze`'s stray).
+    pub freeze_checks_strays: bool,
+    /// Whether a request parks behind its key's parked requests; `false`
+    /// keeps the rejected bucket rule, which lets a later request overtake.
+    pub park_behind_key: bool,
 }
 
 /// Derive one pod's desired state by calling the production
@@ -199,8 +338,43 @@ impl HandoffModel {
     fn router_ids(&self) -> impl Iterator<Item = RouterId> {
         0..(self.routers + self.late_routers)
     }
+    /// Every partition number any generation can have.
     fn partition_ids(&self) -> impl Iterator<Item = Partition> {
-        0..self.partitions
+        0..self.partitions.max(self.migrate_to)
+    }
+    fn key_ids(&self) -> impl Iterator<Item = Key> {
+        0..self.keys.max(self.partitions)
+    }
+
+    /// `fleet_quiet` over production views; the model's registered pods are all Ready.
+    fn quiet(state: &SystemState) -> bool {
+        let handoffs: Vec<HandoffState> = state
+            .handoffs
+            .iter()
+            .map(|(p, h)| production_handoff(*p, h))
+            .collect();
+        let registered = Self::registered_names(state);
+        let ready: HashSet<&str> = registered.iter().map(String::as_str).collect();
+        fleet_quiet(
+            state.config.live.partitions as u32,
+            &production_assignments(state),
+            &handoffs,
+            &ready,
+        )
+        .is_empty()
+    }
+
+    /// Production `PlanBasis`, coarsened: whether a saga exists, and the live epoch.
+    fn plan_basis(state: &SystemState) -> (bool, Epoch) {
+        (state.migration.is_some(), state.config.live.epoch)
+    }
+
+    /// The planner stands down while a migration owns placement.
+    fn planner_active(state: &SystemState) -> bool {
+        planner_may_place(
+            state.migration.map(|m| m.phase),
+            state.handoffs.values().any(|h| h.held),
+        )
     }
 
     /// The production `StickyBalancedStrategy`, called on
@@ -213,7 +387,11 @@ impl HandoffModel {
             .map(|(p, owner)| (*p as u32, pod_name(*owner)))
             .collect();
         let members = self.planner_members(state);
-        StickyBalancedStrategy.compute_assignments(&current, &members, self.partitions as u32)
+        StickyBalancedStrategy.compute_assignments(
+            &current,
+            &members,
+            state.config.live.partitions as u32,
+        )
     }
 
     /// Planner membership with the model's placement policies applied —
@@ -237,7 +415,7 @@ impl HandoffModel {
         // fleet's *desired* size, not its live count, so a crashed
         // incoming pod does not inflate its peers' quota.
         let incoming = self.pods.saturating_sub(self.hold_pods).max(1);
-        let cap = (self.partitions as u32).div_ceil(incoming as u32);
+        let cap = (state.config.live.partitions as u32).div_ceil(incoming as u32);
         ids.into_iter()
             .map(|id| {
                 if id < self.hold_pods {
@@ -270,9 +448,9 @@ impl HandoffModel {
         if !pod.registered && pod.zombie_writes_left == 0 {
             return false;
         }
-        if !pod.warmed.contains_key(&partition) {
+        let Some(warm) = pod.warmed.get(&partition) else {
             return false;
-        }
+        };
         if pod.fenced.contains(&partition) {
             return false;
         }
@@ -280,7 +458,37 @@ impl HandoffModel {
         // acquired the fence most recently. A warmed pod that is no
         // longer the holder would be producing under a fenced-out
         // producer, and the broker rejects it before any client ack.
-        state.changelogs[&partition].epoch_holder == Some(x)
+        state.changelogs[&(warm.epoch, partition)].epoch_holder == Some(x)
+    }
+
+    /// The leader's `validate_partition`: the key's home under the captured modulus.
+    fn validates(&self, state: &SystemState, x: PodId, partition: Partition, key: Key) -> bool {
+        state.pods[&x]
+            .warmed
+            .get(&partition)
+            .and_then(|warm| modulus_of(&state.config, warm.epoch))
+            .is_some_and(|modulus| home(key, modulus) == partition)
+    }
+
+    /// The logs a warm of `partition` replays, each at its current length.
+    fn warm_prefixes(
+        &self,
+        state: &SystemState,
+        partition: Partition,
+    ) -> BTreeMap<(Epoch, Partition), u8> {
+        let live = (state.config.live.epoch, partition);
+        let keys: Vec<(Epoch, Partition)> = match self.warm_replay {
+            WarmReplay::Sources => {
+                warm_sources(&production_config(&state.config), partition as u32)
+                    .into_iter()
+                    .map(|s| (topic_epoch(&s.topic), s.partition as Partition))
+                    .collect()
+            }
+            WarmReplay::LiveOnly => vec![live],
+        };
+        keys.into_iter()
+            .map(|key| (key, state.changelogs.get(&key).map_or(0, Changelog::len)))
+            .collect()
     }
 
     /// One step of `warm_partition` for pod `x` on `partition`. Under
@@ -296,6 +504,9 @@ impl HandoffModel {
         partition: Partition,
         for_handoff: Option<HandoffId>,
     ) {
+        // The strong-read capture: the config as etcd holds it now.
+        let epoch = state.config.live.epoch;
+        let live = (epoch, partition);
         // Both orderings are two steps in production, but only one of
         // them is *observably* two steps. Acquiring the fence first bumps
         // the epoch before the read, and an append requires an installed
@@ -315,16 +526,17 @@ impl HandoffModel {
         // warm), this collapse is the assumption to revisit first.
         let observable_gap = self.warm_order == WarmOrder::ReadFirst;
         if !observable_gap {
-            let warm = {
-                let log = state.changelogs.get_mut(&partition).unwrap();
-                log.epoch_holder = Some(x);
+            let sources = self.warm_prefixes(state, partition);
+            state.changelogs.get_mut(&live).unwrap().epoch_holder = Some(x);
+            let pod = state.pods.get_mut(&x).unwrap();
+            pod.warmed.insert(
+                partition,
                 WarmState {
                     for_handoff,
-                    visible: log.len,
-                }
-            };
-            let pod = state.pods.get_mut(&x).unwrap();
-            pod.warmed.insert(partition, warm);
+                    epoch,
+                    sources,
+                },
+            );
             pod.fenced.remove(&partition);
             return;
         }
@@ -334,7 +546,7 @@ impl HandoffModel {
                 // current HWM while the fence — and thus the rejection of
                 // a zombie's write — does not exist yet.
                 let pending = PendingWarm {
-                    cutoff: state.changelogs[&partition].len,
+                    cutoff: state.changelogs[&live].len(),
                 };
                 state
                     .pods
@@ -346,55 +558,65 @@ impl HandoffModel {
             Some(PendingWarm { cutoff }) => {
                 // The cutoff predates the fence: anything committed in
                 // the gap sits beyond it, invisible forever.
-                let warm = {
-                    let log = state.changelogs.get_mut(&partition).unwrap();
-                    log.epoch_holder = Some(x);
-                    WarmState {
-                        for_handoff,
-                        visible: cutoff,
-                    }
-                };
+                let mut sources = self.warm_prefixes(state, partition);
+                sources.insert(live, cutoff);
+                state.changelogs.get_mut(&live).unwrap().epoch_holder = Some(x);
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.pending_warm.remove(&partition);
-                pod.warmed.insert(partition, warm);
+                pod.warmed.insert(
+                    partition,
+                    WarmState {
+                        for_handoff,
+                        epoch,
+                        sources,
+                    },
+                );
                 pod.fenced.remove(&partition);
             }
         }
     }
 
-    /// Whether the handoff's new owner has fixed the cutoff it will
-    /// serve with: a warm installed for *this* handoff, or a mid-warm
-    /// read already taken (a pending warm always belongs to the current
-    /// attempt — cancellation requires the target unregistered, which
-    /// wipes its process memory). An earlier-era warm does NOT freeze
-    /// the cutoff: the Acquiring convergence releases and rebuilds it.
+    /// Whether the handoff's new owner has fixed its serving cutoff over `log`: a warm
+    /// for this handoff, or a mid-warm read already taken. An earlier-era warm does not count.
     fn handoff_cutoff_frozen(
         &self,
         state: &SystemState,
         h: &Handoff,
         partition: Partition,
+        log: (Epoch, Partition),
     ) -> bool {
         let pod = &state.pods[&h.new_owner];
         match pod.warmed.get(&partition) {
-            Some(w) => w.for_handoff == Some(h.id),
-            None => pod.pending_warm.contains_key(&partition),
+            Some(w) => w.for_handoff == Some(h.id) && w.sources.contains_key(&log),
+            None => pod.pending_warm.contains_key(&partition) && log.1 == partition,
         }
     }
 
-    /// Whether the assignment owner has fixed its serving cutoff — the
-    /// Serving convergence honors any installed warm (an owner's warm
-    /// cannot go stale while ownership is continuous), so any warm or a
-    /// taken mid-warm read freezes it.
-    fn owner_cutoff_frozen(&self, state: &SystemState, x: PodId, partition: Partition) -> bool {
+    /// Whether the assignment owner has fixed its serving cutoff over `log`: any warm,
+    /// or a mid-warm read already taken.
+    fn owner_cutoff_frozen(
+        &self,
+        state: &SystemState,
+        x: PodId,
+        partition: Partition,
+        log: (Epoch, Partition),
+    ) -> bool {
         let pod = &state.pods[&x];
-        pod.warmed.contains_key(&partition) || pod.pending_warm.contains_key(&partition)
+        match pod.warmed.get(&partition) {
+            Some(w) => w.sources.contains_key(&log),
+            None => pod.pending_warm.contains_key(&partition) && log.1 == partition,
+        }
     }
 
-    /// Serve a strong read at pod `x`, if it can (running, partition
-    /// warmed). Sets the staleness flag when the pod's visible prefix is
-    /// behind the changelog — the read returned state missing at least one
-    /// acked write. Returns whether the read was served.
-    fn serve_read(&self, state: &mut SystemState, x: PodId, partition: Partition) -> bool {
+    /// Serve a strong read for `key` at pod `x` if it can, flagging a stale read when a
+    /// log holds a newer record the pod cannot see. Returns whether it served.
+    fn serve_read(
+        &self,
+        state: &mut SystemState,
+        x: PodId,
+        partition: Partition,
+        key: Key,
+    ) -> bool {
         let pod = &state.pods[&x];
         if !pod.running {
             return false;
@@ -419,37 +641,50 @@ impl HandoffModel {
         let Some(warm) = pod.warmed.get(&partition) else {
             return false;
         };
-        if warm.visible < state.changelogs[&partition].len {
+        if !self.validates(state, x, partition, key) {
+            return false;
+        }
+        let stale = state.changelogs.iter().any(|(log, changelog)| {
+            let visible = warm.sources.get(log).copied().unwrap_or(0) as usize;
+            changelog.records.iter().skip(visible).any(|k| *k == key)
+        });
+        if stale {
             state.stale_strong_read = true;
         }
         state.read_served = true;
         true
     }
 
-    /// Append one acked write to the changelog, tracking the loss flag:
-    /// if the protocol has designated a *different* pod as the (incoming
-    /// or current) owner and that pod's warm cutoff is already fixed,
-    /// this write sits beyond the cutoff and is invisible to it forever.
-    fn accept_write(&self, state: &mut SystemState, x: PodId, partition: Partition) {
-        let designated_other = match state.handoffs.get(&partition) {
-            Some(h) if h.new_owner != x => self.handoff_cutoff_frozen(state, h, partition),
+    /// Append one acked write to the pod's log, flagging a lost write when another pod
+    /// that owns the key's home has already fixed its cutoff over this log.
+    fn accept_write(&self, state: &mut SystemState, x: PodId, partition: Partition, key: Key) {
+        let epoch = state.pods[&x].warmed[&partition].epoch;
+        let log = (epoch, partition);
+        let home_now = home(key, state.config.live.partitions);
+        let designated_other = match state.handoffs.get(&home_now) {
+            Some(h) if h.new_owner != x => self.handoff_cutoff_frozen(state, h, home_now, log),
             Some(_) => false,
-            None => match state.assignments.get(&partition) {
-                Some(owner) if *owner != x => self.owner_cutoff_frozen(state, *owner, partition),
+            None => match state.assignments.get(&home_now) {
+                Some(owner) if *owner != x => {
+                    self.owner_cutoff_frozen(state, *owner, home_now, log)
+                }
                 _ => false,
             },
         };
         if designated_other {
             state.lost_acked_write = true;
         }
+        if epoch != state.config.live.epoch {
+            state.mixed_modulus_acceptance = true;
+        }
 
-        let log = state.changelogs.get_mut(&partition).unwrap();
-        log.len = log.len.saturating_add(1);
+        state.changelogs.get_mut(&log).unwrap().records.push(key);
 
         let pod = state.pods.get_mut(&x).unwrap();
         if let Some(warm) = pod.warmed.get_mut(&partition) {
             // Its own write is immediately visible to it.
-            warm.visible = warm.visible.saturating_add(1);
+            let visible = warm.sources.entry(log).or_insert(0);
+            *visible = visible.saturating_add(1);
         }
         if !pod.registered {
             pod.zombie_writes_left = pod.zombie_writes_left.saturating_sub(1);
@@ -477,19 +712,15 @@ impl HandoffModel {
     ///   owner, fail-closed), not decided on the deletion event.
     fn cancel_by_replacement(&self, state: &mut SystemState, p: Partition) {
         if self.probes_stash_racing_cancellation()
-            && state
-                .routers
-                .values()
-                .any(|r| r.stash.get(&p).is_some_and(|q| !q.is_empty()))
+            && state.routers.values().any(|r| Self::parked_at(r, p))
         {
             state.cancelled_while_stash_parked = true;
         }
 
-        state.freeze_acks.retain(|(fp, _), _| fp != &p);
-        state.drained_acks.retain(|(dp, _), _| dp != &p);
-        state.warmed_acks.retain(|(wp, _), _| wp != &p);
+        Self::clear_acks(state, p);
 
         let owner = state.assignments.get(&p).copied();
+        let epoch = state.config.live.epoch;
         if let Some(owner) = owner.filter(|o| state.pods[o].registered) {
             let id = state.next_handoff_id;
             state.next_handoff_id += 1;
@@ -501,6 +732,8 @@ impl HandoffModel {
                     new_owner: owner,
                     phase: Phase::Complete,
                     quorum: BTreeSet::new(),
+                    held: false,
+                    config_epoch: epoch,
                 },
             );
             if self.probes_reaffirm() {
@@ -511,10 +744,7 @@ impl HandoffModel {
         if let Some(target) = self.target_owner(state, p) {
             let id = state.next_handoff_id;
             state.next_handoff_id += 1;
-            let quorum: BTreeSet<RouterId> = self
-                .router_ids()
-                .filter(|r| state.routers[r].registered)
-                .collect();
+            let quorum = Self::quorum_snapshot(state);
             state.handoffs.insert(
                 p,
                 Handoff {
@@ -523,6 +753,8 @@ impl HandoffModel {
                     new_owner: target,
                     phase: Phase::Freezing,
                     quorum,
+                    held: false,
+                    config_epoch: epoch,
                 },
             );
             if self.probes_successor_replacement() {
@@ -533,35 +765,112 @@ impl HandoffModel {
         state.handoffs.remove(&p);
     }
 
-    /// Route one write through router `r` exactly as the raw proxy does:
-    /// park it if the partition is stashing, otherwise forward to the
-    /// table entry and let the leader's admission decide.
-    fn route_write(&self, state: &mut SystemState, r: RouterId, partition: Partition) -> bool {
+    fn clear_acks(state: &mut SystemState, p: Partition) {
+        state.freeze_acks.retain(|(fp, _), _| fp != &p);
+        state.drained_acks.retain(|(dp, _), _| dp != &p);
+        state.warmed_acks.retain(|(wp, _), _| wp != &p);
+    }
+
+    /// The coordinator's snapshot read: the routers registered now.
+    fn quorum_snapshot(state: &SystemState) -> BTreeSet<RouterId> {
+        state
+            .routers
+            .iter()
+            .filter(|(_, r)| r.registered)
+            .map(|(r, _)| *r)
+            .collect()
+    }
+
+    /// Whether router `r` holds a parked request whose key maps to `p` under its count.
+    fn parked_at(router: &Router, p: Partition) -> bool {
+        router
+            .stash
+            .iter()
+            .any(|e| home(e.key(), router.adopted.partitions) == p)
+    }
+
+    /// Remove and return router `r`'s parked requests for `p`, in arrival order.
+    fn take_parked(state: &mut SystemState, r: RouterId, p: Partition) -> Vec<StashedRequest> {
+        let router = state.routers.get_mut(&r).unwrap();
+        let partitions = router.adopted.partitions;
+        let (taken, kept) = std::mem::take(&mut router.stash)
+            .into_iter()
+            .partition(|e| home(e.key(), partitions) == p);
+        router.stash = kept;
+        taken
+    }
+
+    /// Route one request as the raw proxy does: park it behind its key or a stashing
+    /// partition, otherwise forward it and let the leader's admission decide.
+    fn route(&self, state: &mut SystemState, r: RouterId, request: StashedRequest) -> bool {
         let router = &state.routers[&r];
         if !router.running {
             return false;
         }
-        if router.stashing.contains(&partition) {
-            state
-                .routers
-                .get_mut(&r)
-                .unwrap()
-                .stash
-                .entry(partition)
-                .or_default()
-                .push(StashedRequest::Write);
+        let partition = home(request.key(), router.adopted.partitions);
+        if router.stashing.contains(&partition)
+            || (self.park_behind_key && router.stash.iter().any(|e| e.key() == request.key()))
+        {
+            state.routers.get_mut(&r).unwrap().stash.push(request);
             return true;
         }
         let Some(target) = router.table.get(&partition).copied() else {
+            // A partition born in the flip parks until its handoff lands.
+            let born = state
+                .config
+                .draining
+                .is_some_and(|g| partition >= g.partitions);
+            if born {
+                let router = state.routers.get_mut(&r).unwrap();
+                router.stashing.insert(partition);
+                router.stash.push(request);
+                state.born_partition_write_parked = true;
+                return true;
+            }
             // No route: the request is rejected; nothing changes.
             return false;
         };
-        if self.write_capable(state, target, partition) {
-            self.accept_write(state, target, partition);
-            true
-        } else {
-            // Rejected fail-closed at the leader; nothing changes.
-            false
+        self.deliver(state, r, target, partition, request);
+        true
+    }
+
+    /// Deliver one request from router `r` to `x` for `partition`.
+    fn deliver(
+        &self,
+        state: &mut SystemState,
+        r: RouterId,
+        x: PodId,
+        partition: Partition,
+        entry: StashedRequest,
+    ) {
+        if state.routers[&r]
+            .stash
+            .iter()
+            .any(|parked| parked.key() == entry.key())
+        {
+            state.overtaken_request = true;
+        }
+        match entry {
+            StashedRequest::Write(key) => {
+                if self.validates(state, x, partition, key)
+                    && self.write_capable(state, x, partition)
+                {
+                    self.accept_write(state, x, partition, key);
+                }
+                // Rejected drains surface UNAVAILABLE to the client (never acked).
+            }
+            StashedRequest::StrongRead(key) => {
+                self.serve_read(state, x, partition, key);
+            }
+        }
+    }
+
+    /// The router adopts the live config (`LiveChangelog::adopt`).
+    fn adopt(state: &mut SystemState, r: RouterId) {
+        let live = state.config.live;
+        let router = state.routers.get_mut(&r).unwrap();
+        if router.adopted.epoch < live.epoch {
+            router.adopted = live;
         }
     }
 
@@ -584,28 +893,87 @@ impl HandoffModel {
         match *action {
             // Decided in the arm: enablement is "the planner produced a
             // non-empty plan", which costs a full placement computation.
-            Action::Rebalance => true,
+            Action::Rebalance => Self::planner_active(state),
             // One pending suffix at a time: chunks of one plan apply
             // sequentially in production; a competing plan is the
             // Rebalance interleavings.
-            Action::RebalanceChunked => self.chunked_plans && state.pending_plan.is_empty(),
+            Action::RebalanceChunked => {
+                self.chunked_plans && state.pending_plan.is_empty() && Self::planner_active(state)
+            }
             Action::ApplyPendingUnit => !state.pending_plan.is_empty(),
 
-            Action::CancelDeadNewOwner(p) => matches!(
-                state.handoffs.get(&p),
-                Some(h) if h.phase != Phase::Complete && !state.pods[&h.new_owner].registered
-            ),
+            // The planner's cancellations stand down with the planner and never touch a hold;
+            // production's fallback deletes are guarded per record and not modeled.
+            Action::CancelDeadNewOwner(p) => {
+                Self::planner_active(state)
+                    && matches!(
+                        state.handoffs.get(&p),
+                        Some(h) if h.phase != Phase::Complete && !h.held && !state.pods[&h.new_owner].registered
+                    )
+            }
             Action::Cancel(p) => {
                 state.cancels_left > 0
-                    && matches!(state.handoffs.get(&p), Some(h) if h.phase != Phase::Complete)
+                    && Self::planner_active(state)
+                    && matches!(state.handoffs.get(&p), Some(h) if h.phase != Phase::Complete && !h.held)
             }
             // The quorum/drain/warm predicates are the expensive half and
-            // stay in the arm; a handoff short of Complete must exist.
+            // stay in the arm; a handoff short of Complete must exist, and
+            // a hold stops at Draining.
             Action::AdvancePhase(p) => {
-                matches!(state.handoffs.get(&p), Some(h) if h.phase != Phase::Complete)
+                matches!(
+                    state.handoffs.get(&p),
+                    Some(h) if h.phase != Phase::Complete && !(h.held && h.phase == Phase::Draining)
+                )
             }
             Action::CleanupComplete(p) => {
                 matches!(state.handoffs.get(&p), Some(h) if h.phase == Phase::Complete)
+            }
+
+            Action::MigrateRequest => {
+                state.migrations_left > 0 && !state.requested && state.migration.is_none()
+            }
+            // Admission refuses a start mid-rollout or while a generation drains.
+            Action::MigrateStart => {
+                state.requested
+                    && state.migration.is_none()
+                    && state.config.draining.is_none()
+                    && self.hold_pods == 0
+                    && (!self.quiet_start || Self::quiet(state))
+            }
+            Action::MigrateRequestExpires => state.requested,
+            Action::MigrateDrive => state.migration.is_some(),
+            Action::MigrateCancel => state
+                .migration
+                .is_some_and(|m| m.phase.may_transition_to(MigrationPhase::Cancelling)),
+            Action::SealTick(x) => {
+                let pod = &state.pods[&x];
+                pod.running
+                    && pod.registered
+                    && !pod.seal_broken
+                    && state
+                        .migration
+                        .is_some_and(|m| m.phase == MigrationPhase::Sealing)
+            }
+            Action::SealGraceElapses => {
+                self.seal_grace
+                    && !state.seal_overdue
+                    && state
+                        .migration
+                        .is_some_and(|m| m.phase == MigrationPhase::Sealing)
+            }
+            Action::BreakSeal(x) => {
+                let pod = &state.pods[&x];
+                state.seal_breaks_left > 0
+                    && pod.running
+                    && pod.registered
+                    && !pod.seal_broken
+                    && state
+                        .migration
+                        .is_some_and(|m| m.phase == MigrationPhase::Sealing)
+            }
+            Action::AdoptConfig(r) => {
+                let router = &state.routers[&r];
+                router.running && router.adopted.epoch < state.config.live.epoch
             }
 
             // Which transition a converging pod owes is `desired_state`'s
@@ -715,7 +1083,7 @@ impl HandoffModel {
             &current,
             &in_flight,
             &members,
-            self.partitions as u32,
+            last.config.live.partitions as u32,
         );
         if plan.handoffs.is_empty() {
             return None;
@@ -753,6 +1121,8 @@ impl HandoffModel {
                     new_owner: pod_id(&planned.new_owner),
                     phase: Phase::Freezing,
                     quorum: quorum.clone(),
+                    held: false,
+                    config_epoch: state.config.live.epoch,
                 },
             )
             .is_some();
@@ -791,6 +1161,7 @@ impl HandoffModel {
                             .get(&partition)
                             .copied()
                             .unwrap_or(0),
+                        basis: Self::plan_basis(state),
                     }
                 })
                 .collect();
@@ -804,6 +1175,12 @@ impl HandoffModel {
     fn apply_pending_unit(&self, last: &SystemState) -> Option<SystemState> {
         let unit = last.pending_plan.first()?.clone();
         mutate(last, |state| {
+            // `apply_plan_on`: a moved basis stands the rest of the plan down.
+            if self.plan_basis_guard && unit.basis != Self::plan_basis(state) {
+                state.pending_plan.clear();
+                state.pending_unit_dropped = true;
+                return;
+            }
             state.pending_plan.remove(0);
             let version = state
                 .assignment_versions
@@ -818,6 +1195,8 @@ impl HandoffModel {
             }
             let id = state.next_handoff_id;
             state.next_handoff_id += 1;
+            // Production stamps the epoch the plan was read under.
+            let config_epoch = unit.basis.1;
             state.handoffs.insert(
                 unit.partition,
                 Handoff {
@@ -826,6 +1205,8 @@ impl HandoffModel {
                     new_owner: unit.new_owner,
                     phase: Phase::Freezing,
                     quorum: unit.quorum,
+                    held: false,
+                    config_epoch,
                 },
             );
             state.pending_unit_applied = true;
@@ -880,31 +1261,12 @@ impl HandoffModel {
                 }
             }
             Phase::Draining => {
-                let registered: Vec<RegisteredPod> = self
-                    .pod_ids()
-                    .filter(|x| last.pods[x].registered)
-                    .map(|x| RegisteredPod {
-                        pod_name: pod_name(x),
-                        generation: String::new(),
-                        status: PodStatus::Ready,
-                        registered_at: 0,
-                        last_heartbeat: 0,
-                        controller: None,
-                        advertise_address: None,
-                    })
-                    .collect();
-                let acks: Vec<PodDrainedAck> = self
-                    .pod_ids()
-                    .filter_map(|x| {
-                        last.drained_acks.get(&(p, x)).map(|id| PodDrainedAck {
-                            pod_name: pod_name(x),
-                            partition: p as u32,
-                            acked_at: 0,
-                            acked_at_ms: 0,
-                            handoff_id: id.to_string(),
-                        })
-                    })
-                    .collect();
+                // A hold stops here; the migration driver replaces it.
+                if h.held {
+                    return None;
+                }
+                let registered = production_registered(last);
+                let acks = self.production_drained_acks(last, p);
                 if !drain_satisfied(&registered, &acks, &production_handoff(p, h)) {
                     return None;
                 }
@@ -958,23 +1320,21 @@ impl HandoffModel {
         match model_desired_state(x, last, p) {
             DesiredState::Serving => {
                 let pod = &last.pods[&x];
-                if !pod.warmed.contains_key(&p) {
+                match pod.warmed.get(&p) {
                     // `warm_partition`, one step at a time (see
                     // `warm_step` for the two orderings under
                     // EpochFenced).
-                    mutate(last, |state| self.warm_step(state, x, p, None))
-                } else if pod.fenced.contains(&p) {
-                    mutate(last, |state| {
-                        // `resume_partition`. The cancelled handoff's
-                        // target may have taken the broker fence from
-                        // this pod's producer; production re-acquires it
-                        // before re-admitting writes, or every write
-                        // would fail as fenced until the next handoff.
-                        state.changelogs.get_mut(&p).unwrap().epoch_holder = Some(x);
-                        state.pods.get_mut(&x).unwrap().fenced.remove(&p);
-                    })
-                } else {
-                    None
+                    None => mutate(last, |state| self.warm_step(state, x, p, None)),
+                    Some(w) if pod.fenced.contains(&p) => {
+                        let log = (w.epoch, p);
+                        mutate(last, |state| {
+                            // `resume_partition`: re-take the broker fence the cancelled
+                            // target may hold, or every write fails as fenced.
+                            state.changelogs.get_mut(&log).unwrap().epoch_holder = Some(x);
+                            state.pods.get_mut(&x).unwrap().fenced.remove(&p);
+                        })
+                    }
+                    Some(_) => None,
                 }
             }
             DesiredState::Drained { ack } => {
@@ -1003,6 +1363,10 @@ impl HandoffModel {
             }
             DesiredState::Acquiring => {
                 let h_id = last.handoffs[&p].id;
+                // The capture parks until the config reaches the handoff's epoch.
+                if last.config.live.epoch < last.handoffs[&p].config_epoch {
+                    return None;
+                }
                 // Only a warm installed for *this* handoff satisfies its
                 // warming; one from an earlier era is released and
                 // rebuilt (its cutoff can predate writes accepted since —
@@ -1064,7 +1428,7 @@ impl HandoffModel {
     /// router already agreeing with durable state costs no clone.
     fn observe(&self, last: &SystemState, r: RouterId, p: Partition) -> Option<SystemState> {
         let router = &last.routers[&r];
-        let parked = router.stash.get(&p).is_some_and(|q| !q.is_empty());
+        let parked = Self::parked_at(router, p);
         match last.handoffs.get(&p) {
             Some(h) if h.phase != Phase::Complete => {
                 // begin_stash on every non-terminal phase; FreezeAck only
@@ -1084,8 +1448,7 @@ impl HandoffModel {
                 })
             }
             Some(h) => {
-                // Complete: cutover the table, then drain the stash to
-                // the new owner in FIFO order.
+                // Complete: cut over the table, then drain `p`'s requests to the new owner.
                 let new_owner = h.new_owner;
                 if router.table.get(&p) == Some(&new_owner)
                     && !router.stashing.contains(&p)
@@ -1098,21 +1461,10 @@ impl HandoffModel {
                         let router = state.routers.get_mut(&r).unwrap();
                         router.table.insert(p, new_owner);
                         router.stashing.remove(&p);
-                        router.stash.remove(&p).unwrap_or_default()
+                        Self::take_parked(state, r, p)
                     };
                     for entry in parked {
-                        match entry {
-                            StashedRequest::Write => {
-                                if self.write_capable(state, new_owner, p) {
-                                    self.accept_write(state, new_owner, p);
-                                }
-                                // Rejected drains surface UNAVAILABLE to
-                                // the client (never acked).
-                            }
-                            StashedRequest::StrongRead => {
-                                self.serve_read(state, new_owner, p);
-                            }
-                        }
+                        self.deliver(state, r, new_owner, p, entry);
                     }
                 })
             }
@@ -1140,24 +1492,38 @@ impl HandoffModel {
                             }
                         }
                         router.stashing.remove(&p);
-                        router.stash.remove(&p).unwrap_or_default()
+                        Self::take_parked(state, r, p)
                     };
                     for entry in parked {
                         let Some(owner) = assignment else { continue };
-                        match entry {
-                            StashedRequest::Write => {
-                                if self.write_capable(state, owner, p) {
-                                    self.accept_write(state, owner, p);
-                                }
-                            }
-                            StashedRequest::StrongRead => {
-                                self.serve_read(state, owner, p);
-                            }
-                        }
+                        self.deliver(state, r, owner, p, entry);
                     }
                 })
             }
         }
+    }
+
+    fn production_drained_acks(&self, state: &SystemState, p: Partition) -> Vec<PodDrainedAck> {
+        self.pod_ids()
+            .filter_map(|x| {
+                state.drained_acks.get(&(p, x)).map(|id| PodDrainedAck {
+                    pod_name: pod_name(x),
+                    partition: p as u32,
+                    acked_at: 0,
+                    acked_at_ms: 0,
+                    handoff_id: id.to_string(),
+                })
+            })
+            .collect()
+    }
+
+    fn registered_names(state: &SystemState) -> HashSet<String> {
+        state
+            .pods
+            .iter()
+            .filter(|(_, pod)| pod.registered)
+            .map(|(x, _)| pod_name(*x))
+            .collect()
     }
 }
 
@@ -1177,12 +1543,18 @@ impl Model for HandoffModel {
                         warmed: BTreeMap::new(),
                         fenced: BTreeSet::new(),
                         pending_warm: BTreeMap::new(),
+                        sealed: BTreeSet::new(),
+                        seal_broken: false,
                         zombie_writes_left: 0,
                         claims_authority: true,
                     },
                 )
             })
             .collect();
+        let live = Generation {
+            partitions: self.partitions,
+            epoch: 1,
+        };
         let routers: BTreeMap<RouterId, Router> = self
             .router_ids()
             .map(|id| {
@@ -1194,16 +1566,16 @@ impl Model for HandoffModel {
                     Router {
                         registered: active,
                         running: active,
+                        adopted: live,
                         table: BTreeMap::new(),
                         stashing: BTreeSet::new(),
-                        stash: BTreeMap::new(),
+                        stash: Vec::new(),
                     },
                 )
             })
             .collect();
-        let changelogs: BTreeMap<Partition, Changelog> = self
-            .partition_ids()
-            .map(|p| (p, Changelog::default()))
+        let changelogs: BTreeMap<(Epoch, Partition), Changelog> = (0..self.partitions)
+            .map(|p| ((live.epoch, p), Changelog::default()))
             .collect();
 
         vec![SystemState {
@@ -1215,6 +1587,12 @@ impl Model for HandoffModel {
             next_handoff_id: 0,
             pending_plan: Vec::new(),
             assignment_versions: BTreeMap::new(),
+            config: Config {
+                live,
+                draining: None,
+            },
+            migration: None,
+            seal_acks: BTreeMap::new(),
             pods,
             routers,
             changelogs,
@@ -1224,15 +1602,25 @@ impl Model for HandoffModel {
             rejoins_left: self.rejoins,
             router_joins_left: self.router_joins,
             cancels_left: self.cancels,
+            migrations_left: self.migrations,
             read_served: false,
             lost_acked_write: false,
             double_planned_handoff: false,
             stale_strong_read: false,
+            mixed_modulus_acceptance: false,
+            overtaken_request: false,
             reaffirmed: false,
             replaced_with_successor: false,
             cancelled_while_stash_parked: false,
             pending_unit_applied: false,
             pending_unit_dropped: false,
+            migration_completed: false,
+            migration_cancelled: false,
+            sealed_without_warm: false,
+            born_partition_write_parked: false,
+            seal_overdue: false,
+            seal_breaks_left: self.seal_breaks,
+            requested: false,
         }]
     }
 
@@ -1250,6 +1638,11 @@ impl Model for HandoffModel {
         offer(Action::Rebalance);
         offer(Action::RebalanceChunked);
         offer(Action::ApplyPendingUnit);
+        offer(Action::MigrateRequest);
+        offer(Action::MigrateStart);
+        offer(Action::MigrateRequestExpires);
+        offer(Action::MigrateDrive);
+        offer(Action::MigrateCancel);
         for p in self.partition_ids() {
             offer(Action::CancelDeadNewOwner(p));
             offer(Action::Cancel(p));
@@ -1260,11 +1653,21 @@ impl Model for HandoffModel {
             }
             for r in self.router_ids() {
                 offer(Action::Observe(r, p));
-                offer(Action::ClientWrite(r, p));
-                offer(Action::ClientStrongRead(r, p));
             }
         }
+        for key in self.key_ids() {
+            for r in self.router_ids() {
+                offer(Action::ClientWrite(r, key));
+                offer(Action::ClientStrongRead(r, key));
+            }
+        }
+        for r in self.router_ids() {
+            offer(Action::AdoptConfig(r));
+        }
+        offer(Action::SealGraceElapses);
         for pod in self.pod_ids() {
+            offer(Action::SealTick(pod));
+            offer(Action::BreakSeal(pod));
             offer(Action::CrashRestartWithinTtl(pod));
             offer(Action::LeaseExpire(pod));
         }
@@ -1331,10 +1734,34 @@ impl Model for HandoffModel {
             // (guarded delete of the record and its acks).
             Action::CleanupComplete(p) => mutate(last, |state| {
                 state.handoffs.remove(&p);
-                state.freeze_acks.retain(|(fp, _), _| fp != &p);
-                state.drained_acks.retain(|(dp, _), _| dp != &p);
-                state.warmed_acks.retain(|(wp, _), _| wp != &p);
+                Self::clear_acks(state, p);
             }),
+
+            // ── the migration saga ─────────────────────────────
+            Action::MigrateRequest => mutate(last, |state| {
+                state.migrations_left -= 1;
+                state.requested = true;
+            }),
+            Action::MigrateRequestExpires => mutate(last, |state| state.requested = false),
+            Action::MigrateStart => mutate(last, |state| {
+                state.requested = false;
+                state.migration = Some(Migration {
+                    from: state.config.live,
+                    to: self.migrate_to,
+                    phase: MigrationPhase::Freezing,
+                });
+            }),
+            Action::MigrateDrive => self.migrate_drive(last),
+            Action::MigrateCancel => mutate(last, |state| {
+                Self::set_phase(state, MigrationPhase::Cancelling);
+            }),
+            Action::SealTick(x) => self.seal_tick(last, x),
+            Action::SealGraceElapses => mutate(last, |state| state.seal_overdue = true),
+            Action::BreakSeal(x) => mutate(last, |state| {
+                state.seal_breaks_left -= 1;
+                state.pods.get_mut(&x).unwrap().seal_broken = true;
+            }),
+            Action::AdoptConfig(r) => mutate(last, |state| Self::adopt(state, r)),
 
             // ── pod converge ───────────────────────────────────
             Action::Converge(x, p) => self.converge(last, x, p),
@@ -1343,37 +1770,19 @@ impl Model for HandoffModel {
             Action::Observe(r, p) => self.observe(last, r, p),
 
             // ── workload ───────────────────────────────────────
-            Action::ClientWrite(r, p) => mutate(last, |state| {
+            Action::ClientWrite(r, key) => mutate(last, |state| {
                 state.writes_left -= 1;
                 // A rejected write still consumes its budget: the state
                 // changed, so the transition is kept and rejected paths
                 // are explored too.
-                self.route_write(state, r, p);
+                self.route(state, r, StashedRequest::Write(key));
             }),
 
-            Action::ClientStrongRead(r, p) => mutate(last, |state| {
+            Action::ClientStrongRead(r, key) => mutate(last, |state| {
                 state.reads_left -= 1;
-                let router = &state.routers[&r];
-                if !router.running {
-                    // Router process gone; request fails at the client.
-                } else if router.stashing.contains(&p) {
-                    // Strong reads park in the same per-partition FIFO as
-                    // writes while the partition is stashing (the shipped
-                    // read-stashing design, #69456) — which is what keeps
-                    // them complete across cutover.
-                    state
-                        .routers
-                        .get_mut(&r)
-                        .unwrap()
-                        .stash
-                        .entry(p)
-                        .or_default()
-                        .push(StashedRequest::StrongRead);
-                } else if let Some(target) = router.table.get(&p).copied() {
-                    // Outside a handoff: forward to the table entry.
-                    // Rejected reads fail closed at the leader.
-                    self.serve_read(state, target, p);
-                }
+                // Strong reads take the write path: parked while stashing
+                // (#69456), else forwarded to the table entry.
+                self.route(state, r, StashedRequest::StrongRead(key));
             }),
 
             // ── failures ───────────────────────────────────────
@@ -1385,6 +1794,8 @@ impl Model for HandoffModel {
                 pod.warmed.clear();
                 pod.fenced.clear();
                 pod.pending_warm.clear();
+                pod.sealed.clear();
+                pod.seal_broken = false;
                 pod.zombie_writes_left = 0;
                 // A new session is a new claim.
                 pod.claims_authority = true;
@@ -1395,6 +1806,8 @@ impl Model for HandoffModel {
                 pod.warmed.clear();
                 pod.fenced.clear();
                 pod.pending_warm.clear();
+                pod.sealed.clear();
+                pod.seal_broken = false;
             }),
             Action::LeaseExpire(x) => mutate(last, |state| {
                 state.crashes_left -= 1;
@@ -1438,6 +1851,8 @@ impl Model for HandoffModel {
                 pod.warmed.clear();
                 pod.fenced.clear();
                 pod.pending_warm.clear();
+                pod.sealed.clear();
+                pod.seal_broken = false;
                 pod.zombie_writes_left = 0;
                 pod.claims_authority = false;
             }),
@@ -1525,12 +1940,39 @@ impl Model for HandoffModel {
             // model found the cutover race as a counterexample — the
             // machine validation that motivated shipping read stashing.
             Property::<Self>::always("strong_reads_complete", |_, s| !s.stale_strong_read),
+            Property::<Self>::always("no_overtaken_request", |_, s| !s.overtaken_request),
+            // An ack lands in the live generation, never a retired one.
+            Property::<Self>::always("no_mixed_modulus_acceptance", |_, s| {
+                !s.mixed_modulus_acceptance
+            }),
+            // The ordinary handoff loop never moves a hold past Draining.
+            Property::<Self>::always("holds_stop_at_draining", |_, s| {
+                s.handoffs
+                    .values()
+                    .all(|h| !h.held || matches!(h.phase, Phase::Freezing | Phase::Draining))
+            }),
+            // Once flipped, no pod can produce to the old generation.
+            Property::<Self>::always("old_generation_quiet_after_flip", |m, s| {
+                s.config.draining.is_none_or(|g| {
+                    !s.pods.iter().any(|(x, pod)| {
+                        pod.warmed
+                            .iter()
+                            .any(|(p, w)| w.epoch == g.epoch && m.write_capable(s, *x, *p))
+                    })
+                })
+            }),
+            Property::<Self>::sometimes("migration_completes", |m, s| {
+                m.migrations == 0 || s.migration_completed
+            }),
+            Property::<Self>::sometimes("migration_cancels", |m, s| {
+                m.migrations == 0 || s.migration_cancelled
+            }),
             // Sanity: the interesting states are actually reachable.
             Property::<Self>::sometimes("some_handoff_completes", |_, s| {
                 s.handoffs.values().any(|h| h.phase == Phase::Complete)
             }),
             Property::<Self>::sometimes("some_write_accepted", |_, s| {
-                s.changelogs.values().any(|log| log.len > 0)
+                s.changelogs.values().any(|log| !log.is_empty())
             }),
             Property::<Self>::sometimes("some_strong_read_served", |m, s| {
                 // Vacuously discoverable in configs without reads, so
@@ -1554,13 +1996,18 @@ impl Model for HandoffModel {
             // Liveness: every full run ends quiescent and converged —
             // no handoffs in flight, every assignment served by a warm,
             // unfenced, registered pod, all routers agreeing, nothing
-            // parked in a stash.
+            // parked in a stash, and no migration left to request.
             Property::<Self>::eventually("converges_to_stable", |m, s| {
                 // Ordered cheapest-first on purpose. This runs at every
                 // explored state, and the placement computation below is
                 // the one expensive part — it must stay behind the
                 // conjuncts that reject most states outright.
-                if !s.handoffs.is_empty() || !s.pending_plan.is_empty() {
+                if !s.handoffs.is_empty()
+                    || !s.pending_plan.is_empty()
+                    || s.migration.is_some()
+                    || s.requested
+                    || s.migrations_left > 0
+                {
                     return false;
                 }
                 let no_capacity = s.pods.values().all(|p| !p.registered);
@@ -1571,7 +2018,7 @@ impl Model for HandoffModel {
                         // rebuilds `String` maps and reruns the production
                         // strategy on every call.
                         let targets = m.target_assignments(s);
-                        m.partition_ids().all(|p| {
+                        (0..s.config.live.partitions).all(|p| {
                             let Some(target) = targets.get(&(p as u32)).map(|name| pod_id(name))
                             else {
                                 return true;
@@ -1600,14 +2047,25 @@ impl Model for HandoffModel {
                         if !router.registered || !router.running {
                             return true;
                         }
-                        router.stashing.is_empty()
-                            && router.stash.values().all(|q| q.is_empty())
+                        router.adopted == s.config.live
+                            && router.stashing.is_empty()
+                            && router.stash.is_empty()
                             && s.assignments
                                 .iter()
                                 .all(|(p, owner)| router.table.get(p) == Some(owner))
                     })
             }),
         ];
+        if self.probes && self.migrations > 0 {
+            props.push(Property::<Self>::sometimes(
+                "sealed_without_warm",
+                |_, s| s.sealed_without_warm,
+            ));
+            props.push(Property::<Self>::sometimes(
+                "born_partition_write_parked",
+                |_, s| s.born_partition_write_parked,
+            ));
+        }
         if self.probes {
             // The freeze-quorum snapshot doing its job: a handoff
             // advanced past Freezing while some registered router — a

@@ -1,3 +1,4 @@
+from .libraries import KnowledgeLibraryViewSet
 from .playground import BusinessKnowledgePlaygroundChatViewSet
 from .repositories import BusinessKnowledgeRepositoriesViewSet
 from .sandbox import BusinessKnowledgeSandboxViewSet
@@ -11,5 +12,6 @@ __all__ = [
     "BusinessKnowledgeSettingsViewSet",
     "KnowledgeDocumentViewSet",
     "KnowledgeGapSuggestionViewSet",
+    "KnowledgeLibraryViewSet",
     "KnowledgeSourceViewSet",
 ]

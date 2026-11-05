@@ -16,11 +16,11 @@ import {
 } from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
-import { summarizeMemo } from "../new-thread/buildThreadGroups";
 import { isSubagentSpawnTool } from "../session-update/collaborationTools";
 import { mcpToolDisplayName } from "../session-update/mcpToolDisplay";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
+import { summarizeToolGroupMemo } from "./toolGroupSummary";
 
 type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
 
@@ -164,10 +164,14 @@ export const ToolGroup = memo(function ToolGroup({
     : null;
 
   // A run with no countable work (a lone streaming thought) keeps the live shape rather than
-  // falling back to summarize's "Worked". Cached once the turn completes because the walk is
-  // O(run) and the live turn re-renders every group on every streamed chunk.
+  // falling back to the "Worked" summary. The summary is cached once the turn completes because
+  // the live turn re-renders every group on every streamed chunk.
   const summary = useMemo(
-    () => summarizeMemo(items, items.at(-1)?.turnContext.turnComplete ?? false),
+    () =>
+      summarizeToolGroupMemo(
+        items,
+        items.at(-1)?.turnContext.turnComplete ?? false,
+      ),
     [items],
   );
   const showSummary = !isActive && summary.hasCountableWork;

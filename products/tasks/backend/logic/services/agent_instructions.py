@@ -11,10 +11,21 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.facade.agent_instructions import get_agent_instructions
 from products.tasks.backend.constants import AGENT_INSTRUCTIONS_STATE_KEY
 from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 
 logger = structlog.get_logger(__name__)
+
+# Signals uses internal tasks to hide pipeline runs, not to isolate them from project instructions.
+SIGNALS_ORIGINS = frozenset(
+    {
+        Task.OriginProduct.SIGNAL_REPORT,
+        Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+        Task.OriginProduct.SIGNALS_CHAT,
+    }
+)
 
 # Runs nobody is driving. They act for the project, so they get the project instructions but
 # never their creator's personal ones, which describe how that person likes to work.
@@ -92,33 +103,44 @@ class AgentInstructionsResolver:
     def __init__(self, store: AgentInstructionsStore | None = None) -> None:
         self._store = store or AgentInstructionsStore()
 
-    def resolve(self, task: Task, actor_user: User | None) -> str | None:
-        if task.internal or task.origin_product in EXCLUDED_ORIGINS:
+    def resolve(self, task: Task, actor_user: User | None, *, ai_stage: str | None = None) -> str | None:
+        if task.origin_product in EXCLUDED_ORIGINS or (task.internal and task.origin_product not in SIGNALS_ORIGINS):
             return None
         project = self._store.get_project(task.team_id).strip()
         personal = ""
-        if task.origin_product not in PERSONLESS_ORIGINS:
+        if not task.internal and task.origin_product not in PERSONLESS_ORIGINS:
             user_id = actor_user.id if actor_user is not None else task.created_by_id
             if user_id is not None:
                 personal = self._store.get_personal(task.team_id, user_id).strip()
-        return self.render(project, personal)
+        steering = (
+            get_agent_instructions(
+                team_id=_canonical_team_id(task.team_id), origin_product=task.origin_product, ai_stage=ai_stage
+            )
+            if task.origin_product in SIGNALS_ORIGINS
+            else ""
+        )
+        return self.render(project, personal, steering)
 
     @staticmethod
-    def render(project: str, personal: str) -> str | None:
+    def render(project: str, personal: str, steering: str = "") -> str | None:
         sections: list[str] = []
         if project:
             sections.append(f"{PROJECT_HEADING}\n\n{project}")
+        if steering:
+            sections.append(steering)
         if personal:
             sections.append(f"{PERSONAL_HEADING}\n\n{personal}")
         return "\n\n".join(sections) or None
 
 
-def agent_instructions_state_update(task: Task, actor_user: User | None) -> tuple[dict[str, str], list[str]]:
+def agent_instructions_state_update(
+    task: Task, actor_user: User | None, *, ai_stage: str | None = None
+) -> tuple[dict[str, str], list[str]]:
     """The run-state `(updates, remove_keys)` that stamp the resolved instructions on a run.
 
     An empty result removes the key, so a resumed run never keeps text the user has since cleared.
     """
-    instructions = AgentInstructionsResolver().resolve(task, actor_user)
+    instructions = AgentInstructionsResolver().resolve(task, actor_user, ai_stage=ai_stage)
     if instructions is None:
         return {}, [AGENT_INSTRUCTIONS_STATE_KEY]
     return {AGENT_INSTRUCTIONS_STATE_KEY: instructions}, []
@@ -132,7 +154,9 @@ def refresh_agent_instructions_state(task_run: TaskRun, user: User, *, reason: s
     """
     run_id = str(task_run.id)
     try:
-        updates, remove_keys = agent_instructions_state_update(task_run.task, user)
+        updates, remove_keys = agent_instructions_state_update(
+            task_run.task, user, ai_stage=(task_run.state or {}).get("ai_stage")
+        )
         TaskRun.update_state_atomic(task_run.id, updates=updates, remove_keys=remove_keys)
     except Exception:
         logger.warning("agent_instructions_refresh_failed", run_id=run_id, reason=reason, exc_info=True)

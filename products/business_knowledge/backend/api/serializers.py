@@ -24,7 +24,9 @@ from ..models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
     EmbeddingStatus,
+    KnowledgeLibrarySource,
     KnowledgeSource,
+    LearningBackfillStatus,
     RefreshInterval,
     SafetyVerdict,
     SourceType,
@@ -117,6 +119,9 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     learned_from_ticket_url = serializers.SerializerMethodField(
         help_text="App URL of the originating support ticket. Null for sources you added yourself.",
     )
+    library_ids = serializers.SerializerMethodField(
+        help_text="Libraries this source belongs to. Empty when the source is in none.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -148,6 +153,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "file_content_type",
             "file_size_bytes",
             "always_include",
+            "library_ids",
         ]
         read_only_fields = fields
 
@@ -174,6 +180,21 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
         source_team_id = getattr(obj, "_learned_source_team_id", None)
         team_id = source_team_id if source_team_id is not None else obj.team_id
         return f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket_number}"
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_library_ids(self, obj: KnowledgeSource) -> list[str]:
+        # The list annotation is NULL when a source is in no library, and
+        # missing entirely when a create or update returns the row directly.
+        if "_library_ids" in obj.__dict__:
+            raw = obj.__dict__["_library_ids"] or []
+        else:
+            raw = (
+                KnowledgeLibrarySource.objects.for_team(obj.team_id)
+                .filter(source_id=obj.id)
+                .order_by("library_id")
+                .values_list("library_id", flat=True)
+            )
+        return [str(item) for item in raw]
 
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:
@@ -251,6 +272,11 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         required=False,
         help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
+    library_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -262,8 +288,10 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs:
-            raise serializers.ValidationError("Provide at least one of `name`, `text`, or `always_include`.")
+        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs and "library_ids" not in attrs:
+            raise serializers.ValidationError(
+                "Provide at least one of `name`, `text`, `always_include`, or `library_ids`."
+            )
         return attrs
 
 
@@ -354,10 +382,7 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     )
     url = serializers.URLField(
         max_length=2048,
-        help_text=(
-            "Public HTTP(S) URL to fetch. Private / internal hosts are rejected. "
-            "Stage 2a fetches this URL once at create time; Stage 5 will refresh it on a schedule."
-        ),
+        help_text="Public HTTP(S) URL to fetch. Private or internal hosts are rejected.",
     )
     refresh_interval = serializers.ChoiceField(
         choices=RefreshInterval.choices,
@@ -465,6 +490,15 @@ class KnowledgeSourceDocumentSerializer(serializers.Serializer):
         choices=SafetyVerdict.choices,
         read_only=True,
         help_text="Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.",
+    )
+
+
+class KnowledgeAvailabilitySerializer(serializers.Serializer):
+    has_sources = serializers.BooleanField(
+        read_only=True, help_text="True when the project has at least one business knowledge source."
+    )
+    has_repositories = serializers.BooleanField(
+        read_only=True, help_text="True when this environment has at least one GitHub repository selected."
     )
 
 
@@ -646,6 +680,24 @@ class GapTopicActionResultSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
+class LearningBackfillProgressSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=LearningBackfillStatus.choices,
+        help_text="`running` while PostHog reads past tickets. `completed` once every ticket in the window is read.",
+    )
+    started_at = serializers.DateTimeField(help_text="When someone started learning from past tickets.")
+    finished_at = serializers.DateTimeField(
+        allow_null=True, help_text="When every past ticket was read. Null while the run continues."
+    )
+    tickets_read = serializers.IntegerField(
+        help_text="Tickets analyzed since the run started, including tickets from the regular 7-day pass."
+    )
+    tickets_in_progress = serializers.IntegerField(help_text="Tickets that are being analyzed now.")
+    knowledge_created = serializers.IntegerField(
+        help_text="Analyzed tickets that added a learned source to business knowledge."
+    )
+
+
 @extend_schema_serializer(component_name="BusinessKnowledgeSettings")
 class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     learn_from_support_enabled = serializers.BooleanField(
@@ -657,6 +709,11 @@ class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     support_enabled = serializers.BooleanField(
         read_only=True,
         help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+    learning_backfill = LearningBackfillProgressSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The last run of learning from past tickets. Null when none ran since learning was turned on.",
     )
 
 

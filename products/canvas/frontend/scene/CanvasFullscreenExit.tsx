@@ -22,7 +22,7 @@ export function CanvasFullscreenExit(): JSX.Element | null {
                             size="icon-sm"
                             variant="outline"
                             className="bg-background"
-                            aria-label="Exit full screen"
+                            aria-label="Exit full page"
                             onClick={() => setFullscreen(false)}
                             data-attr="canvas-fullscreen-exit"
                         />
@@ -30,7 +30,7 @@ export function CanvasFullscreenExit(): JSX.Element | null {
                 >
                     <IconCollapse45 />
                 </TooltipTrigger>
-                <TooltipContent>Exit full screen (Esc)</TooltipContent>
+                <TooltipContent>Exit full page (Esc)</TooltipContent>
             </Tooltip>
         </div>
     )

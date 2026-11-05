@@ -24,8 +24,9 @@ import ast
 import json
 import tomllib
 import functools
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from .ast_helpers import (
@@ -33,6 +34,7 @@ from .ast_helpers import (
     decorator_name,
     get_imported_module_names,
     get_model_names,
+    get_public_function_names,
     has_any_function_defs,
     iter_public_callables,
     lazy_reexport_map,
@@ -52,7 +54,9 @@ from .import_resolution import (
     resolve_absolute_module,
     source_file,
 )
-from .paths import REPO_ROOT, TACH_TOML, get_tach_block
+from .paths import REPO_ROOT, TACH_TOML
+from .watched_channels import ChannelModule, find_channel_modules
+from .wiring_interfaces import WiringInterfaceResolver, WiringVerdict
 
 # ---------------------------------------------------------------------------
 # tach.toml parsing
@@ -148,15 +152,10 @@ def names_from_pattern(pattern: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def is_isolated_product(backend_dir: Path) -> bool:
-    """A product is in the strict isolation regime once it has a contracts module."""
+def has_contracts_module(backend_dir: Path) -> bool:
+    """The Strict rung: a contracts module turns on the strict lint. The file alone is no evidence of
+    isolation, because an empty contracts.py satisfies it."""
     return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
-
-
-def has_real_facade(backend_dir: Path) -> bool:
-    """A real facade defines functions; a re-export shim from logic does not count."""
-    facade_api = backend_dir / "facade" / "api.py"
-    return facade_api.exists() and has_any_function_defs(facade_api)
 
 
 def has_routes_module(backend_dir: Path) -> bool:
@@ -170,21 +169,17 @@ def has_routes_module(backend_dir: Path) -> bool:
 
 
 def has_tach_interface(name: str, tach_content: str | None = None) -> bool:
-    """True if the product is named in a tach [[interfaces]] block (inline or global).
+    """True if the product is named in the `from` list of a tach [[interfaces]] table.
 
-    Names are matched structurally against each block's `from` list. A loose regex
-    over the whole file false-positives on any product whose name appears later (e.g.
-    in its own [[modules]] block), which made nearly every product read as sealed.
+    Names are matched against the parsed TOML, so a comment that mentions `[[interfaces]]`
+    or a neighbouring block's table cannot count. A loose match over the file text
+    false-positives on any product whose name or block text happens to contain the word.
+    [[interfaces]] is the only form tach reads: it rejects an `interfaces` key on a
+    [[modules]] table.
     """
-    block = get_tach_block(f"products.{name}")
-    if block and "interfaces" in block and "interfaces = []" not in block:
-        return True
     content = tach_content if tach_content is not None else (TACH_TOML.read_text() if TACH_TOML.exists() else "")
-    return any(
-        name in names_from_pattern(pattern)
-        for _expose, from_patterns in iter_interface_blocks(content)
-        for pattern in from_patterns
-    )
+    interface_tables = tomllib.loads(content).get("interfaces", [])
+    return any(name in names_from_pattern(pattern) for table in interface_tables for pattern in table.get("from", []))
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -419,17 +414,18 @@ def has_narrowed_turbo_inputs(
     permanent_modules: frozenset[str] = frozenset(),
     carveout_modules: frozenset[str] = frozenset(),
     model_surface: tuple[str, ...] = (),
+    channel_modules: frozenset[str] = frozenset(),
 ) -> bool:
     """True only when contract-check inputs are confined to the public surface AND at least one
     targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
     Negated globs ('!...') are excluded from the surface test.
 
-    Permanently-exposed modules, wiring locations, carve-out modules, and the model surface
-    all count as extended surface: a product may list them without forfeiting the narrowing, since
-    core depends on each outside the plain facade->contracts channel and they must re-run the suite
-    on change (see uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage
-    checks).
+    Permanently-exposed modules, wiring locations, carve-out modules, the model surface, and the
+    modules outside suites run without an import edge (watched_channels.py) all count as extended
+    surface: a product may list them without forfeiting the narrowing, since core depends on each
+    outside the plain facade->contracts channel and they must re-run the suite on change (see
+    uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage checks).
 
     A webhook_consumers.py module is the one extended surface that is also required once it exists:
     listing it is optional for a product that has none, mandatory for a product that has one, and
@@ -449,6 +445,7 @@ def has_narrowed_turbo_inputs(
         + permanent_prefixes
         + tuple(carveout_modules)
         + model_surface
+        + tuple(channel_modules)
     )
     return all(_glob_targets(i, accepted) for i in inputs) and any(
         _glob_targets(i, _FACADE_PRESENTATION_PREFIXES) for i in inputs
@@ -586,6 +583,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("customer_analytics", "TeamCustomerAnalyticsConfig"),
         ("tasks", "Task"),
+        ("workflows", "TeamWorkflowsConfig"),
     }
 )
 
@@ -614,6 +612,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
         ("warehouse_sources", "PendingSourceCredential"),
         ("warehouse_sources", "WarehouseColumnAnnotation"),
         ("warehouse_sources", "WarehouseColumnStatistics"),
+        ("workflows", "HogFlow"),
     }
 )
 
@@ -629,7 +628,7 @@ MODEL_SURFACE_PREFIXES: tuple[str, ...] = (*_MODEL_SOURCE_PREFIXES, "backend/mig
 class FacadeClassImport:
     """A class a facade module re-exports from a product-internal module outside a wiring location."""
 
-    facade_module: str  # e.g. "queries.py"
+    facade_module: str  # path inside facade/, e.g. "queries.py" or "destinations/s3.py"
     class_name: str  # e.g. "MetricsQueryRunner"
     source_path: str  # backend-relative, e.g. "backend/metrics_query_runner.py"
 
@@ -701,16 +700,89 @@ def _is_test_module(filename: str) -> bool:
 
 
 def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
-    """Every facade module the facade checks read, in name order.
+    """Every facade module the facade checks read, in path order.
 
-    Flat by design: facade/ holds no packages, and both callers key a finding on the file name. Test
-    modules that happen to sit here are pytest files, not part of the surface."""
+    The walk is recursive, so a module in a facade subfolder (`facade/destinations/s3.py`) gets the
+    same checks as a flat one. A finding is keyed on the module's path inside facade/
+    (`_facade_module_key`). Rules that read a module's content apply at any depth. Exemptions by
+    name (contracts.py, enums.py, testing.py, api*.py and the capability stems) apply to top-level
+    modules only: a nested `destinations/contracts.py` is an ordinary module. Test modules that
+    happen to sit here are pytest files, not part of the surface."""
     facade_dir = backend_dir / "facade"
     if not facade_dir.is_dir():
         return
-    for path in sorted(facade_dir.glob("*.py")):
-        if not _is_test_module(path.name):
+    for path in sorted(facade_dir.rglob("*.py")):
+        if "__pycache__" not in path.parts and not _is_test_module(path.name):
             yield path
+
+
+_NON_LOGIC_FACADE_MODULES = frozenset({"contracts.py", "enums.py", "testing.py"})
+
+
+def iter_facade_logic_modules(backend_dir: Path) -> Iterator[Path]:
+    """Facade modules that can hold facade logic: every module except contracts, enums and testing.
+
+    Products split their facade across submodules, so the walk is recursive. The three names are
+    skipped at any depth: they hold types and test helpers, never the facade surface."""
+    for path in _iter_facade_modules(backend_dir):
+        if path.name in _NON_LOGIC_FACADE_MODULES:
+            continue
+        # A contracts/ package holds types like contracts.py does.
+        if "contracts" in path.relative_to(backend_dir / "facade").parts[:-1]:
+            continue
+        yield path
+
+
+def facade_function_names(backend_dir: Path) -> list[str]:
+    """Public functions defined across the facade modules; re-export-only modules add none."""
+    names: list[str] = []
+    for path in iter_facade_logic_modules(backend_dir):
+        names.extend(get_public_function_names(path))
+    return names
+
+
+_FACADE_MODULE_PATTERN = re.compile(r"\.backend\.facade(\.|$)")
+
+
+def _api_reexports_internals(api_path: Path) -> bool:
+    """`api.py` defines nothing and re-exports from outside the facade package, e.g. `from ..logic import x`."""
+    if has_any_function_defs(api_path):
+        return False
+    tree = ast_parse_safe(api_path)
+    if tree is None:
+        return False
+    # Only runtime imports at module level count. An `if TYPE_CHECKING:` import is a type hint.
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level >= 2:
+            return True
+        module = node.module or ""
+        if node.level == 0 and ".backend." in module and not _FACADE_MODULE_PATTERN.search(module):
+            return True
+    return False
+
+
+def has_real_facade(backend_dir: Path) -> bool:
+    """A real facade defines functions in any of its modules; a re-export shim from logic does not count.
+
+    An `api.py` that only re-exports internals marks the whole facade as a shim, so one helper in a
+    sibling module does not promote it. Private functions count, so a facade with only helpers is not
+    read as a shim."""
+    api_path = backend_dir / "facade" / "api.py"
+    if api_path.exists() and _api_reexports_internals(api_path):
+        return False
+    return any(has_any_function_defs(path) for path in iter_facade_logic_modules(backend_dir))
+
+
+def _facade_module_key(backend_dir: Path, path: Path) -> str:
+    """A facade module's path inside facade/ as a posix string: `api.py`, `destinations/s3.py`."""
+    return path.relative_to(backend_dir / "facade").as_posix()
+
+
+def _facade_package_parts(module_key: str) -> list[str]:
+    """The package a facade module sits in, for resolving its relative imports."""
+    return ["facade", *module_key.split("/")[:-1]]
 
 
 @dataclass(frozen=True)
@@ -722,7 +794,9 @@ class _HandedOutName:
     source_path: str  # backend-relative, e.g. "backend/logic/crud.py"
 
 
-def _iter_handed_out_names(tree: ast.Module, backend_dir: Path) -> Iterator[_HandedOutName]:
+def _iter_handed_out_names(
+    tree: ast.Module, backend_dir: Path, package_parts: Sequence[str]
+) -> Iterator[_HandedOutName]:
     """Every product-internal name one facade module hands out, wiring locations included (callers
     filter). Three shapes are read:
 
@@ -739,7 +813,7 @@ def _iter_handed_out_names(tree: ast.Module, backend_dir: Path) -> Iterator[_Han
     """
     is_pure_reexport = not tree_has_top_level_functions(tree)
     allowed = None if is_pure_reexport else module_dunder_all(tree)
-    for imported in iter_module_imported_names(tree, ("facade",), backend_dir):
+    for imported in iter_module_imported_names(tree, package_parts, backend_dir):
         if imported.source_path is None:
             continue
         handed_out = (
@@ -761,17 +835,19 @@ def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImpor
     nor wiring location — carve-outs included (callers filter)."""
     parse_cache: dict[Path, ast.Module | None] = {}
     for module_file in _iter_facade_modules(backend_dir):
+        module_key = _facade_module_key(backend_dir, module_file)
         # contracts/enums are the sanctioned homes for data types, so neither is a wiring re-export.
-        if module_file.name in ("contracts.py", "enums.py"):
+        # The exemption is for the top-level modules only.
+        if module_key in ("contracts.py", "enums.py"):
             continue
         tree = ast_parse_safe(module_file)
         if tree is None:
             continue
-        for handed in _iter_handed_out_names(tree, backend_dir):
+        for handed in _iter_handed_out_names(tree, backend_dir, _facade_package_parts(module_key)):
             if _is_facade_or_garage(handed.source_path):
                 continue
             if _name_is_class(handed.source_path, handed.original, backend_dir, cache=parse_cache):
-                yield FacadeClassImport(module_file.name, handed.original, handed.source_path)
+                yield FacadeClassImport(module_key, handed.original, handed.source_path)
 
 
 @dataclass(frozen=True)
@@ -812,6 +888,66 @@ def facade_class_imports(backend_dir: Path, name: str) -> list[FacadeClassImport
     genuinely used inside function bodies, AND separately imported by core anyway — core-side misuse
     this lint doesn't chase."""
     return list(_split_facade_reexports(backend_dir, name).leaks)
+
+
+@dataclass(frozen=True)
+class UnapprovedWiringClass:
+    """A class a facade hands out from a wiring location without an approved interface."""
+
+    facade_module: str  # path inside facade/, e.g. "destinations/s3.py"
+    class_name: str  # the name the facade exports, unique within its module
+    source_path: str  # backend-relative, e.g. "backend/temporal/destinations/s3_batch_export.py"
+    verdict: WiringVerdict  # UNAPPROVED or UNRESOLVED
+
+
+def _backend_module(name: str, source_path: str) -> str:
+    """The dotted module of a backend-relative path: 'backend/temporal/x.py' -> 'products.<name>.backend.temporal.x'."""
+    relative = source_path.removeprefix("backend").strip("/").removesuffix(".py")
+    parts = [part for part in relative.split("/") if part]
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join([f"products.{name}.backend", *parts])
+
+
+def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWiringClass]:
+    """Classes a facade hands out from a wiring location that implement no approved interface.
+
+    The class re-export check accepts a wiring location by its path. This check reads the class:
+    a location is necessary but not enough under § Wiring couplings, which also requires an approved
+    decorator or base (APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS)."""
+    resolver = WiringInterfaceResolver(REPO_ROOT, roots={f"products.{name}.backend": backend_dir})
+    findings: dict[str, UnapprovedWiringClass] = {}
+    for module_file in _iter_facade_modules(backend_dir):
+        module_key = _facade_module_key(backend_dir, module_file)
+        if module_key in ("contracts.py", "enums.py"):
+            continue
+        tree = ast_parse_safe(module_file)
+        if tree is None:
+            continue
+        for handed in _iter_handed_out_names(tree, backend_dir, _facade_package_parts(module_key)):
+            if not handed.source_path.startswith(GARAGE_PREFIXES):
+                continue
+            qualified = f"{_backend_module(name, handed.source_path)}.{handed.original}"
+            # The resolver follows absolute and chained re-exports, which _name_is_class stops at.
+            if resolver.is_class(qualified):
+                exported = {handed.bound: qualified}
+            else:
+                # A collection such as WORKFLOWS hands out every class it holds, and core registers
+                # each one.
+                members = resolver.collection_members(qualified)
+                if members is None:
+                    finding = UnapprovedWiringClass(
+                        module_key, handed.bound, handed.source_path, WiringVerdict.UNRESOLVED
+                    )
+                    findings[f"{module_key}:{handed.bound}"] = finding
+                    continue
+                exported = {member.rpartition(".")[2]: member for member in members if resolver.is_class(member)}
+            for class_name, class_qualified in exported.items():
+                verdict = resolver.verdict(class_qualified)
+                if verdict is not WiringVerdict.APPROVED:
+                    finding = UnapprovedWiringClass(module_key, class_name, handed.source_path, verdict)
+                    findings[f"{module_key}:{class_name}"] = finding
+    return list(findings.values())
 
 
 def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
@@ -860,6 +996,25 @@ def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[st
     A carve-out class crosses the boundary for a class-identity registry, so a change to its
     defining module is a coupling change core must re-test — exactly like a permanent exposure."""
     return _uncovered_locations(product_dir, {m: (m,) for m in carveout_modules})
+
+
+def unwatched_modules(product_dir: Path, modules: Iterable[str]) -> set[str]:
+    """Module files, relative to the product, that the narrowed contract-check inputs do not watch.
+
+    Empty when the product has no narrowing override, because the inputs then watch everything.
+    Negations are read conservatively, like _webhook_consumers_unwatched reads them: a negation that
+    may reach the file leaves it unwatched, because the safe failure is a suite that runs."""
+    raw = contract_check_inputs(product_dir)
+    positive = [i.removeprefix("./") for i in raw if not i.startswith("!")]
+    if not positive:
+        return set()
+    negations = [i.removeprefix("!").removeprefix("./") for i in raw if i.startswith("!")]
+    return {
+        module
+        for module in modules
+        if any(_input_covers(n, module) or _literal_prefix_overlaps(n, module) for n in negations)
+        or not any(_input_covers(i, module) for i in positive)
+    }
 
 
 def unwatched_model_surface(product_dir: Path) -> set[str]:
@@ -1068,7 +1223,7 @@ def _facade_import_env(
     tree: ast.Module,
     model_names: _ModelNames,
     backend_dir: Path,
-    package_parts: Sequence[str] = ("facade",),
+    package_parts: Sequence[str],
 ) -> _FacadeImportEnv:
     types: dict[str, _ForbiddenType] = {}
     modules: dict[str, str] = {}
@@ -1469,7 +1624,7 @@ def _iter_reexport_signature_findings(
     }
     parse_cache: dict[str, ast.Module | None] = {}
     env_cache: dict[str, _FacadeImportEnv] = {}
-    handed_out = set(_iter_handed_out_names(tree, backend_dir))
+    handed_out = set(_iter_handed_out_names(tree, backend_dir, _facade_package_parts(facade_module)))
     for handed in sorted(handed_out, key=lambda h: (h.bound, h.original, h.source_path)):
         # A real definition wins over a re-export, and the module scan already read it.
         if handed.bound.startswith("_") or handed.bound in defined_here:
@@ -1547,29 +1702,34 @@ def _capability_finding(
     )
 
 
-def _is_capability_module(tree: ast.Module, filename: str, backend_dir: Path) -> bool:
+def _is_capability_module(tree: ast.Module, module_key: str, backend_dir: Path) -> bool:
     """True when a facade module is a capability submodule: one whose job is to hand out wiring or
     model classes.
 
     Read from what the module hands out rather than from its name, because a product may call the
     same wiring anything (`workflow_tasks.py`, `tools.py`) and a filename allowlist then misses it.
-    The doctrine stems stay a floor, so such a module keeps the rule before it hands anything out."""
-    stem = filename.removesuffix(".py")
-    if stem in CAPABILITY_SUBMODULES:
-        return True
-    if stem.startswith("api") or stem in _NON_CAPABILITY_FACADE_STEMS:
-        return False
+    The doctrine stems stay a floor, so such a module keeps the rule before it hands anything out.
+    The stems apply to top-level modules only; what a module hands out is read at any depth."""
+    if "/" not in module_key:
+        stem = module_key.removesuffix(".py")
+        if stem in CAPABILITY_SUBMODULES:
+            return True
+        if stem.startswith("api") or stem in _NON_CAPABILITY_FACADE_STEMS:
+            return False
     wiring = (*GARAGE_PREFIXES, *MODEL_SURFACE_PREFIXES)
-    return any(handed.source_path.startswith(wiring) for handed in _iter_handed_out_names(tree, backend_dir))
+    package_parts = _facade_package_parts(module_key)
+    return any(
+        handed.source_path.startswith(wiring) for handed in _iter_handed_out_names(tree, backend_dir, package_parts)
+    )
 
 
-def _facade_module_dotted(product: str, filename: str) -> str:
-    """`products.<product>.backend.facade.<module>` for one facade file. A package __init__ names
-    the package itself, the same rule the crossings scan uses for a repo path."""
-    parts = ["products", product, "backend", "facade"]
-    stem = filename.removesuffix(".py")
-    if stem != "__init__":
-        parts.append(stem)
+def _facade_module_dotted(product: str, module_key: str) -> str:
+    """`products.<product>.backend.facade.<module>` for one facade file, from its path inside
+    facade/ (`destinations/s3.py` -> `...facade.destinations.s3`). A package __init__ names the
+    package itself, the same rule the crossings scan uses for a repo path."""
+    parts = ["products", product, "backend", "facade", *module_key.removesuffix(".py").split("/")]
+    if parts[-1] == "__init__":
+        parts.pop()
     return ".".join(parts)
 
 
@@ -1587,14 +1747,15 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
         tree = ast_parse_safe(path)
         if tree is None:
             continue
-        dotted_module = _facade_module_dotted(name, path.name)
-        env = _facade_import_env(tree, model_names, backend_dir)
-        findings.extend(_iter_module_signature_findings(tree, env, name, path.name, dotted_module))
+        module_key = _facade_module_key(backend_dir, path)
+        dotted_module = _facade_module_dotted(name, module_key)
+        env = _facade_import_env(tree, model_names, backend_dir, _facade_package_parts(module_key))
+        findings.extend(_iter_module_signature_findings(tree, env, name, module_key, dotted_module))
         findings.extend(
-            _iter_reexport_signature_findings(tree, backend_dir, name, path.name, dotted_module, model_names)
+            _iter_reexport_signature_findings(tree, backend_dir, name, module_key, dotted_module, model_names)
         )
-        if _is_capability_module(tree, path.name, backend_dir):
-            logic = _capability_finding(tree, name, path.name, dotted_module)
+        if _is_capability_module(tree, module_key, backend_dir):
+            logic = _capability_finding(tree, name, module_key, dotted_module)
             if logic is not None:
                 findings.append(logic)
     return sorted(findings, key=lambda f: (f.facade_module, f.symbol, f.kind, f.type_name, f.parameter))
@@ -1605,10 +1766,19 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
 # ---------------------------------------------------------------------------
 
 
+class IsolationRung(StrEnum):
+    """The isolation ladder. Each rung includes the one before it."""
+
+    LENIENT = "Lenient"
+    STRICT = "Strict"
+    SEALED = "Sealed"
+    ISOLATED = "Isolated"
+
+
 @dataclass(frozen=True)
 class IsolationStatus:
     name: str
-    is_isolated: bool  # has facade/contracts.py — in the strict regime
+    has_facade_contracts: bool  # has facade/contracts.py, which puts the product on the Strict rung
     has_real_facade: bool
     has_tach_interface: bool
     has_legacy_leaks: bool
@@ -1639,6 +1809,11 @@ class IsolationStatus:
     # product fails to keep in its contract-check inputs; every narrowed product must watch them.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
+    # Classes from wiring locations without an approved interface (see facade_unapproved_wiring).
+    # Information below the Isolated rung; on an Isolated product each one needs a ledger row.
+    unapproved_wiring: tuple[UnapprovedWiringClass, ...] = ()
+    # Read only for a product with 'backend:contract-check', the one kind that skips the suite.
+    channel_modules: tuple[ChannelModule, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -1652,21 +1827,33 @@ class IsolationStatus:
     @property
     def internally_sealed(self) -> bool:
         """Presentation reaches internals only through the facade — no open bypasses."""
-        return self.is_isolated and self.deferred_count == 0
+        return self.has_facade_contracts and self.deferred_count == 0
 
     @property
-    def eligible_for_isolated_tests(self) -> bool:
-        """Prerequisites for the contract-check skip, mirroring the lint gate's package.json
-        check exactly. Deliberately does NOT include `has_tach_interface` — the external
-        boundary is required too, but it's enforced separately (TachCheck demands the
-        interface; IsolationChainCheck blocks a script without it). Callers that gate a
-        "ready" *display* should additionally require `externally_sealed`."""
-        return self.is_isolated and self.has_real_facade and not self.has_legacy_leaks and self.deferred_count == 0
+    def is_sealed(self) -> bool:
+        """The Sealed rung: both seals hold and facade/api.py defines real functions."""
+        return self.externally_sealed and self.internally_sealed and self.has_real_facade
 
     @property
-    def isolated_tests_enabled(self) -> bool:
+    def test_skip_configured(self) -> bool:
         """The skip is physically wired up right now (script present + turbo narrowed)."""
         return self.has_contract_check_script and self.has_narrowed_turbo
+
+    @property
+    def isolation_enabled(self) -> bool:
+        """The Isolated rung: a sealed product whose test skip is configured. A configured skip on an
+        unsealed product does not count, because the lint rejects that state."""
+        return self.is_sealed and self.test_skip_configured
+
+    @property
+    def rung(self) -> IsolationRung:
+        if self.isolation_enabled:
+            return IsolationRung.ISOLATED
+        if self.is_sealed:
+            return IsolationRung.SEALED
+        if self.has_facade_contracts:
+            return IsolationRung.STRICT
+        return IsolationRung.LENIENT
 
 
 def compute_isolation_status(
@@ -1674,7 +1861,7 @@ def compute_isolation_status(
     product_dir: Path,
     backend_dir: Path,
     *,
-    is_isolated: bool | None = None,
+    has_facade_contracts: bool | None = None,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     repo_root: Path | None = None,
@@ -1684,8 +1871,8 @@ def compute_isolation_status(
 
     `driven_wiring_locations` is the evidence `unwatched_garages` reads. Without it, every present wiring
     location must stay watched."""
-    if is_isolated is None:
-        is_isolated = is_isolated_product(backend_dir)
+    if has_facade_contracts is None:
+        has_facade_contracts = has_contracts_module(backend_dir)
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
     if repo_root is None:
@@ -1694,16 +1881,22 @@ def compute_isolation_status(
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     reexports = _split_facade_reexports(backend_dir, name)
     carveout_modules = reexports.carveout_modules
+    has_script = has_contract_check_script(product_dir)
+    channel_modules = find_channel_modules(product_dir, repo_root) if has_script else ()
     return IsolationStatus(
         name=name,
-        is_isolated=is_isolated,
+        has_facade_contracts=has_facade_contracts,
         has_real_facade=has_real_facade(backend_dir),
         has_tach_interface=has_tach_interface(name, tach_content),
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
         bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
-        has_contract_check_script=has_contract_check_script(product_dir),
+        has_contract_check_script=has_script,
         has_narrowed_turbo=has_narrowed_turbo_inputs(
-            product_dir, permanent_modules, carveout_modules, MODEL_SURFACE_PREFIXES
+            product_dir,
+            permanent_modules,
+            carveout_modules,
+            MODEL_SURFACE_PREFIXES,
+            frozenset(c.path for c in channel_modules),
         ),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
@@ -1716,4 +1909,6 @@ def compute_isolation_status(
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
+        unapproved_wiring=tuple(facade_unapproved_wiring(backend_dir, name)),
+        channel_modules=channel_modules,
     )

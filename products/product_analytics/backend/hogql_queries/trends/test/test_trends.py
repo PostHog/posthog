@@ -1,7 +1,7 @@
 import uuid
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -56,8 +56,8 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
-from posthog.models import Entity, Organization, Person
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+from posthog.models import Organization, Person
 from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
@@ -73,23 +73,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.trends.test.test_trends_persons import get_actors
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
-
-
-def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
-    ret_dict: dict[str, Optional[Union[str, int]]] = {}
-    if not value or not isinstance(value, str) or "cohort_" not in value:
-        label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
-        ret_dict["label"] = f"{entity.name} - {label}"
-        ret_dict["breakdown_value"] = label
-    else:
-        if value == "cohort_all":
-            ret_dict["label"] = f"{entity.name} - all users"
-            ret_dict["breakdown_value"] = "all"
-        else:
-            cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
-            ret_dict["label"] = f"{entity.name} - {cohort.name}"
-            ret_dict["breakdown_value"] = cohort.pk
-    return ret_dict
 
 
 def _create_cohort(
@@ -2526,18 +2509,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 4.0,
                     "data": [0.0, 1.0, 2.0, 1.0, 0.0],
@@ -2567,18 +2538,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 3.0,
                     "data": [0.0, 2.0, 0.0, 0.0, 1.0, 0.0],
@@ -2610,18 +2569,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-11-24",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 3.0,  # includes only events after date_from
                     "data": [0.0, 2.0, 1.0, 0.0],
@@ -2644,18 +2591,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-7-30",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 1.0,
                     "data": [0.0, 1.0],
@@ -2681,18 +2616,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             query_time="2020-12-30 10:20:00",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 6,
                     "data": [6],
@@ -2717,18 +2640,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             query_time="2020-04-30 10:20:00",
             result=[
                 {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "custom_name": None,
-                        "math": None,
-                        "math_hogql": None,
-                        "math_property": None,
-                        "math_group_type_index": None,
-                        "properties": [],
-                    },
                     "label": "event_name",
                     "count": 5.0,
                     "data": [2.0, 2.0, 1.0, 0.0],
@@ -3469,33 +3380,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response[0]["labels"][23], "2-Jan 23:00")
         self.assertEqual(response[0]["data"][23], 1.0)
-
-    def test_breakdown_label(self):
-        entity = Entity({"id": "$pageview", "name": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-        num_label = breakdown_label(entity, 1)
-        self.assertEqual(num_label, {"label": "$pageview - 1", "breakdown_value": 1})
-
-        string_label = breakdown_label(entity, "Chrome")
-        self.assertEqual(string_label, {"label": "$pageview - Chrome", "breakdown_value": "Chrome"})
-
-        nan_label = breakdown_label(entity, "nan")
-        self.assertEqual(nan_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
-
-        none_label = breakdown_label(entity, "None")
-        self.assertEqual(none_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
-
-        cohort_all_label = breakdown_label(entity, "cohort_all")
-        self.assertEqual(
-            cohort_all_label,
-            {"label": "$pageview - all users", "breakdown_value": "all"},
-        )
-
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-        cohort_label = breakdown_label(entity, f"cohort_{cohort.pk}")
-        self.assertEqual(
-            cohort_label,
-            {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk},
-        )
 
     @also_test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
@@ -4394,6 +4278,83 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["label"], "p2")
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[1]["count"], 1)
+
+    def test_breakdown_by_element_property(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="text",
+            property_type="Boolean",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        # One button and one link, each nested in a div, so the chains hold more than one
+        # element and the innermost pick is exercised. The button appears twice.
+        button_chain = (
+            'button.btn-primary:nth-child="1"nth-of-type="1"text="1";div.container:nth-child="0"nth-of-type="0"'
+        )
+        link_chain = 'a.nav-link:href="/pricing"nth-child="2"nth-of-type="1"text="Pricing";div.container:nth-child="0"nth-of-type="0"'
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=button_chain,
+        )
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=link_chain,
+        )
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p1",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain=button_chain,
+        )
+        # An autocapture on a plain div has no text or href, but its tag name still belongs in
+        # the tag breakdown.
+        self._create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p2",
+            timestamp="2020-01-04T12:00:00Z",
+            elements_chain='div.container:nth-child="0"nth-of-type="0"',
+        )
+
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
+            for breakdown, expected in [
+                ("text", [("1", 2), ("Pricing", 1)]),
+                ("tag_name", [("button", 2), ("a", 1), ("div", 1)]),
+                # the null bucket sorts after every valued series, whatever the counts
+                ("href", [("/pricing", 1), (BREAKDOWN_NULL_STRING_LABEL, 3)]),
+            ]:
+                response = self._run_query(
+                    TrendsQuery(
+                        breakdownFilter=BreakdownFilter(
+                            breakdown=breakdown,
+                            breakdown_type=BreakdownType.ELEMENT,
+                        ),
+                        dateRange=DateRange(
+                            date_from="-7d",
+                        ),
+                        interval=IntervalType.HOUR,
+                        series=[
+                            EventsNode(
+                                event="$autocapture",
+                                name="$autocapture",
+                            ),
+                        ],
+                    ),
+                    self.team,
+                )
+
+                self.assertEqual(
+                    [(series["label"], series["count"]) for series in response[: len(expected)]],
+                    expected,
+                    f"breakdown by element {breakdown}",
+                )
 
     @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):

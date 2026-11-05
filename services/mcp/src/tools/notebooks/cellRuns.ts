@@ -1,6 +1,19 @@
 import type { Schemas } from '@/api/generated'
+import { wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
+
+import {
+    collectRunRefs,
+    findCellTag,
+    readExpressionProp,
+    readStringProp,
+    replaceCellTag,
+    upsertProp,
+    type CellTagBlock,
+} from './cellTags'
+import { visualizationWarnings } from './cellVisualization'
+import { applyMarkdownEdit, notebookPathFor } from './markdownDoc'
 
 /**
  * Budget for waiting on a run inside one tool call. Kept under common MCP client tool
@@ -35,6 +48,14 @@ export interface ShapedRunResult {
     hint?: string
 }
 
+export interface NotRunResult {
+    status: 'not_run'
+    hint: string
+}
+
+export const NOT_RUN_HINT =
+    'The cell has no run yet. Run it with notebooks-run-cell, or run the whole notebook with notebooks-run.'
+
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function dispatchRun(
@@ -47,6 +68,8 @@ export async function dispatchRun(
         output_name: string
         refs: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
         variables?: Schemas.NotebookVariable[]
+        connection_id?: string
+        send_raw_query?: boolean
     }
 ): Promise<string> {
     // Variables ride the run body, as they do from the editor: a SQL cell reading a `{name}`
@@ -157,5 +180,93 @@ export function wrapRunResultAsInformational<T extends object>(result: T): WithI
  */
 export function buildResultProp(envelope: Schemas.NotebookSQLV2Envelope): Record<string, unknown> {
     return notebookResultPreview(envelope)
+}
+
+export interface RunnableCell {
+    nodeId: string
+    tagName: string
+    code: string
+    returnVariable: string
+}
+
+const UNRUN_REFERENCE = /Referenced node '([A-Za-z_][A-Za-z0-9_]*)' has not been run yet/
+
+/**
+ * The backend names the upstream dataframe, but the agent runs cells by node_id, and a cell added
+ * with `run: false` is the usual cause. Naming the cell saves a notebooks-get round trip.
+ */
+function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
+    const message = error instanceof Error ? error.message : ''
+    const name = UNRUN_REFERENCE.exec(message)?.[1]
+    const upstream = name ? cells.find((cell) => cell.returnVariable === name && cell.nodeId) : undefined
+    if (!upstream) {
+        return error
+    }
+    // The original stays as the cause, so the error handler still finds the 400 and treats the
+    // mistake as recoverable rather than as an internal failure.
+    return wrapError(
+        `${message} Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`,
+        error
+    )
+}
+
+/**
+ * The run endpoint takes the data source from the request, not from the notebook, so a run that
+ * omits it sends an external-source cell to PostHog's ClickHouse.
+ */
+function connectionSettings(
+    cell: RunnableCell,
+    cells: CellTagBlock[]
+): { connection_id?: string; send_raw_query?: boolean } {
+    const source = cell.tagName === 'SQLV2' ? cells.find((other) => other.nodeId === cell.nodeId)?.source : undefined
+    const connectionId = source ? readStringProp(source, 'connectionId') : null
+    if (!source || !connectionId) {
+        return {}
+    }
+    return { connection_id: connectionId, send_raw_query: readExpressionProp(source, 'sendRawQuery') === true }
+}
+
+export async function runCellAndWriteBack(
+    context: Context,
+    notebookId: string,
+    cell: RunnableCell,
+    cells: CellTagBlock[],
+    variables: Schemas.NotebookVariable[] | undefined
+): Promise<{ run: ShapedRunResult; warnings: string[] }> {
+    const projectId = await context.stateManager.getProjectId()
+    const notebookPath = notebookPathFor(projectId, notebookId)
+    let runId: string
+    try {
+        runId = await dispatchRun(context, notebookPath, {
+            node_id: cell.nodeId,
+            node_type: cell.tagName === 'SQLV2' ? 'hogql' : 'python',
+            code: cell.code,
+            output_name: cell.returnVariable,
+            refs: collectRunRefs(cells, cell.nodeId),
+            variables,
+            ...connectionSettings(cell, cells),
+        })
+    } catch (error) {
+        throw withUnrunUpstreamHint(error, cells)
+    }
+    const outcome = await awaitRun(context, notebookPath, runId)
+    let warnings: string[] = []
+    // Mirror the editor's write-back so humans opening the notebook see the result: runId
+    // always, the envelope once terminal. Anchored on nodeId, so concurrent edits to other
+    // parts of the document survive the retry inside applyMarkdownEdit.
+    await applyMarkdownEdit(context, notebookId, (markdown) => {
+        const block = findCellTag(markdown, cell.nodeId)
+        if (!block) {
+            return markdown
+        }
+        let source = upsertProp(block.source, 'runId', runId)
+        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
+            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
+            // New code can drop a column the stored chart plots, so every run re-checks the chart.
+            warnings = visualizationWarnings(source, outcome.envelope)
+        }
+        return replaceCellTag(markdown, block, source)
+    })
+    return { run: shapeRunForModel(outcome), warnings }
 }
 import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'

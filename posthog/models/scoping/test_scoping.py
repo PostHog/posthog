@@ -1,5 +1,6 @@
 import pytest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -13,7 +14,7 @@ from posthog.models.scoping import (
 )
 
 
-class TestContextVar(BaseTest):
+class TestContextVar(SimpleTestCase):
     def test_default_is_none(self):
         assert get_current_team_id() is None
 
@@ -40,7 +41,7 @@ class TestContextVar(BaseTest):
         assert get_current_team_id() is None
 
 
-class TestTeamScopeContextManager(BaseTest):
+class TestTeamScopeContextManager(SimpleTestCase):
     @parameterized.expand(
         [
             (1,),
@@ -86,7 +87,7 @@ class TestTeamScopeContextManager(BaseTest):
         assert get_current_team_id() is None
 
 
-class TestUnscopedContextManager(BaseTest):
+class TestUnscopedContextManager(SimpleTestCase):
     def test_clears_team_id(self):
         with team_scope(42, canonical=True):
             assert get_current_team_id() == 42
@@ -120,7 +121,7 @@ class TestUnscopedContextManager(BaseTest):
             assert get_current_team_id() == 99
 
 
-class TestWithTeamScopeDecorator(BaseTest):
+class TestWithTeamScopeDecorator(SimpleTestCase):
     def test_sets_team_id_from_kwarg(self):
         """Decorator extracts team_id from keyword argument."""
         captured_team_id = None

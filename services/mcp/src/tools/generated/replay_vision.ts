@@ -4,6 +4,11 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
+import {
+    ScannerEstimateRecordingsFilterSchema,
+    ScannerRecordingsFilterSchema,
+    ScannerUpdateRecordingsFilterSchema,
+} from '@/schema/tool-inputs'
 import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -336,6 +341,71 @@ const visionAlertsUpdate = (): ToolBase<
     },
 })
 
+const VisionGroupsGetSchema = () => {
+    const VisionGroupsRetrieveParams = orvalSchemas.VisionGroupsRetrieveParams()
+    const VisionGroupsRetrieveQueryParams = orvalSchemas.VisionGroupsRetrieveQueryParams()
+    return VisionGroupsRetrieveParams.omit({ project_id: true }).extend(VisionGroupsRetrieveQueryParams.shape)
+}
+
+const visionGroupsGet = (): ToolBase<ReturnType<typeof VisionGroupsGetSchema>, WithAgentNote<Schemas.Cluster>> => ({
+    name: 'vision-groups-get',
+    schema: VisionGroupsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionGroupsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Cluster>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/groups/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                by_variant: params.by_variant,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                include_routine: params.include_routine,
+                scanner_id: params.scanner_id,
+                variant: params.variant,
+            },
+        })
+        return withAgentNote(
+            result,
+            'A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read a few members, and the recordings behind them, before you describe or report the issue.\n'
+        )
+    },
+})
+
+const VisionGroupsListSchema = () => {
+    const VisionGroupsListQueryParams = orvalSchemas.VisionGroupsListQueryParams()
+    return VisionGroupsListQueryParams
+}
+
+const visionGroupsList = (): ToolBase<
+    ReturnType<typeof VisionGroupsListSchema>,
+    WithAgentNote<Schemas.ClusterList>
+> => ({
+    name: 'vision-groups-list',
+    schema: VisionGroupsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionGroupsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusterList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/groups/`,
+            query: {
+                by_variant: params.by_variant,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                include_routine: params.include_routine,
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                scanner_id: params.scanner_id,
+                variant: params.variant,
+            },
+        })
+        return withAgentNote(
+            result,
+            'A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read a few members, and the recordings behind them, before you describe or report the issue.\n'
+        )
+    },
+})
+
 const VisionObservationsCreateTaskSchema = () => {
     const VisionObservationsCreateTaskCreateParams = orvalSchemas.VisionObservationsCreateTaskCreateParams()
     return VisionObservationsCreateTaskCreateParams.omit({ project_id: true })
@@ -380,6 +450,8 @@ const visionObservationsGet = (): ToolBase<
                 backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                group: params.group,
+                include_routine: params.include_routine,
                 labeled: params.labeled,
                 max_score: params.max_score,
                 min_score: params.min_score,
@@ -388,8 +460,12 @@ const visionObservationsGet = (): ToolBase<
                 session_id: params.session_id,
                 status: params.status,
                 tags: params.tags,
+                theme: params.theme,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -452,27 +528,6 @@ const visionObservationsLabelDelete = (): ToolBase<
     },
 })
 
-const VisionObservationsLabelDestroySchema = () => {
-    const VisionObservationsLabelDestroyParams = orvalSchemas.VisionObservationsLabelDestroyParams()
-    return VisionObservationsLabelDestroyParams.omit({ project_id: true })
-}
-
-const visionObservationsLabelDestroy = (): ToolBase<
-    ReturnType<typeof VisionObservationsLabelDestroySchema>,
-    unknown
-> => ({
-    name: 'vision-observations-label-destroy',
-    schema: VisionObservationsLabelDestroySchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionObservationsLabelDestroySchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/label/`,
-        })
-        return result
-    },
-})
-
 const VisionObservationsListSchema = () => {
     const VisionObservationsListQueryParams = orvalSchemas.VisionObservationsListQueryParams()
     return VisionObservationsListQueryParams
@@ -517,45 +572,6 @@ const visionObservationsList = (): ToolBase<
             )
         },
     })
-
-const VisionObservationsRetrieveSchema = () => {
-    const VisionObservationsRetrieveParams = orvalSchemas.VisionObservationsRetrieveParams()
-    const VisionObservationsRetrieveQueryParams = orvalSchemas.VisionObservationsRetrieveQueryParams()
-    return VisionObservationsRetrieveParams.omit({ project_id: true }).extend(
-        VisionObservationsRetrieveQueryParams.shape
-    )
-}
-
-const visionObservationsRetrieve = (): ToolBase<
-    ReturnType<typeof VisionObservationsRetrieveSchema>,
-    WithPostHogUrl<Schemas.ReplayObservation>
-> => ({
-    name: 'vision-observations-retrieve',
-    schema: VisionObservationsRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionObservationsRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayObservation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
-            query: {
-                backfill_id: params.backfill_id,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                labeled: params.labeled,
-                max_score: params.max_score,
-                min_score: params.min_score,
-                order_by: params.order_by,
-                recording_subject: params.recording_subject,
-                session_id: params.session_id,
-                status: params.status,
-                tags: params.tags,
-                triggered_by: params.triggered_by,
-                verdict: params.verdict,
-            },
-        })
-        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
-    },
-})
 
 const VisionObservationsRetrySchema = () => {
     const VisionObservationsRetryCreateParams = orvalSchemas.VisionObservationsRetryCreateParams()
@@ -646,21 +662,6 @@ const visionQuotaGet = (): ToolBase<ReturnType<typeof VisionQuotaGetSchema>, Sch
     },
 })
 
-const VisionQuotaRetrieveSchema = () => z.object({})
-
-const visionQuotaRetrieve = (): ToolBase<ReturnType<typeof VisionQuotaRetrieveSchema>, Schemas.VisionQuota> => ({
-    name: 'vision-quota-retrieve',
-    schema: VisionQuotaRetrieveSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof VisionQuotaRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.VisionQuota>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/quota/`,
-        })
-        return result
-    },
-})
-
 const VisionQuotaSpendSeriesGetSchema = () => z.object({})
 
 const visionQuotaSpendSeriesGet = (): ToolBase<
@@ -674,6 +675,65 @@ const visionQuotaSpendSeriesGet = (): ToolBase<
         const result = await context.api.request<Schemas.VisionSpendSeries>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/quota/spend_series/`,
+        })
+        return result
+    },
+})
+
+const VisionRequestsCreateSchema = () => {
+    const VisionRequestsCreateBody = orvalSchemas.VisionRequestsCreateBody()
+    return VisionRequestsCreateBody
+}
+
+const visionRequestsCreate = (): ToolBase<
+    ReturnType<typeof VisionRequestsCreateSchema>,
+    Schemas.ObservationRequest
+> => ({
+    name: 'vision-requests-create',
+    schema: VisionRequestsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_ids !== undefined) {
+            body['session_ids'] = params.session_ids
+        }
+        if (params.scanner_id !== undefined) {
+            body['scanner_id'] = params.scanner_id
+        }
+        if (params.inline !== undefined) {
+            body['inline'] = params.inline
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        if (params.reference !== undefined) {
+            body['reference'] = params.reference
+        }
+        if (params.wait_for_session_end !== undefined) {
+            body['wait_for_session_end'] = params.wait_for_session_end
+        }
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionRequestsGetSchema = () => {
+    const VisionRequestsRetrieveParams = orvalSchemas.VisionRequestsRetrieveParams()
+    return VisionRequestsRetrieveParams.omit({ project_id: true })
+}
+
+const visionRequestsGet = (): ToolBase<ReturnType<typeof VisionRequestsGetSchema>, Schemas.ObservationRequest> => ({
+    name: 'vision-requests-get',
+    schema: VisionRequestsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionRequestsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ObservationRequest>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -904,7 +964,7 @@ const visionScannersCounts = (): ToolBase<
 
 const VisionScannersCreateSchema = () => {
     const VisionScannersCreateBody = orvalSchemas.VisionScannersCreateBody()
-    return VisionScannersCreateBody
+    return VisionScannersCreateBody.extend({ query: ScannerRecordingsFilterSchema })
 }
 
 const visionScannersCreate = (): ToolBase<
@@ -934,11 +994,11 @@ const visionScannersCreate = (): ToolBase<
         if (params.creation_method !== undefined) {
             body['creation_method'] = params.creation_method
         }
+        if (params.take_over_as_creator !== undefined) {
+            body['take_over_as_creator'] = params.take_over_as_creator
+        }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
         }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
@@ -948,6 +1008,9 @@ const visionScannersCreate = (): ToolBase<
         }
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
+        }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
         }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
@@ -964,6 +1027,9 @@ const visionScannersCreate = (): ToolBase<
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
         }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
@@ -971,8 +1037,29 @@ const visionScannersCreate = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay-vision/${result.id}`),
-            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
+            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down, ideally with a short note, teaches the scanner, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
         )
+    },
+})
+
+const VisionScannersDashboardCreateSchema = () => {
+    const VisionScannersCreateDashboardCreateParams = orvalSchemas.VisionScannersCreateDashboardCreateParams()
+    return VisionScannersCreateDashboardCreateParams.omit({ project_id: true })
+}
+
+const visionScannersDashboardCreate = (): ToolBase<
+    ReturnType<typeof VisionScannersDashboardCreateSchema>,
+    Schemas.ScannerDashboardResponse
+> => ({
+    name: 'vision-scanners-dashboard-create',
+    schema: VisionScannersDashboardCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersDashboardCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerDashboardResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/create_dashboard/`,
+        })
+        return result
     },
 })
 
@@ -1014,6 +1101,15 @@ const visionScannersDraft = (): ToolBase<
         if (params.monthly_credit_budget !== undefined) {
             body['monthly_credit_budget'] = params.monthly_credit_budget
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
+        if (params.experiment_id !== undefined) {
+            body['experiment_id'] = params.experiment_id
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/draft/`,
@@ -1046,7 +1142,7 @@ const visionScannersDuplicate = (): ToolBase<
 
 const VisionScannersEstimateSchema = () => {
     const VisionScannersEstimateCreateBody = orvalSchemas.VisionScannersEstimateCreateBody()
-    return VisionScannersEstimateCreateBody
+    return VisionScannersEstimateCreateBody.extend({ query: ScannerEstimateRecordingsFilterSchema })
 }
 
 const visionScannersEstimate = (): ToolBase<
@@ -1058,9 +1154,6 @@ const visionScannersEstimate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersEstimateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
@@ -1076,46 +1169,11 @@ const visionScannersEstimate = (): ToolBase<
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
         }
-        const result = await context.api.request<Schemas.EstimateResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
-            body,
-        })
-        return result
-    },
-})
-
-const VisionScannersEstimateCreateSchema = () => {
-    const VisionScannersEstimateCreateBody = orvalSchemas.VisionScannersEstimateCreateBody()
-    return VisionScannersEstimateCreateBody
-}
-
-const visionScannersEstimateCreate = (): ToolBase<
-    ReturnType<typeof VisionScannersEstimateCreateSchema>,
-    Schemas.EstimateResponse
-> => ({
-    name: 'vision-scanners-estimate-create',
-    schema: VisionScannersEstimateCreateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersEstimateCreateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
+        if (params.experiment !== undefined) {
+            body['experiment'] = params.experiment
+        }
         if (params.query !== undefined) {
             body['query'] = params.query
-        }
-        if (params.sampling_rate !== undefined) {
-            body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.experiment_targeting !== undefined) {
-            body['experiment_targeting'] = params.experiment_targeting
         }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
@@ -1141,6 +1199,49 @@ const visionScannersGet = (): ToolBase<ReturnType<typeof VisionScannersGetSchema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const VisionScannersHighlightFeedSchema = () => {
+    const VisionScannersHighlightFeedRetrieveQueryParams = orvalSchemas.VisionScannersHighlightFeedRetrieveQueryParams()
+    return VisionScannersHighlightFeedRetrieveQueryParams
+}
+
+const visionScannersHighlightFeed = (): ToolBase<
+    ReturnType<typeof VisionScannersHighlightFeedSchema>,
+    WithAgentNote<Schemas.HighlightFeedResponse>
+> => ({
+    name: 'vision-scanners-highlight-feed',
+    schema: VisionScannersHighlightFeedSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersHighlightFeedSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HighlightFeedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/highlight_feed/`,
+            query: {
+                as_of: params.as_of,
+                categories: params.categories,
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                scanner_ids: params.scanner_ids,
+                scanner_type: params.scanner_type,
+                tags: params.tags,
+            },
+        })
+        const filtered = stripNullFields(
+            omitResponseFields(result, [
+                'results.*.observation.scanner_snapshot',
+                'results.*.observation.workflow_id',
+                'results.*.observation.triggered_by_user',
+            ])
+        ) as typeof result
+        return withAgentNote(
+            filtered,
+            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
+        )
     },
 })
 
@@ -1175,37 +1276,6 @@ const visionScannersImpactGet = (): ToolBase<
     },
 })
 
-const VisionScannersImpactRetrieveSchema = () => {
-    const VisionScannersImpactRetrieveParams = orvalSchemas.VisionScannersImpactRetrieveParams()
-    const VisionScannersImpactRetrieveQueryParams = orvalSchemas.VisionScannersImpactRetrieveQueryParams()
-    return VisionScannersImpactRetrieveParams.omit({ project_id: true }).extend(
-        VisionScannersImpactRetrieveQueryParams.shape
-    )
-}
-
-const visionScannersImpactRetrieve = (): ToolBase<
-    ReturnType<typeof VisionScannersImpactRetrieveSchema>,
-    Schemas.ScannerImpact
-> => ({
-    name: 'vision-scanners-impact-retrieve',
-    schema: VisionScannersImpactRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersImpactRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ScannerImpact>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/impact/`,
-            query: {
-                max_score: params.max_score,
-                min_score: params.min_score,
-                tag: params.tag,
-                verdict: params.verdict,
-                window_days: params.window_days,
-            },
-        })
-        return result
-    },
-})
-
 const VisionScannersInlineScanSchema = () => {
     const VisionScannersInlineScanCreateBody = orvalSchemas.VisionScannersInlineScanCreateBody()
     return VisionScannersInlineScanCreateBody
@@ -1218,8 +1288,8 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
-            if (params.session_ids !== undefined) {
-                body['session_ids'] = params.session_ids
+            if (params.built_in !== undefined) {
+                body['built_in'] = params.built_in
             }
             if (params.prompt !== undefined) {
                 body['prompt'] = params.prompt
@@ -1233,41 +1303,8 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
             if (params.model !== undefined) {
                 body['model'] = params.model
             }
-            const result = await context.api.request<unknown>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/inline_scan/`,
-                body,
-            })
-            return result
-        },
-    })
-
-const VisionScannersInlineScanCreateSchema = () => {
-    const VisionScannersInlineScanCreateBody = orvalSchemas.VisionScannersInlineScanCreateBody()
-    return VisionScannersInlineScanCreateBody
-}
-
-const visionScannersInlineScanCreate = (): ToolBase<ReturnType<typeof VisionScannersInlineScanCreateSchema>, unknown> =>
-    withUiApp('inline-scan', {
-        name: 'vision-scanners-inline-scan-create',
-        schema: VisionScannersInlineScanCreateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanCreateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
             if (params.session_ids !== undefined) {
                 body['session_ids'] = params.session_ids
-            }
-            if (params.prompt !== undefined) {
-                body['prompt'] = params.prompt
-            }
-            if (params.scanner_type !== undefined) {
-                body['scanner_type'] = params.scanner_type
-            }
-            if (params.scanner_config !== undefined) {
-                body['scanner_config'] = params.scanner_config
-            }
-            if (params.model !== undefined) {
-                body['model'] = params.model
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
@@ -1343,6 +1380,8 @@ const visionScannersObservationsGet = (): ToolBase<
                 backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                group: params.group,
+                include_routine: params.include_routine,
                 labeled: params.labeled,
                 max_score: params.max_score,
                 min_score: params.min_score,
@@ -1351,8 +1390,12 @@ const visionScannersObservationsGet = (): ToolBase<
                 session_id: params.session_id,
                 status: params.status,
                 tags: params.tags,
+                theme: params.theme,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1386,6 +1429,8 @@ const visionScannersObservationsList = (): ToolBase<
                     backfill_id: params.backfill_id,
                     date_from: params.date_from,
                     date_to: params.date_to,
+                    group: params.group,
+                    include_routine: params.include_routine,
                     labeled: params.labeled,
                     limit: params.limit,
                     max_score: params.max_score,
@@ -1396,8 +1441,12 @@ const visionScannersObservationsList = (): ToolBase<
                     session_id: params.session_id,
                     status: params.status,
                     tags: params.tags,
+                    theme: params.theme,
                     triggered_by: params.triggered_by,
+                    variant: params.variant,
                     verdict: params.verdict,
+                    watch_category: params.watch_category,
+                    watch_group: params.watch_group,
                 },
             })
             return withTextProjection(
@@ -1414,7 +1463,7 @@ const visionScannersObservationsList = (): ToolBase<
                         },
                         '/replay'
                     ),
-                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and it is what `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and the scanner learns from it, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
                 ),
                 ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
@@ -1445,6 +1494,8 @@ const visionScannersObservationsStats = (): ToolBase<
                 backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                group: params.group,
+                include_routine: params.include_routine,
                 labeled: params.labeled,
                 max_score: params.max_score,
                 min_score: params.min_score,
@@ -1453,122 +1504,18 @@ const visionScannersObservationsStats = (): ToolBase<
                 session_id: params.session_id,
                 status: params.status,
                 tags: params.tags,
+                theme: params.theme,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
             result,
-            "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so a prompt suggestion has little to learn from. Say so, and ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.\n"
+            'When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so it has little to learn from. Say so, and ask the person to rate a few results. Record their verdicts with `vision-observations-label-create` rather than supplying your own.\n'
         )
-    },
-})
-
-const VisionScannersPromptSuggestionsApplySchema = () => {
-    const VisionScannersPromptSuggestionsApplyCreateBody = orvalSchemas.VisionScannersPromptSuggestionsApplyCreateBody()
-    const VisionScannersPromptSuggestionsApplyCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsApplyCreateParams()
-    return VisionScannersPromptSuggestionsApplyCreateParams.omit({ project_id: true }).extend(
-        VisionScannersPromptSuggestionsApplyCreateBody.shape
-    )
-}
-
-const visionScannersPromptSuggestionsApply = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsApplySchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-apply',
-    schema: VisionScannersPromptSuggestionsApplySchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsApplySchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
-            body,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsCurrentSchema = () => {
-    const VisionScannersPromptSuggestionsCurrentRetrieveParams =
-        orvalSchemas.VisionScannersPromptSuggestionsCurrentRetrieveParams()
-    return VisionScannersPromptSuggestionsCurrentRetrieveParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsCurrent = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsCurrentSchema>,
-    Schemas.CurrentPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-current',
-    schema: VisionScannersPromptSuggestionsCurrentSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsCurrentSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CurrentPromptSuggestion>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/current/`,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsDismissSchema = () => {
-    const VisionScannersPromptSuggestionsDismissCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsDismissCreateParams()
-    return VisionScannersPromptSuggestionsDismissCreateParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsDismiss = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsDismissSchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-dismiss',
-    schema: VisionScannersPromptSuggestionsDismissSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsDismissSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/dismiss/`,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsGenerateSchema = () => {
-    const VisionScannersPromptSuggestionsGenerateCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsGenerateCreateParams()
-    return VisionScannersPromptSuggestionsGenerateCreateParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsGenerate = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsGenerateSchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-generate',
-    schema: VisionScannersPromptSuggestionsGenerateSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsGenerateSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/generate/`,
-        })
-        return result
     },
 })
 
@@ -1698,10 +1645,37 @@ const visionScannersScoutsCreate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.variant_analysis !== undefined) {
+            body['variant_analysis'] = params.variant_analysis
+        }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
         const result = await context.api.request<Schemas.ScannerScoutCreateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scouts/`,
             body,
+        })
+        return result
+    },
+})
+
+const VisionScannersScoutsTemplatesListSchema = () => {
+    const VisionScannersScoutsTemplatesListParams = orvalSchemas.VisionScannersScoutsTemplatesListParams()
+    return VisionScannersScoutsTemplatesListParams.omit({ project_id: true })
+}
+
+const visionScannersScoutsTemplatesList = (): ToolBase<
+    ReturnType<typeof VisionScannersScoutsTemplatesListSchema>,
+    Schemas.ScannerScoutTemplate[]
+> => ({
+    name: 'vision-scanners-scouts-templates-list',
+    schema: VisionScannersScoutsTemplatesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersScoutsTemplatesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerScoutTemplate[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scouts/templates/`,
         })
         return result
     },
@@ -1728,48 +1702,12 @@ const visionScannersSelfDrivingStats = (): ToolBase<
     },
 })
 
-const VisionScannersSuggestTagsSchema = () => {
-    const VisionScannersSuggestTagsCreateBody = orvalSchemas.VisionScannersSuggestTagsCreateBody()
-    return VisionScannersSuggestTagsCreateBody
-}
-
-const visionScannersSuggestTags = (): ToolBase<
-    ReturnType<typeof VisionScannersSuggestTagsSchema>,
-    Schemas.SuggestTagsResponse
-> => ({
-    name: 'vision-scanners-suggest-tags',
-    schema: VisionScannersSuggestTagsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersSuggestTagsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.multi_label !== undefined) {
-            body['multi_label'] = params.multi_label
-        }
-        if (params.allow_freeform_tags !== undefined) {
-            body['allow_freeform_tags'] = params.allow_freeform_tags
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        const result = await context.api.request<Schemas.SuggestTagsResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/suggest_tags/`,
-            body,
-        })
-        return result
-    },
-})
-
 const VisionScannersUpdateSchema = () => {
     const VisionScannersPartialUpdateBody = orvalSchemas.VisionScannersPartialUpdateBody()
     const VisionScannersPartialUpdateParams = orvalSchemas.VisionScannersPartialUpdateParams()
-    return VisionScannersPartialUpdateParams.omit({ project_id: true }).extend(VisionScannersPartialUpdateBody.shape)
+    return VisionScannersPartialUpdateParams.omit({ project_id: true })
+        .extend(VisionScannersPartialUpdateBody.shape)
+        .extend({ query: ScannerUpdateRecordingsFilterSchema.optional() })
 }
 
 const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdateSchema>, Schemas.ReplayScanner> => ({
@@ -1796,11 +1734,11 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.creation_method !== undefined) {
             body['creation_method'] = params.creation_method
         }
+        if (params.take_over_as_creator !== undefined) {
+            body['take_over_as_creator'] = params.take_over_as_creator
+        }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
         }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
@@ -1810,6 +1748,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
+        }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
         }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
@@ -1826,6 +1767,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
         }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
@@ -1835,42 +1779,85 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
     },
 })
 
-const VisionScannersWatchFeedSchema = () => {
-    const VisionScannersWatchFeedRetrieveQueryParams = orvalSchemas.VisionScannersWatchFeedRetrieveQueryParams()
-    return VisionScannersWatchFeedRetrieveQueryParams
+const VisionScannersVariantsListSchema = () => {
+    const VisionScannersVariantsListParams = orvalSchemas.VisionScannersVariantsListParams()
+    return VisionScannersVariantsListParams.omit({ project_id: true })
 }
 
-const visionScannersWatchFeed = (): ToolBase<
-    ReturnType<typeof VisionScannersWatchFeedSchema>,
-    WithAgentNote<Schemas.WatchFeedResponse>
+const visionScannersVariantsList = (): ToolBase<
+    ReturnType<typeof VisionScannersVariantsListSchema>,
+    WithAgentNote<Schemas.ExperimentVariantsReadout>
 > => ({
-    name: 'vision-scanners-watch-feed',
-    schema: VisionScannersWatchFeedSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersWatchFeedSchema>>) => {
+    name: 'vision-scanners-variants-list',
+    schema: VisionScannersVariantsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersVariantsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WatchFeedResponse>({
+        const result = await context.api.request<Schemas.ExperimentVariantsReadout>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/variants/`,
+        })
+        return withAgentNote(
+            result,
+            "The observation, people and session counts are counted live and are the numbers to trust. Digest and difference counts come from the variant analysis scout, so read them as shares of each variant's `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call `vision-scanners-observations-list` with `variant` set to its key.\n"
+        )
+    },
+})
+
+const VisionThemesGetSchema = () => {
+    const VisionThemesRetrieveParams = orvalSchemas.VisionThemesRetrieveParams()
+    const VisionThemesRetrieveQueryParams = orvalSchemas.VisionThemesRetrieveQueryParams()
+    return VisionThemesRetrieveParams.omit({ project_id: true }).extend(VisionThemesRetrieveQueryParams.shape)
+}
+
+const visionThemesGet = (): ToolBase<ReturnType<typeof VisionThemesGetSchema>, WithAgentNote<Schemas.Cluster>> => ({
+    name: 'vision-themes-get',
+    schema: VisionThemesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionThemesGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Cluster>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/themes/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                scanner_id: params.scanner_id,
+            },
+        })
+        return withAgentNote(
+            result,
+            'A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read a few members, and the recordings behind them, before you describe or report the issue.\n'
+        )
+    },
+})
+
+const VisionThemesListSchema = () => {
+    const VisionThemesListQueryParams = orvalSchemas.VisionThemesListQueryParams()
+    return VisionThemesListQueryParams
+}
+
+const visionThemesList = (): ToolBase<
+    ReturnType<typeof VisionThemesListSchema>,
+    WithAgentNote<Schemas.ClusterList>
+> => ({
+    name: 'vision-themes-list',
+    schema: VisionThemesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionThemesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusterList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/themes/`,
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
-                scanner_ids: params.scanner_ids,
-                scanner_type: params.scanner_type,
-                search: params.search,
-                tags: params.tags,
+                offset: params.offset,
+                order: params.order,
+                scanner_id: params.scanner_id,
             },
         })
-        const filtered = stripNullFields(
-            omitResponseFields(result, [
-                'results.*.observation.scanner_snapshot',
-                'results.*.observation.workflow_id',
-                'results.*.observation.triggered_by_user',
-            ])
-        ) as typeof result
         return withAgentNote(
-            filtered,
-            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
+            result,
+            'A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read a few members, and the recordings behind them, before you describe or report the issue.\n'
         )
     },
 })
@@ -1885,19 +1872,20 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-alerts-list': visionAlertsList,
     'vision-alerts-reset': visionAlertsReset,
     'vision-alerts-update': visionAlertsUpdate,
+    'vision-groups-get': visionGroupsGet,
+    'vision-groups-list': visionGroupsList,
     'vision-observations-create-task': visionObservationsCreateTask,
     'vision-observations-get': visionObservationsGet,
     'vision-observations-label-create': visionObservationsLabelCreate,
     'vision-observations-label-delete': visionObservationsLabelDelete,
-    'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
-    'vision-observations-retrieve': visionObservationsRetrieve,
     'vision-observations-retry': visionObservationsRetry,
     'vision-observations-search': visionObservationsSearch,
     'vision-observations-signal-reports-list': visionObservationsSignalReportsList,
     'vision-quota-get': visionQuotaGet,
-    'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-quota-spend-series-get': visionQuotaSpendSeriesGet,
+    'vision-requests-create': visionRequestsCreate,
+    'vision-requests-get': visionRequestsGet,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-backfills-cancel': visionScannersBackfillsCancel,
     'vision-scanners-backfills-create': visionScannersBackfillsCreate,
@@ -1907,31 +1895,28 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-backfills-resume': visionScannersBackfillsResume,
     'vision-scanners-counts': visionScannersCounts,
     'vision-scanners-create': visionScannersCreate,
+    'vision-scanners-dashboard-create': visionScannersDashboardCreate,
     'vision-scanners-delete': visionScannersDelete,
     'vision-scanners-draft': visionScannersDraft,
     'vision-scanners-duplicate': visionScannersDuplicate,
     'vision-scanners-estimate': visionScannersEstimate,
-    'vision-scanners-estimate-create': visionScannersEstimateCreate,
     'vision-scanners-get': visionScannersGet,
+    'vision-scanners-highlight-feed': visionScannersHighlightFeed,
     'vision-scanners-impact-get': visionScannersImpactGet,
-    'vision-scanners-impact-retrieve': visionScannersImpactRetrieve,
     'vision-scanners-inline-scan': visionScannersInlineScan,
-    'vision-scanners-inline-scan-create': visionScannersInlineScanCreate,
     'vision-scanners-list': visionScannersList,
     'vision-scanners-observations-get': visionScannersObservationsGet,
     'vision-scanners-observations-list': visionScannersObservationsList,
     'vision-scanners-observations-stats': visionScannersObservationsStats,
-    'vision-scanners-prompt-suggestions-apply': visionScannersPromptSuggestionsApply,
-    'vision-scanners-prompt-suggestions-current': visionScannersPromptSuggestionsCurrent,
-    'vision-scanners-prompt-suggestions-dismiss': visionScannersPromptSuggestionsDismiss,
-    'vision-scanners-prompt-suggestions-generate': visionScannersPromptSuggestionsGenerate,
     'vision-scanners-scan-session': visionScannersScanSession,
     'vision-scanners-scan-sessions': visionScannersScanSessions,
     'vision-scanners-scout-reports-get': visionScannersScoutReportsGet,
     'vision-scanners-scout-reports-list': visionScannersScoutReportsList,
     'vision-scanners-scouts-create': visionScannersScoutsCreate,
+    'vision-scanners-scouts-templates-list': visionScannersScoutsTemplatesList,
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
-    'vision-scanners-suggest-tags': visionScannersSuggestTags,
     'vision-scanners-update': visionScannersUpdate,
-    'vision-scanners-watch-feed': visionScannersWatchFeed,
+    'vision-scanners-variants-list': visionScannersVariantsList,
+    'vision-themes-get': visionThemesGet,
+    'vision-themes-list': visionThemesList,
 }

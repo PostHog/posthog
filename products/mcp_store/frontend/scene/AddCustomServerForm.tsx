@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { McpInstallationScope } from '../mcpStoreLogic'
 import { mcpStoreLogic } from '../mcpStoreLogic'
+import { OAuthRedirectUri } from '../OAuthRedirectUri'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'api_key', label: 'API key' },
@@ -122,6 +123,7 @@ export function AddCustomServerForm(): JSX.Element {
                                 header: 'Advanced — bring your own OAuth client',
                                 content: (
                                     <div className="deprecated-space-y-3">
+                                        <OAuthRedirectUri />
                                         <LemonField
                                             name="client_id"
                                             label="OAuth client ID"

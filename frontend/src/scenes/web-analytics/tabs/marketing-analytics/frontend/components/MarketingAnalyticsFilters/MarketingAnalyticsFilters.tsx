@@ -1,7 +1,7 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -11,7 +11,8 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,15 +20,27 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
 import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
+import { overviewMetricsLogic } from 'products/marketing_analytics/frontend/overview/overviewMetricsLogic'
 
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingAnalyticsTab, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
-export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen } = useValues(marketingAnalyticsLogic)
+export const MarketingAnalyticsFilters = ({
+    tabs,
+    searchOnly = false,
+}: {
+    tabs: JSX.Element
+    searchOnly?: boolean
+}): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance, activeTab } =
+        useValues(marketingAnalyticsLogic)
+    const { openEditor } = useActions(overviewMetricsLogic({ viewKey: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }))
+    const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
+    const showSearch = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const { currentTeamLoading } = useValues(teamLogic)
     const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen } = useActions(marketingAnalyticsLogic)
     // The setting lives on the project, so flipping it changes what everyone sees.
@@ -40,9 +53,9 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <FilterBar
                 top={tabs}
-                className="[&>div]:flex-wrap"
+                className="[&>div]:flex-wrap [&>div>div]:max-w-full [&>div>div>div]:min-w-0 [&>div>div>div>div]:max-w-full"
                 left={
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
                         <DateFilter
                             allowTimePrecision
                             dateFrom={dateFilter.dateFrom}
@@ -58,7 +71,8 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                         >
                             <ReloadAll />
                         </Shortcut>
-                        <ConversionGoalFilterButton />
+                        {!searchOnly && <ConversionGoalFilterButton />}
+                        {(showSearch || searchOnly) && <IntegrationFilter />}
                     </div>
                 }
                 right={
@@ -80,6 +94,21 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                                 // Ordered by how often they get touched, so the rarely-changed
                                 // project setting sits last.
                                 <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
+                                    {showMetricEditor && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            fullWidth
+                                            icon={<IconPencil />}
+                                            onClick={() => {
+                                                setOptionsOpen(false)
+                                                openEditor()
+                                            }}
+                                            data-attr="marketing-configure-metrics"
+                                        >
+                                            Edit top-line metrics
+                                        </LemonButton>
+                                    )}
                                     <div>
                                         <div className="text-muted mb-2 text-xs font-semibold uppercase">
                                             Comparison
@@ -89,12 +118,14 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                                             updateCompareFilter={setCompareFilter}
                                         />
                                     </div>
-                                    <div>
-                                        <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                            Integrations
+                                    {!showSearch && (
+                                        <div>
+                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
+                                                Integrations
+                                            </div>
+                                            <IntegrationFilter />
                                         </div>
-                                        <IntegrationFilter />
-                                    </div>
+                                    )}
                                     <LemonDivider className="my-0" />
                                     {/* Only the event side honors this: ad spend comes from the platforms. */}
                                     <TestAccountFilterSwitch

@@ -11,6 +11,7 @@ import { CdpOutput } from '../cdp-services'
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
+    deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
 import { AudienceFetchTimeoutError } from '../services/hogflows/hogflow-batch-person-query.service'
@@ -57,6 +58,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(state.flowVersion).toBe(4)
             expect(state.customerTaskIdempotencyVersion).toBe(1)
             expect(state.variables).toEqual({ greeting: 'hi' })
+            expect(state.sensitive).toBeUndefined()
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
             expect((invocation as any).person).toBeUndefined()
@@ -85,6 +87,32 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             expect(invocation.hogFlow).toBe(maskedHogFlow)
             expect(invocation.hogFlow.trigger_masking).toEqual(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+        })
+
+        it('stamps a protected message step on the run so a recovery path with only the workflow id keeps it out of the snapshot', () => {
+            const protectedFlow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive: true, inputs: {} },
+                    } as any,
+                ],
+            }
+
+            const invocation = buildAccountHogFlowInvocation({
+                siteUrl: 'https://us.posthog.com',
+                parentRunId: 'batch-job-1',
+                team,
+                hogFlow: protectedFlow,
+                externalId: 'acme-1',
+                groupType: 'customer',
+                defaultVariables: {},
+            })
+
+            expect(invocation.state.sensitive).toBe(true)
         })
     })
 
@@ -163,6 +191,28 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             })
         })
 
+        it('pages a realtime cohort audience from realtime membership, not the Django audience query', async () => {
+            const getMemberPage = jest.fn().mockResolvedValue({
+                ids: ['member-1', 'member-2', 'member-3'],
+                cursor: 'member-3',
+                has_more: false,
+            })
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com', BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://cohorts' },
+                realtimeCohortAudience: { getMemberPage },
+            })
+
+            await (consumer as any).processOnePage(
+                { bulkCreateAndCheckIn, reschedule: jest.fn() },
+                { ...state, realtimeCohort: { id: 42, teamId: 7 } }
+            )
+
+            // Membership rows belong to the cohort's own team, which can differ from the workflow's.
+            expect(getMemberPage).toHaveBeenCalledWith(7, 42, null)
+            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(triggeredMetrics()).toHaveLength(3)
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
@@ -197,20 +247,38 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
-        it('persists the enqueue time and customer task key version for new person runs', async () => {
+        it.each([
+            ['an ordinary workflow', false, undefined],
+            // A recovery path that holds only the workflow id reads this stamp to keep the message out of the snapshot.
+            ['a workflow with a protected message step', true, true],
+        ])('persists the enqueue time and run stamps for new person runs of %s', async (_name, sensitive, stamp) => {
             // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
             // cyclotron if that runs before the state is serialized. Out of order, the terminal
             // row written when the run wakes records the wake time and wins the argMax collapse.
+            const flow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive, inputs: {} },
+                    } as any,
+                ],
+            }
+            ;(consumer as any).hogFlowManager.getHogFlow.mockResolvedValue(flow)
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(parseJSON(job.state.toString()).state).toMatchObject({
+                const jobState = parseJSON(job.state.toString()).state
+                expect(jobState).toMatchObject({
                     firstScheduledAt: expect.any(String),
                     actionStepCount: 0,
                     customerTaskIdempotencyVersion: 1,
                 })
+                expect(jobState.sensitive).toBe(stamp)
             }
         })
 
@@ -431,6 +499,33 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             startedAt: '2026-08-11T00:00:00.000Z',
         })
 
+        it.each([
+            ['before its deadline parks it again without reading members', 3600 * 1000, false],
+            ['at its deadline fails the run', -1000, true],
+        ])('a realtime cohort resolver woken %s', async (_name, untilOffsetMs, fails) => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const waitUntil = new Date(Date.now() + untilOffsetMs).toISOString()
+            const job = buildJob({
+                ...lastAttemptState(),
+                attempts: 0,
+                realtimeCohort: { id: 7, teamId: team.id, waitUntil },
+            })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
+            if (fails) {
+                expect(deserializeResolverState(state).pendingTerminal).toEqual('failed')
+                expect(queueLogs.mock.calls[0][0][0].message).toContain("didn't finish calculating")
+            } else {
+                expect(scheduledAt.toISOString()).toEqual(waitUntil)
+                expect(state).toBeUndefined()
+            }
+        })
+
         it('tells the customer what to change when the audience query timed out', async () => {
             const queueLogs = jest.fn()
             const consumer = buildConsumer(
@@ -447,6 +542,27 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                         message:
                             'Batch resolver failed: Audience query timed out after 30s on the last of ' +
                             `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`,
+                    }),
+                ],
+                'hog_flow'
+            )
+        })
+
+        it('fails a realtime cohort run at once when the resolver has no behavioral cohorts database', async () => {
+            // Without its own URL the router reads the main database, so retrying would never succeed.
+            const queueLogs = jest.fn()
+            const getBlastRadiusPersons = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const job = buildJob({ ...lastAttemptState(), attempts: 0, realtimeCohort: { id: 42, teamId: team.id } })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            "Batch resolver failed: Sending to a realtime cohort isn't available here yet. Use a different audience.",
                     }),
                 ],
                 'hog_flow'

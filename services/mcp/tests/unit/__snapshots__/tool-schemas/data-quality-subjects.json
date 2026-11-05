@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "include_columns": {
+            "default": true,
+            "description": "Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Maximum number of subjects to return. Omit to return every match.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "description": "Return only subjects whose name or display name contains this text, ignoring case.",
+            "type": "string"
+        },
+        "subject_type": {
+            "description": "Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.\n\n* `table` - table\n* `view` - view\n* `metric` - metric\n* `posthog_table` - posthog_table",
+            "enum": ["table", "view", "metric", "posthog_table"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

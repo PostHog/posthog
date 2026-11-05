@@ -108,6 +108,13 @@ def my_action(self, request, **kwargs):
 
 This validates inputs AND documents the endpoint for OpenAPI. Use `request.validated_query_data`, not manual `request.query_params` parsing.
 
+A list view that keeps its django-filter `FilterSet` but filters in a service, without `DjangoFilterBackend` in `filter_backends`, loses those query params from the schema.
+Do not declare them again by hand with `OpenApiParameter`.
+Use the helpers in `posthog/api/filterset_helpers.py`:
+
+- `@extend_schema(parameters=filterset_openapi_parameters(MyFilterSet))` emits the same params that the backend would emit. Use `overrides` to describe `method=` filters.
+- `validate_filterset(MyFilterSet, request.query_params, queryset, request=request)` returns the bound `FilterSet`, or raises the same 400 body as the backend.
+
 ### Side generators
 
 A side generator is a script that reads a Python module and writes TypeScript next to the OpenAPI flow, usually as a `*.generated.ts` file outside a `generated/` directory.
@@ -168,6 +175,8 @@ This runs:
 
 1. `build:schema-json` – TS → JSON Schema
 2. `build:schema-python` – JSON Schema → Pydantic
+
+Python CI regenerates the Pydantic models on pull requests that change the JSON schema, generator scripts, generated outputs, or tool configuration and dependencies. Unrelated pull requests skip this generation check. Hourly and merge-queue runs always regenerate the models, as do runs with unavailable filter outputs.
 
 ### When to add types here
 

@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Optional, cast
 
@@ -38,7 +39,6 @@ from posthog.hogql_queries.validation.rules import (
 )
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
@@ -358,6 +358,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                     "count": count,
                     "data": data,
                     "days": val[1],
+                    "order": series_with_extra.series_order,
+                    "custom_name": series_with_extra.series.custom_name,
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
                         f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
@@ -368,15 +370,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                         else f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}"
                         for day in val[1]
                     ],
-                }
-
-                # Add minimal action data for color consistency with trends
-                series_object["action"] = {
-                    "order": series_with_extra.series_order,
-                    "type": "events",
-                    "name": series_label or "All events",
-                    "id": series_label,
-                    "custom_name": series_with_extra.series.custom_name,
                 }
 
                 # Modifications for when comparing to previous period
@@ -438,6 +431,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 # If an action doesn't exist, we want to return no events
                 filters.append(parse_expr("1 = 2"))
 
+        cohort_via_distinct_id = isinstance(series, DataWarehouseNode)
+
         # Filter Test Accounts
         if (
             self.query.filterTestAccounts
@@ -445,15 +440,19 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team, cohort_via_distinct_id=cohort_via_distinct_id))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(
+                property_to_expr(self.query.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Series Filters
         if series.properties is not None and series.properties != []:
-            filters.append(property_to_expr(series.properties, self.team))
+            filters.append(
+                property_to_expr(series.properties, self.team, cohort_via_distinct_id=cohort_via_distinct_id)
+            )
 
         # Ignore empty groups
         if series.math == "unique_group" and series.math_group_type_index is not None:

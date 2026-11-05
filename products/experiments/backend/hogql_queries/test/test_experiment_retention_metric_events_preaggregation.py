@@ -322,20 +322,20 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
     @parameterized.expand(
         [
-            ("events_nodes", _retention_metric(), True),
-            ("data_warehouse_start", _retention_metric(start_event=DW_NODE), False),
-            ("data_warehouse_completion", _retention_metric(completion_event=DW_NODE), False),
+            ("events_nodes", _retention_metric(), None),
+            ("data_warehouse_start", _retention_metric(start_event=DW_NODE), "data_warehouse"),
+            ("data_warehouse_completion", _retention_metric(completion_event=DW_NODE), "data_warehouse"),
             (
                 "breakdown",
                 _retention_metric(breakdown_filter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")])),
-                False,
+                "breakdown",
             ),
             # retention_window_end is an unrestricted user input; an absurd window must
             # not stretch the precompute horizon into thousands of daily build jobs
-            ("window_beyond_precompute_horizon", _retention_metric(retention_window_end=10_000), False),
+            ("window_beyond_precompute_horizon", _retention_metric(retention_window_end=10_000), "retention_window"),
         ]
     )
-    def test_retention_metric_events_precompute_gate(self, _name, metric, applicable):
+    def test_retention_metric_events_precompute_gate(self, _name, metric, skip_reason):
         feature_flag = self.create_feature_flag(key="retention-metric-events-gate")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -345,4 +345,5 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
         runner = self._build_runner(experiment, metric)
 
-        assert runner._metric_events_precompute_applicable() is applicable
+        assert runner._metric_events_ineligibility_reason() == skip_reason
+        assert runner._metric_events_precompute_applicable() is (skip_reason is None)

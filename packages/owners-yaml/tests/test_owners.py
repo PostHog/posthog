@@ -26,6 +26,7 @@ from owners_yaml.schema import (
     _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
     TOP_LEVEL_KEYS,
+    UNSET,
     CodeownersSettings,
     TeamEntry,
     is_simple_owners_file,
@@ -173,6 +174,22 @@ def test_json_schema_accepts_the_same_keys_as_the_parser() -> None:
 @pytest.mark.parametrize(
     "fragment",
     [
+        "sensitive: 'true'\n",
+        "sensitive: 1\n",
+        "rules:\n  - match: '/*'\n    sensitive: [true]\n",
+    ],
+)
+def test_malformed_sensitive_is_a_schema_error_and_sets_nothing(tmp_path: Path, fragment: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: [team-a]\n" + fragment, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any("'sensitive' must be a boolean" in e for e in errors), errors
+    assert file is not None and file.sensitive is UNSET and all(r.sensitive is UNSET for r in file.rules)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
         "additions: 5\n",
         "additions: [team-a, '']\n",
         "additions: {}\n",
@@ -200,7 +217,6 @@ def test_malformed_additions_is_a_schema_error_and_adds_nobody(tmp_path: Path, f
         ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("alias_files: [a.yaml, b.yaml, a.yaml]\n", "is listed twice"),
         ("alias_files: [a, b, c, d, e, f, g, h, a]\n", "at most 8 names"),
-        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )
 def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: str, needle: str) -> None:
@@ -220,7 +236,6 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
         ("teams: [team-a]\n", "'teams' must be a mapping"),
         ("teams:\n  team-a:\n    slack: 'no-hash'\n", "must be a string starting with '#' or false"),
         ("teams:\n  team-a:\n    notifications: 'no-hash'\n", "must be a string starting with '#' or false"),
-        ("teams:\n  team-a:\n    channel: '#a'\n", "unknown field 'channel'"),
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
         ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
@@ -314,8 +329,19 @@ def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) ->
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications={"reviewbot": "#a-bots"})}
 
 
-def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
-    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "teams:\n  team-a:\n    slack: '#a'\n",
+        "sensitive: true\n",
+        "rules:\n  - match: '/a/'\n    sensitive: false\n",
+        "reviewers: [team-c]\n",
+        "rules:\n  - match: '/a/'\n    reviewers: [team-c]\n",
+    ],
+    ids=["teams-registry", "file-sensitive", "rule-sensitive", "file-unknown-field", "rule-unknown-field"],
+)
+def test_content_beyond_owners_pins_file_as_non_simple(tmp_path: Path, fragment: str) -> None:
+    text = "version: 1\nowners: [team-a]\n" + fragment
     file, _ = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert file is not None
     assert is_simple_owners_file(file) is False
@@ -850,6 +876,7 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "source": "reg/owners.yaml",
             "additions": [],
             "added": {"path": "reg/x.py", "additions": []},
+            "sensitive": False,
         }
     }
     jsonschema = pytest.importorskip("jsonschema")
@@ -1106,6 +1133,43 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
 
     assert result.exit_code == 0, result.output
     assert "has both" not in result.output
+
+
+@pytest.mark.parametrize(
+    "root_yaml,warning",
+    [
+        ("reviewers: [team-c]\n", "unknown top-level field 'reviewers'"),
+        ("rules:\n  - match: '/web/'\n    reviewers: [team-c]\n", "rules[0]: unknown field 'reviewers'"),
+        ("teams:\n  team-a:\n    email: a@example.com\n", "teams['team-a']: unknown field 'email'"),
+        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
+    ],
+)
+def test_cli_lint_warns_on_an_unknown_field_without_failing(tmp_path: Path, root_yaml: str, warning: str) -> None:
+    # A newer version of the format can add a field, and an older linter must still pass that file.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\n" + root_yaml)
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert f"⚠ owners.yaml: {warning}" in result.output
+
+
+@pytest.mark.parametrize("guard_owners", ["[]", "null"], ids=["unowned", "unowned-by-design"])
+def test_cli_lint_warns_on_a_sensitive_path_without_owners(tmp_path: Path, guard_owners: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        f"version: 1\nowners: []\nrules:\n  - match: '/guard/'\n    owners: {guard_owners}\n    sensitive: true\n",
+    )
+    _write(tmp_path, "guard/baseline.txt", "")
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ guard/baseline.txt: sensitive but has no owners" in result.output
+    assert "web/app.ts: sensitive" not in result.output
 
 
 @pytest.mark.parametrize(

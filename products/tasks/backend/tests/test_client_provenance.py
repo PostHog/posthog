@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from typing import cast
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -18,7 +20,11 @@ from posthog.temporal.oauth import (
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
 
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_api_key_request
+from products.tasks.backend.facade.client_provenance import (
+    TASK_CLIENT_PROVENANCE_HEADER,
+    get_task_client_provenance,
+    is_api_key_request,
+)
 from products.tasks.backend.models import TaskClientProvenance
 
 
@@ -31,7 +37,8 @@ class TestTaskClientProvenance:
                 ARRAY_APP_CLIENT_ID_DEV,
                 True,
                 "task:write",
-                True,
+                {},
+                TaskClientProvenance.POSTHOG_DESKTOP,
             ),
             (
                 "mobile_us",
@@ -39,7 +46,8 @@ class TestTaskClientProvenance:
                 POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
                 True,
                 "task:write",
-                True,
+                {},
+                TaskClientProvenance.POSTHOG_MOBILE,
             ),
             (
                 "mobile_eu",
@@ -47,7 +55,17 @@ class TestTaskClientProvenance:
                 POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
                 True,
                 "task:write",
+                {"X-PostHog-Client-Provenance": TaskClientProvenance.POSTHOG_WEB},
+                TaskClientProvenance.POSTHOG_MOBILE,
+            ),
+            (
+                "web",
+                OAuthAccessTokenAuthentication,
+                ARRAY_APP_CLIENT_ID_DEV,
                 True,
+                "task:write",
+                {"X-PostHog-Client-Provenance": TaskClientProvenance.POSTHOG_WEB},
+                TaskClientProvenance.POSTHOG_WEB,
             ),
             (
                 "other_oauth",
@@ -55,7 +73,8 @@ class TestTaskClientProvenance:
                 "other-client",
                 True,
                 "task:write",
-                False,
+                {"X-PostHog-Client-Provenance": TaskClientProvenance.POSTHOG_WEB},
+                None,
             ),
             (
                 "internal_desktop_app_token",
@@ -63,7 +82,8 @@ class TestTaskClientProvenance:
                 ARRAY_APP_CLIENT_ID_DEV,
                 True,
                 "task:write internal_run:read",
-                False,
+                {"X-PostHog-Client-Provenance": TaskClientProvenance.POSTHOG_WEB},
+                None,
             ),
             (
                 "server_token_without_internal_scope",
@@ -71,7 +91,8 @@ class TestTaskClientProvenance:
                 ARRAY_APP_CLIENT_ID_DEV,
                 False,
                 "task:write",
-                False,
+                {},
+                None,
             ),
             (
                 "personal_api_key",
@@ -79,18 +100,20 @@ class TestTaskClientProvenance:
                 ARRAY_APP_CLIENT_ID_DEV,
                 True,
                 "task:write",
-                False,
+                {},
+                None,
             ),
         ]
     )
-    def test_derives_only_trusted_desktop_oauth(
+    def test_derives_only_trusted_client_provenance(
         self,
         _name: str,
         authenticator_type: type,
         client_id: str,
         has_authorization_flow_lineage: bool,
         scope: str,
-        expected_desktop: bool,
+        headers: dict[str, str],
+        expected: TaskClientProvenance | None,
     ) -> None:
         authenticator = authenticator_type()
         authenticator.access_token = SimpleNamespace(
@@ -98,11 +121,11 @@ class TestTaskClientProvenance:
             source_refresh_token_id="refresh-token-id" if has_authorization_flow_lineage else None,
             scope=scope,
         )
-        request = cast(Request, SimpleNamespace(successful_authenticator=authenticator))
+        request = cast(Request, SimpleNamespace(successful_authenticator=authenticator, headers=headers))
 
         provenance = get_task_client_provenance(request)
 
-        assert (provenance == TaskClientProvenance.POSTHOG_DESKTOP) is expected_desktop
+        assert provenance == expected
 
     def test_missing_authentication_provenance_fails_closed(self) -> None:
         assert get_task_client_provenance(cast(Request, SimpleNamespace())) is None
@@ -112,6 +135,11 @@ class TestTaskClientProvenance:
 
         assert is_sandbox_origin_request(request)
         assert not is_sandbox_oauth_request(request)
+
+    def test_provenance_header_is_allowed_in_cors_preflights(self) -> None:
+        allowed_headers = {header.lower() for header in settings.CORS_ALLOW_HEADERS}
+
+        assert TASK_CLIENT_PROVENANCE_HEADER.lower() in allowed_headers
 
 
 class TestIsApiKeyRequest:

@@ -15,7 +15,7 @@
             }
         ]
     },
-    "description": "Notebook errors and SQLV2 frame-store rollout. The first two rows answer 'what is breaking for users, in the app and via MCP'. The rows below them answer 'is the frame-store rollout going well'. Prometheus/VictoriaMetrics only: ClickHouse per-query cost lives in query_log_archive, see observability/notebooks-query-log.sql, and per-run error text lives in Postgres. Panel details and known blind spots: products/notebooks/backend/sql_v2_observability.md",
+    "description": "Notebook errors and SQLV2 frame-store rollout. The first two rows answer 'what is breaking for users, in the app and via MCP'. The rows below them answer 'is the frame-store rollout going well'. Prometheus/VictoriaMetrics only: ClickHouse per-query cost lives in query_log_archive, see observability/notebooks-query-log.sql, and per-run error text lives in Postgres.",
     "editable": true,
     "fiscalYearStartMonth": 0,
     "graphTooltip": 0,
@@ -2567,7 +2567,7 @@
                 "type": "prometheus",
                 "uid": "${datasource}"
             },
-            "description": "Mean seconds per successful materialize spent on each side of the worker relay. If the upload half starts dominating p95, that is the design doc's stated trigger for flipping NOTEBOOKS_FRAME_STORE_CH_WRITES on. No upload series is emitted on the ch_writes path \u2014 ClickHouse does the upload there.",
+            "description": "Mean seconds per successful materialize spent on each side of the worker relay. If the upload half starts dominating p95, that is the trigger for flipping NOTEBOOKS_FRAME_STORE_CH_WRITES on. No upload series is emitted on the ch_writes path \u2014 ClickHouse does the upload there.",
             "fieldConfig": {
                 "defaults": {
                     "color": {

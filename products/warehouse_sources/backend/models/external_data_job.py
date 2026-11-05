@@ -91,6 +91,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
             ),
+            # Serves the source sync-history list (the `jobs` action): equality on pipeline
+            # ordered by created_at DESC with LIMIT. The polling settings tab reads it every
+            # few seconds. Without it the FK index walks every job of the source and sorts.
+            models.Index(
+                fields=["pipeline", "-created_at"],
+                name="idx_extdatajob_pipe_created",
+            ),
         ]
 
     def folder_path(self) -> str:

@@ -107,6 +107,32 @@ describe('announcementsLogic', () => {
         expect(logic.values.submitting).toBe(false)
     })
 
+    it('labels the sender option with the current user and defaults to the bot', async () => {
+        logic = announcementsLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ sendAs: 'bot' })
+
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: true,
+        } as UserType)
+        await expectLogic(logic).toMatchValues({ senderName: 'Ada', senderDisabledReason: undefined })
+
+        // A legacy account that never confirmed its address reads as unverified, same as the backend.
+        userLogic.actions.loadUserSuccess({ id: 7, first_name: 'Ada', is_email_verified: null } as UserType)
+        await expectLogic(logic).toMatchValues({
+            senderDisabledReason: 'Verify your email address to send announcements as yourself',
+        })
+
+        userLogic.actions.loadUserSuccess({ id: 7, first_name: '', email: '' } as UserType)
+        await expectLogic(logic).toMatchValues({ senderName: 'you' })
+
+        logic.actions.setSendAs('user')
+        await expectLogic(logic).toMatchValues({ sendAs: 'user' })
+    })
+
     it('narrows the channel picker to filtered accounts and bulk-selects them', async () => {
         useMocks({
             get: {

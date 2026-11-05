@@ -11,13 +11,14 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
 import { OfflineItemMatrix } from './OfflineItemMatrix'
 import { offlineRunSourceLabel } from './offlineOverviewState'
 import { offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
-import { formatOfflineScore } from './offlineScoreTrends'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 
 export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JSX.Element {
     const logic = offlineExperimentLogic(props)
@@ -41,7 +42,11 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
     return (
         <div className="flex flex-col gap-4 min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <LemonButton to={urls.aiObservabilityOfflineEvaluations()} icon={<IconArrowLeft />}>
+                <LemonButton
+                    to={urls.aiObservabilityOfflineEvaluations()}
+                    icon={<IconArrowLeft />}
+                    data-attr="offline-experiment-back"
+                >
                     Experiments
                 </LemonButton>
                 <LemonButton
@@ -181,15 +186,16 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                     <Link
                                         className="break-words"
                                         to={offlineScorerHistoryUrl(summary.scorer, experiment, timezone)}
-                                    >{`${summary.scorer.name} v${summary.scorer.version}`}</Link>
+                                        data-attr="offline-experiment-scorer-history"
+                                    >
+                                        <ScorerLabel scorer={summary.scorer} />
+                                    </Link>
                                 ),
                             },
                             {
                                 title: 'Summary',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
-                                    <span className="break-words" translate="no">
-                                        {formatOfflineScore(summary)}
-                                    </span>
+                                    <OfflineScoreSummaryDisplay summary={summary} />
                                 ),
                             },
                             {
@@ -224,7 +230,12 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 title="Mark experiment as completed?"
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={hideCompletion} disabled={completedLoading}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={hideCompletion}
+                            disabled={completedLoading}
+                            data-attr="offline-experiment-cancel-complete"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton

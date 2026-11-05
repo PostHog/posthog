@@ -159,6 +159,7 @@ const CARGO_LOCK = 'cargo-lock'
 // these lanes already. The rust and proto rules also use it to name those lanes
 // without dragging in the frontend.
 const NODE = 'node'
+const FRONTEND_SUITE = 'frontend-suite'
 const JS_LOCKFILE = 'js-lockfile'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
@@ -249,15 +250,16 @@ const TRIPWIRE_RULES = [
     // language's suite can be held to that language's lanes. Everything else
     // under .github/ stays universal: the list grows by decision, and a
     // workflow nobody has placed here keeps the old radius.
-    ['.github/workflows/ci-frontend.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook-update-test-timing.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs-container.yml', JAVASCRIPT],
+    ['.github/workflows/ci-frontend.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook-update-test-timing.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-nodejs.yml', NODE],
+    ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
-    ['.github/workflows/ci-backend.yml', PYTHON],
+    ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-shadow-drift.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON],
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
@@ -266,6 +268,7 @@ const TRIPWIRE_RULES = [
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -276,7 +279,7 @@ const TRIPWIRE_RULES = [
     // the cd-*-image rule below.
     ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
     ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
-    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/ci-hoglang.yml', FULLSTACK],
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
@@ -330,6 +333,8 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    // ci-backend's events_json leg and its test selection read this list.
+    ['.github/new-events-schema-targets.txt', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -346,7 +351,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
     ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
     ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
-    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
@@ -362,13 +366,11 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
-    // More single-suite workflows, held to the trees their suites read: the AI
-    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // More single-suite workflows, held to the trees their suites read:
+    // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-ai.yml', PYTHON],
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
@@ -386,7 +388,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
     ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
     ['.github/workflows/build-hobby-installer.yml', HOBBY],
-    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
@@ -411,16 +413,12 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
     ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
     ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
-    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
-    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/auto-assign-labels.json', REPO_AUTOMATION],
@@ -442,7 +440,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
     ['.github/scripts/post-django-migration-section.mjs', PYTHON],
     ['.github/scripts/post-coverage-section.mjs', PYTHON],
-    ['.github/scripts/post-eval-section.mjs', PYTHON],
     // CI-report sections and helpers owned by one suite each.
     ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
     ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
@@ -499,6 +496,7 @@ const TRIPWIRE_RULES = [
     // The vendored paths-filter action and its CI (see CI_TOOLING). The
     // .depot/ shadow of the action follows through canonicalPath.
     ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/actions/shared-image-releases/**', CI_TOOLING],
     ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
     // Feed turbo-discover's backend product selection, so they take the
     // python lanes the same way the snob selector does.
@@ -531,8 +529,9 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    ['.oxlintrc.json', JAVASCRIPT],
-    ['.oxfmtrc*', JAVASCRIPT],
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
+    ['.oxlintrc.json', FRONTEND_SUITE],
+    ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
     // its ignore file is a JS toolchain setting like the two above.
     ['.prettierignore', JAVASCRIPT],
@@ -595,6 +594,7 @@ const TRIPWIRE_RULES = [
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
+    ['.depot/workflows/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
@@ -622,7 +622,7 @@ const TRIPWIRE_RULES = [
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
-    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // loads at runtime and starred_products.py keys off the `path` values of.
     // So both sides of the fe/py split can hold a reference to what one manifest
     // renames, and both claim their full lane family here.
     //
@@ -642,13 +642,16 @@ const TRIPWIRE_RULES = [
     // suite's tests run on a PR, so an under-selection can only mask conflicts
     // that suite's lanes already serialize: the snob shadow, its verdict, and
     // the testmon fanout list select Django tests, the dagster selector its
-    // own suite, and the playwright pair the E2E specs.
+    // own suite, the warehouse sources selector the vendor tests, and the
+    // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],
     ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/warehouse_sources_vendor_selection.py', PYTHON],
+    ['tools/test_warehouse_sources_vendor_selection.py', PYTHON],
     ['tools/testmon_high_fanout_files.txt', PYTHON],
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],
@@ -718,12 +721,11 @@ const TRIPWIRE_RULES = [
     ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
     ['bin/fix-rdkafka-paths', JAVASCRIPT],
     ['bin/create-notebook-node.sh', JAVASCRIPT],
-    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // bin/hoglang backs the HogLang suite, the jest-timing helpers feed
     // report_test_timings, the dockerignore check runs in container-images-ci,
     // and the sandbox scripts are baked into the sandbox image; all of those
     // sit on the fullstack lanes already.
-    ['bin/hog', FULLSTACK],
-    ['bin/hoge', FULLSTACK],
+    ['bin/hoglang', FULLSTACK],
     ['bin/report-jest-timings', FULLSTACK],
     ['bin/render-jest-timings-example', FULLSTACK],
     ['bin/dockerignore-drop-check', FULLSTACK],
@@ -842,8 +844,10 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
-    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
-    // so its Hog implementation is not covered by the shared hog suite either.
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
+    // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
     // Another standalone cargo workspace, and nothing in the dev or CI stack
     // builds it: the UDF binary reaches ClickHouse through its image.
@@ -937,16 +941,13 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
-// .depot/ holds Depot-runner shadows of the workflows and composite actions in
-// .github/, kept apples-to-apples with their canonicals by the shadow-drift
-// check, and their statuses are non-blocking. A shadow can only affect what
-// its canonical affects, so it resolves through the canonical's rules: the
-// ci-backend shadow takes the python lanes, and a shadow of something unplaced
-// still lands on the .github/** blanket.
-const DEPOT_MIRROR_PREFIX = '.depot/'
+// .depot/actions/ holds Depot CI's mirrors of the composite actions in .github/actions/,
+// kept in sync by the action-mirrors check, so a mirror resolves through its canonical
+// action's rules. Depot CI's own workflows under .depot/workflows/ carry rules of their own.
+const DEPOT_MIRROR_PREFIX = '.depot/actions/'
 
 function canonicalPath(file) {
-    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/actions/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
 }
 
 // The domain of the first rule matching the file, or null when no rule claims
@@ -1511,8 +1512,8 @@ const rustCrate = (crate) => `rust:crate:${crate}`
 const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the two binding packages
-// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer, @posthog/ai-research-v4-native) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here. The
 // image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
@@ -1677,6 +1678,19 @@ function addCargoLockLanes(targets, context) {
         return false
     }
     targets.add(RUST_DETERMINATOR)
+    return true
+}
+
+function addFrontendSuiteLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (!lane.startsWith('node:')) {
+            targets.add(lane)
+        }
+    }
     return true
 }
 
@@ -1849,6 +1863,7 @@ function addProtoLanes(targets, context, file) {
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
+    [FRONTEND_SUITE, addFrontendSuiteLanes],
     [JS_LOCKFILE, addJsLockfileLanes],
     [RUST, addRustLanes],
     [CARGO_LOCK, addCargoLockLanes],
@@ -1873,7 +1888,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 
@@ -2008,7 +2023,7 @@ function computeTargets(changedFiles, context) {
             targets.add(lane)
         }
 
-        if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
+        if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
             continue
         }
@@ -2920,6 +2935,11 @@ function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
     }
 }
 
+// The change list carries deleted paths too; the tree no longer does.
+function findDeletedFiles(changedFiles) {
+    return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
@@ -2955,6 +2975,7 @@ module.exports = {
     buildContext,
     compileContractMatcher,
     compileWorkspaceMatcher,
+    findDeletedFiles,
     globToRegExp,
     isProductDirectory,
     isTripwire,
@@ -2988,8 +3009,11 @@ module.exports = {
 
 if (require.main === module) {
     let result
+    let context = null
+    let changedFiles = []
+    let deletedFiles = null
     try {
-        const changedFiles = fs
+        changedFiles = fs
             .readFileSync(0, 'utf8')
             .split('\n')
             .map((line) => line.trim())
@@ -2998,9 +3022,12 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            // The change list carries deleted paths too; the tree no longer does.
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
+            context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
+            result = computeTargets(changedFiles, {
+                ...context,
+                deletedFiles,
+            })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a
@@ -3012,4 +3039,16 @@ if (require.main === module) {
         console.error(`Computed ${result.length} target(s): ${JSON.stringify(result)}`)
     }
     process.stdout.write(JSON.stringify(result))
+    if (process.env.LANE_TELEMETRY_FILE) {
+        try {
+            const { summarizeLane } = require('./trunk-lane-telemetry')
+            context = context || buildContext(REPO_ROOT)
+            fs.writeFileSync(
+                process.env.LANE_TELEMETRY_FILE,
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
+            )
+        } catch (error) {
+            console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
+        }
+    }
 }

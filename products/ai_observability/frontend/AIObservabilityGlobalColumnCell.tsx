@@ -1,5 +1,6 @@
 import { ComponentProps, Suspense } from 'react'
 
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -20,7 +21,9 @@ const RendererCell = lazyWithRetry(() =>
 export function AIObservabilityGlobalColumnCell(props: CellProps): JSX.Element {
     return (
         // The query's own ErrorBoundary is nearer than the scene's, so without this a stale chunk never reloads.
-        <ChunkLoadErrorBoundary>
+        // Every cell catches the same failed chunk, and the reload guard stops all but the first, so the
+        // others show the cell error tag instead of replacing the table.
+        <ChunkLoadErrorBoundary fallback={() => <LemonTag className="text-danger">Error</LemonTag>}>
             <Suspense fallback={<Spinner />}>
                 <RendererCell {...props} />
             </Suspense>

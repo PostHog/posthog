@@ -2,11 +2,13 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::api::errors::FlagError;
 use crate::handler::flags::EvaluationRuntime;
+use crate::utils::bounded_json5;
 
 /// Maximum length for distinct_id values.
 /// This limit ensures compatibility with batch export destinations (Redshift, Postgres)
@@ -127,7 +129,7 @@ impl FlagRequest {
         };
 
         // Use json5 to parse, which handles NaN/Infinity natively
-        let mut value: Value = match json5::from_str(&payload) {
+        let mut value: Value = match bounded_json5::from_str(&payload) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!("failed to parse JSON: {}", e);
@@ -176,11 +178,12 @@ impl FlagRequest {
         }
     }
 
+    fn person_property_str(&self, key: &str) -> Option<&str> {
+        self.person_properties.as_ref()?.get(key)?.as_str()
+    }
+
     fn extract_person_property_string(&self, key: &str) -> Option<String> {
-        self.person_properties
-            .as_ref()
-            .and_then(|properties| properties.get(key))
-            .and_then(Value::as_str)
+        self.person_property_str(key)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     }
@@ -244,6 +247,32 @@ impl FlagRequest {
             .or_else(|| self.extract_person_property_string("$device_id"))
     }
 
+    /// The `$anon_distinct_id` values the request carried, top level first. Backend SDKs set it
+    /// in person_properties instead of at the top level.
+    fn anon_distinct_id_candidates(&self) -> impl Iterator<Item = &str> {
+        self.anon_distinct_id
+            .as_deref()
+            .into_iter()
+            .chain(self.person_property_str("$anon_distinct_id"))
+    }
+
+    /// Extracts the raw `$anon_distinct_id` the request carried. It can differ from the hash key
+    /// the evaluation uses.
+    pub fn extract_anon_distinct_id(&self) -> Option<String> {
+        self.anon_distinct_id_candidates()
+            .next()
+            .map(str::to_string)
+    }
+
+    /// Extracts the experience continuity hash key. The cookieless sentinel is never a hash key,
+    /// because every cookieless visitor shares it. A sentinel at the top level therefore falls
+    /// back to the person property.
+    pub fn extract_hash_key_override(&self) -> Option<String> {
+        self.anon_distinct_id_candidates()
+            .find(|id| *id != COOKIELESS_SENTINEL_VALUE)
+            .map(str::to_string)
+    }
+
     /// Checks if feature flags should be disabled for this request.
     /// Returns true if disable_flags is explicitly set to true.
     pub fn is_flags_disabled(&self) -> bool {
@@ -262,14 +291,84 @@ mod tests {
     use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
     use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN};
     use crate::flags::flag_service::FlagService;
+    use crate::utils::bounded_json5::MAX_NESTING_DEPTH;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
         setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
     use common_cache::NegativeCache;
+    use rstest::rstest;
     use serde_json::json;
     use serde_json::Value;
+
+    #[rstest]
+    #[case::top_level_wins(
+        Some("anon123"),
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon123"),
+        Some("anon123")
+    )]
+    #[case::falls_back_to_person_properties(
+        None,
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon456"),
+        Some("anon456")
+    )]
+    #[case::not_present(None, None, None, None)]
+    #[case::person_properties_without_the_key(
+        None,
+        Some(json!({"other_property": "value"})),
+        None,
+        None
+    )]
+    #[case::non_string_person_property(
+        None,
+        Some(json!({"$anon_distinct_id": 123})),
+        None,
+        None
+    )]
+    #[case::cookieless_sentinel_top_level(
+        Some("$posthog_cookieless"),
+        None,
+        Some("$posthog_cookieless"),
+        None
+    )]
+    #[case::cookieless_sentinel_person_property(
+        None,
+        Some(json!({"$anon_distinct_id": "$posthog_cookieless"})),
+        Some("$posthog_cookieless"),
+        None
+    )]
+    #[case::cookieless_sentinel_top_level_falls_back_to_person_property(
+        Some("$posthog_cookieless"),
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("$posthog_cookieless"),
+        Some("anon456")
+    )]
+    fn test_hash_key_override(
+        #[case] top_level: Option<&str>,
+        #[case] person_properties: Option<Value>,
+        #[case] expected_raw: Option<&str>,
+        #[case] expected_hash_key: Option<&str>,
+    ) {
+        let request = FlagRequest {
+            anon_distinct_id: top_level.map(str::to_string),
+            person_properties: person_properties.map(|v| {
+                serde_json::from_value(v).expect("person_properties case must be a JSON object")
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            request.extract_anon_distinct_id(),
+            expected_raw.map(str::to_string)
+        );
+        assert_eq!(
+            request.extract_hash_key_override(),
+            expected_hash_key.map(str::to_string)
+        );
+    }
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -382,6 +481,24 @@ mod tests {
 
         // Check that string containing "NaN" is preserved
         assert_eq!(metrics.get("payload"), Some(&json!("{'foo': NaN}")));
+    }
+
+    #[test]
+    fn test_nesting_past_depth_limit_is_rejected() {
+        // The request object and person_properties are the first two levels.
+        let levels = MAX_NESTING_DEPTH - 1;
+        let json_str = format!(
+            r#"{{"distinct_id": "user123", "token": "my_token1", "person_properties": {{"v": {}{}}}}}"#,
+            "[".repeat(levels),
+            "]".repeat(levels)
+        );
+
+        let result = FlagRequest::from_bytes(Bytes::from(json_str));
+
+        assert!(
+            matches!(result, Err(FlagError::RequestDecodingError(_))),
+            "{result:?}"
+        );
     }
 
     #[test]

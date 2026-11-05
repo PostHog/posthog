@@ -7,6 +7,7 @@ from products.growth.dags import (
     identity_matching,
     oauth,
     product_push_campaigns,
+    sdk_versions_rollup,
     team_production_event_activation,
 )
 
@@ -17,6 +18,8 @@ jobs = [
     github_sdk_versions.cache_github_sdk_versions_job,
     team_production_event_activation.detect_first_team_production_event_job,
     product_push_campaigns.product_push_campaigns_job,
+    ai_enrichment.ai_enrichment_job,
+    sdk_versions_rollup.sdk_versions_daily_rollup.job,
     # Manual-run only: growth names the organizations, product, and window per run.
     custom_product_push_campaigns.custom_product_push_campaigns_job,
 ]
@@ -25,16 +28,13 @@ schedules = [
     github_sdk_versions.cache_github_sdk_versions_schedule,
     team_production_event_activation.detect_first_team_production_event_schedule,
     product_push_campaigns.product_push_campaigns_schedule,
+    ai_enrichment.ai_enrichment_schedule,
+    sdk_versions_rollup.sdk_versions_daily_rollup.schedule,
 ]
 # Identity matching processes internal PostHog data that only exists on Cloud US (team 2),
 # so the job is not registered on Cloud EU.
 if identity_matching.is_identity_matching_registered():
     jobs.append(identity_matching.identity_matching_job)
-# AI enrichment sends organization signup data to an external LLM gateway, so — like
-# identity matching — it is not registered on Cloud EU.
-if ai_enrichment.is_ai_enrichment_registered():
-    jobs.append(ai_enrichment.ai_enrichment_job)
-    schedules.append(ai_enrichment.ai_enrichment_schedule)
 
 defs = dagster.Definitions(
     jobs=jobs,

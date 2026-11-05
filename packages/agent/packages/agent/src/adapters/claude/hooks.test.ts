@@ -354,11 +354,7 @@ describe("createSubagentRewriteHook", () => {
   const logger = new Logger({ debug: false });
 
   test("inherits the exact parent model when opus means Claude Opus 5", async () => {
-    const hook = createSubagentRewriteHook(
-      logger,
-      new Set(),
-      () => "claude-opus-5",
-    );
+    const hook = createSubagentRewriteHook(logger, () => "claude-opus-5");
 
     const result = await hook(
       buildPreToolUseHookInput("Agent", {
@@ -386,11 +382,7 @@ describe("createSubagentRewriteHook", () => {
     ["claude-opus-5", "sonnet"],
     [undefined, "opus"],
   ])("leaves parent %s with model %s unchanged", async (parentModel, model) => {
-    const hook = createSubagentRewriteHook(
-      logger,
-      new Set(),
-      () => parentModel,
-    );
+    const hook = createSubagentRewriteHook(logger, () => parentModel);
 
     const result = await hook(
       buildPreToolUseHookInput("Agent", {
@@ -404,12 +396,8 @@ describe("createSubagentRewriteHook", () => {
     expect(result).toEqual({ continue: true });
   });
 
-  test("combines model and subagent type rewrites", async () => {
-    const hook = createSubagentRewriteHook(
-      logger,
-      new Set(["ph-explore"]),
-      () => "claude-opus-5",
-    );
+  test("preserves the built-in Explore type when rewriting the model", async () => {
+    const hook = createSubagentRewriteHook(logger, () => "claude-opus-5");
 
     const result = await hook(
       buildPreToolUseHookInput("Agent", {
@@ -423,7 +411,7 @@ describe("createSubagentRewriteHook", () => {
     expect(result).toMatchObject({
       hookSpecificOutput: {
         updatedInput: {
-          subagent_type: "ph-explore",
+          subagent_type: "Explore",
           model: "inherit",
         },
       },

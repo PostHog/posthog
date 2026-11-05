@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context.survey.context import SurveyContext
@@ -84,6 +86,22 @@ class TestSurveyContext(BaseTest):
 
         assert formatted == "No specific targeting configured (shows to all users)."
 
+    @parameterized.expand(
+        [
+            ("once_with_stale_iterations", "once", 3, 30, "once"),
+            ("recurring", "recurring", 3, 30, "recurring (up to 3 times, every 30 days)"),
+            ("recurring_without_iterations", "recurring", None, None, "recurring"),
+            ("always", "always", None, None, "always (every time the display conditions are met)"),
+        ]
+    )
+    def test_format_schedule(self, _name, schedule, iteration_count, iteration_frequency_days, expected):
+        self.survey.schedule = schedule
+        self.survey.iteration_count = iteration_count
+        self.survey.iteration_frequency_days = iteration_frequency_days
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
+
+        assert context.format_schedule(self.survey) == expected
+
     def test_get_status_draft(self):
         context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         status = context._get_status(self.survey)
@@ -126,9 +144,12 @@ class TestSurveyContext(BaseTest):
         assert survey is not None
         assert survey.name == "Test NPS Survey"
 
+    @parameterized.expand(
+        [("missing_uuid", "00000000-0000-0000-0000-000000000000"), ("name", "Test NPS Survey"), ("number", "42")]
+    )
     @pytest.mark.asyncio
-    async def test_aget_survey_not_found(self):
-        context = SurveyContext(team=self.team, user=self.user, survey_id="00000000-0000-0000-0000-000000000000")
+    async def test_aget_survey_not_found(self, _name: str, survey_id: str):
+        context = SurveyContext(team=self.team, user=self.user, survey_id=survey_id)
         survey = await context.aget_survey()
 
         assert survey is None

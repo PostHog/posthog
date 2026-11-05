@@ -70,10 +70,60 @@ const integrationsChannelsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
             query: {
+                channel_id: params.channel_id,
+                force_refresh: params.force_refresh,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailStatusRetrieveSchema = () => {
+    const IntegrationsEmailStatusRetrieveParams = orvalSchemas.IntegrationsEmailStatusRetrieveParams()
+    const IntegrationsEmailStatusRetrieveQueryParams = orvalSchemas.IntegrationsEmailStatusRetrieveQueryParams()
+    return IntegrationsEmailStatusRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsEmailStatusRetrieveQueryParams.shape
+    )
+}
+
+const integrationsEmailStatusRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>,
+    Schemas.EmailDomainStatus
+> => ({
+    name: 'integrations-email-status-retrieve',
+    schema: IntegrationsEmailStatusRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/status/`,
+            query: {
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailVerifyCreateSchema = () => {
+    const IntegrationsEmailVerifyCreateParams = orvalSchemas.IntegrationsEmailVerifyCreateParams()
+    return IntegrationsEmailVerifyCreateParams.omit({ project_id: true })
+}
+
+const integrationsEmailVerifyCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailVerifyCreateSchema>,
+    Schemas.EmailDomainVerification
+> => ({
+    name: 'integrations-email-verify-create',
+    schema: IntegrationsEmailVerifyCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailVerifyCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainVerification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/verify/`,
         })
         return result
     },
@@ -176,10 +226,54 @@ const integrationsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'kind', 'display_name', 'errors', 'created_at', 'created_by'])
+                pickResponseFields(item, [
+                    'id',
+                    'kind',
+                    'display_name',
+                    'errors',
+                    'created_at',
+                    'created_by',
+                    'config.verified',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/settings/environment-integrations')
+    },
+})
+
+const IntegrationsPushTokensCreateSchema = () => {
+    const IntegrationsPushTokensCreateBody = orvalSchemas.IntegrationsPushTokensCreateBody()
+    const IntegrationsPushTokensCreateParams = orvalSchemas.IntegrationsPushTokensCreateParams()
+    return IntegrationsPushTokensCreateParams.omit({ project_id: true }).extend(IntegrationsPushTokensCreateBody.shape)
+}
+
+const integrationsPushTokensCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsPushTokensCreateSchema>,
+    Schemas.PushTokenImportResponse
+> => ({
+    name: 'integrations-push-tokens-create',
+    schema: IntegrationsPushTokensCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsPushTokensCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.subscriptions !== undefined) {
+            body['subscriptions'] = params.subscriptions
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        if (params.import_id !== undefined) {
+            body['import_id'] = params.import_id
+        }
+        if (params.create_missing_persons !== undefined) {
+            body['create_missing_persons'] = params.create_missing_persons
+        }
+        const result = await context.api.request<Schemas.PushTokenImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/push_tokens/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -254,10 +348,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-email-status-retrieve': integrationsEmailStatusRetrieve,
+    'integrations-email-verify-create': integrationsEmailVerifyCreate,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
+    'integrations-push-tokens-create': integrationsPushTokensCreate,
     'integrations-users-retrieve': integrationsUsersRetrieve,
     'posthog-connection-forward': posthogConnectionForward,
 }

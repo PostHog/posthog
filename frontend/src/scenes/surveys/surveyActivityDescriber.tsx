@@ -33,6 +33,10 @@ import { SurveyQuestionLabel } from './constants'
 
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
+// A survey can hold no questions, and the activity log records an empty list as null,
+// so one side of a questions change carries null instead of an array.
+const toQuestionList = (value: unknown): Survey['questions'] => (Array.isArray(value) ? value : [])
+
 const nameOrLinkToSurvey = (
     id: string | undefined,
     name: string | null | undefined,
@@ -86,8 +90,8 @@ const surveyActionsMapping: Record<
             return null
         }
 
-        const beforeQuestions = change.before as Survey['questions']
-        const afterQuestions = change.after as Survey['questions']
+        const beforeQuestions = toQuestionList(change.before)
+        const afterQuestions = toQuestionList(change.after)
 
         if (beforeQuestions.length !== afterQuestions.length) {
             return {
@@ -182,6 +186,11 @@ const surveyActionsMapping: Record<
             borderColor: 'border color',
             placeholder: 'placeholder text',
             whiteLabel: 'white label option',
+            displayIntroScreen: 'intro screen display',
+            introScreenHeader: 'intro screen header',
+            introScreenDescription: 'intro screen description',
+            introScreenDescriptionContentType: 'intro screen content type',
+            introScreenButtonText: 'intro screen button text',
             displayThankYouMessage: 'thank you message display',
             thankYouMessageHeader: 'thank you message header',
             thankYouMessageDescription: 'thank you message description',
@@ -286,7 +295,7 @@ const surveyActionsMapping: Record<
                     added a targeting flag with key <strong>{afterFlag.key}</strong>
                 </>
             )
-            if (afterFlag.filters?.groups?.length > 0) {
+            if ((afterFlag.filters?.groups?.length ?? 0) > 0) {
                 changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {

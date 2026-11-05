@@ -233,12 +233,36 @@ zxing reads the frame at exactly `ratio` times the stored scale, because its cos
 DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
-**`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
-It is what gets stored, and everything else follows from it: the frame budget is `stored x ratio^2`, because the detectors have to see enough to keep the rule.
-Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
+### Stored size
 
-Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
-At the defaults a 1080p capture is stored at about 161x90.
+The guarantee is the ratio, not a small stored image.
+Whatever is still legible in the artifact was large enough for a detector to find and fill, at any stored size.
+A larger stored size keeps more scene detail for training and costs detector time, because the detectors grow with it.
+
+**`SCRUB_STORED_MAX_SIDE` sets the stored size, and is the knob most people should touch.**
+Up to the face tiling aspect (3:1) it caps the long side of what gets stored, and everything else follows from it: the face detector's input and the text canvas grow to `side x ratio`, and the frame budget to `stored x ratio^2`.
+It takes 0 (off) or a value from 16 to 1024.
+
+| Source    | Unset (0) | 384     |
+| --------- | --------- | ------- |
+| 1920x1080 | 161x90    | 384x216 |
+| 1280x720  | 161x90    | 323x181 |
+| 390x844   | 74x161    | 98x213  |
+| 400x300   | 100x75    | 100x75  |
+
+- Unset, the face detector runs at 640 px, which caps every stored image at about 161 px on its long side.
+- An image smaller than about `side x ratio` stores at `1/ratio` of its size, whatever the side.
+- Past 3:1 the side is not a cap, because capping a banner's long side would crush its short one. The face detector's input binds instead, as it does unset: the long side stays near the side up to 6:1, then the short side holds at about `side / 6` and the long side grows with the aspect (384 stores an 8:1 source at 517x64, and 20:1 at 1292x64).
+- Above 640 px the face detector also runs a second pass at 640, since its floors were measured there and a close-up face at the larger input reaches the model bigger than anything checked. The pass is skipped where 640 would not shrink the window, and the two passes' boxes are merged as a union, so neither can remove a box the other found.
+
+Before raising it in a deployment:
+
+- Raise the container's memory, or the pool runs fewer workers. The model in `src/cores.ts` gives about 955 MB per worker at 384 instead of 514 MB. `dev/mem-probe.ts` measured 755 MB at 384 and 4.5 GB at 1024 on frames at the cap, inside the model's 955 MB and 5.0 GB.
+- Check detection recall at the new sizes with `dev/scrub-eval.ts`.
+- Watch `ml_mirror_image_scrub_duration_seconds` and `ml_mirror_image_scrub_stage_duration_seconds`, split by `ml_mirror_image_scrub_plan_info`, which carries the sizes each pod runs with.
+
+`SCRUB_OUT_MAX_PIXELS` bounds the stored area (default `side^2`, or 50,000 when no side is set).
+Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
 
 Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
@@ -259,6 +283,20 @@ The output is the same, bit for bit, as the TypeScript loops that it replaced.
 The image compiles the addon from `rust/` in a Rust stage of `Dockerfile.ml-mirror-image-scrub` and copies it to `native/`.
 Every worker loads it at startup, so a missing or stale addon fails the smoke test and with it the image build.
 On a dev machine, `npm run build:native` builds it into `native/`.
+
+## SVG
+
+The anonymizer sends an SVG data URI as its decoded document, checking only its size and that it starts with markup.
+Parsing and rendering both cost more than the document's size suggests: a few hundred bytes of huge strokes, markers or clip paths can take minutes to draw, and thousands of attributes on one element make the XML parser quadratic.
+So both run in a separate process (`src/svg-rasterizer-process.mjs`, through the addon's `rasterizeSvg`), which the sidecar kills when a render runs past `IMAGE_SCRUB_SVG_TIMEOUT_MS` (2s).
+A worker thread inside a native call cannot be stopped, but a process can.
+The renderer refuses DTDs, filters, masks, patterns, `foreignObject`, deep nesting and more than 8 `<use>` elements before it draws anything.
+Rendering drops the document's metadata, so the sidecar reads the XMP training opt-out from the SVG itself first.
+The PNG then goes through the same scrub as any other image.
+
+The renderer has no text or raster-image support and refuses every nested image reference, so the PNG holds only shapes.
+A refused document and a timed-out render both answer 422 (`undecodable` reasons `svg_refused` and `svg_timeout`), so the consumer skips the image.
+`IMAGE_SCRUB_SVG_RASTERIZERS` (1) sets how many renders run at once.
 
 ## Observability
 

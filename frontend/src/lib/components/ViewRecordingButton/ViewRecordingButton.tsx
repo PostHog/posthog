@@ -9,7 +9,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/UnwatchedIndicator'
 import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'

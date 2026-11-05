@@ -71,7 +71,8 @@
         &[data-active='true'],
         &[data-current='true'],
         &[data-state='open'],
-        [data-state='open'] > &, // Specifically for <Link> where this attribute is applied to the parent div instead of the button
+        // Link wrappers own the open state; tree items manage selection separately from expansion.
+        [data-state='open'] > &:not([role='treeitem']),
         &[data-state='checked'],
         &[aria-expanded='true'],
         &.button-primitive--active {

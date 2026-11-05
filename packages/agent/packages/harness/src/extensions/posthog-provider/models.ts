@@ -1,13 +1,18 @@
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import type { CloudRegion } from "@posthog/agent-contracts";
+import { type CloudRegion, isModalModelId } from "@posthog/agent-contracts";
 import { buildPosthogProjectHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
 const MODELS_FETCH_TIMEOUT_MS = 5_000;
+
+type PosthogProviderModelConfig = Extract<
+  ProviderModelConfig,
+  { reasoning: boolean; contextWindow: number; maxTokens: number }
+>;
 
 export interface GatewayModel {
   id: string;
@@ -18,9 +23,14 @@ export interface GatewayModel {
   // Free-tier model gate: authenticated fetches mark models outside the
   // caller's plan. Absence (anonymous fetch or older gateway) means allowed.
   allowed?: boolean;
+  // Request formats the Go gateway accepts; absent on Python gateway rows.
+  api_shapes?: string[];
 }
 
 type ModelFamily = "anthropic" | "openai" | "cloudflare" | "baseten";
+
+const ANTHROPIC_MESSAGES_SHAPE = "anthropic-messages";
+const OPENAI_CHAT_COMPLETIONS_SHAPE = "openai-chat-completions";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -63,7 +73,48 @@ function detectFamily(model: GatewayModel): ModelFamily {
   if (model.owned_by === "baseten" || model.id.startsWith("deepseek-ai/")) {
     return "baseten";
   }
+  if (model.owned_by === "posthog") {
+    return servedModelFamily(model);
+  }
   return "anthropic";
+}
+
+// Go labels every PostHog-hosted model "posthog"; each keeps the API the
+// Python gateway's listing serves it on.
+function servedModelFamily(model: GatewayModel): ModelFamily {
+  const accepts = (shape: string) =>
+    !model.api_shapes || model.api_shapes.includes(shape);
+  const preferred = isModalModelId(model.id)
+    ? ANTHROPIC_MESSAGES_SHAPE
+    : OPENAI_CHAT_COMPLETIONS_SHAPE;
+  const other =
+    preferred === ANTHROPIC_MESSAGES_SHAPE
+      ? OPENAI_CHAT_COMPLETIONS_SHAPE
+      : ANTHROPIC_MESSAGES_SHAPE;
+  const shape = accepts(preferred) || !accepts(other) ? preferred : other;
+  return shape === ANTHROPIC_MESSAGES_SHAPE ? "anthropic" : "baseten";
+}
+
+// The Go gateway's /v1/models omits supports_vision.
+function supportsVision(
+  model: GatewayModel,
+  family: ModelFamily,
+  builtinInput: readonly string[] | undefined,
+): boolean {
+  if (model.supports_vision !== undefined) {
+    return model.supports_vision;
+  }
+  const known = FALLBACK_GATEWAY_MODELS.find((entry) => entry.id === model.id);
+  if (known?.supports_vision !== undefined) {
+    return known.supports_vision;
+  }
+  if (builtinInput) {
+    return builtinInput.includes("image");
+  }
+  return (
+    model.owned_by !== "posthog" &&
+    (family === "anthropic" || family === "openai")
+  );
 }
 
 /**
@@ -87,15 +138,18 @@ export function gatewayBaseUrlForApi(
 function toModelConfig(
   model: GatewayModel,
   region: CloudRegion,
-): ProviderModelConfig {
+): PosthogProviderModelConfig {
   const family = detectFamily(model);
   const name = model.display_name ?? model.id;
   const contextWindow = model.context_window ?? 200000;
-  const input: ("text" | "image")[] = model.supports_vision
+  const builtin = findBuiltinModel(family, model.id);
+  const input: ("text" | "image")[] = supportsVision(
+    model,
+    family,
+    builtin?.input,
+  )
     ? ["text", "image"]
     : ["text"];
-
-  const builtin = findBuiltinModel(family, model.id);
   const resolvedThinkingLevelMap =
     THINKING_LEVEL_MAP_OVERRIDES[model.id] ?? builtin?.thinkingLevelMap;
   const thinkingLevelMap = resolvedThinkingLevelMap
@@ -267,6 +321,13 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 128000,
     supports_vision: false,
   },
+  // The Go gateway's spelling of the entry above; it has no `@cf/` alias.
+  {
+    id: "zai-org/glm-5.2",
+    owned_by: "baseten",
+    context_window: 128000,
+    supports_vision: false,
+  },
   {
     id: "moonshotai/kimi-k3",
     owned_by: "modal",
@@ -298,7 +359,7 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
 // not be what decides whether they are offered.
 export function fallbackModelConfigs(
   region: CloudRegion,
-): ProviderModelConfig[] {
+): PosthogProviderModelConfig[] {
   return FALLBACK_GATEWAY_MODELS.map((model) => toModelConfig(model, region));
 }
 
@@ -331,7 +392,7 @@ export async function fetchPosthogGatewayModels(
 export function resolveModelConfigsFromGatewayModels(
   models: GatewayModel[],
   region: CloudRegion,
-): ProviderModelConfig[] {
+): PosthogProviderModelConfig[] {
   if (models.length === 0) {
     return fallbackModelConfigs(region);
   }
@@ -348,7 +409,7 @@ export async function resolveModelConfigs(
   baseUrl?: string,
   apiKey?: string,
   projectId?: number,
-): Promise<ProviderModelConfig[]> {
+): Promise<PosthogProviderModelConfig[]> {
   if (process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS) {
     return fallbackModelConfigs(region);
   }

@@ -49,6 +49,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
@@ -71,9 +73,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
-from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries, metric_calculation_keys
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentSavedMetric,
@@ -287,18 +287,24 @@ class HedgeboxMatrix(Matrix):
             team=team,
             name="Signed-up users",
             created_by=user,
-            groups=[
-                {
-                    "properties": [
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
                         {
-                            "key": "email",
-                            "type": "person",
-                            "value": "is_set",
-                            "operator": "is_set",
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "is_set",
+                                    "operator": "is_set",
+                                }
+                            ],
                         }
-                    ]
+                    ],
                 }
-            ],
+            },
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
         from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
@@ -909,6 +915,27 @@ class HedgeboxMatrix(Matrix):
             ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=13),
             last_modified_by=user,
+        )
+
+        FileSystemShortcut.objects.bulk_create(
+            [
+                FileSystemShortcut(
+                    team=team,
+                    user=user,
+                    surface=DEFAULT_SURFACE,
+                    type=item_type,
+                    ref=str(item_ref),
+                    path=item_name or "Untitled",
+                    order=order,
+                )
+                for order, (item_type, item_ref, item_name) in enumerate(
+                    [
+                        ("dashboard", key_metrics_dashboard.pk, key_metrics_dashboard.name),
+                        ("insight", weekly_signups_insight.short_id, weekly_signups_insight.name),
+                        ("insight", signups_by_country_insight.short_id, signups_by_country_insight.name),
+                    ]
+                )
+            ]
         )
 
         # Insight views
@@ -1758,16 +1785,10 @@ class HedgeboxMatrix(Matrix):
             )
 
         # Inline metrics need stored fingerprints (normally stamped by the experiment service on
-        # create/launch) — the timeseries endpoint looks results up by them.
+        # create/launch), and the backfill below files the seeded days under the same key.
+        calculation_keys = metric_calculation_keys(new_experiment.id, team_id=team.id).inline
         for metric_dict in metrics:
-            metric_dict["fingerprint"] = compute_metric_fingerprint(
-                metric_dict,
-                new_experiment.start_date,
-                get_experiment_stats_method(new_experiment),
-                new_experiment.exposure_criteria,
-                only_count_matured_users=new_experiment.only_count_matured_users,
-                excluded_variants=new_experiment.excluded_variants or [],
-            )
+            metric_dict["fingerprint"] = calculation_keys[metric_dict["uuid"]]
         new_experiment.metrics = metrics
         new_experiment.save(update_fields=["metrics"])
 
@@ -1889,7 +1910,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [2, 5, 11, 18],
+                "days_ago": [2, 5, 11, 18, 0],
             },
             {
                 "name": "File preview render failure",
@@ -1943,7 +1964,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [1, 4, 9],
+                "days_ago": [1, 4, 9, 0],
             },
             {
                 "name": "Team invite rejected",
@@ -1995,7 +2016,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [3, 7],
+                "days_ago": [3, 7, 0],
             },
         ]
 
@@ -2035,7 +2056,7 @@ class HedgeboxMatrix(Matrix):
                 distinct_id = (
                     sorted(person.distinct_ids_at_now)[0] if person.distinct_ids_at_now else person.in_product_id
                 )
-                timestamp = self.now - dt.timedelta(days=days_ago, hours=index % 5)
+                timestamp = self.now - dt.timedelta(days=days_ago, hours=2 if days_ago == 0 else index % 5)
                 frames = issue_spec["frames"]
                 event_frames = [self._stack_frame_contents(frame) for frame in frames]
                 exception_type = issue_spec["type"]

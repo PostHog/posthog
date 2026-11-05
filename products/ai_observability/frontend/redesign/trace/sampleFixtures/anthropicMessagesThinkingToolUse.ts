@@ -1,4 +1,5 @@
-import { NodeProperties, ThreadMessage, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { NodeProperties, ThreadMessage } from '../types'
 import { SampleTraceFixture, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '2fa60c6497874ba3c4633d94fdfae64f'
@@ -108,7 +109,7 @@ const generationStats = sampleStats({
     latencyMs: 3539,
 })
 
-const tree: TraceTreeNode[] = [
+const tree: TraceNodeApi[] = [
     {
         id: TRACE_ID,
         kind: 'trace',
@@ -144,8 +145,6 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     header: {
         name: 'run-budget-rollup',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {

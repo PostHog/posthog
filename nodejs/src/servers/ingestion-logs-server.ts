@@ -14,7 +14,7 @@ import {
     LogsIngestionOutputsConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
-import { LogsIngestionConsumer } from '~/logs/logs-ingestion-consumer'
+import { createLogsIngestionConsumer } from '~/logs/framework/create-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -26,6 +26,7 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
+import { PatternMessageKeysCache } from '~/logs/pattern-message-keys-cache'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
@@ -130,6 +131,7 @@ export class IngestionLogsServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const patternMessageKeysCache = new PatternMessageKeysCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -161,7 +163,7 @@ export class IngestionLogsServer implements NodeServer {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
-            const consumer = new LogsIngestionConsumer(this.config, {
+            const consumer = createLogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
@@ -170,6 +172,7 @@ export class IngestionLogsServer implements NodeServer {
                 metricsEmitter,
                 logsTransformer,
                 retentionRulesCache,
+                patternMessageKeysCache,
                 usageBatch,
             })
             await consumer.start()

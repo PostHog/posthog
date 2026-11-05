@@ -4,11 +4,10 @@ import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
-import { connectedAppsLogic } from 'scenes/settings/user/connectedAppsLogic'
-import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
-import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 
 import { credentialReviewLogic } from './credentialReviewLogic'
 import { CredentialsReviewList } from './CredentialsReviewList'
@@ -22,36 +21,34 @@ const HedgehogHeart = pngHoggie(heartPng)
 
 export function CredentialReview(): JSX.Element {
     const { markComplete } = useActions(credentialReviewLogic)
-    const { keysLoading } = useValues(personalAPIKeysLogic)
-    const { passkeysLoading } = useValues(passkeySettingsLogic)
-    const { connectedAppsLoading } = useValues(connectedAppsLogic)
-
-    const loading = keysLoading || passkeysLoading || connectedAppsLoading
+    const { continueDisabledReason, isCompleting } = useValues(credentialReviewLogic)
 
     return (
-        <BridgePage view="credential-review" fixedWidth={false}>
-            <div className="px-12 py-8 flex flex-col items-center max-w-3xl w-full text-center">
-                <h2 className="text-lg">Welcome to PostHog!</h2>
-                <h1 className="text-3xl font-bold">One more thing.</h1>
-                <div className="max-w-60 my-8">
+        <AuthScene notes={AUTH_NOTES.credentialReview.default} wide>
+            <AuthSceneCard>
+                <div className="max-w-40 mx-auto mb-4">
                     <HedgehogHeart className="w-full h-full" />
                 </div>
-                <p className="mb-6 max-w-xl">
-                    Your account was set up with the credentials and connected apps listed below. Review them and revoke
-                    anything you don't recognize before continuing.
-                </p>
-                <div className="w-full mb-6 text-left">
+                <AuthCardTitle
+                    title="One more thing"
+                    sub="Your account was set up with the credentials and connected apps below. Review them and revoke anything you don't recognize before continuing."
+                />
+                <div className="mb-6 text-left">
                     <CredentialsReviewList />
                 </div>
                 <LemonButton
                     type="primary"
                     size="large"
+                    fullWidth
+                    center
                     onClick={() => markComplete()}
-                    disabledReason={loading ? 'Loading your credentials…' : null}
+                    loading={isCompleting}
+                    disabledReason={continueDisabledReason}
+                    data-attr="credential-review-continue"
                 >
                     Continue to PostHog
                 </LemonButton>
-            </div>
-        </BridgePage>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }

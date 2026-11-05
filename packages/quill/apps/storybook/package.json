@@ -16,6 +16,7 @@
         "@posthog/quill-charts": "workspace:^",
         "@posthog/quill-tokens": "workspace:^",
         "lucide-react": "^0.577.0",
+        "mockdate": "^3.0.5",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "tailwindcss": "^4.1.17",

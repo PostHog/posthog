@@ -15,6 +15,9 @@ export interface CredentialAccountSelectorProps {
     fieldLabel: string
     /** Sibling payload fields whose values the listing needs, named by the field config. */
     credentialFields: string[]
+    /** Name of an OAuth integration id field that lists the same accounts. When the form holds a
+     *  value there, it stands in for `credentialFields`, which the other auth branch leaves empty. */
+    integrationField?: string
     /** Data warehouse source type used to route the listing endpoint, e.g. "AppleSearchAds". */
     sourceType: string
     placeholder?: string
@@ -74,9 +77,14 @@ function CredentialAccountSelectorInner({
     formKey,
     ...props
 }: CredentialAccountSelectorProps & { formLogic: any; formKey: string }): JSX.Element {
-    const { sourceType, credentialFields, fieldName, fieldLabel, placeholder, caption } = props
+    const { sourceType, credentialFields, integrationField, fieldName, fieldLabel, placeholder, caption } = props
     const values = useValues(formLogic) as Record<string, any> | null
-    const credentials = collectCredentials(values?.[formKey]?.payload, credentialFields)
+    const payload = values?.[formKey]?.payload
+    // A connected account answers the same listing, and the two branches are never both filled in,
+    // so prefer whichever one the form holds rather than requiring the typed-in set.
+    const credentials =
+        (integrationField ? collectCredentials(payload, [integrationField]) : undefined) ??
+        collectCredentials(payload, credentialFields)
 
     const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
         credentialAccountsLogic({ sourceType })
@@ -119,7 +127,9 @@ function CredentialAccountSelectorInner({
                         emptyMessage={
                             credentials
                                 ? "Couldn't load your accounts. Type the value in above."
-                                : 'Fill in the credentials above to list accounts.'
+                                : integrationField
+                                  ? 'Connect your account above to list accounts.'
+                                  : 'Fill in the credentials above to list accounts.'
                         }
                         noMatchMessage={() => 'No accounts match your filter.'}
                         loadingMessage="Loading accounts…"

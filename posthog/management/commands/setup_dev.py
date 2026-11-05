@@ -50,6 +50,7 @@ class Command(BaseCommand):
             PropertyDefinition.objects.create(name="name", type=PropertyDefinition.Type.PERSON, team=team)
             PropertyDefinition.objects.create(name="is_demo", type=PropertyDefinition.Type.PERSON, team=team)
 
+            # nosemgrep: personal-api-key-created-outside-mint -- this dev seed uses a fixed, known key value, and the mint always generates a random one
             PersonalAPIKey.objects.create(
                 user=user,
                 label="e2e_demo_api_key key",

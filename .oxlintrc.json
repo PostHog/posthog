@@ -6,6 +6,7 @@
     },
     "ignorePatterns": [
         "products/desktop",
+        "products/mobile",
         "packages/agent",
         "node_modules",
         "dist",
@@ -16,6 +17,7 @@
         ".semgrep",
         ".github/actions/paths-filter",
         ".depot/actions/paths-filter",
+        ".github/actions/shared-image-releases",
         ".github/scripts",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
@@ -23,10 +25,12 @@
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
+        "frontend/src/queries/web-analytics-validators.js",
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
-        "products/**/frontend/generated/**"
+        "products/**/frontend/generated/**",
+        "hog/test/parity/bundles/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -128,6 +132,11 @@
                     {
                         "name": "storybook/preview-api",
                         "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
+                    },
+                    {
+                        "name": "storybook/test",
+                        "importNames": ["within", "waitFor"],
+                        "message": "Import within and waitFor from @testing-library/dom to use the configured Storybook async timeout."
                     }
                 ],
                 "patterns": [

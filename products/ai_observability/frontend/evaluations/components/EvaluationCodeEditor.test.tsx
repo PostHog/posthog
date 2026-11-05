@@ -68,6 +68,8 @@ function renderEditor(): void {
             </BindLogic>
         </Provider>
     )
+    // The examples and tips sit in a fold that starts closed.
+    fireEvent.click(screen.getByText('Examples and reference'))
 }
 
 describe('EvaluationCodeEditor', () => {
@@ -76,6 +78,7 @@ describe('EvaluationCodeEditor', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,

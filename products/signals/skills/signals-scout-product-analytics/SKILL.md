@@ -42,9 +42,14 @@ You can't scan a whole project in one run. Your leverage is a **durable watchlis
 
 ## Quick close-out: is there a flow worth watching?
 
-If `scout-project-profile-get` shows `product_analytics` is **not** in `products_in_use`, **or** there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+If there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+Do not close out because `product_analytics` is missing from `products_in_use`: that list shows onboarding, not usage.
 
 Before closing out on `top_events` thinness, rule out a capture gap: its counts are windowed (each row carries `window_days`), not lifetime, so a project whose ingestion recently went dark reads identically to one that never had a flow. If the events look thin for a team that otherwise looks active, confirm with a direct `execute-sql` over a longer window (e.g. 30d) before concluding there's no flow — a recent capture cliff is a volume problem for another surface, not an absence of behavior to score.
+
+Saved flows can exist and still have too few entrants to score.
+If every watchlist flow is deferred below the volume floor (see the volume gate below) with a `next_due` in the future, and the explore pass finds no new saved flow, close out after orientation.
+Do not run a scoring query for a deferred flow before its `next_due`.
 
 ## How a run works
 
@@ -68,35 +73,102 @@ Two sources, highest-confidence first:
 
 ### Exploit — re-score the due flows
 
-For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), score the **latest complete window** against the flow's trailing baseline:
+For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), first pass the volume gate below, then score the **latest complete window** against the flow's trailing baseline:
 
-- **Funnels** — `query-funnel` over the latest complete window (e.g. last 7 complete days), then the same query over each of the prior N comparable windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
-- **Retention** — `query-retention` and compare the latest cohort's day-1 / day-7 / day-N return rate to the prior cohorts' rates for the same day-offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
+- **Funnels** — `query-funnel` over the latest complete _and mature_ entrant window (e.g. a 7-day entrant week; see conversion maturity below), compared with the prior N comparable mature windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
+- **Retention** — `query-retention` and compare, for each offset (day-1 / day-7 / day-N), the latest cohort whose cell at that offset is mature (see return-interval maturity below) to the prior cohorts' mature rates for the same offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
 - **Lifecycle / stickiness** — `query-lifecycle` (new / returning / resurrecting / dormant composition) and `query-stickiness`; a composition tilting toward dormant, or stickiness dropping, against the trailing baseline.
 
 **Always score only the latest _complete_ window.** The in-progress day/week is partial and will always look like a drop.
+
+**Volume gate: check entrants before you score.**
+A rate from a few people is not a stable rate, and a full baseline plus segment comparison on such a flow costs a run and can find nothing.
+Before the baseline queries, run the flow once over the latest complete window only, and read its denominator: funnel step-1 entrants, the size of the cohort you would score, or the lifecycle / stickiness active users.
+The default floor is about 100 entrants in the scored window.
+Write the floor you use into the watchlist entry, so that each later check uses the same number.
+
+- **At or above the floor** — continue to the baseline and attribution steps.
+- **Below the floor** — stop scoring this flow for this run. Do not run the baseline windows or the breakdowns.
+  Write the flow's watchlist entry with `state: below_floor`, the entrants you saw, the floor, `below_floor_checks` (the count of consecutive below-floor checks), and the cause (below).
+  Set `next_due` to 7 days later after the first below-floor check, 14 days after the second, and 28 days after each later check.
+  Until that `next_due`, reuse this state and do not query the flow again.
+- **Find the cause on the first below-floor check.** Check it again at a later volume check if the entrant count changed a lot.
+  Each cause has a different next step, so do not treat them as one case:
+  - `entrants_collapsed` — the flow was above the floor before (it has a `baseline:` entry, or its prior windows clear the floor), and its entrants fell. This is the denominator-collapse disqualifier. With `execute-sql`, compare the daily count of the first-step event over 30 days to the project's total daily events. If the step event stopped while the project's other traffic held, the cause is a capture break, a renamed event, or a removed feature. Name that in the close-out as a hand-off, and do not file it as a conversion regression.
+  - `project_quiet` — the whole project's event volume fell with the flow. The flow is not the problem. Defer it, and do not hand off a per-flow finding.
+  - `small_population` — the flow was never above the floor and its entrants are small and steady, for example a new project or a small B2B product. This is normal for that project, not a fault. Defer it.
+  - `no_entrants` — no entrants in the latest window or in the prior few windows. If the step event has had no events for 30 days, note the flow as stale in the watchlist entry. The explore pass retires flows whose insights were deleted, not flows that are only quiet.
+- **Return to normal scoring when entrants recover.**
+  At each check after `next_due`, if the latest complete window is at or above the floor, set `state: scorable`, reset `below_floor_checks` to 0, and restore the flow's normal cadence.
+  Build the baseline only from prior windows that are also at or above the floor, and do not reuse a `baseline:` band from before the gap if the flow definition changed.
+  Do not author a report until at least 3 baseline windows clear the floor. Until then, record the flow as warming up.
+  A recovery from below the floor is not a finding.
+- **Examples.**
+  - A saved funnel `Invite → accepted` had about 400 step-1 entrants a week until a month ago, and now has 0. The project's other events hold. Cause `entrants_collapsed`: the invite event stopped. Name the capture or removal question in the close-out, defer the flow 7 days, and file no conversion report.
+  - A saved weekly retention insight on a small product has cohorts of 20–30 people every week for 3 months. Cause `small_population`. Defer 7, then 14, then 28 days. Each check is one `query-retention` call that reads the newest cohort size. When cohorts reach about 100, rebuild the baseline from the cohorts that clear the floor.
+
+**Retention needs a second check: return-interval maturity.**
+A complete acquisition cohort does not make its return cells complete.
+Each retention cell (cohort, offset) counts returns inside its own return interval, and that interval ends after the cohort ends.
+A cell whose return interval is still open shows a low rate with a steady cohort size.
+That is the same shape as a real retention cliff.
+
+- With `insight-get`, read the saved `retentionFilter`: `period` (default `Day`), `timeWindowMode`, `retentionCustomBrackets` and `cumulative`.
+  With `project-get`, read the project timezone. Calendar periods start in that timezone, and weeks start on the project's week start day.
+- Set the observation cutoff to now minus an ingestion buffer: at least 1 hour for `Hour` retention, at least 6 hours for other periods.
+- Find the end of each cell's return interval. P is one period, C is the cohort start, and k is the offset (k = 0 is the cohort period):
+  - **Calendar mode** (`timeWindowMode` absent or `strict_calendar_dates`): offset k is the calendar period C + k·P to C + (k+1)·P. The cell ends at C + (k+1)·P.
+  - **Rolling mode** (`24_hour_windows`): offset k for each person is t₀ + k·P to t₀ + (k+1)·P, where t₀ is that person's first qualifying event. P is 1 hour, 24 hours, 7 days or 30 days. The last person can enter at the cohort end, so the cell ends at C + (k+2)·P.
+  - **Custom brackets**: offset k (k ≥ 1) covers brackets 1..k, so in calendar mode the cell ends at C + (1 + b₁ + … + bₖ)·P. Add one period in rolling mode.
+  - **Cumulative**: a cumulative cell counts every return at offset k or later in the query, so it grows until the cohort's last offset ends. Score a cumulative cell only when the cohort's last queried offset is mature.
+- A cell is mature only when its return interval ends at or before the cutoff. Exclude every immature cell from scoring. Apply the same rule to every baseline cell.
+  The newest mature cohort differs per offset: day-1 has a newer mature cohort than day-7.
+- Example, calendar weekly retention with weeks that start on Monday: the cohort week is Mon 1 – Sun 7. On Wed 10 the cohort is complete, but its week-1 cell (Mon 8 – Sun 14) has run for only 3 of 7 days. That cell becomes mature after Sun 14 ends, plus the buffer.
+- Example, rolling weekly retention for the same cohort: a person who enters Sun 7 at 23:00 has a week-1 interval of Sun 14 23:00 – Sun 21 23:00. The week-1 cell becomes mature only after that interval ends, plus the buffer: one week later than in calendar mode.
+- In every retention verdict (report `evidence`, `baseline:` and `dedupe:` entries), record the cohort dates, the offset, the return-interval end of the scored cell, the cutoff, the window mode and the timezone.
+- A rate that rises as an open cell fills is accumulation, not recovery. Claim a recovery only from mature cells.
+
+**Funnels need a second check: conversion maturity.**
+A complete entrant window does not make its conversions complete.
+Each entrant has the saved conversion interval to finish the funnel, so a person who enters at the end of the window can still convert one full interval later.
+A window whose last entrants are still inside their interval shows a low conversion rate with steady entrants.
+That is the same shape as a real regression.
+
+- With `insight-get`, read the saved `funnelsFilter.funnelWindowInterval` and `funnelWindowIntervalUnit`. When they are absent, the interval is 14 days.
+  Write the interval into the flow's watchlist entry.
+- Use the same observation cutoff as retention: now minus an ingestion buffer of at least 6 hours (at least 1 hour when the interval is in minutes or hours).
+- An entrant window that ends at E is mature only when E + the conversion interval is at or before the cutoff. Exclude every immature window from scoring. Apply the same rule to every baseline window.
+- The funnel `dateRange` bounds every step, not only the entry step. A `steps` query over only the entrant window cuts off conversions at E, so its late entrants never get the full interval.
+  Score funnels with the trends-mode method in [`references/funnel-maturity.md`](references/funnel-maturity.md). Read it before you score your first funnel in a run.
+- Example: a 7-day entrant week Mon 1 – Sun 7 with a 14-day conversion interval. The week is calendar-complete after Sun 7 ends. Its final entrant can convert until Sun 21 ends, so the week is mature only after Sun 21 ends, plus the buffer.
+  From Mon 8 until then, the week is complete but not mature: score the latest mature week instead, and do not score Mon 1 – Sun 7 as a decline.
+- In every funnel verdict (report `evidence`, `baseline:` and `dedupe:` entries), record the entrant window dates, the conversion interval, the maturity end of the scored window, the cutoff and the timezone.
+- A rate that rises as an immature window fills is accumulation, not recovery. Claim a recovery only from mature windows.
+
+Keep the checks separate: calendar completeness applies to every flow, conversion maturity to funnels, and return-interval maturity to retention.
+A window can pass one check and fail another.
 
 **Attribute before deciding.** When a rate moves, re-run the flow with a breakdown (platform, country, browser, plan) or add a `GROUP BY`, and confirm the entrant volume. A drop isolated to one known segment ramping down is usually expected (→ `noise:`/`addressed:` memory); a drop broad across segments with steady entrants is a real regression. If the entrants themselves collapsed, it's not your signal (Disqualifiers).
 
 ### Explore — discover new flows to watch
 
-Spend a slice of each run widening coverage: pull any newly-saved funnel/retention/lifecycle insights (by `created_at` / `last_modified_at` recency in `system.insights`) and add the strong ones; refresh the inferred flow if the activation milestones changed. Importance decays — every few days reconcile the watchlist against what's actually saved and viewed; retire flows whose insights were deleted.
+Spend a slice of each run widening coverage: pull any newly-saved funnel/retention/lifecycle insights (by `created_at` / `last_modified_at` recency in `system.insights`) and add the strong ones (a flow that already has a watchlist entry keeps its `state` and `next_due`); refresh the inferred flow if the activation milestones changed. Importance decays — every few days reconcile the watchlist against what's actually saved and viewed; retire flows whose insights were deleted.
 
 ### Save memory as you go
 
 Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search:
 
-- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, cadence, `inferred?`, and `last_scored` + `next_due`.
+- `watchlist:product_analytics:flow:<short_id>` — a curated flow: name, kind (funnel/retention/lifecycle/stickiness), the events/steps, the conversion interval for a funnel, cadence, `inferred?`, and `last_scored` + `next_due`. For a flow below the volume floor, also `state: below_floor`, the floor, the last entrants, `below_floor_checks` and the cause (see the volume gate).
 - `baseline:product_analytics:flow:<short_id>` — the learned normal: per-step conversion % band (median + MAD), or the retention curve band per day-offset, so the next run scores cheaply instead of recomputing the full baseline.
-- `dedupe:product_analytics:flow:<short_id>:<date>` — a regression already surfaced, with the condition that should re-escalate it (a further drop, or recovery + relapse).
+- `dedupe:product_analytics:flow:<short_id>:<rate>` — a regression already surfaced on this flow's specific rate (the affected step/cohort/state), with the condition that should re-escalate it (a further drop, or recovery + relapse). **One stable key per regression — never date the key.** A dated key mints a fresh row every run, so the gate never matches and the same regression files again. Keep the dates in the content instead: first seen, each later observation, and what would re-escalate. For example, key `dedupe:product_analytics:flow:aB3xY9z:step2` — _"Step-2 conversion regression on `Signup → activation` (62% → 48%, step-1 entrants steady ~5.2k/day). First seen 2026-06-09, re-confirmed 2026-06-16 at 47%. While it sits below the 60–64% baseline band, append the fresh window to the report and update this entry in place — do not author again. Re-escalate only if it drops another ~5 points, or recovers above the band and then relapses."_ Re-confirming rewrites this same row; a distinct rate on the same insight gets its own key, so separate regressions on one insight do not collide.
 - `report:product_analytics:flow:<short_id>:<rate>` — the `report_id` of a report you authored for a regression on this flow's specific rate (the affected step/cohort/state), so the next run edits _that rate's_ report (`append_evidence` with the fresh window) instead of duplicating; a distinct rate on the same insight gets its own pointer and its own report.
 - `reviewer:product_analytics:<area>` — a resolved owner (bare lowercase GitHub login) for a flow / product area, so reports route to a human faster.
 
 ### Decide
 
-Before you author, check whether this flow already has a report — the `report:product_analytics:flow:<short_id>` scratchpad pointer is the reliable path: it holds the `report_id`, so `inbox-reports-retrieve` it directly. Only with no pointer fall back to an `inbox-reports-list` search (`ordering=-updated_at`), and search the flow's _specific_ terms (its name, the step events, the `short_id`) — a broad word like `funnel` returns hundreds of unrelated reports on a busy project and buries yours. Classify each candidate against prior runs and the scratchpad (net-new / material-update / already-covered / addressed-or-noise), then:
+Before you author, check whether this flow already has a report — the `report:product_analytics:flow:<short_id>:<rate>` scratchpad pointer is the reliable path: it holds the `report_id`, so `inbox-reports-retrieve` it directly. Only with no pointer fall back to an `inbox-reports-list` search (`ordering=-updated_at`), and search the flow's _specific_ terms (its name, the step events, the `short_id`) — a broad word like `funnel` returns hundreds of unrelated reports on a busy project and buries yours. Classify each candidate against prior runs and the scratchpad (net-new / material-update / already-covered / addressed-or-noise), then:
 
-- **Edit** the existing report via `scout-edit-report` when the inbox already covers the flow. A regression is rarely brand-new — a funnel that's still sliding, a retention cliff that deepened, a flow that recovered then relapsed: use `append_evidence` for the fresh window's rate, baseline band, and entrant volumes (or rewrite the title/summary on a report you authored). This is the default when a match exists **and it's still live in the inbox**; don't mint a near-duplicate. **A persistent regression is one report across weeks:** when a new complete window confirms the flow is still below baseline (or has deepened), that's a _re-escalation_ — add the fresh week with `append_evidence`, and advance the `dedupe:…:<week>` gate. Do **not** author a fresh report per week. The same flow moving twice is one report, not two. **But scope the match to the same rate, not just the same `short_id`:** one funnel/retention insight carries several independent rates (step-2 vs step-5 conversion, one retention cohort vs another, one lifecycle state), and a drop on a _different_ step/cohort is its own regression with its own owner — keep the `report:product_analytics:flow:<short_id>` pointer keyed to the affected rate (e.g. `…:flow:<short_id>:step2`) and only `edit-report` when the matched report covers that same rate; a genuinely distinct rate gets a fresh report so it isn't buried under an unrelated thread. **And check the matched report's status first:** `edit-report` can't change status, so appending to a `resolved` / `suppressed` / `failed` report (one that won't surface in the inbox) buries a real relapse under a closed item. When the prior report is no longer live, **author a fresh report** for the relapse and repoint `report:product_analytics:flow:<short_id>` at the new id.
+- **Edit** the existing report via `scout-edit-report` when the inbox already covers the flow. A regression is rarely brand-new — a funnel that's still sliding, a retention cliff that deepened, a flow that recovered then relapsed: use `append_evidence` for the fresh window's rate, baseline band, and entrant volumes (or rewrite the title/summary on a report you authored). This is the default when a match exists **and it's still live in the inbox**; don't mint a near-duplicate. **A persistent regression is one report across weeks:** when a new complete window confirms the flow is still below baseline (or has deepened), that's a _re-escalation_ — add the fresh week with `append_evidence`, and rewrite the flow's `dedupe:product_analytics:flow:<short_id>:<rate>` entry in place with the new observation. Do **not** author a fresh report per week. The same flow moving twice is one report, not two. **But scope the match to the same rate, not just the same `short_id`:** one funnel/retention insight carries several independent rates (step-2 vs step-5 conversion, one retention cohort vs another, one lifecycle state), and a drop on a _different_ step/cohort is its own regression with its own owner — keep the `report:product_analytics:flow:<short_id>:<rate>` pointer keyed to the affected rate (e.g. `…:flow:<short_id>:step2`) and only `edit-report` when the matched report covers that same rate; a genuinely distinct rate gets a fresh report so it isn't buried under an unrelated thread. **And check the matched report's status first:** `edit-report` can't change status, so appending to a `resolved` / `suppressed` / `failed` report (one that won't surface in the inbox) buries a real relapse under a closed item. When the prior report is no longer live, **author a fresh report** for the relapse and repoint that rate's `report:product_analytics:flow:<short_id>:<rate>` entry at the new id.
 - **Author** a fresh report via `scout-emit-report` when nothing in the inbox covers it (or a known regression has new evidence that changes the verdict). A **strong finding** here: the rate dropped clearly below the flow's seasonality-matched baseline (robust z ≥ ~3, or a conversion-point drop beyond the baseline band), the **entrant denominator held** (quantify both — "step-2 conversion 62%→48% while step-1 entrants steady at ~5.2k/day"), the move is broad across segments (not one known cohort), and it's not explained by a running experiment or a flow-definition edit. Put the flow `short_id`, the latest-window rate, the baseline band, the per-step/per-cohort numbers, the entrant volumes, and the time window in the `evidence`. A rate regression is chart-shaped — attach the regressed rate via `charts`, matched to the flow type: a funnel or retention rate with its steady entrant denominator alongside (the drop-on-steady-entrants shape), lifecycle as the state composition over time, stickiness as the frequency distribution against its population. A behavioral regression is an investigation with a starting point, not a question for a person: the flow, the step that moved, and the onset are where an agent begins, so set `actionability=immediately_actionable`, set `priority`, and name the `repository` that owns the flow (omit the field when you can't tell which repo that is, so selection can find it). Keep `actionability=requires_human_input` for a move whose next step is a product call — whether the new behavior was intended, which of several valid flows should win — and on those **leave `priority` and `repository` unset**, since they're PR-autostart fields and supplying `priority` + `suggested_reviewers` with no `repository` signals PR intent that spins up a repo-selection sandbox only to no-op (autostart needs `immediately_actionable`). Reach for them (P2 broad regression on a human-saved flow, P3 single-segment / `inferred`) only on the rare regression you'd actually want a draft PR for. **Set `suggested_reviewers` whenever you can confidently resolve one** — each entry is `{github_login?, user_uuid?}`, and the usual route here is to pass the flow's owning person as a `user_uuid`, or reuse a cached `reviewer:product_analytics:<area>` login. **`user_uuid` resolution is fail-loud: a `created_by` that is not an org member rejects the whole `emit-report`, not only the reviewer.** Do not pass a raw `created_by` if you cannot verify membership. Prefer a cached login or a `created_by` that routed before. You can also author the report without a reviewer and add one later. `scout-members-list` gives this project's members with their `user_uuid` and resolved `github_login`. Routing helps the report reach a human, so resolve an owner when you can. After authoring, write a rate-scoped `report:product_analytics:flow:<short_id>:<rate>` scratchpad entry with the `report_id`. Use a separate entry for each rate. The harness prompt carries the full report-channel contract.
 - **Remember** if suggestive but below that bar, or to refresh a baseline.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
@@ -105,7 +177,7 @@ If `anomaly-detection` already owns a related metric move in the inbox, author o
 
 ### Close out
 
-One paragraph: which flows you scored, what you added, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due flows, all conversions within baseline" is a real outcome.
+One paragraph: which flows you scored, which you deferred below the volume floor and until when, what you added, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due flows, all conversions within baseline" is a real outcome.
 
 ## Disqualifiers (skip these)
 
@@ -114,7 +186,9 @@ One paragraph: which flows you scored, what you added, which reports you authore
 - **Flow-definition change, not behavior.** If someone edited the funnel's steps, the retention event, or the date range, the rate "moved" because the measurement did. Read the insight's recent `last_modified_at` and query JSON before trusting a delta.
 - **Seasonal swings** — weekday/weekend, business-hours rhythm, end-of-month. Real only once the move clears the seasonality-matched baseline (compare same-weekday windows).
 - **The current partial window** — never score the in-progress day/week.
-- **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal).
+- **An immature retention cell** — never score a retention cell whose return interval has not ended at the observation cutoff, even when its acquisition cohort is complete.
+- **An immature funnel window** — never score a funnel entrant window whose final entrant has not had the full saved conversion interval, plus the ingestion buffer, to convert, even when the window is calendar-complete.
+- **Low-volume flows** — funnels/cohorts whose entrant counts are too small for a stable rate (enforce a minimum-entrants floor; a few users' movement is not signal). Never report on them, and defer their next check with the volume gate instead of scoring them every run.
 - **Single known internal/test cohort** — a conversion change driven only by internal distinct_ids or a `dev`/`test` environment segment.
 - **Known launches / migrations / backfills** the team already knows about — if a `noise:` / `addressed:` entry names it, skip.
 
@@ -143,7 +217,7 @@ Harness-level:
 
 ## When to stop
 
-- No flow worth watching (quick close-out) → close out empty.
+- No flow worth watching, or every flow deferred below the volume floor (quick close-out) → close out empty.
 - You've scored the due watchlist flows and added a couple of new ones → close out, even if more remain. Each run advances the watchlist.
 - A candidate matches a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report → edit-or-skip.
 

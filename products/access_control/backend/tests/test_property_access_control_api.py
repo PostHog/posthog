@@ -1,19 +1,23 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
+from posthog.models import Organization, PropertyDefinition
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 
-def _enable_property_access_control(organization):
-    organization.available_product_features = [
-        {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-    ]
+def _enable_property_access_control(organization: Organization, *, role_based_access: bool = False) -> None:
+    features = [AvailableFeature.PROPERTY_ACCESS_CONTROL]
+    if role_based_access:
+        features.append(AvailableFeature.ROLE_BASED_ACCESS)
+    organization.available_product_features = [{"name": feature, "key": feature} for feature in features]
     organization.save()
 
 
@@ -238,6 +242,37 @@ class TestPropertyAccessControlHelpers(BaseTest):
             property_type=PropertyDefinition.Type.PERSON,
         )
         assert non_writable == {"secret_prop"}
+
+    @parameterized.expand(
+        [
+            ("with_role_based_access", True, set()),
+            ("without_role_based_access", False, {"secret_prop"}),
+        ]
+    )
+    def test_get_non_writable_role_rule(self, _name: str, role_based_access: bool, expected: set[str]) -> None:
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
+
+        _enable_property_access_control(self.organization, role_based_access=role_based_access)
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.person_prop,
+            access_level=PropertyAccessLevel.READ.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.person_prop,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            role=role,
+        )
+        non_writable = get_non_writable_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.PERSON,
+        )
+        assert non_writable == expected
 
     def test_strip_restricted_properties(self):
         from products.access_control.backend.property_access_control import strip_restricted_properties

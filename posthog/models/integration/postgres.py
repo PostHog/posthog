@@ -2,11 +2,15 @@
 
 from typing import ClassVar, Literal, NamedTuple
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
+from posthog.psycopg_helpers import has_ipv6_route
+from posthog.security.postgres_hosts import ipv6_only_host_message
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
     ShapeError,
+    resolve_host_ips,
     validate_external_host,
 )
 
@@ -65,14 +69,14 @@ class PostgreSQLServerIntegration:
     integration: model.Integration
     integration_kind: ClassVar[_PostgreSQLServerKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected PostgreSQL server integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_config(
@@ -88,6 +92,10 @@ class PostgreSQLServerIntegration:
             raise common.IntegrationError(INVALID_HOST_MESSAGE)
         except ValueError:
             raise common.IntegrationError(UNREACHABLE_HOST_MESSAGE)
+
+        resolved_ips = resolve_host_ips(host)
+        if resolved_ips and all(ip.version == 6 for ip in resolved_ips) and not has_ipv6_route():
+            raise common.IntegrationError(ipv6_only_host_message(host))
 
         port = config.get("port", None)
         try:

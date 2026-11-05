@@ -1,24 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonModal,
-    LemonSkeleton,
-    LemonTable,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
 import type { OfflineResultReadApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineItemInspectorLogicProps, offlineItemInspectorLogic } from './offlineItemInspectorLogic'
 import { OfflinePayload } from './OfflinePayload'
-import { offlineResultLabel } from './offlineResultPresentation'
+import { OfflineResultTag } from './OfflineResultTag'
+import { offlineScorePassingRuleLabel } from './offlineScoreTrends'
 
 export function OfflineItemInspector({
     onClose,
@@ -78,8 +71,12 @@ export function OfflineItemInspector({
                                     {item.id}
                                 </span>
                                 {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
                                 {item.application_trace_id && (
-                                    <Link to={urls.aiObservabilityTrace(item.application_trace_id)}>
+                                    <Link
+                                        to={urls.aiObservabilityTrace(item.application_trace_id)}
+                                        data-attr="offline-item-application-trace"
+                                    >
                                         Application trace
                                     </Link>
                                 )}
@@ -109,16 +106,16 @@ export function OfflineItemInspector({
                                                     </div>
                                                     <span className="text-xs text-muted">{`Version ${selectedResult.scorer.version}`}</span>
                                                 </div>
-                                                <LemonTag
-                                                    type={selectedResult.status === 'error' ? 'danger' : 'default'}
-                                                    size="medium"
-                                                    wrap
-                                                >
-                                                    <span className="text-lg font-semibold break-words" translate="no">
-                                                        {offlineResultLabel(selectedResult, selectedResult.scorer)}
-                                                    </span>
-                                                </LemonTag>
+                                                <OfflineResultTag
+                                                    result={selectedResult}
+                                                    scorer={selectedResult.scorer}
+                                                />
                                             </div>
+                                            {offlineScorePassingRuleLabel(selectedResult.scorer) && (
+                                                <p className="text-xs text-muted mb-0">
+                                                    {offlineScorePassingRuleLabel(selectedResult.scorer)}
+                                                </p>
+                                            )}
                                             {selectedResult.error_code && (
                                                 <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
                                             )}
@@ -144,6 +141,7 @@ export function OfflineItemInspector({
                                                             to={urls.aiObservabilityTrace(
                                                                 selectedResult.evaluator_trace_id
                                                             )}
+                                                            data-attr="offline-result-evaluator-trace"
                                                         >
                                                             Evaluator trace
                                                         </Link>
@@ -225,24 +223,16 @@ export function OfflineItemInspector({
                                             className="max-w-full"
                                             active={result.id === selectedResult?.id}
                                             onClick={() => onSelectResult(result)}
-                                        >{`${result.scorer.name} v${result.scorer.version}`}</LemonButton>
+                                            data-attr="offline-item-select-result"
+                                        >
+                                            <ScorerLabel scorer={result.scorer} />
+                                        </LemonButton>
                                     ),
                                 },
                                 {
                                     title: 'Score',
                                     render: (_, result: OfflineResultReadApi) => (
-                                        <span
-                                            className={
-                                                result.status === 'error'
-                                                    ? 'text-danger'
-                                                    : result.status === 'ok'
-                                                      ? undefined
-                                                      : 'text-muted'
-                                            }
-                                            translate="no"
-                                        >
-                                            {offlineResultLabel(result, result.scorer)}
-                                        </span>
+                                        <OfflineResultTag result={result} scorer={result.scorer} />
                                     ),
                                 },
                             ]}
@@ -262,6 +252,7 @@ export function OfflineItemInspector({
                                     size="small"
                                     disabled={!resultCursors.length || resultsLoading}
                                     onClick={previousResults}
+                                    data-attr="offline-item-results-previous"
                                 >
                                     Previous
                                 </LemonButton>
@@ -269,6 +260,7 @@ export function OfflineItemInspector({
                                     size="small"
                                     disabled={!!resultsError || !results?.next_cursor || resultsLoading}
                                     onClick={() => results?.next_cursor && nextResults(results.next_cursor)}
+                                    data-attr="offline-item-results-next"
                                 >
                                     Next
                                 </LemonButton>
@@ -278,7 +270,7 @@ export function OfflineItemInspector({
                 </div>
             </LemonModalContent>
             <LemonModalFooter>
-                <LemonButton type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose} data-attr="offline-item-close">
                     Close
                 </LemonButton>
             </LemonModalFooter>

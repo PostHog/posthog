@@ -4,9 +4,9 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.http import HttpRequest
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
-from products.dashboards.backend.admin.dashboard_admin import DashboardAdmin
+from products.dashboards.backend.admin.dashboard_admin import DashboardAdmin, DashboardTileInline
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -72,3 +72,14 @@ class TestDashboardAdminRestore(BaseTest):
         actions = self.admin.get_actions(self._post_request())
         assert "delete_selected" not in actions
         assert "restore_selected" in actions
+
+
+class TestDashboardTileInline(SimpleTestCase):
+    def test_an_unmarked_tile_can_be_saved_without_a_badge(self):
+        inline = DashboardTileInline(DashboardTile, AdminSite())
+
+        badge_field = inline.formfield_for_dbfield(DashboardTile._meta.get_field("badge"), request=None)
+
+        assert badge_field is not None
+        assert badge_field.required is False
+        assert badge_field.clean("") is None

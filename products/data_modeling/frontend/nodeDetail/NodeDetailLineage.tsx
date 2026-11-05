@@ -1,19 +1,26 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
+import { LineageGraphNode, nodesWithHubs } from '../lineage/lineageHiddenNodes'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
+import { LineageTypeFilter } from '../lineage/LineageTypeFilter'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+
+function nodeLineageUrl(node: DataModelingNode): string {
+    return lineageNodeUrl(node, 'lineage')
+}
+
+// Without a cap, a two-node graph scales up to fill the panel and the cards look oversized
+const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
 
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
@@ -23,16 +30,28 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         effectiveLastRunAt,
         effectiveLastRunStatus,
         lineageModalOpen,
+        lineageNodePositions,
+        lineageTypeFilter,
+        lineageVisibleNodeIds,
+        lineageHiddenNodeBridging,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
-    const { openLineageModal, closeLineageModal, loadLineageGraph } = useActions(nodeDetailSceneLogic({ id }))
+    const {
+        openLineageModal,
+        closeLineageModal,
+        loadLineageGraph,
+        lineageNodeDragStopped,
+        resetLineageNodePositions,
+        setLineageTypeFilter,
+    } = useActions(nodeDetailSceneLogic({ id }))
 
     // The current node's freshest status/run come from its materialization jobs, not the graph payload
-    const nodes = useMemo((): DataModelingNode[] => {
+    const nodes = useMemo((): LineageGraphNode[] => {
         if (!lineageGraph) {
             return []
         }
-        return lineageGraph.nodes.map((node) =>
+        const hubNodeIds = lineageHiddenNodeBridging?.hubNodeIds ?? new Set<string>()
+        return nodesWithHubs(lineageGraph.nodes, lineageVisibleNodeIds, hubNodeIds).map((node) =>
             node.id === lineageGraph.currentNodeId
                 ? {
                       ...node,
@@ -41,11 +60,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                   }
                 : node
         )
-    }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
-
-    const openNode = (node: DataModelingNode): void => {
-        router.actions.push(lineageNodeUrl(node, 'lineage'))
-    }
+    }, [lineageGraph, lineageVisibleNodeIds, lineageHiddenNodeBridging, effectiveLastRunAt, effectiveLastRunStatus])
+    const edges = lineageHiddenNodeBridging?.edges ?? []
 
     if (!lineageGraphLoading && lineageGraphError) {
         return (
@@ -55,7 +71,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (!lineageGraphLoading && nodes.length <= 1 && !nodes[0]?.lineage_issue) {
+    if (!lineageGraphLoading && (lineageGraph?.nodes.length ?? 0) <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
                 <div className="max-w-120">
@@ -73,19 +89,29 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
+        <div className="flex flex-col items-start gap-2">
+            <LineageTypeFilter
+                value={lineageTypeFilter}
+                onChange={setLineageTypeFilter}
+                dataAttr="node-detail-lineage-type-filter"
+            />
+            <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
-                    edges={lineageGraph?.edges ?? []}
+                    edges={edges}
                     currentNodeId={lineageGraph?.currentNodeId}
                     loading={lineageGraphLoading}
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
                     variant="full"
                     interactive
+                    fitViewOptions={LINEAGE_FIT_VIEW_OPTIONS}
+                    nodesDraggable
+                    nodePositions={lineageNodePositions}
+                    nodeOpenUrl={nodeLineageUrl}
+                    onNodeDragStop={(node, position) => lineageNodeDragStopped(node.id, position)}
+                    onResetNodePositions={resetLineageNodePositions}
                     showControls
                     showMinimap
-                    onNodeClick={openNode}
                     panels={
                         <div className="flex flex-col gap-1">
                             <LemonButton
@@ -99,8 +125,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={openLineageModal}
-                                tooltip="Fullscreen"
-                                icon={<IconFullScreen />}
+                                tooltip="Full screen"
+                                icon={<IconExpand45 />}
                             />
                         </div>
                     }
@@ -116,18 +142,19 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                 <div className="h-[calc(100vh-12rem)]">
                     <LineageGraph
                         nodes={nodes}
-                        edges={lineageGraph?.edges ?? []}
+                        edges={edges}
                         currentNodeId={lineageGraph?.currentNodeId}
                         variant="full"
                         interactive
+                        nodesDraggable
+                        nodePositions={lineageNodePositions}
+                        nodeOpenUrl={nodeLineageUrl}
+                        onNodeDragStop={(node, position) => lineageNodeDragStopped(node.id, position)}
+                        onResetNodePositions={resetLineageNodePositions}
                         showControls
-                        onNodeClick={(node) => {
-                            closeLineageModal()
-                            openNode(node)
-                        }}
                     />
                 </div>
             </LemonModal>
-        </>
+        </div>
     )
 }

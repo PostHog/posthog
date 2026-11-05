@@ -30,31 +30,85 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../too
  *         ThreadItemReplies > AvatarGroup + ThreadItemRepliesLabel + ThreadItemRepliesMeta
  *       ThreadItemActions > ThreadItemAction(...)
  */
-function ThreadItemGroup({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const ThreadItemGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemGroup(
+    { className, ...props },
+    ref
+) {
     return (
-        <div data-quill data-slot="thread-item-group" className={cn('quill-thread-item-group', className)} {...props} />
+        <div
+            ref={ref}
+            data-quill
+            data-slot="thread-item-group"
+            className={cn('quill-thread-item-group', className)}
+            {...props}
+        />
     )
-}
+})
 
-function ThreadItem({ className, ...props }: React.ComponentProps<'article'>): React.ReactElement {
-    return <article data-quill data-slot="thread-item" className={cn('quill-thread-item', className)} {...props} />
-}
+const ThreadItem = React.forwardRef<HTMLElement, React.ComponentProps<'article'>>(function ThreadItem(
+    { className, ...props },
+    ref
+) {
+    return (
+        <article
+            ref={ref}
+            data-quill
+            data-slot="thread-item"
+            className={cn('quill-thread-item', className)}
+            {...props}
+        />
+    )
+})
 
-function ThreadItemGutter({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="thread-item-gutter" className={cn('quill-thread-item__gutter', className)} {...props} />
-}
+const ThreadItemGutter = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemGutter(
+    { className, ...props },
+    ref
+) {
+    return (
+        <div
+            ref={ref}
+            data-slot="thread-item-gutter"
+            className={cn('quill-thread-item__gutter', className)}
+            {...props}
+        />
+    )
+})
 
-function ThreadItemContent({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="thread-item-content" className={cn('quill-thread-item__content', className)} {...props} />
-}
+const ThreadItemContent = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemContent(
+    { className, ...props },
+    ref
+) {
+    return (
+        <div
+            ref={ref}
+            data-slot="thread-item-content"
+            className={cn('quill-thread-item__content', className)}
+            {...props}
+        />
+    )
+})
 
-function ThreadItemHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="thread-item-header" className={cn('quill-thread-item__header', className)} {...props} />
-}
+const ThreadItemHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemHeader(
+    { className, ...props },
+    ref
+) {
+    return (
+        <div
+            ref={ref}
+            data-slot="thread-item-header"
+            className={cn('quill-thread-item__header', className)}
+            {...props}
+        />
+    )
+})
 
 /** Author name. Renders a `span` by default; pass `render={<button />}` to make it a profile trigger. */
-function ThreadItemAuthor({ className, render, ...props }: useRender.ComponentProps<'span'>): React.ReactElement {
+const ThreadItemAuthor = React.forwardRef<HTMLSpanElement, useRender.ComponentProps<'span'>>(function ThreadItemAuthor(
+    { className, render, ...props },
+    ref
+) {
     return useRender({
+        ref,
         defaultTagName: 'span',
         props: mergeProps<'span'>(
             {
@@ -68,43 +122,62 @@ function ThreadItemAuthor({ className, render, ...props }: useRender.ComponentPr
             slot: 'thread-item-author',
         },
     })
-}
+})
 
 /** Semantic `<time>` — pass `dateTime` so assistive tech gets the machine-readable value. */
-function ThreadItemTimestamp({ className, ...props }: React.ComponentProps<'time'>): React.ReactElement {
-    return (
-        <time data-slot="thread-item-timestamp" className={cn('quill-thread-item__timestamp', className)} {...props} />
-    )
-}
+const ThreadItemTimestamp = React.forwardRef<HTMLTimeElement, React.ComponentProps<'time'>>(
+    function ThreadItemTimestamp({ className, ...props }, ref) {
+        return (
+            <time
+                ref={ref}
+                data-slot="thread-item-timestamp"
+                className={cn('quill-thread-item__timestamp', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function ThreadItemBody({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="thread-item-body" className={cn('quill-thread-item__body', className)} {...props} />
-}
+const ThreadItemBody = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemBody(
+    { className, ...props },
+    ref
+) {
+    return (
+        <div ref={ref} data-slot="thread-item-body" className={cn('quill-thread-item__body', className)} {...props} />
+    )
+})
 
 /**
  * Inline @mention pill inside {@link ThreadItemBody}. Renders a `span` by default; pass
  * `render={<button type="button" />}` (or `<a />`) when clicking it should open a profile.
  */
-function ThreadItemMention({ className, render, ...props }: useRender.ComponentProps<'span'>): React.ReactElement {
-    return useRender({
-        defaultTagName: 'span',
-        props: mergeProps<'span'>(
-            {
-                'data-slot': 'thread-item-mention',
-                className: cn('quill-thread-item__mention', className),
-            } as Omit<React.ComponentProps<'span'>, 'ref'>,
-            props
-        ),
-        render,
-        state: {
-            slot: 'thread-item-mention',
-        },
-    })
-}
+const ThreadItemMention = React.forwardRef<HTMLSpanElement, useRender.ComponentProps<'span'>>(
+    function ThreadItemMention({ className, render, ...props }, ref) {
+        return useRender({
+            ref,
+            defaultTagName: 'span',
+            props: mergeProps<'span'>(
+                {
+                    'data-slot': 'thread-item-mention',
+                    className: cn('quill-thread-item__mention', className),
+                } as Omit<React.ComponentProps<'span'>, 'ref'>,
+                props
+            ),
+            render,
+            state: {
+                slot: 'thread-item-mention',
+            },
+        })
+    }
+)
 
 /** Inline link inside {@link ThreadItemBody} — primary color, underline on hover. */
-function ThreadItemLink({ className, render, ...props }: useRender.ComponentProps<'a'>): React.ReactElement {
+const ThreadItemLink = React.forwardRef<HTMLAnchorElement, useRender.ComponentProps<'a'>>(function ThreadItemLink(
+    { className, render, ...props },
+    ref
+) {
     return useRender({
+        ref,
         defaultTagName: 'a',
         props: mergeProps<'a'>(
             {
@@ -118,19 +191,19 @@ function ThreadItemLink({ className, render, ...props }: useRender.ComponentProp
             slot: 'thread-item-link',
         },
     })
-}
+})
 
 /**
  * Collapsible attachment (image/file preview) — a Base UI Collapsible, open by default. The
  * trigger carries the filename and a rotating chevron; keyboard/AT get `aria-expanded` for free.
  */
-function ThreadItemAttachment({
-    className,
-    defaultOpen = true,
-    ...props
-}: CollapsiblePrimitive.Root.Props): React.ReactElement {
+const ThreadItemAttachment = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Root>,
+    CollapsiblePrimitive.Root.Props
+>(function ThreadItemAttachment({ className, defaultOpen = true, ...props }, ref) {
     return (
         <CollapsiblePrimitive.Root
+            ref={ref}
             data-quill
             data-slot="thread-item-attachment"
             defaultOpen={defaultOpen}
@@ -138,16 +211,16 @@ function ThreadItemAttachment({
             {...props}
         />
     )
-}
+})
 
 /** Filename row that toggles the attachment preview. Children become the visible label. */
-function ThreadItemAttachmentTrigger({
-    children,
-    className,
-    ...props
-}: CollapsiblePrimitive.Trigger.Props): React.ReactElement {
+const ThreadItemAttachmentTrigger = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Trigger>,
+    CollapsiblePrimitive.Trigger.Props
+>(function ThreadItemAttachmentTrigger({ children, className, ...props }, ref) {
     return (
         <CollapsiblePrimitive.Trigger
+            ref={ref}
             data-slot="thread-item-attachment-trigger"
             className={cn('quill-thread-item__attachment-trigger', className)}
             {...props}
@@ -156,15 +229,15 @@ function ThreadItemAttachmentTrigger({
             <ChevronDownIcon data-chevron="down" className="pointer-events-none shrink-0" />
         </CollapsiblePrimitive.Trigger>
     )
-}
+})
 
-function ThreadItemAttachmentContent({
-    children,
-    className,
-    ...props
-}: CollapsiblePrimitive.Panel.Props): React.ReactElement {
+const ThreadItemAttachmentContent = React.forwardRef<
+    React.ComponentRef<typeof CollapsiblePrimitive.Panel>,
+    CollapsiblePrimitive.Panel.Props
+>(function ThreadItemAttachmentContent({ children, className, ...props }, ref) {
     return (
         <CollapsiblePrimitive.Panel
+            ref={ref}
             data-slot="thread-item-attachment-content"
             className="quill-thread-item__attachment-panel"
             {...props}
@@ -172,31 +245,30 @@ function ThreadItemAttachmentContent({
             <div className={cn('quill-thread-item__attachment-panel-content', className)}>{children}</div>
         </CollapsiblePrimitive.Panel>
     )
-}
+})
 
 /** Framed image preview. `alt` is required — describe the image (empty `alt=""` only if purely decorative). */
-function ThreadItemAttachmentImage({
-    className,
-    alt,
-    ...props
-}: React.ComponentProps<'img'> & { alt: string }): React.ReactElement {
-    return (
-        <img
-            alt={alt}
-            data-slot="thread-item-attachment-image"
-            className={cn('quill-thread-item__attachment-image', className)}
-            {...props}
-        />
-    )
-}
+const ThreadItemAttachmentImage = React.forwardRef<HTMLImageElement, React.ComponentProps<'img'> & { alt: string }>(
+    function ThreadItemAttachmentImage({ className, alt, ...props }, ref) {
+        return (
+            <img
+                ref={ref}
+                alt={alt}
+                data-slot="thread-item-attachment-image"
+                className={cn('quill-thread-item__attachment-image', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function ThreadItemReactions({
-    className,
-    'aria-label': ariaLabel = 'Reactions',
-    ...props
-}: React.ComponentProps<'div'>): React.ReactElement {
+const ThreadItemReactions = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function ThreadItemReactions(
+    { className, 'aria-label': ariaLabel = 'Reactions', ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             role="group"
             aria-label={ariaLabel}
             data-slot="thread-item-reactions"
@@ -204,7 +276,7 @@ function ThreadItemReactions({
             {...props}
         />
     )
-}
+})
 
 /**
  * A reaction pill — a Base UI Toggle, so `pressed`/`onPressedChange` and `aria-pressed` come for
@@ -227,16 +299,19 @@ const ThreadItemReaction = React.forwardRef<HTMLButtonElement, TogglePrimitive.P
 })
 
 /** Decorative emoji glyph inside a reaction — hidden from the accessible name. */
-function ThreadItemReactionEmoji({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            aria-hidden="true"
-            data-slot="thread-item-reaction-emoji"
-            className={cn('quill-thread-item__reaction-emoji', className)}
-            {...props}
-        />
-    )
-}
+const ThreadItemReactionEmoji = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(
+    function ThreadItemReactionEmoji({ className, ...props }, ref) {
+        return (
+            <span
+                ref={ref}
+                aria-hidden="true"
+                data-slot="thread-item-reaction-emoji"
+                className={cn('quill-thread-item__reaction-emoji', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 const ThreadItemActionsContext = React.createContext(false)
 
@@ -247,15 +322,15 @@ const ThreadItemActionsContext = React.createContext(false)
  * its own `TooltipProvider`, so {@link ThreadItemAction} tooltips work without app-root setup and
  * moving between adjacent actions shares the provider's warm-up delay.
  */
-function ThreadItemActions({
-    className,
-    'aria-label': ariaLabel = 'Message actions',
-    ...props
-}: ToolbarPrimitive.Root.Props): React.ReactElement {
+const ThreadItemActions = React.forwardRef<
+    React.ComponentRef<typeof ToolbarPrimitive.Root>,
+    ToolbarPrimitive.Root.Props
+>(function ThreadItemActions({ className, 'aria-label': ariaLabel = 'Message actions', ...props }, ref) {
     return (
         <ThreadItemActionsContext.Provider value={true}>
             <TooltipProvider>
                 <ToolbarPrimitive.Root
+                    ref={ref}
                     aria-label={ariaLabel}
                     data-slot="thread-item-actions"
                     className={cn('quill-thread-item__actions', className)}
@@ -264,7 +339,7 @@ function ThreadItemActions({
             </TooltipProvider>
         </ThreadItemActionsContext.Provider>
     )
-}
+})
 
 /**
  * One icon action: a Button wrapped in a Tooltip. `label` is both the accessible name
@@ -298,36 +373,46 @@ const ThreadItemAction = React.forwardRef<
  * Reply summary row — a Button (variant `default`: transparent at rest, fill on hover), stretched
  * to the content column. Opens the thread on click; pass `render={<a />}` for a link.
  */
-function ThreadItemReplies({ className, ...props }: ButtonProps): React.ReactElement {
+const ThreadItemReplies = React.forwardRef<React.ComponentRef<typeof Button>, ButtonProps>(function ThreadItemReplies(
+    { className, ...props },
+    ref
+) {
     return (
         <Button
+            ref={ref}
             data-slot="thread-item-replies"
             left
             className={cn('quill-thread-item__replies', className)}
             {...props}
         />
     )
-}
+})
 
-function ThreadItemRepliesLabel({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            data-slot="thread-item-replies-label"
-            className={cn('quill-thread-item__replies-label', className)}
-            {...props}
-        />
-    )
-}
+const ThreadItemRepliesLabel = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(
+    function ThreadItemRepliesLabel({ className, ...props }, ref) {
+        return (
+            <span
+                ref={ref}
+                data-slot="thread-item-replies-label"
+                className={cn('quill-thread-item__replies-label', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function ThreadItemRepliesMeta({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            data-slot="thread-item-replies-meta"
-            className={cn('quill-thread-item__replies-meta', className)}
-            {...props}
-        />
-    )
-}
+const ThreadItemRepliesMeta = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(
+    function ThreadItemRepliesMeta({ className, ...props }, ref) {
+        return (
+            <span
+                ref={ref}
+                data-slot="thread-item-replies-meta"
+                className={cn('quill-thread-item__replies-meta', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 export {
     ThreadItemGroup,

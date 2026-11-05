@@ -4,7 +4,6 @@ import * as path from "node:path";
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
-import { SUBAGENT_REWRITES } from "../hooks";
 import { VALIDATION_LOCK_PREFIX } from "./memory-validation";
 import {
   buildSessionOptions,
@@ -103,19 +102,6 @@ describe("buildSessionOptions", () => {
     });
   });
 
-  it.each(Object.entries(SUBAGENT_REWRITES))(
-    'registers rewrite target "%s" → "%s" in options.agents',
-    (_source, target) => {
-      const options = buildSessionOptions(makeParams());
-      const registered = new Set(Object.keys(options.agents ?? {}));
-
-      expect(
-        registered.has(target),
-        `Rewrite target "${target}" is not registered in options.agents — either register the agent in buildAgents or remove the rewrite.`,
-      ).toBe(true);
-    },
-  );
-
   it("maps the custom auto mode to the SDK's default mode", () => {
     const options = buildSessionOptions({
       ...makeParams(),
@@ -135,7 +121,7 @@ describe("buildSessionOptions", () => {
     },
   );
 
-  it("preserves caller-provided agents alongside defaults", () => {
+  it("preserves caller-provided agents", () => {
     const params = makeParams();
     const options = buildSessionOptions({
       ...params,
@@ -149,26 +135,18 @@ describe("buildSessionOptions", () => {
       },
     });
 
-    expect(options.agents?.["custom-agent"]).toBeDefined();
-    expect(options.agents?.["ph-explore"]).toBeDefined();
-  });
-
-  it("lets caller-provided agents override defaults by name", () => {
-    const params = makeParams();
-    const override = {
-      description: "Overridden",
-      prompt: "Overridden prompt",
-    };
-    const options = buildSessionOptions({
-      ...params,
-      userProvidedOptions: {
-        agents: {
-          "ph-explore": override,
-        },
+    expect(options.agents).toEqual({
+      "custom-agent": {
+        description: "Custom",
+        prompt: "Custom prompt",
       },
     });
+  });
 
-    expect(options.agents?.["ph-explore"]).toEqual(override);
+  it("does not add custom agents by default", () => {
+    const options = buildSessionOptions(makeParams());
+
+    expect(options.agents).toBeUndefined();
   });
 
   it.each([
@@ -634,6 +612,16 @@ describe("buildSessionOptions", () => {
       expect(env?.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
     });
 
+    it("turns off the Claude sandbox for a cloud subscription run", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        cloudMode: true,
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+      });
+
+      expect(options.settings).toMatchObject({ sandbox: { enabled: false } });
+    });
+
     it("skips the pinned gateway-era fallback model", () => {
       const options = buildSessionOptions({
         ...makeParams(),
@@ -1041,6 +1029,41 @@ describe("buildSessionOptions", () => {
       });
     });
 
+    it.each([
+      [true, { enabled: false }],
+      [false, undefined],
+    ])(
+      "pins the Claude sandbox off only in cloud runs (cloudMode %s)",
+      (cloudMode, sandbox) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          gatewayEnv,
+          cloudMode,
+        });
+
+        expect(flagSettings(options).sandbox).toEqual(sandbox);
+      },
+    );
+
+    it.each([
+      ["the SDK settings option", { settings: "/tmp/caller-settings.json" }],
+      [
+        "the settings flag",
+        { extraArgs: { settings: "/tmp/caller-settings.json" } },
+      ],
+    ])(
+      "drops repo settings in a cloud run when %s holds a file path",
+      (_name, provided) => {
+        const options = buildSessionOptions({
+          ...makeParams(),
+          cloudMode: true,
+          userProvidedOptions: provided as Options,
+        });
+
+        expect(options.settingSources).toEqual(["user"]);
+      },
+    );
+
     it("removes the pinned settings file and nothing outside its directory", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
       const file = String(options.extraArgs?.settings);
@@ -1105,6 +1128,42 @@ describe("buildSessionOptions", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
 
       expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it("pins disableAllHooks for a run that opts out of repo hooks", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+      });
+
+      const settings = flagSettings(options);
+      expect(settings.disableAllHooks).toBe(true);
+      expect(settings.hooks).toBeUndefined();
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
+      expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it("passes disableAllHooks inline when no gateway pin is written", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        disableRepoHooks: true,
+      });
+
+      expect(JSON.parse(String(options.extraArgs?.settings))).toEqual({
+        disableAllHooks: true,
+      });
+    });
+
+    it("drops repo settings to keep repo hooks off when the caller owns the settings flag", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        disableRepoHooks: true,
+        userProvidedOptions: { settings: '{"model":"x"}' },
+      });
+
+      expect(options.settingSources).toEqual(["user"]);
     });
 
     it.each([

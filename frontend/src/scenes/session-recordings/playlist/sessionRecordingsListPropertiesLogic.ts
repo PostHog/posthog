@@ -4,10 +4,10 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { QueryLogTags } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 
@@ -26,6 +26,7 @@ const BASE_QUERY_PROPERTIES: [string, string][] = [
     ['properties', '$geoip_subdivision_1_name'],
     ['properties', '$geoip_city_name'],
     ['session', '$entry_current_url'],
+    ['properties', '$ip'],
 ]
 const BASE_PROPERTIES = BASE_QUERY_PROPERTIES.map(([, property]) => property)
 

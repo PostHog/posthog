@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -55,7 +54,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -1517,9 +1516,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestStickinessDashboardFilters(BaseTest):
-    def _runner(self) -> StickinessQueryRunner:
+    def _runner(
+        self, date_from: str | None = None, compare_filter: CompareFilter | None = None
+    ) -> StickinessQueryRunner:
         return StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),
+            query=StickinessQuery(
+                series=[EventsNode(event="$pageview")],
+                interval=IntervalType.DAY,
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+                compareFilter=compare_filter,
+            ),
             team=self.team,
         )
 
@@ -1556,49 +1562,64 @@ class TestStickinessDashboardFilters(BaseTest):
 
         assert runner.query.filterTestAccounts is expected
 
+    def test_dashboard_compare_filter_override(self) -> None:
+        runner = self._runner()
 
-class TestStickinessSeriesCustomNames(BaseTest):
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w")))
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+
     @parameterized.expand(
         [
-            (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
+            ("compare_set_on_construction", "all", CompareFilter(compare=True), None),
+            ("compare_arrives_via_override", "all", None, CompareFilter(compare=True)),
+            ("compare_set_on_construction_via_date_override", "-14d", CompareFilter(compare=True), None),
         ]
     )
-    def test_apply_stickiness_custom_names(
+    def test_dashboard_compare_filter_is_stripped_for_all_time_range(
         self,
         _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
+        query_date_from: str,
+        construction_compare_filter: Optional[CompareFilter],
+        override_compare_filter: Optional[CompareFilter],
     ) -> None:
-        runner = StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview", custom_name="My Stickiness Name")]),
-            team=self.team,
+        runner = self._runner(date_from=query_date_from, compare_filter=construction_compare_filter)
+        dashboard_date_from = "all" if query_date_from != "all" else None
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(date_from=dashboard_date_from, compareFilter=override_compare_filter)
         )
 
-        cached_response = CachedStickinessQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
+        assert runner.query.dateRange is not None
+        assert runner.query.dateRange.date_from == "all"
+        assert runner.query.compareFilter == CompareFilter(compare=False)
+        # Guards the series-doubling bug this fix also closes: setup_series() doubles entries
+        # while compare=True, so a stale rebuild after the strip would leave 2 series here.
+        assert len(runner.series) == 1
+
+
+class TestStickinessCacheHit(BaseTest):
+    def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
+        action = Action.objects.create(team=self.team, name="Signed up")
+        query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
+        cached_rows = [
+            {"label": "$pageview", "data": [3], "order": 0},
+            {"label": "Signed up", "data": [1], "order": 1},
+        ]
+        # An older runner cached a response without `action_names`.
+        with patch.object(
+            StickinessQueryRunner, "calculate", return_value=StickinessQueryResponse(results=cached_rows)
+        ):
+            StickinessQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+
+        response = StickinessQueryRunner(query=query, team=self.team).run(
+            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
         )
 
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        assert patched_response.results == expected_results
-        assert was_modified is expect_modified
+        assert isinstance(response, CachedStickinessQueryResponse)
+        assert response.action_names == {str(action.id): "Signed up"}
 
 
 class TestStickinessSeriesFanOut(BaseTest):

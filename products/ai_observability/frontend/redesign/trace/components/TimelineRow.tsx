@@ -2,7 +2,7 @@ import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { TimelineRowData } from '../types'
+import type { TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { formatLatencyMs } from './formatStats'
 import { NODE_KIND_COLORS } from './nodeKindColors'
 import { NodeKindGlyph } from './NodeKindGlyph'
@@ -14,25 +14,38 @@ export const TIMELINE_COLUMNS = 'grid-cols-[minmax(8rem,14rem)_1fr]'
 const ERROR_BAR_COLORS = { barBg: 'bg-danger-highlight', barBorder: 'border-danger' }
 
 export interface TimelineRowProps {
-    row: TimelineRowData
+    row: TraceTimelineRowApi
     totalMs: number
     ticks: TimelineTick[]
     isSelected: boolean
+    isFaded?: boolean
     onSelect: () => void
+    onPrefetch: () => void
 }
 
-export function TimelineRow({ row, totalMs, ticks, isSelected, onSelect }: TimelineRowProps): JSX.Element {
+export function TimelineRow({
+    row,
+    totalMs,
+    ticks,
+    isSelected,
+    isFaded = false,
+    onSelect,
+    onPrefetch,
+}: TimelineRowProps): JSX.Element {
     const { leftPercent, widthPercent } = timelineBarGeometry(row.startMs, row.durationMs ?? 0, totalMs)
     const barColors = row.hasError ? ERROR_BAR_COLORS : NODE_KIND_COLORS[row.kind]
     return (
         <button
             type="button"
             onClick={onSelect}
+            onMouseEnter={onPrefetch}
+            onFocus={onPrefetch}
             data-attr="trace-view-timeline-row"
             className={cn(
                 'grid w-full items-center border-b border-primary text-left hover:bg-fill-button-tertiary-hover',
                 TIMELINE_COLUMNS,
-                isSelected && 'bg-fill-button-tertiary-active'
+                isSelected && 'bg-fill-button-tertiary-active',
+                isFaded && 'opacity-50'
             )}
         >
             <span

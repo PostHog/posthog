@@ -1,6 +1,7 @@
 use crate::{
     api::errors::FlagError,
     flags::{
+        feature_flag_list::LenientHypercacheFlagsWrapper,
         flag_definitions_cache::FlagDefinitionsCache,
         flag_models::{HypercacheFlagsWrapper, PreparedFlagDefinitions},
     },
@@ -179,8 +180,9 @@ impl FlagService {
     }
 
     /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
-    /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
-    /// a tombstone rather than serving degraded single-stage PG data.
+    /// on cache miss or infra errors. A payload-level parse error (`Json`/`Pickle`)
+    /// hard-fails with a tombstone rather than silently serving PG data. A single
+    /// flag that does not parse is skipped, not fatal.
     ///
     /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
     /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
@@ -235,9 +237,10 @@ impl FlagService {
     /// Hypercache-then-PG payload fetch, extracted so the in-memory cache can
     /// invoke it lazily inside `get_or_load`. Returns `None` for the
     /// `__missing__` sentinel (team has no flags), `Some(wrapper)` otherwise.
-    /// `Json`/`Pickle` parse errors hard-fail with a tombstone — we never want
-    /// to silently degrade to PG (which lacks dependency metadata) on data
-    /// corruption.
+    /// A payload-level `Json`/`Pickle` parse error hard-fails with a tombstone,
+    /// because we never want to silently degrade to PG on data corruption. A flag
+    /// whose own JSON does not parse is skipped and counted instead, so one bad
+    /// flag does not fail the evaluation of the team's other flags.
     async fn fetch_wrapper_or_pg(
         &self,
         team_id: TeamId,
@@ -246,10 +249,10 @@ impl FlagService {
 
         match self
             .flags_hypercache_reader
-            .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
+            .get_typed_with_source::<LenientHypercacheFlagsWrapper>(&key)
             .await
         {
-            Ok((data, source)) => Ok((data, source)),
+            Ok((data, source)) => Ok((data.map(|w| w.into_wrapper(team_id)), source)),
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
                 counter!(
                     TOMBSTONE_COUNTER,
@@ -281,19 +284,11 @@ impl FlagService {
                     1,
                 );
 
-                // PG has no dependency metadata, so all flags go in a single stage.
-                let flags = crate::flags::cache_builder::load_supported_flags(
+                let wrapper = crate::flags::cache_builder::build_fallback_wrapper(
                     self.pg_client.clone(),
                     team_id,
                 )
                 .await?;
-                let evaluation_metadata =
-                    crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
-                let wrapper = HypercacheFlagsWrapper {
-                    flags,
-                    cohorts: None,
-                    evaluation_metadata,
-                };
                 Ok((Some(wrapper), CacheSource::Fallback))
             }
         }
@@ -311,8 +306,8 @@ mod tests {
             feature_flag_list::PreparedFlags,
             flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
-                EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
-                HypercacheFlagsWrapper,
+                EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters,
+                FlagPropertyGroup, HypercacheFlagsWrapper,
             },
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
@@ -760,6 +755,31 @@ mod tests {
             .insert_new_team(None)
             .await
             .expect("Failed to insert team");
+        let dependency = context
+            .insert_flag(team.id, None)
+            .await
+            .expect("Failed to insert flag");
+        let dependent = context
+            .insert_flag(
+                team.id,
+                Some(crate::mock!(FeatureFlagRow,
+                    team_id: team.id,
+                    key: "dependent_flag".to_string(),
+                    filters: json!({
+                        "groups": [{
+                            "properties": [{
+                                "key": dependency.id.to_string(),
+                                "type": "flag",
+                                "value": true,
+                                "operator": "flag_evaluates_to",
+                            }],
+                            "rollout_percentage": 100,
+                        }],
+                    }),
+                )),
+            )
+            .await
+            .expect("Failed to insert dependent flag");
 
         // Don't populate hypercache - should fall back to PG
 
@@ -773,14 +793,18 @@ mod tests {
             false,
         );
 
-        // Should fall back to PostgreSQL and succeed (returns empty list for new team)
-        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
-        assert!(result.is_ok());
-        let flag_result = result.unwrap();
+        let flag_result = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("PG fallback should succeed");
         assert!(matches!(
             flag_result.cache_source,
             common_hypercache::CacheSource::Fallback
         ));
+        assert_eq!(
+            flag_result.prepared.evaluation_metadata.dependency_stages,
+            vec![vec![dependency.id], vec![dependent.id]]
+        );
     }
 
     #[tokio::test]
@@ -941,7 +965,7 @@ mod tests {
     }
 
     /// Corrupt Redis payload must hard-fail under `flag_data_parsing_error` rather
-    /// than silently fall back to PG (which would serve single-stage data).
+    /// than silently fall back to PG.
     #[tokio::test]
     async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
         use common_redis::MockRedisClient;
@@ -985,6 +1009,54 @@ mod tests {
                 })
             ),
             "parse error must hard-fail, got {result:?}"
+        );
+    }
+
+    /// One flag that the cache payload cannot parse must not fail the team's read.
+    /// The team keeps every other flag and gets no 500.
+    #[tokio::test]
+    async fn test_get_flags_skips_unparseable_flag_in_hypercache_payload() {
+        use crate::flags::test_helpers::payload_with_unparseable_flag;
+        use common_redis::MockRedisClient;
+
+        let team_id = 4242;
+
+        let payload = payload_with_unparseable_flag(team_id).to_string();
+        let pickled = serde_pickle::to_vec(&payload, Default::default()).expect("Failed to pickle");
+
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_raw_bytes_ret(&hypercache_test_key(team_id), Ok(pickled));
+
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client);
+        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let team_hypercache_reader =
+            setup_team_hypercache_reader_with_mock_redis(redis_client.clone());
+
+        let flag_service = FlagService::new(
+            redis_client,
+            setup_pg_reader_client(None),
+            team_hypercache_reader,
+            hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team_id)
+            .await
+            .expect("one unparseable flag must not fail the team's read");
+
+        let keys: Vec<&str> = result
+            .prepared
+            .flags
+            .iter()
+            .map(|f| f.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["healthy_flag", "dependent_flag"]);
+        assert_eq!(
+            result.prepared.evaluation_metadata.dependency_stages,
+            vec![vec![1], vec![3]]
         );
     }
 

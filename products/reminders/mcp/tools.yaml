@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product reminders
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product reminders
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Reminders
 feature: reminders
 url_prefix: /
@@ -20,18 +18,24 @@ tools:
             idempotent: false
         title: Create reminder
         description: >
-            Create a reminder for yourself. Set organization (required) and optionally team to scope it to a project.
-            Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting
-            recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set
-            timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the
-            reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it.
-            Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user
-            mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or
-            task — reminders are how they get recurring in-app notifications without manual polling.
+            Create a reminder for yourself. Set team to scope it to a project. Use a one-off reminder by setting
+            scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval
+            (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA
+            timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via
+            resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app
+            notifications when due. Proactively offer to create a reminder when the user mentions needing periodic
+            checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how
+            they get recurring in-app notifications without manual polling.
         exclude_params:
             - next_fire_at
             - last_fired_at
             - status
+        param_overrides:
+            organization:
+                description: |
+                    Organization ID. If omitted, uses the active organization.
+                optional: true
+                fallback: orgId
     reminder-delete:
         operation: reminders_destroy
         enabled: true
@@ -86,6 +90,3 @@ tools:
         description: >
             List your reminders in the current project, including their schedule, status (active/completed/errored), and
             next fire time.
-    reminders-update:
-        operation: reminders_update
-        enabled: false

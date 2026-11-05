@@ -320,20 +320,6 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class FilterBaseSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["events", "actions"])
-    id = serializers.CharField(required=False)
-    name = serializers.CharField(required=False, allow_null=True)
-    order = serializers.IntegerField(required=False)
-    properties = serializers.ListField(child=serializers.DictField(), default=[])
-
-
-class FiltersSerializer(serializers.Serializer):
-    events = FilterBaseSerializer(many=True, required=False)
-    actions = FilterBaseSerializer(many=True, required=False)
-    filter_test_accounts = serializers.BooleanField(required=False)
-
-
 # These mirror the TypedDicts in posthog/hogql_queries/serialized_actors.py, so a field added
 # there needs adding here. Only the Optional[...] ones are nullable; the rest are always-set keys.
 #
@@ -351,12 +337,25 @@ class _GroupActorTypeField(serializers.CharField):
     pass
 
 
+class SerializedMatchedRecordingEventSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField(help_text="UUID of the matched event.")
+    timestamp = serializers.DateTimeField(help_text="When the matched event happened.")
+    window_id = serializers.CharField(help_text="ID of the browser window the event was captured in.")
+
+
+class SerializedMatchedRecordingSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="ID of the session recording.")
+    events = SerializedMatchedRecordingEventSerializer(
+        many=True, help_text="Events of the recording that matched the query."
+    )
+
+
 class SerializedActorSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="The person's UUID, or the group's key.")
     properties = serializers.DictField(child=serializers.JSONField(), help_text="The actor's properties.")
     created_at = serializers.DateTimeField(allow_null=True, help_text="When the actor was first seen.")
-    matched_recordings = serializers.ListField(
-        child=serializers.DictField(child=serializers.JSONField()),
+    matched_recordings = SerializedMatchedRecordingSerializer(
+        many=True,
         help_text="Recordings that matched the query. Empty unless the endpoint asks for them.",
     )
     value_at_data_point = serializers.FloatField(
@@ -373,7 +372,7 @@ class SerializedPersonActorSerializer(SerializedActorSerializer):
         child=serializers.CharField(), help_text="The person's distinct IDs, newest first."
     )
     last_seen_at = serializers.DateTimeField(allow_null=True, help_text="When the person was last seen.")
-    is_identified = serializers.BooleanField(allow_null=True, help_text="Whether the person has been identified.")
+    is_identified = serializers.BooleanField(help_text="Whether the person has been identified.")
 
 
 class SerializedGroupActorSerializer(SerializedActorSerializer):

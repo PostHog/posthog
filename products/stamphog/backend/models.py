@@ -23,6 +23,7 @@ from .facade.enums import (
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
+    RoutingMode,
 )
 
 
@@ -42,18 +43,29 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # Opt-in: capture merged PRs and fold them into the daily Slack digest. Independent of
     # `enabled` (review) so a repo can be reviewed without digests, or vice versa.
     digest_enabled = models.BooleanField(default=False)
-    # ALL reviews every relevant PR event (the default); LABEL reviews only PRs carrying trigger_label,
-    # mirroring the Action's label-gated opt-in flow.
+    # LABEL (the default) reviews only PRs carrying trigger_label, mirroring the Action's label-gated
+    # opt-in flow; ALL reviews every relevant PR event.
     review_mode = models.CharField(
         max_length=16,
-        choices=[(m.value, m.value) for m in ReviewMode],
-        default=ReviewMode.ALL.value,
+        choices=ReviewMode.choices,
+        default=ReviewMode.LABEL.value,
     )
     trigger_label = models.CharField(max_length=100, default="stamphog")
     # The PostHog user who connected this repo's installation (plain id, no FK — multi-DB product).
     # The review sandbox's short-lived LLM gateway token is minted under this identity, mirroring how
     # tasks mints under task.created_by. Null means "never synced": hosted reviews fail closed.
     connected_by_user_id = models.BigIntegerField(null=True, blank=True)
+    # When to request reviews from the owners of the changed code (logic/routing/service.py).
+    # db_default on both: the previous release still inserts rows without these columns during a deploy.
+    routing_mode = models.CharField(
+        max_length=16,
+        choices=RoutingMode.choices,
+        default=RoutingMode.OFF.value,
+        db_default=RoutingMode.OFF.value,
+    )
+    # Team slug -> label name. A fork PR adds the label instead of requesting that team, so an
+    # outside author cannot ping it.
+    routing_fork_labels = models.JSONField(default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,6 +176,9 @@ class PullRequest(ProductTeamModel):
     # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task
     # drop a strictly-older delivery instead of superseding the current run with a stale review.
     payload_updated_at = models.DateTimeField(null=True)
+    # The latest reviewer routing result for this PR (logic/routing/service.py). Null until routing
+    # runs. Holds owner names and counts only, never PR content.
+    routing = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

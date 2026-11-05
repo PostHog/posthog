@@ -1,13 +1,15 @@
 import os
 import json
 import uuid
+import asyncio
 import ipaddress
+from collections.abc import AsyncIterator
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import httpx
@@ -17,6 +19,7 @@ from posthog.redis import get_client
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.oauth import discover_oauth_metadata
 from products.mcp_store.backend.tools import (
     CALL_TIMEOUT,
     HANDSHAKE_TIMEOUT,
@@ -30,6 +33,112 @@ from products.mcp_store.backend.tools import (
 )
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
+
+
+class TestBoundedUpstreamResponses(SimpleTestCase):
+    def test_oauth_discovery_follows_bounded_metadata_redirects(self) -> None:
+        responses = [
+            httpx.Response(302, headers={"Location": "/metadata"}, stream=httpx.ByteStream(b"")),
+            httpx.Response(
+                200, stream=httpx.ByteStream(json.dumps({"authorization_servers": ["https://example.com"]}).encode())
+            ),
+            httpx.Response(
+                200,
+                stream=httpx.ByteStream(
+                    json.dumps(
+                        {
+                            "issuer": "https://example.com",
+                            "authorization_endpoint": "https://example.com/authorize",
+                            "token_endpoint": "https://example.com/token",
+                        }
+                    ).encode()
+                ),
+            ),
+        ]
+        with (
+            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
+            patch("products.mcp_store.backend.oauth.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=responses),
+        ):
+            metadata = discover_oauth_metadata("https://example.com/mcp")
+        self.assertEqual(metadata["issuer"], "https://example.com")
+        self.assertTrue(all(response.is_closed for response in responses))
+
+    @parameterized.expand([("discovery", True), ("handshake", False)])
+    def test_response_size_is_bounded(self, _name: str, discovery: bool) -> None:
+        response = httpx.Response(200, stream=httpx.ByteStream(b"x" * (9 * 1024 * 1024)))
+        installation = MCPServerInstallation(team_id=1, user_id=1, url="https://example.com/mcp", auth_type="api_key")
+        with (
+            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
+            patch("products.mcp_store.backend.oauth.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("products.mcp_store.backend.tools.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+            patch(
+                "httpx.HTTPTransport.handle_request", return_value=httpx.Response(200, content=b"x" * (9 * 1024 * 1024))
+            ),
+            self.assertRaisesRegex(httpx.DecodingError if discovery else ToolsFetchError, "size limit"),
+        ):
+            if discovery:
+                discover_oauth_metadata(installation.url)
+            else:
+                fetch_upstream_tools(installation)
+        self.assertTrue(response.is_closed)
+
+    @parameterized.expand(
+        [
+            ("oversized", {}, 9 * 1024 * 1024, "size limit"),
+            ("compressed", {"Content-Encoding": "gzip"}, 1, "uncompressed"),
+        ]
+    )
+    def test_rejected_tool_results_raise_tool_call_error(
+        self, _name: str, headers: dict[str, str], body_size: int, message: str
+    ) -> None:
+        responses = [
+            httpx.Response(
+                200,
+                headers={"Mcp-Session-Id": "test-session"},
+                stream=httpx.ByteStream(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+            ),
+            httpx.Response(202, stream=httpx.ByteStream(b"")),
+            httpx.Response(200, headers=headers, stream=httpx.ByteStream(b"x" * body_size)),
+            httpx.Response(200, stream=httpx.ByteStream(b"")),
+        ]
+        installation = MCPServerInstallation(team_id=1, user_id=1, url="https://example.com/mcp", auth_type="api_key")
+        with (
+            patch("products.mcp_store.backend.tools.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=responses),
+            self.assertRaisesRegex(ToolCallError, message),
+        ):
+            call_upstream_tool(installation, "search", {})
+        self.assertTrue(all(response.is_closed for response in responses))
+
+    @parameterized.expand([("discovery", True), ("handshake", False)])
+    def test_slow_response_has_a_total_deadline(self, _name: str, discovery: bool) -> None:
+        clock = [0.0]
+
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                for _ in range(100):
+                    clock[0] += 1
+                    await asyncio.sleep(0)
+                    yield b"x"
+
+        response = httpx.Response(200, stream=Body())
+        installation = MCPServerInstallation(team_id=1, user_id=1, url="https://example.com/mcp", auth_type="api_key")
+        with (
+            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
+            patch("products.mcp_store.backend.oauth.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("products.mcp_store.backend.tools.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+            patch("httpx.HTTPTransport.handle_request", return_value=httpx.Response(200, content=b"invalid")),
+            self.assertRaisesRegex(httpx.ReadTimeout if discovery else ToolsFetchError, "deadline|timed out"),
+        ):
+            if discovery:
+                discover_oauth_metadata(installation.url)
+            else:
+                fetch_upstream_tools(installation)
+        self.assertTrue(response.is_closed)
 
 
 def _build_response(
@@ -129,6 +238,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert notify_call.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
         assert json.loads(list_call.kwargs["content"])["method"] == "tools/list"
         assert list_call.kwargs["headers"]["Authorization"] == "Bearer sk-test"
+        assert list_call.kwargs["headers"]["x-posthog-mcp-store"] == "true"
         assert list_call.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
         # DELETE cleans up the session afterwards.
         assert client.delete.called
@@ -223,24 +333,30 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         installation = self._installation(url="https://mcp.example.com/mcp")
         seen: list[httpx.Request] = []
 
-        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        async def handle_request(_transport: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
             if route == "denied":
                 raise httpx.ProxyError("403 Forbidden")
             seen.append(
                 httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
             )
+            request_id = json.loads(request.content).get("id") if request.content else None
             if request.method == "DELETE":
-                return httpx.Response(200)
-            request_id = json.loads(request.content).get("id")
-            if request_id == 1:
-                return httpx.Response(
+                response = httpx.Response(200)
+            elif request_id == 1:
+                response = httpx.Response(
                     200,
                     json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
                     headers={"mcp-session-id": "sess-1", "Set-Cookie": "mcp_session=fake-session; Path=/; Secure"},
                 )
-            if request_id == 2:
-                return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}})
-            return httpx.Response(202)
+            elif request_id == 2:
+                response = httpx.Response(
+                    200, json={"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}}
+                )
+            else:
+                response = httpx.Response(202)
+            return httpx.Response(
+                response.status_code, headers=response.headers, stream=httpx.ByteStream(response.content)
+            )
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
         environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
@@ -248,7 +364,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with (
             override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
             patch.dict(os.environ, {**no_proxies, **environment}),
-            patch.object(httpx.HTTPTransport, "handle_request", handle_request),
+            patch.object(httpx.AsyncHTTPTransport, "handle_async_request", handle_request),
         ):
             if route in {"untrusted", "denied"}:
                 error_type = ToolsFetchError if operation == "fetch" else ToolCallError
@@ -370,6 +486,7 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         assert result["content"] == [{"type": "text", "text": "ok"}]
         call_post = client.post.call_args_list[2]
         assert call_post.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
+        assert call_post.kwargs["headers"]["x-posthog-mcp-store"] == "true"
         assert json.loads(call_post.kwargs["content"]) == {
             "jsonrpc": "2.0",
             "id": 3,

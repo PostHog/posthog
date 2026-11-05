@@ -1,3 +1,5 @@
+import datetime as dt
+
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -257,6 +259,28 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
 
+    @parameterized.expand([("column",), ("config",)])
+    def test_list_hides_only_the_experiments_the_viewer_cannot_access(self, location: str) -> None:
+        allowed = create_experiment(self.team, "allowed-flag", created_by=self.user)
+        denied = create_experiment(self.team, "denied-flag", created_by=self.user)
+        self._create_experiment_scoped_scanner("allowed", allowed.id, location)
+        self._create_experiment_scoped_scanner("denied", denied.id, location)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._grant_object_access(self.other_user, "experiment", str(denied.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        rows = {row["name"]: row for row in resp.json()["results"]}
+
+        def shown_experiment_id(row: dict) -> int | None:
+            if location == "column":
+                return (row["experiment_targeting"] or {}).get("experiment_id")
+            return row["scanner_config"].get("experiment_id")
+
+        self.assertEqual(shown_experiment_id(rows["allowed"]), allowed.id)
+        self.assertIsNone(shown_experiment_id(rows["denied"]))
+
     def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
         # The API redacts experiment_targeting to null for such an editor, and the editor form
         # writes the whole object back on save. Without the write-side guard, renaming the scanner
@@ -474,11 +498,14 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
         self.assertEqual(dock_resp.json()["results"], [])
 
-    def test_prompt_suggestions_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
-        # Suggestions and their evaluations quote the scanner's observations (session ids, output
-        # text), so without this gate a caller denied the experiment could read that content — and
-        # act on suggestions — through the suggestions endpoints alone.
-        experiment = create_experiment(self.team, "hidden-flag")
+    def test_backfills_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # The backfill window clamp reads the experiment's end date, so a denied caller who got past the
+        # scanner lookup could binary-search that date from the error a window start before or after it
+        # returns. Both sides of the end must answer the same not-found.
+        experiment = create_experiment(self.team, "hidden-flag", launched=True)
+        ended_at = timezone.now() - dt.timedelta(days=3)
+        experiment.end_date = ended_at
+        experiment.save()
         self._set_resource_default("replay_scanner", "editor")
         self._set_resource_default("session_recording", "editor")
         self._set_resource_default("experiment", "none")
@@ -487,13 +514,36 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         plain = self._create_scanner(name="plain")
 
         self.client.force_login(self.other_user)
-        targeted_url = f"{self.scanners_url}{targeted.id}/prompt_suggestions/"
-        self.assertEqual(self.client.get(f"{targeted_url}current/").status_code, 404)
-        self.assertEqual(self.client.post(f"{targeted_url}generate/").status_code, 404)
+        targeted_url = f"{self.scanners_url}{targeted.id}/backfills/"
+        self.assertEqual(self.client.get(targeted_url).status_code, 404)
+        for window_start in (ended_at - dt.timedelta(days=1), ended_at + dt.timedelta(days=1)):
+            body = {"window_start": window_start.isoformat(), "window_end": timezone.now().isoformat()}
+            resp = self.client.post(f"{targeted_url}estimate/", body, format="json")
+            self.assertEqual(resp.status_code, 404, resp.json())
 
         # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
-        plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/prompt_suggestions/current/")
+        plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/backfills/")
         self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
+
+    def test_variants_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # The variants readout counts the experiment's exposed people per variant and quotes their
+        # summaries, so a caller denied the experiment must not reach it through the scanner alone.
+        experiment = create_experiment(
+            self.team, "hidden-flag", created_by=self.user, launched=True, variants=["control", "test"]
+        )
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        targeted = self._create_experiment_scoped_scanner("targeted", experiment.id, "config")
+
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.get(f"{self.scanners_url}{targeted.id}/variants/").status_code, 404)
+
+        # The experiment's creator reads it.
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.scanners_url}{targeted.id}/variants/")
+        self.assertEqual(resp.status_code, 200, resp.json())
 
     def test_retargeting_a_scanner_does_not_expose_historical_observations(self) -> None:
         # An observation's population is fixed at creation, so the read gate follows the experiment in

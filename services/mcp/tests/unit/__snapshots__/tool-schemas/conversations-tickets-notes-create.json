@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The ticket's UUID or its numeric ticket number.",
+            "type": "string"
+        },
+        "message": {
+            "description": "Note content in markdown. The note is visible to your team only and is never sent to the customer.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "rich_content": {
+            "description": "Optional TipTap rich content JSON for the note. Omit it to show the markdown message."
+        }
+    },
+    "required": ["id", "message"],
+    "type": "object"
+}

@@ -46,6 +46,8 @@ describe('OfflineItemInspector', () => {
         })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsResultsList).mockResolvedValue({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [result],
         })
@@ -84,7 +86,7 @@ describe('OfflineItemInspector', () => {
             data: null,
         })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsResultsList)
-            .mockResolvedValueOnce({ count: 2, next_cursor: 'more', results: [result] })
+            .mockResolvedValueOnce({ count: 2, next: null, previous: null, next_cursor: 'more', results: [result] })
             .mockRejectedValueOnce(
                 new ApiError('Results unavailable', 503, undefined, { detail: 'Results unavailable' })
             )
@@ -97,11 +99,10 @@ describe('OfflineItemInspector', () => {
                 onSelectResult={jest.fn()}
             />
         )
-        const label = `${result.scorer.name} v${result.scorer.version}`
-        expect(await screen.findByText(label)).toBeInTheDocument()
+        expect(await screen.findByText(result.scorer.name, { selector: 'button span' })).toBeInTheDocument()
         fireEvent.click(screen.getByText('Next'))
         expect(await screen.findByText('Results unavailable')).toBeInTheDocument()
-        expect(screen.queryByText(label)).not.toBeInTheDocument()
+        expect(screen.queryByText(result.scorer.name, { selector: 'button span' })).not.toBeInTheDocument()
         expect(screen.getByText('Next').closest('button')).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(screen.getByText('Next'))
         expect(api.aiObservabilityOfflineExperimentsItemsResultsList).toHaveBeenCalledTimes(2)

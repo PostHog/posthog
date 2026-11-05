@@ -14,17 +14,14 @@ describe('canvasFullscreenLogic', () => {
         initKeaTests()
     })
 
-    test.each([
-        ['the Escape key', (): void => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))],
-        ['the browser leaving full screen', (): void => void document.dispatchEvent(new Event('fullscreenchange'))],
-    ])('leaves full screen on %s', (_, exit) => {
+    it('leaves full page on the Escape key', () => {
         const logic = canvasFullscreenLogic({ id: 'canvas-1' })
         logic.mount()
 
         logic.actions.setFullscreen(true)
         expect(logic.values.fullscreen).toBe(true)
 
-        exit()
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
         expect(logic.values.fullscreen).toBe(false)
 
         logic.unmount()

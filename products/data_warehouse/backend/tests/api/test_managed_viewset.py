@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
 
 from rest_framework import status
 
@@ -17,7 +18,8 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
     endpoint: str
     expected_count: int
 
-    def test_enable_managed_viewset(self):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_enable_managed_viewset(self, mock_capture: Mock) -> None:
         response = self.client.put(
             f"/api/environments/{self.team.id}/managed_viewsets/{self.endpoint}/",
             {"enabled": True},
@@ -36,6 +38,10 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
             DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset__kind=self.kind).count(),
             self.expected_count,
         )
+        view_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") in {"view created", "view updated"}
+        ]
+        self.assertEqual(view_events, [])
 
     def test_enable_managed_viewset_idempotent(self):
         response1 = self.client.put(

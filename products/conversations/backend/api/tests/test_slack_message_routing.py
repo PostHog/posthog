@@ -1,12 +1,14 @@
 import json
 from datetime import UTC, datetime
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, Mock, patch
 
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
@@ -24,6 +26,7 @@ from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_OPEN,
     TICKET_VIEW_ACTION,
     SlackConfirmationNeedsRetry,
+    create_or_update_slack_ticket,
     create_ticket_from_confirmation,
     handle_link_shared,
     handle_member_joined_channel,
@@ -93,6 +96,48 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
+
+    @parameterized.expand([("thread_reply", True), ("root_message", False)])
+    @patch("products.conversations.backend.slack.resolve_posthog_user_for_slack", return_value=None)
+    @patch("products.conversations.backend.slack.resolve_slack_user", return_value={"name": "Ada", "email": None})
+    @patch("products.conversations.backend.slack.extract_slack_files", return_value=[])
+    @patch("products.conversations.backend.slack.get_slack_client")
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_message_on_deleted_ticket_does_not_open_another(
+        self,
+        _name: str,
+        is_thread_reply: bool,
+        _client: MagicMock,
+        extract_files: MagicMock,
+        _user: MagicMock,
+        _posthog_user: MagicMock,
+    ) -> None:
+        deleted = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+        deleted.deleted_at = timezone.now()
+        deleted.save(update_fields=["deleted_at"])
+
+        result = create_or_update_slack_ticket(
+            team=self.team,
+            slack_channel_id="C_CONFIG",
+            thread_ts="1700000000.000100",
+            slack_user_id="U123",
+            text="Still here",
+            files=[{"id": "F1"}],
+            is_thread_reply=is_thread_reply,
+            post_confirmation=False,
+        )
+
+        assert result is None
+        extract_files.assert_not_called()
+        assert Ticket.objects.filter(team=self.team).count() == 0
+        assert Ticket.all_objects.filter(team=self.team, slack_thread_ts="1700000000.000100").count() == 1
 
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_thread_reply_in_non_configured_channel_is_ignored_without_existing_ticket(self, mock_create_or_update):
@@ -766,7 +811,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_llm_gates_nudge_when_ai_processing_approved(
@@ -786,11 +831,11 @@ class TestSlackNudge(BaseTest):
         if llm_answer is None:
             # A gateway failure must be swallowed (no Celery retry storm) and fall back to
             # the heuristics-only nudge instead of silently disabling the feature.
-            mock_get_llm_client.return_value.chat.completions.create.side_effect = RuntimeError("gateway down")
+            mock_get_llm_client.return_value.messages.create.side_effect = RuntimeError("gateway down")
         else:
             completion = Mock()
-            completion.choices = [Mock(message=Mock(content=llm_answer))]
-            mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+            completion.content = [Mock(type="text", text=llm_answer)]
+            mock_get_llm_client.return_value.messages.create.return_value = completion
 
         handle_support_message(
             {
@@ -821,17 +866,18 @@ class TestSlackNudge(BaseTest):
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
         # The generation must carry the funnel events' Slack keys so it joins to its outcome.
-        create_kwargs = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
+        create_kwargs = mock_get_llm_client.return_value.messages.create.call_args.kwargs
         assert create_kwargs["extra_headers"] == {
             "x-posthog-property-feature": "slack_nudge_classifier",
             "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
             "x-posthog-property-slack_channel_id": "C_OTHER",
             "x-posthog-property-slack_thread_ts": "1700000000.000100",
         }
+        assert mock_get_llm_client.call_args.kwargs["team_id"] == self.team.id
 
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
@@ -842,8 +888,8 @@ class TestSlackNudge(BaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         completion = Mock()
-        completion.choices = [Mock(message=Mock(content="no"))]
-        mock_get_llm_client.return_value.chat.completions.create.return_value = completion
+        completion.content = [Mock(type="text", text="no")]
+        mock_get_llm_client.return_value.messages.create.return_value = completion
 
         event = {
             "type": "message",
@@ -854,7 +900,7 @@ class TestSlackNudge(BaseTest):
         handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
         handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
 
-        assert mock_get_llm_client.return_value.chat.completions.create.call_count == 1
+        assert mock_get_llm_client.return_value.messages.create.call_count == 1
         mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_not_called()
         # Only the first message reaches the classifier; the cooldown swallows the second,
@@ -870,7 +916,7 @@ class TestSlackNudge(BaseTest):
     )
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled")
-    @patch("posthog.llm.gateway_client.get_llm_client")
+    @patch("posthog.llm.gateway_client.build_anthropic_client")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_nudge_never_calls_llm_when_gated_off(

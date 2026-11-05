@@ -229,6 +229,9 @@ describe('pipelineOverviewSceneLogic', () => {
                 { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
             ],
         })
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [{ id: 'source-1', schemas: [{ id: 'schema-1' }, { id: 'schema-2' }] }],
+        })
         metrics.loadAppMetricsTimeSeries.mockResolvedValue({
             labels: ['2026-09-27', '2026-09-28'],
             interval: 'day',
@@ -240,11 +243,15 @@ describe('pipelineOverviewSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
-        expect(asked.map((r: any) => r.instanceId).sort()).toEqual(['dest-1', 'dest-2'])
+        // One request per destination, plus one request restricted to schema attribution keys.
+        expect(asked.map((r: any) => r.instanceId).filter(Boolean)).toEqual(
+            expect.arrayContaining(['dest-1', 'dest-2'])
+        )
+        expect(asked.find((r: any) => r.instanceIds)?.instanceIds).toEqual(['schema-1', 'schema-2'])
         // The query interpolates `breakdownBy` with no fallback, so omitting it emits
         // `undefined AS breakdown` and the whole chart fails to load. This asserted the
         // omission before, which is how that shipped.
-        expect(asked.every((r: any) => r.breakdownBy === 'instance_id')).toBe(true)
+        expect(asked.every((r: any) => !!r.breakdownBy)).toBe(true)
         // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
         // `dateTo` makes the query throw instead of returning rows.
         asked.forEach((r: any) => {
@@ -252,10 +259,6 @@ describe('pipelineOverviewSceneLogic', () => {
             expect(Date.parse(r.dateTo)).not.toBeNaN()
             expect(Date.parse(r.dateFrom)).toBeLessThan(Date.parse(r.dateTo))
         })
-        expect(logic.values.rowsByDestination.map((s: any) => s.label)).toEqual([
-            'PostHog warehouse',
-            'Analytics Postgres',
-        ])
     })
 
     it('leaves webhook tables out of the health list', async () => {
@@ -307,5 +310,40 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(logic.values.syncingTableCount).toEqual(3)
         expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(1, expect.anything(), { limit: 100, offset: 0 })
         expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(2, expect.anything(), { limit: 100, offset: 2 })
+    })
+
+    it('gives the warehouse whatever the other destinations did not take', async () => {
+        // Runs that resolve to the warehouse alone report no destination, so those rows only
+        // exist in the schema-keyed total. Reading the warehouse series directly showed almost
+        // nothing on a project that had synced billions of rows.
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [
+                { id: 'wh', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
+                { id: 'pg', name: 'Analytics Postgres', type: 'Postgres' },
+            ],
+        })
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [{ id: 'source-1', schemas: [{ id: 'schema-1' }] }],
+        })
+        metrics.loadAppMetricsTimeSeries.mockImplementation(async (request: any) => ({
+            labels: ['2026-10-01', '2026-10-02'],
+            interval: 'day',
+            timezone: 'UTC',
+            // The warehouse reports nothing of its own; Postgres took 20 of the 100 total.
+            series:
+                request.instanceId === 'pg'
+                    ? [{ name: 'pg', values: [20, 20] }]
+                    : request.instanceId === 'wh'
+                      ? [{ name: 'wh', values: [0, 0] }]
+                      : [{ name: 'rows_synced', values: [100, 100] }],
+        }))
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const byLabel = Object.fromEntries(logic.values.rowsByDestination.map((s: any) => [s.label, s.data]))
+        expect(byLabel['PostHog warehouse']).toEqual([80, 80])
+        expect(byLabel['Analytics Postgres']).toEqual([20, 20])
     })
 })

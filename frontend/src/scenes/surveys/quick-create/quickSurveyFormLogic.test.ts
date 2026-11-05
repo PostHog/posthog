@@ -1,9 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'
+import { surveysLogic } from '../surveysLogic'
 import { FunnelContext, toSurveyEvent } from '../utils/opportunityDetection'
 import { quickSurveyFormLogic } from './quickSurveyFormLogic'
 import { QuickSurveyType } from './types'
@@ -140,5 +145,38 @@ describe('quickSurveyFormLogic validation', () => {
                 question: undefined,
             }),
         })
+    })
+
+    it('reports the quick-create surface on the survey created event', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': { count: 0, results: [], next: null, previous: null },
+            },
+            post: {
+                '/api/projects/:team/surveys/': () => [
+                    201,
+                    { id: 'survey-1', name: 'Checkout test - Quick feedback', type: 'popover', questions: [] },
+                ],
+            },
+        })
+        eventUsageLogic.mount()
+        surveysLogic.mount()
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const logic = quickSurveyFormLogic({
+            key: 'test-submit',
+            source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
+            contextType: QuickSurveyType.EXPERIMENT,
+            defaults: { name: 'Checkout test - Quick feedback', question: 'This update?' },
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.setCreateMode('launch')).toDispatchActions([
+            'submitSurveyFormSuccess',
+        ])
+
+        expect(captureSpy).toHaveBeenCalledWith(
+            'survey created',
+            expect.objectContaining({ creation_source: 'quick_create', created_from: 'experiments' })
+        )
     })
 })
