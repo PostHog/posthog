@@ -8,6 +8,8 @@ commands. Django models remain implementation details of the product.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,6 +24,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseBackfillState,
     ManagedWarehouseProvisionStatus,
     ManagedWarehouseTarget,
+    ProjectMoveOut,
 )
 
 if TYPE_CHECKING:
@@ -33,6 +36,7 @@ if TYPE_CHECKING:
 __all__ = [
     "DUCKGRES_BUCKET_REGION",
     "EARLIEST_BACKFILL_DATE",
+    "commit_project_move_out",
     "default_bucket_region",
     "deprovision_for_org_deletion",
     "duckgres_data_imports_schema",
@@ -56,8 +60,10 @@ __all__ = [
     "has_provisioned_warehouse",
     "is_data_modeling_shadow_ready",
     "is_dev_mode",
+    "list_moved_team_rows",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
+    "project_move_out",
     "reconcile_stored_bucket_config",
     "resolve_team_earliest_event_date",
     "setup_duckgres_session",
@@ -254,6 +260,37 @@ def get_team_deletion_block_reason(team_id: int, organization_id: str | UUID) ->
     from products.managed_warehouse.backend.presentation.views import block_team_deletion  # noqa: PLC0415
 
     return block_team_deletion(team_id, organization_id)
+
+
+def project_move_out(
+    project_id: int, organization_id: str | UUID, team_organization_ids: Mapping[int, str | UUID]
+) -> AbstractContextManager[ProjectMoveOut]:
+    """Take a moving project's environments out of `organization_id`'s managed warehouse.
+
+    Entering removes their rows, before the block runs the move's transaction. The block must raise
+    when ``refusal`` is set. If the block raises, its commit included, the rows go back unless the
+    move committed. Makes no hogtower call for organizations without PostHog warehouse state.
+    """
+    from products.managed_warehouse.backend import project_moves  # noqa: PLC0415
+
+    return project_moves.project_move_out(project_id, organization_id, team_organization_ids)
+
+
+def commit_project_move_out(
+    move: ProjectMoveOut, organization_id: str | UUID, team_organization_ids: Mapping[int, str | UUID]
+) -> str | None:
+    """Under the move's project lock: a refusal if a concurrent move committed since `project_move_out`,
+    else None, and the removal is repeated after the commit."""
+    from products.managed_warehouse.backend import project_moves  # noqa: PLC0415
+
+    return project_moves.commit_project_move_out(move, organization_id, team_organization_ids)
+
+
+def list_moved_team_rows(organization_id: str, *, remove: bool = False) -> dict[str, list[int]]:
+    """By warehouse (organization id), the team rows that earlier project moves left; `remove` drops them."""
+    from products.managed_warehouse.backend import project_moves  # noqa: PLC0415
+
+    return project_moves.moved_team_rows(organization_id, remove=remove)
 
 
 def deprovision_for_org_deletion(organization_id: str | UUID) -> None:

@@ -2260,7 +2260,21 @@ class ProjectViewSet(
 
         target_organization_id = request.data.get("organization_id")
 
-        with transaction.atomic():
+        # Keep the product API off the core import path.
+        from products.managed_warehouse.backend.facade import api as managed_warehouse  # noqa: PLC0415
+
+        # Check before the old organization's managed warehouse drops the project's environments,
+        # which happens before the transaction (no-op for organizations without one). If anything
+        # below raises, the commit included, they go back unless the move committed.
+        self._check_project_move(project, user, target_organization_id)
+        team_organization_ids = dict(project.teams.values_list("id", "organization_id"))
+        with (
+            managed_warehouse.project_move_out(project.pk, project.organization_id, team_organization_ids) as move_out,
+            transaction.atomic(),
+        ):
+            if move_out.refusal:
+                raise exceptions.ValidationError(move_out.refusal)
+
             # Lock the project row so concurrent moves serialize: each request re-reads the
             # organization and teams only after the previous move has committed, so snapshots
             # never go stale and no departure is recorded twice.
@@ -2270,33 +2284,15 @@ class ProjectViewSet(
                 raise exceptions.NotFound("Project not found.")
 
             current_organization = project.organization
-
-            try:
-                target_organization = Organization.objects.get(pk=target_organization_id)
-                current_organization_membership = OrganizationMembership.objects.get(
-                    user=user, organization=current_organization
-                )
-                target_organization_membership = OrganizationMembership.objects.get(
-                    user=user, organization=target_organization
-                )
-
-                if (
-                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-                ):
-                    raise exceptions.ValidationError(
-                        "You must be an admin of both the source and target organizations to move a project."
-                    )
-
-            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-                raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-
-            # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
-            # comparing it to the UUID organization_id never matches and would let a same-org request through.
-            if project.organization_id == target_organization.id:
-                raise exceptions.ValidationError("Project is already in the target organization.")
+            target_organization = self._check_project_move(project, user, target_organization_id)
 
             teams = list(project.teams.all())
+            # Registers the warehouse removal's after-commit repeats first, so other commit hooks can't skip them.
+            refusal = managed_warehouse.commit_project_move_out(
+                move_out, project.organization_id, {team.pk: team.organization_id for team in teams}
+            )
+            if refusal:
+                raise exceptions.ValidationError(refusal)
             was_impersonated = is_impersonated(request)
             project_change = Change(
                 type="Project",
@@ -2386,6 +2382,38 @@ class ProjectViewSet(
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
+
+    @staticmethod
+    def _check_project_move(project: Project, user: User, target_organization_id: Any) -> Organization:
+        """The move's permission and same-organization checks: once before it starts, again under its lock.
+
+        Returns the target organization.
+        """
+        try:
+            target_organization = Organization.objects.get(pk=target_organization_id)
+            current_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=project.organization
+            )
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=target_organization
+            )
+
+            if (
+                current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
+
+        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+        # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
+        # comparing it to the UUID organization_id never matches and would let a same-org request through.
+        if project.organization_id == target_organization.id:
+            raise exceptions.ValidationError("Project is already in the target organization.")
+        return target_organization
 
     @staticmethod
     def _reconcile_current_project_of_affected_users(teams: list[Team], target_organization: Organization) -> None:

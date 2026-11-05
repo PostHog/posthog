@@ -375,6 +375,13 @@ class TestTeamRoutes:
     def test_delete_last_team_conflict_is_preserved(self, fake: FakeHogtower) -> None:
         assert _mapped("DELETE", "/teams/7").status_code == 409
 
+    @_routes({("POST", f"{W}/moved-teams"): (200, {"removed": [_TEAM]})})
+    def test_moved_teams_posts_the_team_ids(self, fake: FakeHogtower) -> None:
+        out = _mapped("POST", "/moved-teams", json_body={"team_ids": [7]})
+
+        assert (out.status_code, out.json()) == (200, {"removed": [_TEAM]})
+        assert fake.calls[0]["json"] == {"team_ids": [7]}
+
 
 _TRINO_LIVE = {
     "enabled": True,

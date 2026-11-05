@@ -48,6 +48,7 @@ __all__ = [
     "ManagedWarehouseSourceJobWorkflow",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
+    "ProjectMoveOut",
     "ServiceCredential",
     "ServiceCredentialConnect",
     "ServiceCredentialTrinoConnect",
@@ -236,6 +237,18 @@ class ManagedWarehouseTeamMembership:
     backfill_enabled: bool
     table_names: ManagedWarehouseTableNames
     earliest_event_date: date | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ProjectMoveOut:
+    """A project move's managed-warehouse side: the old organization's team rows it removed
+    before the move commits, kept so a failed move can put them back."""
+
+    project_id: int
+    organization_id: str
+    guarded: bool = False  # the move must commit while the project is still in organization_id
+    rows: tuple[dict[str, Any], ...] = ()
+    refusal: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
