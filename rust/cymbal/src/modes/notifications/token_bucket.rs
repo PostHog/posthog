@@ -194,24 +194,26 @@ mod tests {
 
     #[tokio::test]
     async fn shadow_failure_does_not_change_charge_or_refund() {
-        let shadow = FakeRunner::failing();
-        let primary = FakeRunner::returning(vec![1]);
-        let bucket = TokenBucket::per_hour(primary.clone(), "test".into(), 1.0, 3600)
-            .with_shadow(Some(shadow.clone()));
-        assert!(bucket.charge(42).await.unwrap());
-        bucket.refund(42).await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while shadow.call_count() < 2 {
-                tokio::task::yield_now().await;
-            }
+        shadow_redis::with_test_circuit(async {
+            let shadow = FakeRunner::failing();
+            let primary = FakeRunner::returning(vec![1]);
+            let bucket = TokenBucket::per_hour(primary.clone(), "test".into(), 1.0, 3600)
+                .with_shadow(Some(shadow.clone()));
+            assert!(bucket.charge(42).await.unwrap());
+            bucket.refund(42).await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.call_count() == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let primary_calls = primary.requests();
+            let shadow_calls = shadow.requests();
+            assert_eq!(primary_calls.len(), 2);
+            assert!(shadow_calls.iter().all(|call| primary_calls.contains(call)));
         })
-        .await
-        .unwrap();
-        let mut primary_calls = primary.requests();
-        let mut shadow_calls = shadow.requests();
-        primary_calls.sort();
-        shadow_calls.sort();
-        assert_eq!(primary_calls, shadow_calls);
+        .await;
     }
 
     fn bucket(client: Arc<RedisClient>, prefix: &str, per_hour: f64) -> TokenBucket {

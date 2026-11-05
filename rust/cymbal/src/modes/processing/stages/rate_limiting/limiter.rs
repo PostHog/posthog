@@ -194,26 +194,29 @@ mod tests {
 
     #[tokio::test]
     async fn shadow_failure_does_not_change_the_primary_admission() {
-        let shadow = FakeRunner::failing();
-        let primary = FakeRunner::returning(vec![3, 2]);
-        let limiter = RedisRateLimiter::new(primary.clone(), "test".into(), 3600)
-            .with_shadow(Some(shadow.clone()));
-        let decision = limiter.admit(42, None, None, None, 5).await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while shadow.call_count() == 0 {
-                tokio::task::yield_now().await;
-            }
+        shadow_redis::with_test_circuit(async {
+            let shadow = FakeRunner::failing();
+            let primary = FakeRunner::returning(vec![3, 2]);
+            let limiter = RedisRateLimiter::new(primary.clone(), "test".into(), 3600)
+                .with_shadow(Some(shadow.clone()));
+            let decision = limiter.admit(42, None, None, None, 5).await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.call_count() == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(primary.requests(), shadow.requests());
+            assert_eq!(
+                decision,
+                RateLimitDecision {
+                    issue_admitted: 3,
+                    team_admitted: 2
+                }
+            );
         })
-        .await
-        .unwrap();
-        assert_eq!(primary.requests(), shadow.requests());
-        assert_eq!(
-            decision,
-            RateLimitDecision {
-                issue_admitted: 3,
-                team_admitted: 2
-            }
-        );
+        .await;
     }
 
     use common_redis::RedisClient;

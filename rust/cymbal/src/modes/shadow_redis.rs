@@ -25,6 +25,28 @@ static SHADOW_HEAL_GATE: OnceLock<HealGate> = OnceLock::new();
 static WARN_EPOCH: OnceLock<Instant> = OnceLock::new();
 static LAST_SHADOW_WARNING_MS: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
+tokio::task_local! {
+    static TEST_SHADOW_CIRCUIT: Arc<ShadowCircuit>;
+}
+
+#[cfg(test)]
+pub(crate) async fn with_test_circuit<T>(future: impl Future<Output = T>) -> T {
+    TEST_SHADOW_CIRCUIT
+        .scope(Arc::new(ShadowCircuit::new()), future)
+        .await
+}
+
+fn shadow_circuit() -> Arc<ShadowCircuit> {
+    #[cfg(test)]
+    if let Ok(circuit) = TEST_SHADOW_CIRCUIT.try_with(Arc::clone) {
+        return circuit;
+    }
+    SHADOW_CIRCUIT
+        .get_or_init(|| Arc::new(ShadowCircuit::new()))
+        .clone()
+}
+
 pub async fn connect(
     url: Option<&str>,
     primary_urls: &[&str],
@@ -81,20 +103,28 @@ fn same_endpoint(shadow: &str, primary: &str) -> bool {
         || matches!((redis_endpoint(shadow), redis_endpoint(primary)), (Some(a), Some(b)) if a == b)
 }
 
-fn redis_endpoint(url: &str) -> Option<(String, u16, i64)> {
+#[derive(PartialEq, Eq)]
+enum RedisEndpoint {
+    Tcp(String, u16, i64),
+    Unix(std::path::PathBuf, i64),
+}
+
+fn redis_endpoint(url: &str) -> Option<RedisEndpoint> {
     let client = redis::Client::open(url).ok()?;
     let info = client.get_connection_info();
     let (host, port) = match &info.addr {
         redis::ConnectionAddr::Tcp(host, port) => (host, *port),
         redis::ConnectionAddr::TcpTls { host, port, .. } => (host, *port),
-        redis::ConnectionAddr::Unix(_) => return None,
+        redis::ConnectionAddr::Unix(path) => {
+            return Some(RedisEndpoint::Unix(path.clone(), info.redis.db));
+        }
     };
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     let host = match host.as_str() {
         "localhost" | "::1" | "[::1]" => "127.0.0.1".to_string(),
         _ => host,
     };
-    Some((host, port, info.redis.db))
+    Some(RedisEndpoint::Tcp(host, port, info.redis.db))
 }
 
 fn should_warn(last: &AtomicU64, now_ms: u64) -> bool {
@@ -182,8 +212,8 @@ pub fn submit<T: Send + 'static>(
 ) {
     let permits =
         SHADOW_PERMITS.get_or_init(|| Arc::new(Semaphore::new(MAX_IN_FLIGHT_SHADOW_WRITES)));
-    let circuit = SHADOW_CIRCUIT.get_or_init(|| Arc::new(ShadowCircuit::new()));
-    submit_with_permits(permits, circuit, operation, write, heal);
+    let circuit = shadow_circuit();
+    submit_with_permits(permits, &circuit, operation, write, heal);
 }
 
 fn submit_with_permits<T: Send + 'static>(
@@ -276,6 +306,10 @@ mod tests {
         assert!(same_endpoint(
             "redis://localhost",
             "redis://127.0.0.1:6379/"
+        ));
+        assert!(same_endpoint(
+            "redis+unix:///var/run/redis/redis.sock",
+            "unix:///var/run/redis/redis.sock"
         ));
         assert!(same_endpoint(
             "rediss://PRIMARY-HOST:6379/",

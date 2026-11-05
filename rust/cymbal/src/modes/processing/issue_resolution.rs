@@ -832,67 +832,71 @@ mod test {
 
     #[tokio::test]
     async fn stores_full_event_properties_as_raw_json_with_a_ttl() {
-        let redis = MockRedisClient::new();
-        let shadow = std::sync::Arc::new(MockRedisClient::new());
-        let shadow_client: std::sync::Arc<dyn common_redis::Client + Send + Sync> = shadow.clone();
-        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
-        let properties_json = serde_json::json!({
-            "$exception_list": [{"type": "Error", "value": "boom 💥"}],
-            "$exception_fingerprint": "abc",
-            "$exception_fingerprint_record": [{"type": "manual"}],
-            "$exception_issue_id": Uuid::nil(),
-            "$exception_handled": false,
-            "$exception_types": ["Error"],
-            "$exception_values": ["boom 💥"],
-            "$exception_sources": [],
-            "$exception_functions": [],
-            "custom": {"nested": [1, null, true]},
-        });
-        let properties: ProcessedExceptionProperties =
-            serde_json::from_value(properties_json.clone()).unwrap();
+        crate::modes::shadow_redis::with_test_circuit(async {
+            let redis = MockRedisClient::new();
+            let shadow = std::sync::Arc::new(MockRedisClient::new());
+            let shadow_client: std::sync::Arc<dyn common_redis::Client + Send + Sync> =
+                shadow.clone();
+            let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+            let properties_json = serde_json::json!({
+                "$exception_list": [{"type": "Error", "value": "boom 💥"}],
+                "$exception_fingerprint": "abc",
+                "$exception_fingerprint_record": [{"type": "manual"}],
+                "$exception_issue_id": Uuid::nil(),
+                "$exception_handled": false,
+                "$exception_types": ["Error"],
+                "$exception_values": ["boom 💥"],
+                "$exception_sources": [],
+                "$exception_functions": [],
+                "custom": {"nested": [1, null, true]},
+            });
+            let properties: ProcessedExceptionProperties =
+                serde_json::from_value(properties_json.clone()).unwrap();
 
-        super::store_error_tracking_event_properties(
-            &redis,
-            Some(&shadow_client),
-            super::EventPropertiesLimits {
-                ttl_seconds: 172_800,
-                max_bytes: 1_048_576,
-            },
-            42,
-            event_uuid,
-            "issue_created",
-            &properties,
-        )
-        .await;
+            super::store_error_tracking_event_properties(
+                &redis,
+                Some(&shadow_client),
+                super::EventPropertiesLimits {
+                    ttl_seconds: 172_800,
+                    max_bytes: 1_048_576,
+                },
+                42,
+                event_uuid,
+                "issue_created",
+                &properties,
+            )
+            .await;
 
-        let calls = redis.get_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].op, "set_bytes");
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while shadow.get_calls().is_empty() {
-                tokio::task::yield_now().await;
+            let calls = redis.get_calls();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].op, "set_bytes");
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.get_calls().is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let shadow_calls = shadow.get_calls();
+            assert_eq!(shadow_calls.len(), 1);
+            assert_eq!(shadow_calls[0].op, calls[0].op);
+            assert_eq!(shadow_calls[0].key, calls[0].key);
+            assert!(matches!(
+                (&shadow_calls[0].value, &calls[0].value),
+                (MockRedisValue::Bytes(shadow_bytes, shadow_ttl), MockRedisValue::Bytes(bytes, ttl))
+                    if shadow_bytes == bytes && shadow_ttl == ttl
+            ));
+            match &calls[0].value {
+                MockRedisValue::Bytes(payload, Some(172_800)) => {
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
+                        properties_json
+                    );
+                }
+                value => panic!("unexpected Redis value: {value:?}"),
             }
         })
-        .await
-        .unwrap();
-        let shadow_calls = shadow.get_calls();
-        assert_eq!(shadow_calls.len(), 1);
-        assert_eq!(shadow_calls[0].op, calls[0].op);
-        assert_eq!(shadow_calls[0].key, calls[0].key);
-        assert!(matches!(
-            (&shadow_calls[0].value, &calls[0].value),
-            (MockRedisValue::Bytes(shadow_bytes, shadow_ttl), MockRedisValue::Bytes(bytes, ttl))
-                if shadow_bytes == bytes && shadow_ttl == ttl
-        ));
-        match &calls[0].value {
-            MockRedisValue::Bytes(payload, Some(172_800)) => {
-                assert_eq!(
-                    serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
-                    properties_json
-                );
-            }
-            value => panic!("unexpected Redis value: {value:?}"),
-        }
+        .await;
     }
 
     #[tokio::test]
