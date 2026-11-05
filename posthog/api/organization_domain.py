@@ -20,10 +20,10 @@ from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.models import OrganizationDomain, User
 from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_domain import email_domain
 from posthog.models.scim_request_log import SCIMRequestLog
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 

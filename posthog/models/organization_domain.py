@@ -10,6 +10,7 @@ import dns.resolver
 
 from posthog.constants import AvailableFeature
 from posthog.dns_utils import dnssec_resolver
+from posthog.helpers.email_utils import email_domain
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
@@ -21,19 +22,6 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
-
-
-def email_domain(email: str) -> str | None:
-    """The domain of `email`, or None when it carries no domain.
-
-    The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
-    string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
-    the local part and then matches no configured domain.
-    """
-    _, separator, domain = email.rpartition("@")
-    if not separator or not domain:
-        return None
-    return domain
 
 
 def generate_verification_challenge() -> str:

@@ -1,0 +1,48 @@
+rules:
+    - id: email-domain-after-last-at
+      message: |
+          This reads the domain of an email address from the first `@`.
+
+          The domain follows the last `@`. A quoted local part may hold an `@` of its own,
+          and Django's EmailValidator accepts one, so `"x@y"@example.com` is a valid
+          address whose domain is `example.com`. Reading from the first `@` returns
+          `y"@example.com` instead, which matches no configured domain.
+
+          Take the domain from `email_domain` in posthog/helpers/email_utils.py. It returns
+          None when the address carries no domain, rather than raising:
+
+              from posthog.helpers.email_utils import email_domain
+
+              domain = email_domain(email)
+
+          When you need the local part too, split on the last `@`:
+
+              local_part, _, domain = email.rpartition("@")
+
+          Code that already does this is not blocked. If the string is not an email address,
+          add `# nosemgrep: email-domain-after-last-at -- <reason>` on the line before.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - '**/migrations/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/.semgrep/**'
+      pattern-either:
+          - pattern: $E[$E.index("@") + 1 :]
+          - pattern: $E[$E.find("@") + 1 :]
+          - pattern: $E.split("@", ...)[1]
+          - pattern: $E.partition("@")[2]
+          - pattern: $LOCAL, $SEP, $DOMAIN = $E.partition("@")
+          - pattern: $LOCAL, $DOMAIN = $E.split("@", ...)
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

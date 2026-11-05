@@ -255,6 +255,19 @@ class EmailNormalizer:
         return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
+def email_domain(email: str) -> str | None:
+    """The domain of `email`, or None when it carries no domain.
+
+    The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
+    string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
+    the local part and then matches no configured domain.
+    """
+    _, separator, domain = email.rpartition("@")
+    if not separator or not domain:
+        return None
+    return domain
+
+
 def strip_email_alias(email: str) -> str:
     """
     Strip a Gmail-style '+suffix' from the local part of an email (e.g.
