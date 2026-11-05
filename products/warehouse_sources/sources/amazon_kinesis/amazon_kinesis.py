@@ -501,5 +501,6 @@ def amazon_kinesis_source(
         partition_keys=[ARRIVAL_TIMESTAMP_COLUMN],
         sort_mode=None,
         destination_reset_required=recreated,
+        # Clear the checkpoint only once the pipeline has written every batch, so a crash before then resumes.
         on_complete=resumable_source_manager.clear_state,
     )
