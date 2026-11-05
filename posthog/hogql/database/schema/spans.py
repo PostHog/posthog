@@ -1,5 +1,6 @@
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
@@ -142,3 +143,30 @@ class TraceAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "trace_attributes"
+
+
+class TraceSpansKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
+    """
+    Table stores meta information about kafka consumption _not_ scoped to teams
+
+    This is so we can find out the overall lag per partition and hold trace alert checks back accordingly
+    """
+
+    description: str = "Per-partition Kafka consumption metadata for the trace spans ingestion topic; not scoped to teams, used to track ingestion lag."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "_partition": IntegerDatabaseField(name="_partition", nullable=False),
+        "_topic": StringDatabaseField(name="_topic", nullable=False),
+        "max_observed_timestamp": DateTimeDatabaseField(
+            name="max_observed_timestamp",
+            nullable=False,
+            description="Latest observed timestamp consumed from this partition; used to compute ingestion lag.",
+        ),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "trace_spans_kafka_metrics"
+
+    def to_printed_hogql(self):
+        return "trace_spans_kafka_metrics"

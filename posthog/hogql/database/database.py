@@ -142,7 +142,7 @@ from posthog.hogql.database.schema.session_replay_features import SessionReplayF
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
-from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
+from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansKafkaMetricsTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -611,6 +611,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "trace_spans_kafka_metrics": TableNode(
+                        name="trace_spans_kafka_metrics", table=TraceSpansKafkaMetricsTable()
+                    ),
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
