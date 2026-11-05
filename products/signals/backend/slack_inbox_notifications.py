@@ -58,6 +58,7 @@ from products.signals.backend.report_urls import ReportLinkSource, build_report_
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
+    is_safe_slack_http_url,
     prepare_slack_markdown as _prepare_markdown,
     strip_chart_references as _strip_chart_references,
     truncate_slack_text,
@@ -79,7 +80,6 @@ _SLACK_HEADER_MAX_LEN = 150
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
-_slack_converter = SlackMarkdownConverter()
 
 # Deep link opened by the PostHog Desktop app. Override via env for dev (`posthog-code-dev`).
 POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
@@ -344,6 +344,16 @@ def _display_title(title: str | None) -> str:
     return description or title
 
 
+def _section_body(markdown: str) -> str:
+    def safe_token(match: re.Match[str]) -> str:
+        destination = match.group(1).partition("|")[0]
+        return match.group(0) if is_safe_slack_http_url(destination) else _escape_mrkdwn(match.group(0))
+
+    # Conversion creates Slack tokens, so only HTTP links may survive in the untrusted body.
+    converted = SlackMarkdownConverter().convert(markdown)
+    return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
+
+
 def _build_message_blocks(
     report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
 ) -> tuple[list[dict], str]:
@@ -352,7 +362,7 @@ def _build_message_blocks(
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
     )
 
-    # The body is escaped once as a whole below, so the LLM-derived parts assembled here stay raw.
+    # The body is prepared as a whole below, so the LLM-derived parts assembled here stay raw.
     # The `**` this adds is the one piece of Markdown the message means, and escaping leaves it be.
     body_parts: list[str] = []
     # Strip before excerpting so truncation can't slice a chart link mid-syntax.
@@ -370,7 +380,7 @@ def _build_message_blocks(
     body_block = (
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": truncate_slack_text(_slack_converter.convert(body), 3000)},
+            "text": {"type": "mrkdwn", "text": _section_body(body)},
         }
         if use_section_blocks
         else _markdown_block(body)

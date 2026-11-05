@@ -187,25 +187,52 @@ def test_build_message_blocks_caps_section_body_without_truncating_mentions() ->
 
 
 @pytest.mark.parametrize("use_section_blocks", [False, True])
-def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_blocks: bool) -> None:
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "<!here> everyone & <@U999> look\n\n## Impact\n\n<!channel> is affected",
+        "![notify](!here) everyone & ![owner](@U999) look\n\n## Impact\n\n![team](!channel) is affected",
+        "[notify](!here) everyone & [owner](@U999) look\n\n## Impact\n\n[team](!channel) is affected",
+        "![notify](!here) everyone & [channel](#C999) [group](!subteam^S999) [link](javascript:alert)",
+    ],
+)
+def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_blocks: bool, summary: str) -> None:
     # A crafted summary must not inject Slack mentions (<!here>, <@U…>) into mrkdwn.
     report = SignalReport(
         id="report-uuid",
         title="Injection test",
-        summary="<!here> everyone & <@U999> look\n\n## Impact\n\n<!channel> is affected",
+        summary=summary,
         signal_count=1,
     )
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=[], use_section_blocks=use_section_blocks)
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=use_section_blocks)
 
     section_text = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
-    assert "<!here>" not in section_text
-    assert "<@U999>" not in section_text
-    assert "<!channel>" not in section_text
-    assert "&lt;!here&gt;" in section_text
+    assert "<!" not in section_text
+    assert "<@" not in section_text
+    assert "<#" not in section_text
+    assert "<javascript:" not in section_text
+    if use_section_blocks or summary.startswith("<"):
+        assert "&lt;!here" in section_text
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owner: <@U123>"
     # `&` is left alone. Slack decodes an entity without re-reading it as a token, so escaping it
     # buys no safety, and it does not decode inside a link destination, where it would corrupt the
     # query string of every link a report carries.
     assert "everyone & " in section_text
+
+
+def test_build_message_blocks_does_not_share_conversion_state_between_reports() -> None:
+    _build_message_blocks(
+        SignalReport(id="first-report", summary="```python\nexample()\n```"),
+        reviewer_mentions=[],
+        use_section_blocks=True,
+    )
+    blocks, _ = _build_message_blocks(
+        SignalReport(id="second-report", summary="**Details** are [here](https://example.com)."),
+        reviewer_mentions=[],
+        use_section_blocks=True,
+    )
+
+    assert blocks[1]["text"]["text"] == "*Details* are <https://example.com|here>."
 
 
 def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> None:
