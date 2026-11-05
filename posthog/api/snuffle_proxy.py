@@ -27,6 +27,7 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api_queries_budget import debit
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, connection_creds
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -118,6 +119,13 @@ class SnuffleNotConfiguredError(Exception):
     """Raised when no Snuffle URL is configured for this deployment."""
 
 
+def _snuffle_auth(ch_user: ClickHouseUser | None) -> tuple[str, str] | None:
+    # A token-backed user's file rotates, so the credential is read for each request.
+    if ch_user is not None and (creds := connection_creds(Workload.LOGS, ch_user)) is not None:
+        return (creds.user, creds.read_password())
+    return (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+
+
 def snuffle_request(
     team_id: int,
     method: str,
@@ -127,17 +135,19 @@ def snuffle_request(
     data: dict[str, list[str]] | dict[str, str] | None = None,
     accept: str = "application/json",
     timeout: float | None = None,
+    ch_user: ClickHouseUser | None = None,
 ) -> requests.Response:
     """Send one request to Snuffle as `team_id` and debit the bytes it read from the query budget.
 
-    `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. Network errors from
+    `upstream_path` is the Snuffle path, for example ``/api/v1/query_range``. Snuffle connects to
+    ClickHouse as `ch_user` when it is a registered logs cluster user. Network errors from
     `requests` propagate, so each caller can map them to its own error format.
     """
     base_url = settings.SNUFFLE_APM_URL
     if not base_url:
         raise SnuffleNotConfiguredError("PromQL/LogQL query API is not configured")
     headers = {TEAM_ID_HEADER: str(team_id), "Accept": accept}
-    auth = (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+    auth = _snuffle_auth(ch_user)
     upstream = internal_requests.request(
         method,
         f"{base_url.rstrip('/')}{upstream_path}",
