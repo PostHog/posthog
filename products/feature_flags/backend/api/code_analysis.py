@@ -7,6 +7,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.feature_flags.backend.code_analysis import (
@@ -250,6 +251,13 @@ class FeatureFlagCodeAnalysisMixin:
         ):
             raise exceptions.NotFound(code=CODE_ANALYSIS_UNAVAILABLE_CODE)
 
+    def _refuse_sandbox_launch(self, request: Any) -> None:
+        # Both actions start an agent in a new sandbox. The Task API puts a per-user rate limit and a
+        # per-run fan-out cap on runs that a task sandbox starts, and these actions skip those checks.
+        # A task-bound token authenticates as its acting member, so the user check does not refuse it.
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("A task sandbox cannot start a code analysis or a cleanup.")
+
     @extend_schema(request=None, responses={200: FeatureFlagCodeAnalysisSerializer})
     @action(
         methods=["GET"],
@@ -287,10 +295,11 @@ class FeatureFlagCodeAnalysisMixin:
 
         An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
         It does not change code or the flag. Returns 400 when no repository can be chosen (see
-        `code_analysis_target`), 403 when AI data processing is not approved, and 409 when an analysis is
-        already running.
+        `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+        sandbox, and 409 when an analysis is already running.
         """
         self._require_code_analysis_enabled(request)
+        self._refuse_sandbox_launch(request)
         flag: FeatureFlag = self.get_object()  # type: ignore[attr-defined]
         user = cast(User, request.user)
         try:
@@ -315,10 +324,11 @@ class FeatureFlagCodeAnalysisMixin:
         An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
         opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
         when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
-        `cleanup` on `code_analysis`), 403 when AI data processing is not approved, and 409 when a cleanup
-        pull request is already open or in progress.
+        `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+        task sandbox, and 409 when a cleanup pull request is still being opened.
         """
         self._require_code_analysis_enabled(request)
+        self._refuse_sandbox_launch(request)
         flag: FeatureFlag = self.get_object()  # type: ignore[attr-defined]
         user = cast(User, request.user)
         try:

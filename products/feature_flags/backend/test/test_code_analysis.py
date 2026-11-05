@@ -189,6 +189,17 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
         )
         mock_create.assert_not_called()
 
+    @parameterized.expand([("analyze_code",), ("open_cleanup_pr",)])
+    @patch(CREATE_TASK)
+    def test_task_sandbox_cannot_start_an_agent(self, action: str, mock_create: Any) -> None:
+        with patch(GITHUB, return_value=_github("acme/web")):
+            response = self.client.post(
+                f"{self.base_url}/{action}/", {}, format="json", headers={"X-PostHog-Sandbox-Origin": "1"}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        mock_create.assert_not_called()
+
     @parameterized.expand(
         [
             ("ai_not_approved", False, False, ("acme/web",), False, status.HTTP_403_FORBIDDEN),
