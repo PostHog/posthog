@@ -219,7 +219,15 @@ def write_baseline(sandbox: SandboxBase, baseline: Baseline) -> bool:
         return False
 
 
-def _list_sandbox_slugs(sandbox: SandboxBase, counts: MemorySyncCounts) -> list[str]:
+@frozen
+class _SandboxSlugs:
+    # Every slug directory the sandbox has. A baseline slug outside this set may be gone.
+    listed: frozenset[str]
+    # The slugs this persist processes, capped at MAX_SLUGS_PER_USER.
+    selected: frozenset[str]
+
+
+def _list_sandbox_slugs(sandbox: SandboxBase, counts: MemorySyncCounts) -> _SandboxSlugs:
     slugs: list[str] = []
     for entry in sorted(sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR) or [], key=lambda e: e.name):
         if not is_valid_slug(entry.name):
@@ -228,10 +236,11 @@ def _list_sandbox_slugs(sandbox: SandboxBase, counts: MemorySyncCounts) -> list[
             counts.skip(f"slug_{entry.kind}")
         else:
             slugs.append(entry.name)
+    selected = slugs
     if len(slugs) > MAX_SLUGS_PER_USER:
         counts.skip("slug_limit", len(slugs) - MAX_SLUGS_PER_USER)
-        slugs = slugs[:MAX_SLUGS_PER_USER]
-    return slugs
+        selected = slugs[:MAX_SLUGS_PER_USER]
+    return _SandboxSlugs(listed=frozenset(slugs), selected=frozenset(selected))
 
 
 def _memory_file_entries(
@@ -356,12 +365,18 @@ def persist_sandbox_memory(
     """
     counts = MemorySyncCounts()
     baseline = read_baseline(sandbox)
-    sandbox_slugs = set(_list_sandbox_slugs(sandbox, counts))
+    sandbox_slugs = _list_sandbox_slugs(sandbox, counts)
     updated: Baseline = dict(baseline)
     dirty = False
     try:
-        for slug in sorted(sandbox_slugs | baseline.keys()):
-            entries = _memory_file_entries(sandbox, slug, in_sandbox=slug in sandbox_slugs, counts=counts)
+        for slug in sorted(sandbox_slugs.selected | baseline.keys()):
+            in_sandbox = slug in sandbox_slugs.selected
+            if not in_sandbox and (
+                slug in sandbox_slugs.listed or sandbox.list_dir(sandbox_slug_dir(slug)) is not None
+            ):
+                # Left out by the slug cap, or not a plain directory: not evidence of a deletion.
+                continue
+            entries = _memory_file_entries(sandbox, slug, in_sandbox=in_sandbox, counts=counts)
             if entries is None:
                 continue
             counts.slugs += 1
@@ -375,13 +390,26 @@ def persist_sandbox_memory(
                 allow_deletes=allow_deletes,
                 counts=counts,
             )
-            if new_base is not None and new_base != baseline.get(slug):
+            if new_base is not None and new_base != baseline.get(slug, {}):
                 updated[slug] = new_base
                 dirty = True
     finally:
         if dirty:
-            write_baseline(sandbox, updated)
+            write_baseline(sandbox, _bounded_baseline(updated, previous=baseline))
     return counts
+
+
+def _bounded_baseline(updated: Baseline, *, previous: Baseline) -> Baseline:
+    """Drop emptied slugs and keep the slug count within what parse_baseline accepts.
+
+    Over the cap, slugs the previous baseline already had win, so the cut lands on new slugs,
+    whose next persist only rereads and rewrites their own files.
+    """
+    kept = {slug: files for slug, files in updated.items() if files}
+    if len(kept) <= MAX_SLUGS_PER_USER:
+        return kept
+    ordered = sorted(kept, key=lambda slug: (slug not in previous, slug))
+    return {slug: kept[slug] for slug in ordered[:MAX_SLUGS_PER_USER]}
 
 
 def _check_deadline(deadline: float) -> None:

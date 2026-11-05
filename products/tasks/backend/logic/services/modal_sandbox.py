@@ -1750,7 +1750,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
         # so the bytes come from a capped shell read. Callers validate and cap the content, so a
         # tampered shell can only corrupt the user's own memory.
-        result = self.execute(f"head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        result = self.execute(f"set -o pipefail; head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
         if result.exit_code != 0:
             return None
         return base64.b64decode(result.stdout.strip())

@@ -3152,15 +3152,17 @@ class TestModalSandboxProxyRateLimit:
         assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
 
     @pytest.mark.parametrize(
-        "file_type, size, expected",
+        "file_type, size, read_exit_code, expected",
         [
-            (ModalFileType.FILE, 8, b"# Memory"),
-            (ModalFileType.SYMLINK, 8, None),
-            (ModalFileType.FILE, 11, None),
+            (ModalFileType.FILE, 8, 0, b"# Memory"),
+            (ModalFileType.SYMLINK, 8, 0, None),
+            (ModalFileType.FILE, 11, 0, None),
+            # The file vanished or became a directory after the stat, so head failed.
+            (ModalFileType.FILE, 8, 1, None),
         ],
     )
     def test_read_file_reads_only_small_regular_files_through_a_capped_read(
-        self, mock_sandbox: Any, file_type: Any, size: int, expected: bytes | None
+        self, mock_sandbox: Any, file_type: Any, size: int, read_exit_code: int, expected: bytes | None
     ):
         mock_sandbox._sandbox.filesystem.stat.return_value = ModalFileInfo(
             name="MEMORY.md",
@@ -3174,16 +3176,15 @@ class TestModalSandboxProxyRateLimit:
             modified_time=0.0,
             symlink_target=None,
         )
-        execute = MagicMock(
-            return_value=ExecutionResult(stdout=base64.b64encode(b"# Memory").decode(), stderr="", exit_code=0)
-        )
+        stdout = base64.b64encode(b"# Memory").decode() if read_exit_code == 0 else ""
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=read_exit_code))
         mock_sandbox.execute = execute
 
         assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == expected
-        if expected is None:
+        if file_type != ModalFileType.FILE or size > 10:
             execute.assert_not_called()
         else:
-            assert execute.call_args.args[0].startswith("head -c 11 -- ")
+            assert execute.call_args.args[0].startswith("set -o pipefail; head -c 11 -- ")
         mock_sandbox._sandbox.filesystem.read_bytes.assert_not_called()
 
     def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):

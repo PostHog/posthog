@@ -223,6 +223,9 @@ class ResumedSandboxState:
     startup_worker_started_at: str | None = None
     startup_context_loaded_at: str | None = None
     sandbox_backend: str | None = None
+    # The first execution's memory eligibility. A continuation reloads the context while a teammate
+    # may be steering the run, which would switch persistence off for the creator's later turns.
+    agent_memory_persist_enabled: bool | None = None
 
 
 @frozen
@@ -1188,11 +1191,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
                 )
             # The patch check comes first so a pre-patch history records no marker and no persist.
-            self._agent_memory_persist_enabled = (
-                _check_persist_agent_memory_patch()
-                and self.context.persist_agent_memory_enabled
-                and self.context.mode == "interactive"
-                and self.context.task_created_by_id is not None
+            self._agent_memory_persist_enabled = _check_persist_agent_memory_patch() and self._agent_memory_eligible(
+                input.resumed_sandbox
             )
             if input.resumed_sandbox is None:
                 self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
@@ -1907,6 +1907,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._startup_context_loaded_at.isoformat() if self._startup_context_loaded_at else None
                 ),
                 sandbox_backend=self.context.sandbox_backend,
+                agent_memory_persist_enabled=self._agent_memory_persist_enabled,
             ),
         )
 
@@ -3330,7 +3331,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             pass
 
     async def _persist_agent_memory(self, sandbox_id: str, *, reason: str) -> bool:
-        """True only when the activity ran and reported no error."""
+        """True only when the activity ran and saved the sandbox's memory."""
         user_id = self.context.task_created_by_id
         if user_id is None:
             return False
@@ -3353,18 +3354,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "reason": reason, "error": str(e)},
             )
             return False
-        if result.error:
+        if result.error or result.outcome != "persisted":
             workflow.logger.warning(
                 "agent_memory_persist_skipped",
                 extra={
                     "run_id": self.context.run_id,
                     "sandbox_id": sandbox_id,
                     "reason": reason,
+                    "outcome": result.outcome,
                     "error": result.error,
                 },
             )
             return False
         return True
+
+    def _agent_memory_eligible(self, resumed: ResumedSandboxState | None) -> bool:
+        if resumed is not None and resumed.agent_memory_persist_enabled is not None:
+            return resumed.agent_memory_persist_enabled
+        return (
+            self.context.persist_agent_memory_enabled
+            and self.context.mode == "interactive"
+            and self.context.task_created_by_id is not None
+        )
 
     def _schedule_agent_memory_persist(self, sandbox_id: str | None) -> None:
         if not self._agent_memory_persist_enabled or sandbox_id is None or self._agent_memory_persist_closed:

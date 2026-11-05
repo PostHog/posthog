@@ -1371,7 +1371,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         quoted = shlex.quote(path)
         result = self.execute(
             f"test -f {quoted} && test ! -L {quoted} && [ $(stat -c %s {quoted}) -le {max_bytes} ] || exit 3; "
-            f"head -c {max_bytes + 1} -- {quoted} | base64 -w0"
+            f"set -o pipefail; head -c {max_bytes + 1} -- {quoted} | base64 -w0"
         )
         if result.exit_code != 0:
             return None

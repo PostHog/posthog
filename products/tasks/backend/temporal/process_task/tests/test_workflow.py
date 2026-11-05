@@ -82,6 +82,7 @@ from products.tasks.backend.temporal.process_task.activities import (
 )
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     RefreshSandboxCredentialsOutput,
@@ -932,9 +933,24 @@ class TestSandboxRotation:
         assert rotation.credential_refresh_task is refresh_old
         provision.assert_not_awaited()
 
-    async def test_a_failed_memory_persist_keeps_the_run_on_its_sandbox(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "persist_result, expected_reason",
+        [
+            (PersistAgentMemoryOutput(outcome="persisted"), "snapshot_missing"),
+            (PersistAgentMemoryOutput(outcome="actor_changed"), "memory_persist_failed"),
+            (PersistAgentMemoryOutput(outcome="unsupported"), "memory_persist_failed"),
+            (PersistAgentMemoryOutput(outcome="partial"), "memory_persist_failed"),
+            (
+                PersistAgentMemoryOutput(outcome="sandbox_not_running", error="Sandbox not running"),
+                "memory_persist_failed",
+            ),
+            (RuntimeError("retries exhausted"), "memory_persist_failed"),
+        ],
+    )
+    async def test_rotation_proceeds_only_after_memory_is_saved(self, monkeypatch, persist_result, expected_reason):
         wf = self._workflow(monkeypatch)
         wf._agent_memory_persist_enabled = True
+        wf.context.task_created_by_id = 42
         in_flight_finished = asyncio.Event()
 
         async def in_flight_persist() -> None:
@@ -942,12 +958,15 @@ class TestSandboxRotation:
 
         wf._agent_memory_persist_task = asyncio.ensure_future(in_flight_persist())
 
-        async def failed_persist(sandbox_id: str, *, reason: str) -> bool:
+        async def run_persist_activity(activity_fn, activity_input, **kwargs):
             assert in_flight_finished.is_set()
-            return False
+            if isinstance(persist_result, Exception):
+                raise persist_result
+            return persist_result
 
-        monkeypatch.setattr(wf, "_persist_agent_memory", failed_persist)
-        snapshot = AsyncMock(return_value=self._snapshot())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", run_persist_activity)
+        # A missing snapshot stops the rotation right after a successful persist.
+        snapshot = AsyncMock(return_value=self._snapshot(None))
         monkeypatch.setattr(wf, "_create_resume_snapshot_output", snapshot)
         provision = AsyncMock()
         monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision)
@@ -959,8 +978,8 @@ class TestSandboxRotation:
         assert rotation.sandbox_id is None
         assert rotation.relay_task is relay_old
         assert rotation.credential_refresh_task is refresh_old
-        assert rotation.reason == "memory_persist_failed"
-        snapshot.assert_not_awaited()
+        assert rotation.reason == expected_reason
+        assert snapshot.await_count == (1 if expected_reason == "snapshot_missing" else 0)
         provision.assert_not_awaited()
 
     async def test_the_replacements_own_agent_server_boot_keeps_the_rotation(self, monkeypatch):
@@ -4039,6 +4058,7 @@ class TestContinueAsNew:
         wf._agent_boot_interaction_telemetry_enabled = True
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
+        wf._agent_memory_persist_enabled = True
 
         resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
 
@@ -4053,6 +4073,10 @@ class TestContinueAsNew:
         restored = ProcessTaskWorkflow()
         restored._context = dataclasses.replace(wf.context)
         restored._restore_resumed_state(rs)
+        # A teammate now steering the run makes the reloaded context ineligible; the chain keeps
+        # the first execution's decision and leaves the per-persist actor check to the activity.
+        restored.context.persist_agent_memory_enabled = False
+        assert restored._agent_memory_eligible(rs) is True
 
         assert restored._ci_repetitions == 2
         assert restored._ci_idle_skips == 1

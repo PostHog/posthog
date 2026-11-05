@@ -12,6 +12,7 @@ from posthog.storage.object_storage import ObjectStorageError, StoredObjectSumma
 from products.tasks.backend.logic.services import agent_memory
 from products.tasks.backend.logic.services.agent_memory import (
     MAX_FILE_BYTES,
+    MAX_SLUGS_PER_USER,
     SANDBOX_BASELINE_PATH,
     SANDBOX_CLAUDE_PROJECTS_DIR,
     SANDBOX_HOME_CLAUDE_PROJECTS_DIR,
@@ -282,6 +283,44 @@ def test_deleting_the_last_memory_file_propagates_only_against_a_valid_baseline(
     persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
 
     assert (_key(REPO_SLUG, "MEMORY.md") not in storage.objects) is expected_deleted
+
+
+def _fifty_restored_slugs(storage: FakeStorage) -> tuple[FakeSandbox, list[str]]:
+    slugs = [f"-s{index:02d}" for index in range(MAX_SLUGS_PER_USER)]
+    sandbox = FakeSandbox({_memory_path(slug, "MEMORY.md"): b"index" for slug in slugs})
+    sandbox.set_baseline({slug: {"MEMORY.md": {"md5": _md5(b"index"), "size": 5, "mtime": 1.0}} for slug in slugs})
+    storage.objects = {_key(slug, "MEMORY.md"): b"index" for slug in slugs}
+    return sandbox, slugs
+
+
+def test_a_slug_left_out_by_the_cap_is_not_treated_as_deleted(storage: FakeStorage) -> None:
+    sandbox, slugs = _fifty_restored_slugs(storage)
+    sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
+    sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
+
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+
+    assert storage.objects[_key(slugs[-1], "MEMORY.md")] == b"index"
+    assert storage.writes == [_key("-a", "MEMORY.md")]
+
+
+def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorage) -> None:
+    sandbox, slugs = _fifty_restored_slugs(storage)
+    del sandbox.files[_memory_path(slugs[0], "MEMORY.md")]
+    sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
+    sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
+
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+
+    assert _key(slugs[0], "MEMORY.md") not in storage.objects
+    assert len(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == MAX_SLUGS_PER_USER
+
+    storage.writes.clear()
+    sandbox.reads.clear()
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+
+    assert storage.writes == []
+    assert sandbox.reads == [SANDBOX_BASELINE_PATH]
 
 
 def test_restore_replaces_stored_slugs_for_this_project_only(storage: FakeStorage) -> None:
