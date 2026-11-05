@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import (
     tag_contains_user_hogql,
 )
 from posthog.event_usage import AnalyticsProps
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import (
@@ -501,7 +502,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         except CompilationLimitExceededError:
             # Execution would compile the query again with a new budget and then fail with the same error.
             raise
-        except Exception:
+        except ExposedHogQLError:
+            # The query is invalid, and execution reports that error to the caller.
+            EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="error").inc()
+            return
+        except Exception as error:
+            capture_exception(error)
             EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="error").inc()
             return
         if not missing:

@@ -639,11 +639,12 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("compilation_limit", CompilationLimitExceededError("limit"), True),
-            ("other_error_fails_open", RuntimeError("unexpected"), False),
+            ("compilation_limit", CompilationLimitExceededError("limit"), True, False),
+            ("invalid_query_fails_open_unreported", QueryError("invalid"), False, False),
+            ("other_error_fails_open_and_is_reported", RuntimeError("unexpected"), False, True),
         ]
     )
-    def test_query_service_events_lower_bound_check_errors(self, _name, error, raises):
+    def test_query_service_events_lower_bound_check_errors(self, _name, error, raises, reported):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
         runner.is_query_service = True
         reset_request_query_warnings()
@@ -651,6 +652,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with (
             patch("posthoganalytics.feature_enabled", return_value=False),
             patch("posthog.hogql_queries.hogql_query_runner.resolve_types", side_effect=error),
+            patch("posthog.hogql_queries.hogql_query_runner.capture_exception") as capture_exception,
         ):
             if raises:
                 with self.assertRaises(CompilationLimitExceededError):
@@ -659,6 +661,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(len(runner.calculate().results), 1)
 
         self.assertEqual([], get_request_query_warnings())
+        self.assertEqual(reported, capture_exception.called)
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):

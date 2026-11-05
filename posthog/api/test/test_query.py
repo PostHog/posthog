@@ -39,7 +39,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.user_query_validator import EVENTS_LOWER_BOUND_REQUIRED_MESSAGE
+from posthog.hogql.user_query_validator import (
+    EVENTS_LOWER_BOUND_REQUIRED_MESSAGE,
+    HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG,
+)
 
 from posthog.api.query import (
     CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
@@ -1992,6 +1995,20 @@ class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == 200, response.content
         assert response.get("X-PostHog-Warn") == (EVENTS_LOWER_BOUND_REQUIRED_MESSAGE if api_key else None)
+
+    def test_api_key_unbounded_events_read_fails_with_a_code_when_enforced(self):
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *_args, **_kwargs: flag == HOGQL_API_KEY_REQUIRE_EVENTS_LOWER_BOUND_FLAG,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}},
+                format="json",
+                headers=self._personal_key_headers(),
+            )
+        assert response.status_code == 400, response.content
+        assert response.json()["code"] == "events_timestamp_bound_required"
 
     def test_async_query_status_carries_the_cost_once_complete(self):
         query_status = QueryStatus(
