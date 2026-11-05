@@ -31,10 +31,14 @@ impl WebUrl {
         Self::new(self.0)
     }
 
-    /// `open::that` runs `cmd /c start` on Windows. Only `that_detached` uses ShellExecuteExW.
+    /// Only `that_detached` avoids `cmd` on Windows. Elsewhere `that` reports a failed opener.
     #[allow(clippy::disallowed_methods)]
     pub fn open_in_browser(&self) -> Result<()> {
-        open::that_detached(self.0.as_str()).context("Failed to open browser")
+        #[cfg(windows)]
+        let opened = open::that_detached(self.0.as_str());
+        #[cfg(not(windows))]
+        let opened = open::that(self.0.as_str());
+        opened.context("Failed to open browser")
     }
 }
 
