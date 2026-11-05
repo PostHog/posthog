@@ -5,10 +5,11 @@ import { Fragment } from 'react'
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
+import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
@@ -33,7 +34,7 @@ import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
 
 interface Step {
     // pinned: analytics property value, because the creation funnel reads it
-    key: 'name' | 'check' | 'traffic' | 'reports' | 'create'
+    key: 'name' | 'output' | 'check' | 'traffic' | 'reports' | 'create'
     title: string
     heading: string
     /** One paragraph per entry. */
@@ -48,30 +49,39 @@ interface Step {
 const STEPS: Step[] = [
     {
         key: 'name',
-        title: 'Name',
-        heading: 'Name your evaluation',
-        description: ['People see this name on results and reports.'],
+        title: 'Evaluate',
+        heading: 'What it evaluates',
+        description: ['Name it and choose how it decides.'],
         hoggie: pngHoggie(officeWorkerPng),
-        parts: [],
+        parts: ['method'],
         checks: ['name'],
+    },
+    {
+        key: 'output',
+        title: 'Returns',
+        heading: 'What it returns',
+        description: ['Choose what each run returns, and which results count as a pass.'],
+        hoggie: pngHoggie(organizedPng),
+        parts: [],
+        checks: ['result'],
+    },
+    {
+        key: 'traffic',
+        title: 'Runs on',
+        heading: 'What it runs on',
+        description: ['Choose what one run covers and which traffic it checks.'],
+        hoggie: pngHoggie(magnifyingGlassPng),
+        parts: ['target', 'triggers'],
+        checks: ['sampling'],
     },
     {
         key: 'check',
         title: 'Check',
-        heading: 'What it checks',
-        description: ['Choose how each run gets checked, then write the instructions and pick what it returns.'],
+        heading: 'How it checks',
+        description: ['Write the prompt or the code that decides each result.'],
         hoggie: pngHoggie(judgePng),
-        parts: ['method', 'model'],
-        checks: ['criteria', 'result', 'model'],
-    },
-    {
-        key: 'traffic',
-        title: 'Traffic',
-        heading: 'What it runs on',
-        description: ['Pick the live traffic it checks, and how much of it.'],
-        hoggie: pngHoggie(magnifyingGlassPng),
-        parts: ['target', 'triggers'],
-        checks: ['sampling'],
+        parts: ['model'],
+        checks: ['criteria', 'model'],
     },
     {
         key: 'reports',
@@ -96,9 +106,8 @@ const STEPS: Step[] = [
     },
 ]
 
-function StepContent({ step, isNew }: { step: Step['key']; isNew: boolean }): JSX.Element | null {
-    const { evaluation, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
-    const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
+function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
+    const { evaluation } = useValues(llmEvaluationLogic)
 
     if (!evaluation) {
         return null
@@ -108,40 +117,25 @@ function StepContent({ step, isNew }: { step: Step['key']; isNew: boolean }): JS
             return (
                 <>
                     <EvaluationNameFields />
-                    {/* A new evaluation sets this on its create step. */}
-                    {!isNew && (
-                        <LemonSwitch
-                            checked={evaluation.enabled}
-                            onChange={setEvaluationEnabled}
-                            disabledReason={
-                                !canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined
-                            }
-                            label={evaluation.enabled ? 'Running on new traffic' : 'Paused'}
-                            bordered
-                            data-attr="llma-evaluation-configuration-enabled"
-                        />
-                    )}
+                    <EvaluationMethodPanel />
+                </>
+            )
+        case 'output':
+            return <EvaluationOutputFields />
+        case 'traffic':
+            return (
+                <>
+                    <EvaluationTargetPanel />
+                    <EvaluationTriggersPanel />
+                    <EvaluationVolumeEstimate />
                 </>
             )
         case 'check':
             return (
                 <>
-                    <EvaluationMethodPanel />
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationModelPanel />}
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
                     {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                    <EvaluationOutputFields />
-                </>
-            )
-        case 'traffic':
-            return (
-                <>
-                    <EvaluationTargetPanel />
-                    <div className="flex flex-col gap-2">
-                        <h4 className="mb-0 text-base font-semibold">Triggers</h4>
-                        <EvaluationTriggersPanel />
-                    </div>
-                    <EvaluationVolumeEstimate />
                 </>
             )
         case 'reports':
@@ -174,7 +168,12 @@ export function EvaluationFormSteps({
     if (!evaluation) {
         return null
     }
-    const steps = onCreate ? STEPS : STEPS.filter((candidate) => candidate.key !== 'create')
+    // Sentiment has a fixed answer and no prompt, code, or model to set, so it skips those steps.
+    const steps = STEPS.filter(
+        (candidate) =>
+            (onCreate || candidate.key !== 'create') &&
+            (evaluation.evaluation_type !== 'sentiment' || (candidate.key !== 'check' && candidate.key !== 'output'))
+    )
     const index = Math.max(
         0,
         steps.findIndex((candidate) => candidate.key === formStep)
@@ -199,12 +198,12 @@ export function EvaluationFormSteps({
         <div className="flex flex-col gap-6">
             <EvaluationSentence
                 activeParts={step.parts}
-                onPartClick={(part) =>
-                    goTo(
-                        STEPS.findIndex((candidate) => candidate.parts.includes(part)),
-                        'sentence'
-                    )
-                }
+                onPartClick={(part) => {
+                    const target = steps.findIndex((candidate) => candidate.parts.includes(part))
+                    if (target >= 0) {
+                        goTo(target, 'sentence')
+                    }
+                }}
             />
             <nav className="flex flex-wrap items-center justify-center gap-2" aria-label="Steps">
                 {steps.map((candidate, candidateIndex) => {
@@ -269,7 +268,7 @@ export function EvaluationFormSteps({
                 </div>
                 {!isCreateStep && (
                     <div className="flex flex-col gap-4 min-w-0">
-                        <StepContent step={step.key} isNew={!!onCreate} />
+                        <StepContent step={step.key} />
                     </div>
                 )}
                 {isCreateStep && (

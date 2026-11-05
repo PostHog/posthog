@@ -7,12 +7,13 @@ path and owners of additions are pinned: the cut step never removes them (SPEC s
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from enum import StrEnum
 from pathlib import PurePosixPath
 
 from owners_yaml import Resolution, path_matches_pattern
 
 from posthog.dataclasses import frozen
+
+from products.stamphog.backend.facade.enums import OwnerKind, PinReason
 
 # Files whose changes are generated or mechanical. They never pull in an owner: a team gains nothing
 # from reviewing a regenerated client or a lockfile bump. Keep in sync with `CONFIG.excludedPatterns`
@@ -40,16 +41,6 @@ _SKIPPED_STATUSES = frozenset({"generated", "vendored"})
 # GitHub reports a moved file as `renamed`, and a move into a new directory adds that directory as
 # much as a new file does.
 ADDED_FILE_STATUSES = frozenset({"added", "renamed", "copied"})
-
-
-class OwnerKind(StrEnum):
-    TEAM = "team"
-    PERSON = "person"
-
-
-class PinReason(StrEnum):
-    SENSITIVE = "sensitive"
-    NEW_PATH = "new_path"
 
 
 @frozen

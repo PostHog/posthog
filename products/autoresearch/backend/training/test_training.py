@@ -11,7 +11,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.autoresearch.backend.dataset.labeling import TrainingSample
 from products.autoresearch.backend.inference.failures import UnscorableChampion
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
@@ -473,7 +473,7 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
             )
             self.pipeline.created_by = outsider
         else:
-            action = Action.objects.create(team=self.team, name="empty", steps_json=[])
+            action = create_action(team=self.team, name="empty", steps_json=[])
             self.pipeline.target_definition = {"type": "action", "action_id": action.id}
         self.pipeline.save()
 

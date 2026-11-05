@@ -519,7 +519,7 @@ Agree the change with the desktop team before anyone edits a row.
 **Order:**
 
 - Change the ceiling before the app release that requests the scopes.
-  Some paths answer `invalid_scope` instead of dropping the scope, and that blocks sign-in ([AUTH.md](AUTH.md), "Server-side ceiling").
+  Some paths answer `invalid_scope` instead of dropping the scope, and that blocks sign-in.
 - A token refresh never widens a grant (`posthog/api/oauth/views.py:808-851`).
   Existing users get the new scopes after one new sign-in.
 - Items 3 (the alternative) and 4 add `file_system:read` or `file_system:write`.
