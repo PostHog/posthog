@@ -14,25 +14,27 @@ def _copy(annotation_model: Any, alias: str, parent_field: str, descriptions: It
     for team_id, parent_id, description in descriptions:
         # nosemgrep: orm-field-injection -- parent_field is a hardcoded constant in this module, not user input
         lookup = {f"{parent_field}_id": parent_id, "column_name": OBJECT_LEVEL_COLUMN}
-        annotation = manager.filter(**lookup).first()
-        if annotation is None:
-            manager.create(
-                team_id=team_id,
-                description=description,
-                description_source=USER_EDITED,
-                is_user_edited=True,
-                **lookup,
-            )
-        elif not annotation.is_user_edited:
-            # A person typed the node text, so it replaces AI or built-in text. A user-edited annotation stays,
-            # because agents already read it.
-            manager.filter(pk=annotation.pk, is_user_edited=False).update(
-                description=description,
-                description_source=USER_EDITED,
-                ai_model=None,
-                is_user_edited=True,
-                updated_at=timezone.now(),
-            )
+        # An enrichment worker can create the row while this runs, so a plain create could abort the migration.
+        annotation, created = manager.get_or_create(
+            **lookup,
+            defaults={
+                "team_id": team_id,
+                "description": description,
+                "description_source": USER_EDITED,
+                "is_user_edited": True,
+            },
+        )
+        if created or annotation.is_user_edited:
+            # A user-edited annotation stays, because agents already read it.
+            continue
+        # A person typed the node text, so it replaces AI or built-in text.
+        manager.filter(pk=annotation.pk, is_user_edited=False).update(
+            description=description,
+            description_source=USER_EDITED,
+            ai_model=None,
+            is_user_edited=True,
+            updated_at=timezone.now(),
+        )
 
 
 def copy_node_descriptions(apps: Any, schema_editor: Any) -> None:
@@ -55,7 +57,7 @@ def copy_node_descriptions(apps: Any, schema_editor: Any) -> None:
             continue
         table_id = properties.get("warehouse_table_id") if isinstance(properties, dict) else None
         try:
-            parsed_table_id = UUID(table_id) if table_id else None
+            parsed_table_id = UUID(table_id) if isinstance(table_id, str) else None
         except ValueError:
             parsed_table_id = None
         if parsed_table_id is not None:

@@ -1256,12 +1256,22 @@ class TestNodeDescription(APIBaseTest):
             .exists()
         )
 
-    def test_native_table_node_refuses_a_description(self):
-        node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        cleared = self.client.patch(self._url(node), {"description": ""}, format="json")
 
-        response = self.client.patch(self._url(node), {"description": "Text"}, format="json")
+        self.assertEqual(cleared.json()["description"], "Source text")
+        self.assertIsNone(cleared.json()["description_source"])
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    @parameterized.expand([("native", {}), ("malformed_table_id", {"warehouse_table_id": 123})])
+    def test_table_node_without_a_warehouse_table_refuses_a_description(self, _name, properties):
+        node = Node.objects.create(
+            team=self.team, dag=self.dag, name="events", type=NodeType.TABLE, properties=properties
+        )
+
+        read = self.client.get(self._url(node))
+        written = self.client.patch(self._url(node), {"description": "Text"}, format="json")
+
+        self.assertEqual(read.json()["description"], "")
+        self.assertEqual(written.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_loads_descriptions_without_one_query_per_node(self):
         self._view_annotation("First", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED)
