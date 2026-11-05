@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
@@ -97,29 +98,29 @@ def find_field_chains(node: ast.AST | None) -> list[list[str | int]]:
     return finder.field_chains
 
 
-NUMERIC_CONSTANT_TYPES = (ast.IntegerType, ast.FloatType, ast.DecimalType)
+DATA_WAREHOUSE_RESOLVERS = frozenset({DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS})
 
 
 def _constant_type_of(expr: ast.Expr, context: HogQLContext) -> ast.ConstantType | None:
     return expr.type.resolve_constant_type(context) if expr.type is not None else None
 
 
-def _as_string(expr: ast.Expr, numeric_type: ast.ConstantType) -> ast.Call:
-    return ast.Call(name="toString", args=[expr], type=ast.StringType(nullable=numeric_type.nullable))
+def _as_string(expr: ast.Expr, integer_type: ast.ConstantType) -> ast.Call:
+    return ast.Call(name="toString", args=[expr], type=ast.StringType(nullable=integer_type.nullable))
 
 
-def _stringify_numeric_side_compared_to_string(comparison: ast.CompareOperation, context: HogQLContext) -> None:
+def _stringify_integer_side_compared_to_string(comparison: ast.CompareOperation, context: HogQLContext) -> None:
     if comparison.op != ast.CompareOperationOp.Eq:
         return
     left_type = _constant_type_of(comparison.left, context)
     right_type = _constant_type_of(comparison.right, context)
-    if isinstance(left_type, ast.StringType) and isinstance(right_type, NUMERIC_CONSTANT_TYPES):
+    if isinstance(left_type, ast.StringType) and isinstance(right_type, ast.IntegerType):
         comparison.right = _as_string(comparison.right, right_type)
-    elif isinstance(right_type, ast.StringType) and isinstance(left_type, NUMERIC_CONSTANT_TYPES):
+    elif isinstance(right_type, ast.StringType) and isinstance(left_type, ast.IntegerType):
         comparison.left = _as_string(comparison.left, left_type)
 
 
-def _stringify_numeric_join_keys_compared_to_strings(
+def _stringify_integer_join_keys_compared_to_strings(
     constraint: ast.JoinConstraint | None, context: HogQLContext
 ) -> None:
     if constraint is None:
@@ -127,7 +128,7 @@ def _stringify_numeric_join_keys_compared_to_strings(
     comparisons = constraint.expr.exprs if isinstance(constraint.expr, ast.And) else [constraint.expr]
     for comparison in comparisons:
         if isinstance(comparison, ast.CompareOperation):
-            _stringify_numeric_side_compared_to_string(comparison, context)
+            _stringify_integer_side_compared_to_string(comparison, context)
 
 
 def get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
@@ -854,7 +855,8 @@ class LazyTableResolver(TraversingVisitor):
                     context=self.context,
                     setTimeZones=False,
                 ).visit(join_to_add)
-            _stringify_numeric_join_keys_compared_to_strings(join_to_add.constraint, self.context)
+            if join_scope.lazy_join.resolver in DATA_WAREHOUSE_RESOLVERS:
+                _stringify_integer_join_keys_compared_to_strings(join_to_add.constraint, self.context)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
