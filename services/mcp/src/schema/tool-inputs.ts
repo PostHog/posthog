@@ -147,6 +147,14 @@ export const BillingUsageTypesSchema = z
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
+// Logs bills on logs_and_traces_mb_in_period, so the spend endpoint rejects these two breakdown counters.
+const USAGE_ONLY_LOGS_TYPES = /\b(?:logs_mb_in_period|apm_tracing_mb_in_period), /g
+
+export const BillingSpendTypesSchema = z
+    .array(z.string().min(1))
+    .nullish()
+    .describe(BillingUsageTypesSchema.description!.replace(USAGE_ONLY_LOGS_TYPES, ''))
+
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
     .nullish()

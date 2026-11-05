@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/billing/api'
 import {
     BillingSpendBreakdownsSchema,
+    BillingSpendTypesSchema,
     BillingTeamIdsSchema,
     BillingUsageBreakdownsSchema,
     BillingUsageTypesSchema,
@@ -171,7 +172,7 @@ const BillingSpendGetSchema = () => {
     const BillingSpendRetrieveQueryParams = orvalSchemas.BillingSpendRetrieveQueryParams()
     return BillingSpendRetrieveQueryParams.extend({
         team_ids: BillingTeamIdsSchema,
-        usage_types: BillingUsageTypesSchema,
+        usage_types: BillingSpendTypesSchema,
         breakdowns: BillingSpendBreakdownsSchema,
         interval: BillingSpendRetrieveQueryParams.shape['interval'].describe(
             'Time bucket size, one of "day", "week" or "month". Default "day".'
