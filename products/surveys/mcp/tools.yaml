@@ -132,12 +132,12 @@ tools:
         title: Delete a survey by ID.
         description: |
             Delete a survey by ID (soft delete - marks as archived).
-        soft_delete: archived
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        soft_delete: archived
     survey-get:
         operation: surveys_retrieve
         enabled: true
@@ -153,12 +153,12 @@ tools:
             Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting
             rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters
             with survey-update.
-        ui_app: survey
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        ui_app: survey
     survey-launch:
         operation: surveys_launch
         enabled: true
@@ -175,12 +175,12 @@ tools:
             `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey
             is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must
             have that date cleared or extended before launch; do this only when the user asks to reopen the survey.
-        ui_app: survey
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        ui_app: survey
     survey-stats:
         operation: surveys_stats_retrieve
         enabled: true
@@ -195,12 +195,12 @@ tools:
         description: >
             Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
-        ui_app: survey-stats
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        ui_app: survey-stats
     survey-stop:
         operation: surveys_stop
         enabled: true
@@ -217,12 +217,12 @@ tools:
             responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey
             already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with
             `archived=true` instead.
-        ui_app: survey
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        ui_app: survey
     survey-update:
         operation: surveys_partial_update
         enabled: true
@@ -377,12 +377,12 @@ tools:
             the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` /
             `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving
             between pages can shift boundaries).
-        ui_app: survey-stats
         param_overrides:
             id:
                 aliases:
                     - survey_id
                     - surveyId
+        ui_app: survey-stats
     surveys-summarize-responses-create:
         operation: surveys_summarize_responses_create
         enabled: true
