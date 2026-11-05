@@ -20,6 +20,9 @@ import { loadWizardOnboardingStartTime } from '../../lib/wizardApi'
 import { selectWizardInstallRun } from '../../lib/wizardRunDisplay'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 
+export const AWAITED_RUN_POLL_MS = 5_000
+const AWAITED_RUN_POLL_KEY = 'awaited-run-poll'
+
 interface OnboardingWizardRunProps {
     projectId: string
     userId: number
@@ -43,6 +46,7 @@ export interface onboardingWizardRunLogicActions {
     acceptCreatedRun: (run: WizardRunApi) => { run: WizardRunApi }
     loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
+    checkRuns: (recentOnly?: boolean) => { recentOnly: boolean }
     clickArtifact: (
         artifact: WizardRunArtifactApi,
         clickSource: WizardOnboardingArtifactClickSource
@@ -61,7 +65,7 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
     path((key) => ['products', 'wizard', 'onboardingWizardRunLogic', key]),
     connect(({ projectId }: OnboardingWizardRunProps) => ({
         values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
-        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData', 'watchRuns']],
+        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData', 'watchRuns', 'checkRuns']],
     })),
     actions({
         initializeOnboarding: true,
@@ -136,8 +140,15 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
             const run = values.run
             actions.watchRuns('onboarding', run ? [run.id] : [])
             if (!run) {
+                if (!cache.disposables.registry.has(AWAITED_RUN_POLL_KEY)) {
+                    cache.disposables.add(() => {
+                        const timer = window.setInterval(() => actions.checkRuns(true), AWAITED_RUN_POLL_MS)
+                        return () => window.clearInterval(timer)
+                    }, AWAITED_RUN_POLL_KEY)
+                }
                 return
             }
+            cache.disposables.dispose(AWAITED_RUN_POLL_KEY)
             if (run.id !== values.savedRun?.id) {
                 actions.saveRun({ id: run.id, created_at: run.created_at })
             }

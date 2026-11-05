@@ -13,7 +13,7 @@ import type {
     WizardRunTaskListApi,
 } from '../generated/api.schemas'
 import { loadWizardRunArtifacts } from '../lib/wizardApi'
-import { wizardRunSyncLogic } from './wizardRunSyncLogic'
+import { RUN_DISCOVERY_POLL_MS, wizardRunSyncLogic } from './wizardRunSyncLogic'
 
 jest.mock('../generated/api', () => ({
     wizardRunsList: jest.fn(),
@@ -200,7 +200,7 @@ describe('wizardRunSyncLogic', () => {
         const previousCalls = mockWizardRunsList.mock.calls.length
         mockWizardRunsList.mockResolvedValue({ results: [run('first')], next: '/next' })
         for (let poll = 0; poll < 6; poll++) {
-            jest.advanceTimersByTime(5_000)
+            jest.advanceTimersByTime(RUN_DISCOVERY_POLL_MS)
             await expectLogic(logic).toFinishAllListeners()
         }
         expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(6)
@@ -208,33 +208,30 @@ describe('wizardRunSyncLogic', () => {
         expect(logic.values.userRuns.map((run) => run.id)).toEqual(['first', 'second'])
     })
 
-    it.each(['poll', 'focus'])(
-        'discovers local runs promptly on %s without dropping older history',
-        async (trigger) => {
-            await expectLogic(logic).toFinishAllListeners()
-            logic.unmount()
-            jest.useFakeTimers()
-            logic = wizardRunSyncLogic({ projectId: '1' })
-            logic.mount()
-            logic.actions.watchRuns('test', ['local-installation'])
-            await expectLogic(logic).toFinishAllListeners()
-            const history = { ...run('history'), status: 'completed' as const }
-            logic.actions.runsLoaded([run('newer'), history])
-            const localRun = { ...run('local-installation'), environment: 'local' as const }
-            mockWizardRunsList.mockResolvedValue({ results: [localRun], next: '/older-runs' })
-            const previousCalls = mockWizardRunsList.mock.calls.length
+    it.each(['poll', 'focus'])('discovers local runs on %s without dropping older history', async (trigger) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        logic.actions.watchRuns('test', ['local-installation'])
+        await expectLogic(logic).toFinishAllListeners()
+        const history = { ...run('history'), status: 'completed' as const }
+        logic.actions.runsLoaded([run('newer'), history])
+        const localRun = { ...run('local-installation'), environment: 'local' as const }
+        mockWizardRunsList.mockResolvedValue({ results: [localRun], next: '/older-runs' })
+        const previousCalls = mockWizardRunsList.mock.calls.length
 
-            if (trigger === 'poll') {
-                jest.advanceTimersByTime(5_000)
-            } else {
-                window.dispatchEvent(new Event('focus'))
-            }
-            await expectLogic(logic).toFinishAllListeners()
-            expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(1)
-            expect(logic.values.userRuns.map((run) => run.id)).toEqual(['local-installation', 'newer', 'history'])
-            expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/local-installation/stream/')
+        if (trigger === 'poll') {
+            jest.advanceTimersByTime(RUN_DISCOVERY_POLL_MS)
+        } else {
+            window.dispatchEvent(new Event('focus'))
         }
-    )
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(1)
+        expect(logic.values.userRuns.map((run) => run.id)).toEqual(['local-installation', 'newer', 'history'])
+        expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/local-installation/stream/')
+    })
 
     it('keeps a new creation response when an older full-history poll finishes afterward', async () => {
         await expectLogic(logic).toFinishAllListeners()

@@ -33,7 +33,7 @@ import { loadWizardRunArtifacts } from '../lib/wizardApi'
 import { wizardRunIsActive } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
-const RUN_DISCOVERY_POLL_MS = 5_000
+export const RUN_DISCOVERY_POLL_MS = 60_000
 
 const RUN_LIST_LIMIT = 100
 // Leave HTTP/1.1 connections available for requests and other app streams.
