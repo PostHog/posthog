@@ -75,10 +75,7 @@ function describeThrownValue(value: unknown): string {
 
 type ExceptionProperties = Record<string, number | string | boolean | bigint | symbol | null | undefined>
 
-/**
- * A property, not a rethrown Error: rethrowing from an inner boundary would replace React's
- * component stack, which is the only trace of where a stackless non-Error value came from.
- */
+/** A property, because rethrowing an Error from an inner boundary would replace React's component stack. */
 function withThrownValue(properties: ExceptionProperties): (error: unknown) => ExceptionProperties {
     return (error) => (isErrorLike(error) ? properties : { ...properties, thrown_value: describeThrownValue(error) })
 }

@@ -7,7 +7,6 @@ const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
 const RELOAD_GUARD_WINDOW_MS = 20_000
 
 interface State {
-    /** Separate from `error` because a component can throw `null` or `undefined`. */
     hasError: boolean
     error: unknown
     surface: boolean

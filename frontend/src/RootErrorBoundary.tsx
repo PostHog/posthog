@@ -55,7 +55,6 @@ function reportBootFailure(error: unknown): void {
 }
 
 interface RootErrorBoundaryState {
-    /** Separate from `error` because a component can throw `null` or `undefined`. */
     hasError: boolean
     error: unknown
 }
