@@ -241,7 +241,7 @@ class TestRateLimitResponseHeaders:
         with TestClient(app) as client:
             body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
             headers = {"Authorization": "Bearer phx_test_key"}
-            response = client.post("/v1/chat/completions", json=body, headers=headers)
+            response = client.post("/llm_gateway/v1/chat/completions", json=body, headers=headers)
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
@@ -290,7 +290,7 @@ class TestBackoffOnlyRetryAfter:
         with TestClient(app) as client:
             body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
             headers = {"Authorization": "Bearer phx_test_key"}
-            response = client.post("/v1/chat/completions", json=body, headers=headers)
+            response = client.post("/llm_gateway/v1/chat/completions", json=body, headers=headers)
 
             assert response.status_code == 429
             # The back-off hint still reaches machines via header and body,

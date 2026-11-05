@@ -45,7 +45,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -78,7 +78,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -105,7 +105,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -154,7 +154,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -197,7 +197,7 @@ class TestBedrockFallback:
         ]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -229,7 +229,7 @@ class TestBedrockFallback:
         )
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -255,7 +255,7 @@ class TestBedrockFallback:
         )
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -288,7 +288,7 @@ class TestBedrockFallback:
         mock_handle.side_effect = [anthropic_error, bedrock_error]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -321,7 +321,7 @@ class TestBedrockFallback:
         ]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -369,7 +369,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 42
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -402,7 +402,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 10
 
         authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -424,7 +424,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings.return_value = mock_settings
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -469,7 +469,7 @@ class TestBedrockCountTokensViaProvider:
         )._value.get()
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -539,7 +539,7 @@ class TestBedrockCountTokensViaProvider:
 
         with patch("llm_gateway.api.anthropic.logger") as mock_logger:
             response = authenticated_client.post(
-                "/v1/messages/count_tokens",
+                "/llm_gateway/v1/messages/count_tokens",
                 json=valid_request_body,
                 headers=valid_request_headers,
             )
@@ -604,7 +604,7 @@ class TestBedrockCountTokensViaProvider:
         mock_mantle_count_tokens.return_value = 55
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers=valid_request_headers,
         )
@@ -642,7 +642,7 @@ class TestBedrockCountTokensViaProvider:
         )
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
             headers=valid_request_headers,
         )
@@ -707,7 +707,7 @@ class TestBedrockCountTokensViaProvider:
         }
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -738,7 +738,7 @@ class TestBedrockCountTokensViaProvider:
         mock_to_thread.return_value = 42
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )

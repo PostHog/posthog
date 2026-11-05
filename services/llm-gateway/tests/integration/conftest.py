@@ -222,7 +222,7 @@ def gateway_url_all_providers():
 def openai_client(gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{gateway_url}/v1",
+        base_url=f"{gateway_url}/llm_gateway/v1",
     )
 
 
@@ -231,7 +231,7 @@ def openai_client_all_providers(gateway_url_all_providers):
     """OpenAI client with all providers configured (for models endpoint tests)."""
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{gateway_url_all_providers}/v1",
+        base_url=f"{gateway_url_all_providers}/llm_gateway/v1",
     )
 
 
@@ -239,7 +239,7 @@ def openai_client_all_providers(gateway_url_all_providers):
 def anthropic_client(gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=gateway_url,
+        base_url=f"{gateway_url}/llm_gateway",
     )
 
 
@@ -253,7 +253,7 @@ def bedrock_gateway_url():
 def bedrock_anthropic_client(bedrock_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=bedrock_gateway_url,
+        base_url=f"{bedrock_gateway_url}/llm_gateway",
         default_headers={"X-PostHog-Provider": "bedrock"},
     )
 
@@ -268,7 +268,7 @@ def cloudflare_gateway_url():
 def cloudflare_anthropic_client(cloudflare_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=cloudflare_gateway_url,
+        base_url=f"{cloudflare_gateway_url}/llm_gateway",
         default_headers={"X-PostHog-Provider": "cloudflare"},
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
@@ -279,7 +279,7 @@ def cloudflare_anthropic_client(cloudflare_gateway_url):
 def cloudflare_openai_client(cloudflare_gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/v1",
+        base_url=f"{cloudflare_gateway_url}/llm_gateway/v1",
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
     )

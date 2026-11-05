@@ -113,7 +113,7 @@ class TestEndpointForwarding:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/llm_gateway/v1/messages",
             json=body,
             headers=[
                 ("Authorization", "Bearer phx_test_key"),
@@ -136,7 +136,7 @@ class TestEndpointForwarding:
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages", json=body, headers={"Authorization": "Bearer phx_test_key"}
+            "/llm_gateway/v1/messages", json=body, headers={"Authorization": "Bearer phx_test_key"}
         )
 
         assert response.status_code == 200
@@ -165,7 +165,7 @@ class TestEndpointForwarding:
             patch(sender_patch, new_callable=AsyncMock, return_value=MESSAGE) as sender,
         ):
             response = authenticated_client.post(
-                "/v1/messages",
+                "/llm_gateway/v1/messages",
                 json=body,
                 headers={"Authorization": "Bearer phx_test_key", "anthropic-beta": UNKNOWN_BETA},
             )
@@ -192,7 +192,7 @@ class TestEndpointForwarding:
         mock_httpx_client_cls.return_value = mock_client
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/llm_gateway/v1/messages/count_tokens",
             json=body,
             headers={"Authorization": "Bearer phx_test_key", "anthropic-beta": UNKNOWN_BETA},
         )
