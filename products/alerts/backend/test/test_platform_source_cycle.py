@@ -763,6 +763,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand([("single", False), ("breakdown", True)])
     def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
         error = AlertDataUnavailableError("not enough rows")
+        outcome: PlatformAlertOutcome | None
         if breakdown:
             grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
             outcome = self._evaluate_per_series(
