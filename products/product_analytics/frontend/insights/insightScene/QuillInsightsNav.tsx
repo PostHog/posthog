@@ -22,7 +22,7 @@ export function QuillInsightsNav({ tabs, activeView, onChange }: QuillInsightsNa
             className="border-b border-border"
             data-quill
         >
-            <TabsList variant="line">
+            <TabsList variant="line" className="max-w-full justify-start overflow-x-auto">
                 {tabs.map(({ label, type, dataAttr, beta }) => {
                     const metadata = INSIGHT_TYPES_METADATA[type]
                     const docLink = metadata.tooltipDocLink

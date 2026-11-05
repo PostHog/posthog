@@ -62,7 +62,12 @@ export function QuillSceneName({
 
     if (editable && isEditing) {
         return (
-            <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1" data-attr="scene-name-edit-row">
+            <div
+                ref={containerRef}
+                onBlur={blur}
+                className="flex min-w-0 flex-1 items-center gap-1"
+                data-attr="scene-name-edit-row"
+            >
                 <Input
                     aria-label="Name"
                     name="name"
@@ -70,7 +75,6 @@ export function QuillSceneName({
                     readOnly={isGeneratingMetadata}
                     placeholder="Enter name"
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
-                    onBlur={blur}
                     onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
                         if (event.key === 'Enter') {
                             event.preventDefault()
