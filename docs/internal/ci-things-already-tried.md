@@ -518,6 +518,9 @@ Keep the full directory so every environment and role remains available to valid
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
 
+The MCP live canary uses the same workspace manifest pattern, plus `services/mcp/` and `packages/` for its dependency tree.
+It keeps the frozen filtered install and live upstream test.
+
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
@@ -746,7 +749,7 @@ One narrow PR from the same window did merge. [#41620](https://github.com/PostHo
 The setting is in `posthog/settings/data_stores.py`, and `Person.Meta.db_table` reads it. It defaults to `posthog_person`, so the cutover is off.
 The switch exists. The eight PRs above failed at what surrounds it: the test setup, the dual reads, and the partition guard.
 `posthog_person_new` comes from the sqlx migrations in `rust/persons_migrations/`. Three Dagster jobs read it, and one carries a comment about a future name swap.
-Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `AGENTS.md` makes that client the required interface and prohibits new ORM queries against the person tables.
+Person and group data now goes through the gRPC client in `posthog/personhog_client/`. `.agents/architecture.md` makes that client the required interface and prohibits new ORM queries against the person tables.
 
 Read this entry before you propose a Django-level cutover. The setting is already there.
 What is missing is everything that must be true before a person changes its value.
