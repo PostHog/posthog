@@ -16706,7 +16706,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-upload-connections": {
-        "description": "Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and plans from the raw response. Send the account info and every destination first, then the connections in batches of about 10 and under 900 KB per call, each with its connection details and its schema config. Returns the planned items for the batch. A 400 names the connections PostHog could not read; the rest of the batch is saved.",
+        "description": "Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and plans from the raw response. Send the account info and every destination first, then the connections, each with its connection details and its schema config. You write each call out in full, so keep it to a few connections and under about 50 KB of JSON. Returns the planned items for the batch, without their full plans; read those with 'warehouse-migration-items-list'. A 400 names the connections PostHog could not read; the rest of the batch is saved.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Upload Fivetran connections to a migration",

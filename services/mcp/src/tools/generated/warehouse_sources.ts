@@ -1241,7 +1241,8 @@ const warehouseMigrationUploadConnections = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/connections/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['items.*.proposal']) as typeof result
+        return filtered
     },
 })
 
