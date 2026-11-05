@@ -30,7 +30,7 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 ```
 
 Without this key, PostHog cannot create OAuth applications.
-Django's system checks print warning `posthog.W001` at startup.
+Django's system checks print warning `posthog.oauth.W001` at startup.
 Client ID metadata document clients, dynamic client registration and toolbar sign-in get an OAuth `server_error` that names the missing setting.
 
 ### 2. Set Up Your Environment
