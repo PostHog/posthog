@@ -455,6 +455,11 @@ class TestLegacyGrantFailures(SimpleTestCase):
             ("refresh_request_timeout", False, ScriptedResponse(status=408, json={"message": "retry"})),
             ("refresh_unknown_4xx", False, ScriptedResponse(status=477, json={"message": "retry"})),
             ("refresh_malformed_body", False, ScriptedResponse(json=[])),
+            (
+                "refresh_client_rejected",
+                False,
+                ScriptedResponse(status=400, json={"error": "invalid_client", "status": "BAD_CLIENT_ID"}),
+            ),
             ("info_timeout", True, requests.ReadTimeout(FAKE_TOKEN)),
             ("info_rate_limit", True, ScriptedResponse(status=429)),
             ("info_server_error", True, ScriptedResponse(status=503)),
@@ -484,3 +489,20 @@ class TestLegacyGrantFailures(SimpleTestCase):
         ):
             hubspot_exchange_legacy_grant(FAKE_TOKEN)
         assert FAKE_TOKEN not in str(raised.exception)
+
+    @parameterized.expand(
+        [
+            ("rfc_6749", {"error": "invalid_grant", "error_description": "refresh token is invalid"}),
+            ("legacy_status", {"status": "BAD_REFRESH_TOKEN", "message": "refresh token is invalid"}),
+        ]
+    )
+    def test_only_a_rejected_refresh_token_marks_a_grant_unusable(self, _name: str, body: dict[str, str]) -> None:
+        with (
+            patch(
+                "products.warehouse_sources.sources.hubspot.auth.credentials_service.get_secrets",
+                return_value={"HUBSPOT_APP_CLIENT_ID": "fake-id", "HUBSPOT_APP_CLIENT_SECRET": "fake-secret"},
+            ),
+            scripted_network(always(ScriptedResponse(status=400, json=body))),
+            self.assertRaises(LegacyOAuthGrantUnusable),
+        ):
+            hubspot_exchange_legacy_grant(FAKE_TOKEN)
