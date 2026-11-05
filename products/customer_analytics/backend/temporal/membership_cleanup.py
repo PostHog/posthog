@@ -115,7 +115,8 @@ class MembershipCleanupWorkflow:
             if not teams:
                 break
             for team_id in teams:
-                if workflow.now() >= deadline:
+                remaining = deadline - workflow.now()
+                if remaining <= timedelta():
                     return
                 try:
                     await workflow.execute_child_workflow(
@@ -124,7 +125,7 @@ class MembershipCleanupWorkflow:
                             team_id=team_id, dry_run=input.dry_run, delete_team_ids=input.delete_team_ids
                         ),
                         id=f"{TEAM_WORKFLOW_NAME}-{team_id}",
-                        execution_timeout=timedelta(minutes=35),
+                        execution_timeout=min(TEAM_RUN_BUDGET, remaining),
                     )
                 except (ChildWorkflowError, WorkflowAlreadyStartedError):
                     workflow.logger.exception("Membership cleanup failed for team %s", team_id)
@@ -148,7 +149,7 @@ async def create_membership_cleanup_schedule(client: Client) -> None:
                 MembershipCleanupScheduleInput(),
                 id=SCHEDULE_ID,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=timedelta(hours=16),
+                execution_timeout=COORDINATOR_RUN_BUDGET + timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             ),
             spec=ScheduleSpec(

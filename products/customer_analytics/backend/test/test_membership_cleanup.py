@@ -1,11 +1,12 @@
 import json
+from collections.abc import Callable
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from time_machine import travel
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -210,13 +211,23 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             assert self.get_rows() == []
 
     @parameterized.expand(
-        [("quotes", 'account "north"'), ("backslash", r"account\north"), ("newline", "account\nnorth")]
+        [
+            ("quotes", 'account "north"'),
+            ("backslash", r"account\north"),
+            ("newline", "account\nnorth"),
+            ("object", '{"id":"account"}'),
+            ("array", '["account"]'),
+        ]
     )
     def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
         # nosemgrep: clickhouse-fstring-param-audit -- GROUP_KEY_EXPR is a fixed ingestion expression.
         stored_key = sync_execute(
             f"SELECT {GROUP_KEY_EXPR} FROM (SELECT %(properties)s AS properties, 0 AS group_type_index)",
-            {"properties": json.dumps({"$group_0": group_key})},
+            {
+                "properties": json.dumps(
+                    {"$group_0": json.loads(group_key) if _name in ("object", "array") else group_key}
+                )
+            },
         )[0][0]
         self.key = MembershipKey(group_type_index=0, group_key=stored_key, distinct_id=self.key.distinct_id)
         self.create_membership()
@@ -307,13 +318,12 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         with patch("products.customer_analytics.backend.logic.membership_cleanup.BATCH_SIZE", 1):
             assert self.run_cleanup(dry_run=True).has_more
             scan = MembershipCleanupScan.objects.for_team(self.team.pk).get()
-            assert scan.cursor == [self.key.group_type_index, self.key.group_key, self.key.distinct_id]
-            assert run_membership_cleanup(
+            assert scan.cursor == [other.group_type_index, other.group_key, other.distinct_id]
+            assert not run_membership_cleanup(
                 MembershipCleanupInput(team_id=self.team.pk), MembershipCleanupStore()
             ).has_more
             scan.refresh_from_db()
-            assert scan.cursor == [other.group_type_index, other.group_key, other.distinct_id]
-            assert not self.run_cleanup(dry_run=True).has_more
+            assert scan.cursor == []
         with travel(self.now + timedelta(days=2), tick=False):
             self.run_cleanup()
         assert self.get_rows() == []
@@ -333,7 +343,13 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         )
         assert deleted_team_id in list_membership_cleanup_teams(self.store)
         input = MembershipCleanupInput(team_id=deleted_team_id, dry_run=False, delete_team_ids=(deleted_team_id,))
-        with travel(self.now, tick=False):
+        with (
+            travel(self.now, tick=False),
+            patch(
+                "products.customer_analytics.backend.logic.membership_cleanup.get_membership_existence",
+                side_effect=RuntimeError("identity unavailable"),
+            ),
+        ):
             run_membership_cleanup(input, self.store)
         with travel(self.now + timedelta(days=2), tick=False):
             assert run_membership_cleanup(input, self.store).deleted == 1
@@ -344,6 +360,42 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         ) == [(0,)]
         run_membership_cleanup(input, self.store)
         assert not MembershipCleanupScan.objects.for_team(deleted_team_id).exists()
+
+    def test_deleting_page_boundary_preserves_scan_progress(self) -> None:
+        keys = [
+            MembershipKey(group_type_index=0, group_key=f"account-{index}", distinct_id=f"person-{index}")
+            for index in range(4)
+        ]
+        for key in keys:
+            self.create_membership(key)
+        with patch("products.customer_analytics.backend.logic.membership_cleanup.BATCH_SIZE", 1):
+            for _ in keys:
+                self.run_cleanup(dry_run=True)
+            for index, key in enumerate(keys):
+                MembershipCleanupCandidate.objects.for_team(self.team.pk).filter(distinct_id=key.distinct_id).update(
+                    first_missing_at=self.now - timedelta(days=2), last_checked_at=self.now + timedelta(seconds=index)
+                )
+            assert self.run_cleanup().deleted == 1
+            scan = MembershipCleanupScan.objects.for_team(self.team.pk).get()
+            assert scan.cursor == [0, keys[1].group_key, keys[1].distinct_id]
+            assert self.run_cleanup().deleted == 1
+            scan.refresh_from_db()
+            assert scan.cursor == [0, keys[2].group_key, keys[2].distinct_id]
+        assert self.get_rows() == [(key.distinct_id,) for key in keys[2:]]
+
+    def test_lost_lease_preserves_candidates_and_scan_position(self) -> None:
+        self.create_membership()
+        with travel(self.now, tick=False):
+            self.run_cleanup()
+        candidates = list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values())
+        with patch("products.customer_analytics.backend.logic.membership_cleanup.get_redis_client") as redis:
+            lease = redis.return_value.lock.return_value
+            lease.extend.side_effect = RuntimeError("lease lost")
+            with self.assertRaisesRegex(RuntimeError, "lease lost"):
+                self.run_cleanup()
+        assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == candidates
+        assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == []
+        assert self.get_rows() == [(self.key.distinct_id,)]
 
     def test_person_purge_keeps_config_and_concurrent_membership(self) -> None:
         self.create_membership()
@@ -370,3 +422,36 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             "SELECT count() FROM distributed_person_group_membership_config WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         ) == [(1,)]
+
+
+@pytest.mark.parametrize("state", ["pending", "absent", "present"])
+def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: str) -> None:
+    client = MagicMock()
+    client.execute.side_effect = {
+        "pending": [[(1,)]],
+        "absent": [[(0,)], []],
+        "present": [[(0,)], [(1,)], []],
+    }[state]
+    placement = MagicMock()
+    placement.cluster.shards = [1]
+
+    def dispatch(delete: Callable[[object], None], **kwargs: object) -> MagicMock:
+        delete(client)
+        return MagicMock()
+
+    placement.cluster.map_one_host_per_shard.side_effect = dispatch
+    key = MembershipKey(group_type_index=0, group_key="test-account", distinct_id="test-person")
+    with (
+        patch("products.customer_analytics.backend.logic.membership_cleanup._get_cleanup_cluster"),
+        patch("products.customer_analytics.backend.logic.membership_cleanup.placement_for", return_value=placement),
+        patch("products.customer_analytics.backend.logic.membership_cleanup.sync_execute", return_value=[(0,)]),
+    ):
+        if state == "pending":
+            with pytest.raises(RuntimeError, match="pending mutation"):
+                MembershipCleanupStore().delete_keys(1, [key])
+        else:
+            MembershipCleanupStore().delete_keys(1, [key])
+    deletes = [call for call in client.execute.call_args_list if call.args[0].startswith("DELETE FROM")]
+    assert len(deletes) == (1 if state == "present" else 0)
+    if deletes:
+        assert deletes[0].kwargs["settings"]["lightweight_deletes_sync"] == "2"

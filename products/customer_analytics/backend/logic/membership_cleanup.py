@@ -1,5 +1,6 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from functools import lru_cache
 from time import monotonic
 
 from django.conf import settings
@@ -14,11 +15,12 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import Query, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.deletion_targets import DeletionTarget, placement_for
+from posthog.redis import get_client as get_redis_client
 
 from products.customer_analytics.backend.logic.membership import (
     QUERY_SETTINGS,
@@ -36,6 +38,7 @@ logger = structlog.get_logger(__name__)
 BATCH_SIZE = 100
 TEAM_BATCH_SIZE = 25
 SOCKET_TIMEOUT_SECONDS = QUERY_TIMEOUT_SECONDS * 2
+LEASE_SECONDS = 60 * 60
 GRACE_PERIOD = timedelta(hours=24)
 OUTCOMES = Counter("customer_analytics_membership_cleanup_total", "Membership cleanup outcomes", ["outcome"])
 RECOVERY_SECONDS = Histogram(
@@ -95,6 +98,18 @@ class MembershipCleanupCounts:
     has_more: bool = False
 
 
+@lru_cache(maxsize=1)
+def _get_cleanup_cluster(host: str) -> ClickhouseCluster:
+    return get_cluster(
+        host=host,
+        connection_overrides={"send_receive_timeout": SOCKET_TIMEOUT_SECONDS},
+        client_settings={
+            **QUERY_SETTINGS,
+            "log_comment": '{"product":"customer_analytics","workload":"OFFLINE","name":"membership-cleanup"}',
+        },
+    )
+
+
 class MembershipCleanupStore:
     def list_teams(self, after: int) -> list[int]:
         rows = sync_execute(
@@ -124,13 +139,13 @@ class MembershipCleanupStore:
         rows = sync_execute(
             """SELECT DISTINCT group_type_index, group_key, distinct_id FROM person_group_membership
             WHERE team_id = %(team_id)s
-              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) > %(cursor)s)
+              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) >= %(cursor)s)
             ORDER BY group_type_index, group_key, distinct_id LIMIT %(limit)s""",
             {
                 "team_id": team_id,
                 "has_cursor": bool(cursor),
                 "cursor": tuple(cursor or [0, "", ""]),
-                "limit": BATCH_SIZE,
+                "limit": BATCH_SIZE + 1,
             },
             settings={**QUERY_SETTINGS, "optimize_distinct_in_order": "1"},
             workload=Workload.OFFLINE,
@@ -144,14 +159,7 @@ class MembershipCleanupStore:
         if keys is not None:
             predicate += " AND (group_type_index, group_key, distinct_id) IN %(keys)s"
             parameters["keys"] = [(key.group_type_index, key.group_key, key.distinct_id) for key in keys]
-        cluster = get_cluster(
-            host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST,
-            connection_overrides={"send_receive_timeout": SOCKET_TIMEOUT_SECONDS},
-            client_settings={
-                **QUERY_SETTINGS,
-                "log_comment": '{"product":"customer_analytics","workload":"OFFLINE","name":"membership-cleanup"}',
-            },
-        )
+        cluster = _get_cleanup_cluster(settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST)
         placement = placement_for(cluster, target)
         if placement is None:
             return
@@ -159,23 +167,29 @@ class MembershipCleanupStore:
             raise RuntimeError(
                 "Membership cleanup found no storage shards. Check the ClickHouse cluster configuration."
             )
-        capacity = placement.cluster.map_one_host_per_shard(
-            Query(
-                "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s AND NOT is_done",
-                {"table": target.data_table},
-                settings=QUERY_SETTINGS,
-            ),
-            concurrency=1,
-        ).result()
-        if any(rows[0][0] >= 5 for rows in capacity.values()):
-            raise RuntimeError("Membership cleanup mutation capacity is full. Retry the batch later.")
+        query_id = f"membership-cleanup-{target.data_table}-{team_id}"
 
         # The cluster logs the callable representation, so keep membership keys in the closure.
         def delete_membership(client: Client) -> None:
-            client.execute(
-                f"ALTER TABLE {escape_clickhouse_identifier(target.data_table)} DELETE WHERE {predicate}",
+            pending = client.execute(
+                "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s AND NOT is_done",
+                {"table": target.data_table},
+                settings=QUERY_SETTINGS,
+            )
+            if pending[0][0]:
+                raise RuntimeError("Membership cleanup has a pending mutation. Retry the batch later.")
+            remaining = client.execute(
+                f"SELECT 1 FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate} LIMIT 1",
                 parameters,
-                settings={**QUERY_SETTINGS, "mutations_sync": "2"},
+                settings=QUERY_SETTINGS,
+            )
+            if not remaining:
+                return
+            client.execute(
+                f"DELETE FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate}",
+                parameters,
+                query_id=query_id,
+                settings={**QUERY_SETTINGS, "lightweight_deletes_sync": "2", "replace_running_query": "0"},
             )
 
         placement.cluster.map_one_host_per_shard(delete_membership, concurrency=1).result()
@@ -210,13 +224,11 @@ def _list_team_page(store: MembershipCleanupStore, after: int) -> list[int]:
 def list_membership_cleanup_teams(store: MembershipCleanupStore) -> list[int]:
     # Team zero holds the cross-project scan position. It never starts a project sweep.
     MembershipCleanupScan.objects.for_team(0).get_or_create(team_id=0)
-    with transaction.atomic():
-        scan = MembershipCleanupScan.objects.for_team(0).select_for_update().get()
-        teams = _list_team_page(store, scan.last_team_id)
-        if not teams:
-            scan.last_team_id = 0
-            scan.save(update_fields=["last_team_id"])
-        return teams
+    scan = MembershipCleanupScan.objects.for_team(0).get()
+    teams = _list_team_page(store, scan.last_team_id)
+    if not teams:
+        MembershipCleanupScan.objects.for_team(0).filter(last_team_id=scan.last_team_id).update(last_team_id=0)
+    return teams
 
 
 def record_membership_cleanup_team(team_id: int) -> None:
@@ -254,73 +266,86 @@ def _delete_missing_membership(
         return None
 
 
-def _update_scan(
-    scan: MembershipCleanupScan, keys: list[MembershipKey], erased_keys: set[MembershipKey], now: datetime
-) -> None:
+def _update_scan(scan: MembershipCleanupScan, next_key: MembershipKey | None, now: datetime) -> None:
     if scan.scan_started_at is None:
         scan.scan_started_at = now
-    if len(keys) < BATCH_SIZE:
+    if next_key is None:
         scan.cursor = []
         SCAN_SECONDS.observe((now - scan.scan_started_at).total_seconds())
         scan.scan_started_at = None
     else:
-        last = keys[-1]
-        # Erased identifiers must not remain in the saved scan position.
-        scan.cursor = [] if last in erased_keys else [last.group_type_index, last.group_key, last.distinct_id]
+        # The next unprocessed key keeps deleted identifiers out of the cursor without restarting the scan.
+        scan.cursor = [next_key.group_type_index, next_key.group_key, next_key.distinct_id]
     scan.save(update_fields=["cursor", "scan_started_at"])
 
 
 def _run_batch(
-    input: MembershipCleanupInput, store: MembershipCleanupStore, scan: MembershipCleanupScan
+    input: MembershipCleanupInput,
+    store: MembershipCleanupStore,
+    scan: MembershipCleanupScan,
+    check_lease: Callable[[], None],
 ) -> MembershipCleanupCounts:
     candidates = MembershipCleanupCandidate.objects.for_team(input.team_id)
     pending = list(candidates.order_by("last_checked_at", "id")[:BATCH_SIZE])
-    keys = store.list_keys(input.team_id, scan.cursor)
+    page = store.list_keys(input.team_id, scan.cursor)
+    keys = page[:BATCH_SIZE]
+    next_key = page[BATCH_SIZE] if len(page) > BATCH_SIZE else None
     all_keys = list(set(keys + [_get_key(candidate) for candidate in pending]))
     deleted_team = not Team.objects.filter(id=input.team_id).exists()
-    existence = get_membership_existence(input.team_id, all_keys)
+    existence = (
+        MembershipExistence(persons=frozenset(), groups=frozenset())
+        if deleted_team
+        else get_membership_existence(input.team_id, all_keys)
+    )
+    check_lease()
     now = timezone.now()
     recovered = 0
     overdue = 0
     deletable: set[MembershipKey] = set()
-    for candidate in pending:
-        key = _get_key(candidate)
-        if not _is_missing(key, candidate.missing_side, existence, deleted_team):
-            RECOVERY_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
-            candidate.delete()
-            recovered += 1
-            continue
-        candidate.last_checked_at = now
-        candidate.save(update_fields=["last_checked_at"])
-        if now - candidate.first_missing_at >= GRACE_PERIOD:
-            overdue += 1
-            CANDIDATE_AGE_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
-            deletable.add(key)
-    for key in keys:
-        for side in ("person", "group"):
-            if _is_missing(key, side, existence, deleted_team):
-                _, created = candidates.get_or_create(
-                    team_id=input.team_id,
-                    key_hash=key.get_hash(),
-                    missing_side=side,
-                    defaults={
-                        "group_type_index": key.group_type_index,
-                        "group_key": key.group_key,
-                        "distinct_id": key.distinct_id,
-                        "first_missing_at": now,
-                        "last_checked_at": now,
-                    },
-                )
-                if created:
-                    OUTCOMES.labels("discovered").inc()
+    with transaction.atomic():
+        for candidate in pending:
+            key = _get_key(candidate)
+            if not _is_missing(key, candidate.missing_side, existence, deleted_team):
+                RECOVERY_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
+                candidate.delete()
+                recovered += 1
+                continue
+            candidate.last_checked_at = now
+            candidate.save(update_fields=["last_checked_at"])
+            if now - candidate.first_missing_at >= GRACE_PERIOD:
+                overdue += 1
+                CANDIDATE_AGE_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
+                deletable.add(key)
+        for key in keys:
+            for side in ("person", "group"):
+                if _is_missing(key, side, existence, deleted_team):
+                    _, created = candidates.get_or_create(
+                        team_id=input.team_id,
+                        key_hash=key.get_hash(),
+                        missing_side=side,
+                        defaults={
+                            "group_type_index": key.group_type_index,
+                            "group_key": key.group_key,
+                            "distinct_id": key.distinct_id,
+                            "first_missing_at": now,
+                            "last_checked_at": now,
+                        },
+                    )
+                    if created:
+                        OUTCOMES.labels("discovered").inc()
+    if next_key is not None:
+        deletable.discard(next_key)
+    check_lease()
     deletion_count = _delete_missing_membership(input, store, deleted_team, deletable)
     deleted = deletion_count or 0
-    if deleted:
-        candidates.filter(key_hash__in=[key.get_hash() for key in deletable]).delete()
-    if deleted_team and deletion_count is not None and not all_keys and not scan.cursor:
-        scan.delete()
-    else:
-        _update_scan(scan, keys, deletable if deleted else set(), now)
+    check_lease()
+    with transaction.atomic():
+        if deleted:
+            candidates.filter(key_hash__in=[key.get_hash() for key in deletable]).delete()
+        if deleted_team and deletion_count is not None and not all_keys and not scan.cursor:
+            scan.delete()
+        else:
+            _update_scan(scan, next_key, now)
     for outcome, count in (
         ("scanned", len(keys)),
         ("recovered", recovered),
@@ -341,20 +366,26 @@ def _run_batch(
         recovered=recovered,
         overdue=overdue,
         deleted=deleted,
-        has_more=len(keys) == BATCH_SIZE or (len(pending) == BATCH_SIZE and deleted + recovered > 0),
+        has_more=next_key is not None or (len(pending) == BATCH_SIZE and deleted + recovered > 0),
     )
 
 
 def run_membership_cleanup(input: MembershipCleanupInput, store: MembershipCleanupStore) -> MembershipCleanupCounts:
     started = monotonic()
-    scans = MembershipCleanupScan.objects.for_team(input.team_id)
-    scans.get_or_create(team_id=input.team_id)
-    with transaction.atomic():
-        # The row lock also excludes a timed-out activity whose database thread still runs.
-        scan = scans.select_for_update(skip_locked=True).first()
-        if scan is None:
-            OUTCOMES.labels("overlap").inc()
-            return MembershipCleanupCounts()
-        result = _run_batch(input, store, scan)
-    BATCH_SECONDS.observe(monotonic() - started)
-    return result
+    lease = get_redis_client(socket_timeout=2, socket_connect_timeout=2).lock(
+        f"customer_analytics:membership_cleanup:{input.team_id}", timeout=LEASE_SECONDS, blocking=False
+    )
+    if not lease.acquire():
+        OUTCOMES.labels("overlap").inc()
+        return MembershipCleanupCounts()
+
+    def check_lease() -> None:
+        lease.extend(LEASE_SECONDS, replace_ttl=True)
+
+    try:
+        scan, _ = MembershipCleanupScan.objects.for_team(input.team_id).get_or_create(team_id=input.team_id)
+        return _run_batch(input, store, scan, check_lease)
+    finally:
+        if lease.owned():
+            lease.release()
+        BATCH_SECONDS.observe(monotonic() - started)

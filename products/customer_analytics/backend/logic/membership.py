@@ -41,10 +41,17 @@ class MembershipExistence:
     groups: frozenset[tuple[int, str]]
 
 
+def _parse_group_key(group_key: str) -> str:
+    try:
+        return json.loads(f'"{group_key}"')
+    except json.JSONDecodeError:
+        return group_key
+
+
 def _get_live_groups(team_id: int, keys: Sequence[MembershipKey]) -> frozenset[tuple[int, str]]:
     # Membership keeps JSON escapes, but group identity storage uses decoded keys.
     lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
-        (key.group_type_index, key.group_key): (key.group_type_index, json.loads(f'"{key.group_key}"')) for key in keys
+        (key.group_type_index, key.group_key): (key.group_type_index, _parse_group_key(key.group_key)) for key in keys
     }
     groups = sync_execute(
         """SELECT DISTINCT group_type_index, group_key FROM groups

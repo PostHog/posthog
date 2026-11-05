@@ -1,12 +1,11 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from django.db import close_old_connections, transaction
+from django.db import connection
 from django.utils import timezone
 
 from temporalio.client import ScheduleOverlapPolicy
@@ -15,8 +14,10 @@ from temporalio.worker import Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
+from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async
 
+from products.customer_analytics.backend.logic.membership import MembershipExistence, MembershipKey
 from products.customer_analytics.backend.logic.membership_cleanup import (
     MembershipCleanupCounts,
     MembershipCleanupInput,
@@ -75,25 +76,50 @@ async def test_coordinator_stops_between_teams_at_deadline() -> None:
     assert execute_child.await_count == 1
     assert execute_child.call_args.args[1].team_id == 1
     assert execute_activity.call_args.args == (record_membership_cleanup_team_activity, 1)
+    assert execute_child.call_args.kwargs["execution_timeout"] <= TEAM_RUN_BUDGET
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cleanup_lock_excludes_another_connection() -> None:
+def test_cleanup_lease_excludes_overlapping_attempts_and_network_transactions(team: Team) -> None:
     team_id = 1000001
-    scans = MembershipCleanupScan.objects.for_team(team_id)
-    scans.create(team_id=team_id)
+    store = MembershipCleanupStore()
+    lease = get_redis_client().lock(f"customer_analytics:membership_cleanup:{team_id}", timeout=60)
+    with lease, patch.object(store, "list_keys") as list_keys:
+        assert run_membership_cleanup(MembershipCleanupInput(team_id=team_id), store).scanned == 0
+        list_keys.assert_not_called()
 
-    def attempt_cleanup() -> int:
-        try:
-            return run_membership_cleanup(MembershipCleanupInput(team_id=team_id), MembershipCleanupStore()).scanned
-        finally:
-            close_old_connections()
+    def list_keys_without_transaction(*args: object) -> list[MembershipKey]:
+        assert not connection.in_atomic_block
+        return []
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        with transaction.atomic():
-            scans.select_for_update().get()
-            assert executor.submit(attempt_cleanup).result(timeout=10) == 0
+    def delete_without_transaction(*args: object) -> None:
+        assert not connection.in_atomic_block
+
+    with (
+        patch.object(store, "list_keys", side_effect=list_keys_without_transaction),
+        patch.object(store, "delete_config", side_effect=delete_without_transaction),
+    ):
+        run_membership_cleanup(
+            MembershipCleanupInput(team_id=team_id, dry_run=False, delete_team_ids=(team_id,)), store
+        )
+    assert not MembershipCleanupScan.objects.for_team(team_id).exists()
     assert not MembershipCleanupCandidate.objects.for_team(team_id).exists()
+
+    key = MembershipKey(group_type_index=0, group_key="test-account", distinct_id="test-person")
+
+    def lookup_without_transaction(*args: object) -> MembershipExistence:
+        assert not connection.in_atomic_block
+        return MembershipExistence(persons=frozenset(), groups=frozenset())
+
+    with (
+        patch.object(store, "list_keys", return_value=[key]),
+        patch(
+            "products.customer_analytics.backend.logic.membership_cleanup.get_membership_existence",
+            side_effect=lookup_without_transaction,
+        ),
+    ):
+        assert run_membership_cleanup(MembershipCleanupInput(team_id=team.pk), store).scanned == 1
+    assert MembershipCleanupCandidate.objects.for_team(team.pk).count() == 2
 
 
 @pytest.mark.asyncio
