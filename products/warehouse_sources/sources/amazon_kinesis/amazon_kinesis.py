@@ -1,9 +1,15 @@
 import re
 import time
+import queue
 import base64
 import hashlib
 import datetime as dt
-from collections.abc import Generator, Iterator
+import threading
+import contextvars
+import dataclasses
+from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import ContextVar
 from functools import cache
 from typing import Any, ClassVar, Literal
 
@@ -45,6 +51,8 @@ from products.warehouse_sources.sources.amazon_kinesis.settings import (
     RETRY_BUDGET_SECONDS,
     SEQUENCE_NUMBER_COLUMN,
     SHARD_ID_COLUMN,
+    SHARD_QUEUE_POLL_SECONDS,
+    SHARD_READ_WORKERS,
     STREAM_NOT_FOUND_MESSAGE,
     THROTTLING_ERROR_CODES,
     TRANSIENT_ERROR_CODES,
@@ -140,8 +148,14 @@ def error_from(parsed: dict[str, Any], status_code: int) -> AmazonKinesisError:
     return AmazonKinesisError(code, message)
 
 
+# Set on the threads that read shards. Their rows have not reached the pipeline yet, so they never
+# reach a safe point.
+_on_shard_worker: ContextVar[bool] = ContextVar("kinesis_shard_worker", default=False)
+
+
 def _before_retry_wait(_state: RetryCallState) -> None:
-    reach_safe_point()
+    if not _on_shard_worker.get():
+        reach_safe_point()
 
 
 def _retry_wait(seconds: float) -> None:
@@ -313,24 +327,44 @@ def record_to_row(record: dict[str, Any], shard_id: str) -> dict[str, Any]:
     return row
 
 
+class _ShardExpiredError(Exception):
+    pass
+
+
+def _raise_if_shard_expired(
+    client: KinesisClient, stream_name: str, shard_id: str, error: AmazonKinesisError, logger: FilteringBoundLogger
+) -> None:
+    if error.code != "ResourceNotFoundException":
+        return
+    # Kinesis answers the same way for a shard that retention removed and for a deleted stream. A
+    # deleted stream fails here and keeps its error, so only a missing shard is skipped.
+    client.call("DescribeStreamSummary", {"StreamName": stream_name})
+    logger.warning("Kinesis retention removed a shard while this table was reading the stream", shard_id=shard_id)
+    raise _ShardExpiredError(shard_id) from error
+
+
 def _shard_iterator(
     client: KinesisClient, stream_name: str, shard_id: str, after: str | None, logger: FilteringBoundLogger
 ) -> str | None:
     params: dict[str, Any] = {"StreamName": stream_name, "ShardId": shard_id, "ShardIteratorType": "TRIM_HORIZON"}
-    if after is not None:
-        try:
-            return client.call(
-                "GetShardIterator",
-                {**params, "ShardIteratorType": "AFTER_SEQUENCE_NUMBER", "StartingSequenceNumber": after},
-            ).get("ShardIterator")
-        except AmazonKinesisError as error:
-            if error.code != "InvalidArgumentException":
-                raise
-            logger.warning(
-                "Kinesis rejected the stored position of a shard, reading the shard from its oldest record",
-                shard_id=shard_id,
-            )
-    return client.call("GetShardIterator", params).get("ShardIterator")
+    try:
+        if after is not None:
+            try:
+                return client.call(
+                    "GetShardIterator",
+                    {**params, "ShardIteratorType": "AFTER_SEQUENCE_NUMBER", "StartingSequenceNumber": after},
+                ).get("ShardIterator")
+            except AmazonKinesisError as error:
+                if error.code != "InvalidArgumentException":
+                    raise
+                logger.warning(
+                    "Kinesis rejected the stored position of a shard, reading the shard from its oldest record",
+                    shard_id=shard_id,
+                )
+        return client.call("GetShardIterator", params).get("ShardIterator")
+    except AmazonKinesisError as error:
+        _raise_if_shard_expired(client, stream_name, shard_id, error, logger)
+        raise
 
 
 @frozen(frozen=False)
@@ -381,48 +415,84 @@ def _rows_before(records: list[dict[str, Any]], shard_id: str, started_at: float
     return _PageRows(rows=rows, last_sequence=last_sequence, reached_run_end=False, aggregated=aggregated)
 
 
-def _read_shard(
+@frozen
+class _ShardPage:
+    shard_id: str
+    rows: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    last_sequence: str | None = None
+    # The shard is closed and every record of it has been read.
+    finished: bool = False
+    # Retention removed the shard, so its position no longer means anything.
+    expired: bool = False
+    # The worker reads no more pages of this shard in this run.
+    done: bool = False
+    aggregated: int = 0
+    error: BaseException | None = None
+
+
+def _fetch_shard(
     client: KinesisClient,
     stream_name: str,
     shard_id: str,
-    progress: _ReadProgress,
-    resumable_source_manager: ResumableSourceManager[KinesisResumeState],
-    cursor_manager: SourceCursorManager[KinesisCursor],
+    after: str | None,
+    started_at: float,
+    stop: threading.Event,
     logger: FilteringBoundLogger,
-) -> Generator[list[dict[str, Any]], None, int]:
-    aggregated = 0
-    iterator = _shard_iterator(client, stream_name, shard_id, progress.positions.get(shard_id), logger)
-    last_request: float | None = None
-    while iterator is not None:
-        if last_request is not None:
-            interruptible_wait(
-                max(0.0, GET_RECORDS_INTERVAL_SECONDS - (time.monotonic() - last_request)),
-                safe_point=resumable_source_manager.safe_point,
-            )
-        last_request = time.monotonic()
-        try:
-            page = client.call("GetRecords", {"ShardIterator": iterator, "Limit": GET_RECORDS_LIMIT})
-        except AmazonKinesisError as error:
-            if error.code != "ExpiredIteratorException":
-                raise
-            iterator = _shard_iterator(client, stream_name, shard_id, progress.positions.get(shard_id), logger)
-            continue
+) -> Iterator[_ShardPage]:
+    """Read the pages of one shard on a pool thread, up to the start of the run."""
+    position = after
+    try:
+        iterator = _shard_iterator(client, stream_name, shard_id, position, logger)
+        last_request: float | None = None
+        while iterator is not None and not stop.is_set():
+            if last_request is not None:
+                # No safe point here: the rows of this thread have not reached the pipeline yet.
+                interruptible_wait(max(0.0, GET_RECORDS_INTERVAL_SECONDS - (time.monotonic() - last_request)))
+                if stop.is_set():
+                    return
+            last_request = time.monotonic()
+            try:
+                page = client.call("GetRecords", {"ShardIterator": iterator, "Limit": GET_RECORDS_LIMIT})
+            except AmazonKinesisError as error:
+                _raise_if_shard_expired(client, stream_name, shard_id, error, logger)
+                if error.code != "ExpiredIteratorException":
+                    raise
+                iterator = _shard_iterator(client, stream_name, shard_id, position, logger)
+                continue
 
-        read = _rows_before(page.get("Records") or [], shard_id, progress.started_at)
-        aggregated += read.aggregated
-        progress.advance(shard_id, read.last_sequence)
-        iterator = page.get("NextShardIterator")
-        if iterator is None and not read.reached_run_end:
-            progress.finished.add(shard_id)
-        resumable_source_manager.save_state(progress.resume_state())
-        cursor_manager.stage(progress.cursor())
-        if read.rows:
-            yield read.rows
-        else:
+            read = _rows_before(page.get("Records") or [], shard_id, started_at)
+            if read.last_sequence is not None:
+                position = read.last_sequence
+            iterator = page.get("NextShardIterator")
+            yield _ShardPage(
+                shard_id=shard_id,
+                rows=read.rows,
+                last_sequence=read.last_sequence,
+                finished=iterator is None and not read.reached_run_end,
+                aggregated=read.aggregated,
+            )
+            if read.reached_run_end or page.get("MillisBehindLatest") == 0:
+                return
+    except _ShardExpiredError:
+        yield _ShardPage(shard_id=shard_id, expired=True)
+
+
+def _next_page(
+    pages: "queue.Queue[_ShardPage]",
+    tasks: list[Future[None]],
+    resumable_source_manager: ResumableSourceManager[KinesisResumeState],
+) -> _ShardPage:
+    while True:
+        try:
+            return pages.get(timeout=SHARD_QUEUE_POLL_SECONDS)
+        except queue.Empty:
+            for task in tasks:
+                error = task.exception() if task.done() else None
+                if error is not None:
+                    raise error
+            # Every row the staged state covers has been yielded, and the rows the workers hold are
+            # past it, so the run can stop here and resume from the staged state.
             resumable_source_manager.safe_point()
-        if read.reached_run_end or page.get("MillisBehindLatest") == 0:
-            break
-    return aggregated
 
 
 def read_stream(
@@ -445,12 +515,65 @@ def read_stream(
         finished=set(start.finished_shards) & live,
     )
 
+    pages: queue.Queue[_ShardPage] = queue.Queue(maxsize=SHARD_READ_WORKERS)
+    stop = threading.Event()
+
+    def hand_over(page: _ShardPage) -> None:
+        while not stop.is_set():
+            try:
+                pages.put(page, timeout=SHARD_QUEUE_POLL_SECONDS)
+                return
+            except queue.Full:
+                continue
+
+    def read(shard_id: str, after: str | None) -> None:
+        _on_shard_worker.set(True)
+        try:
+            for page in _fetch_shard(client, stream_name, shard_id, after, progress.started_at, stop, logger):
+                hand_over(page)
+            hand_over(_ShardPage(shard_id=shard_id, done=True))
+        except BaseException as error:
+            hand_over(_ShardPage(shard_id=shard_id, done=True, error=error))
+
+    pending = [shard_id for shard_id in shard_ids if shard_id not in progress.finished]
+    active: set[str] = set()
+    tasks: list[Future[None]] = []
     aggregated = 0
-    for shard_id in shard_ids:
-        if shard_id not in progress.finished:
-            aggregated += yield from _read_shard(
-                client, stream_name, shard_id, progress, resumable_source_manager, cursor_manager, logger
-            )
+    executor = ThreadPoolExecutor(max_workers=SHARD_READ_WORKERS, thread_name_prefix="kinesis-shard")
+    try:
+        while pending or active:
+            while pending and len(active) < SHARD_READ_WORKERS:
+                shard_id = pending.pop(0)
+                active.add(shard_id)
+                # A copy of the context keeps the job's log, request tracking and shutdown signal in the worker.
+                tasks.append(
+                    executor.submit(contextvars.copy_context().run, read, shard_id, progress.positions.get(shard_id))
+                )
+            page = _next_page(pages, tasks, resumable_source_manager)
+            if page.error is not None:
+                raise page.error
+            if page.done:
+                active.discard(page.shard_id)
+                continue
+            if page.expired:
+                progress.positions.pop(page.shard_id, None)
+                progress.finished.discard(page.shard_id)
+            else:
+                aggregated += page.aggregated
+                progress.advance(page.shard_id, page.last_sequence)
+                if page.finished:
+                    progress.finished.add(page.shard_id)
+            resumable_source_manager.save_state(progress.resume_state())
+            cursor_manager.stage(progress.cursor())
+            if page.rows:
+                yield page.rows
+            else:
+                resumable_source_manager.safe_point()
+    finally:
+        stop.set()
+        while not pages.empty():
+            pages.get_nowait()
+        executor.shutdown(wait=False, cancel_futures=True)
 
     if aggregated:
         logger.warning(

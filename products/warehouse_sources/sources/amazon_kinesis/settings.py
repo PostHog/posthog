@@ -31,6 +31,10 @@ LIST_STREAMS_PAGE_SIZE = 100
 LIST_SHARDS_PAGE_SIZE = 1000
 GET_RECORDS_LIMIT = 10000
 GET_RECORDS_INTERVAL_SECONDS = 0.5
+# Each shard serves reads at about 2 MB/s, so a sync reads several shards at once to keep up with a
+# stream whose writes add up across shards.
+SHARD_READ_WORKERS = 4
+SHARD_QUEUE_POLL_SECONDS = 1.0
 
 THROTTLING_ERROR_CODES = frozenset(
     {

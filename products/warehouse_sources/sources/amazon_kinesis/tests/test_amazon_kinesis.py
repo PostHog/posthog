@@ -121,37 +121,57 @@ def _bodies(result: DriveResult, operation: str) -> list[dict[str, Any]]:
     return [request.json() for request in result.requests if _operation(request) == operation]
 
 
+def _kinesis_by_shard(
+    answers: dict[str, list[ScriptedResponse]],
+    iterators: dict[str, list[ScriptedResponse]],
+    records: dict[str, list[ScriptedResponse]],
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer GetShardIterator by shard and GetRecords by iterator, because shards are read at the same time."""
+    queues = {operation: list(responses) for operation, responses in answers.items()}
+    by_shard = {shard_id: list(responses) for shard_id, responses in iterators.items()}
+    by_iterator = {iterator: list(responses) for iterator, responses in records.items()}
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        operation = _operation(request)
+        if operation == "GetShardIterator":
+            return by_shard[request.json()["ShardId"]].pop(0)
+        if operation == "GetRecords":
+            return by_iterator[request.json()["ShardIterator"]].pop(0)
+        return queues[operation].pop(0)
+
+    return respond
+
+
 @time_machine.travel(RUN_START, tick=False)
 def test_reads_every_shard_up_to_the_run_start_and_stages_the_cursor() -> None:
     manager = _cursor()
     result = _driver().run(
         "clicks",
-        _kinesis(
+        _kinesis_by_shard(
             {
                 "DescribeStreamSummary": [_summary()],
                 "ListShards": [_shards(SHARD_2, SHARD_0, next_token="page-2"), _shards(SHARD_1)],
-                "GetShardIterator": [_iterator("it-0"), _iterator("it-1"), _iterator("it-2")],
-                "GetRecords": [
-                    _records([_record("100", BEFORE_RUN)], next_iterator=None, behind=0),
-                    _records([_record("200", BEFORE_RUN)], next_iterator="it-1b", behind=5000),
-                    _records([_record("201", BEFORE_RUN)], next_iterator="it-1c", behind=0),
+            },
+            iterators={SHARD_0: [_iterator("it-0")], SHARD_1: [_iterator("it-1")], SHARD_2: [_iterator("it-2")]},
+            records={
+                "it-0": [_records([_record("100", BEFORE_RUN)], next_iterator=None, behind=0)],
+                "it-1": [_records([_record("200", BEFORE_RUN)], next_iterator="it-1b", behind=5000)],
+                "it-1b": [_records([_record("201", BEFORE_RUN)], next_iterator="it-1c", behind=0)],
+                "it-2": [
                     _records(
                         [_record("300", BEFORE_RUN), _record("301", AFTER_RUN)], next_iterator="it-2b", behind=9000
-                    ),
+                    )
                 ],
-            }
+            },
         ),
         incremental_field=ARRIVAL_TIMESTAMP_COLUMN,
         source_cursor=manager,
     )
 
     assert result.raised is None
-    assert [row[SEQUENCE_NUMBER_COLUMN] for row in result.rows] == ["100", "200", "201", "300"]
+    assert sorted(row[SEQUENCE_NUMBER_COLUMN] for row in result.rows) == ["100", "200", "201", "300"]
     assert [body.get("StreamName") for body in _bodies(result, "ListShards")] == ["clicks", None]
-    assert [body["ShardIterator"] for body in _bodies(result, "GetRecords")] == ["it-0", "it-1", "it-1b", "it-2"]
-    assert result.committed_states[0] == KinesisResumeState(
-        started_at=1767225600.0, stream_created_at=CREATED, positions={SHARD_0: "100"}, finished_shards=[SHARD_0]
-    )
+    assert sorted(body["ShardIterator"] for body in _bodies(result, "GetRecords")) == ["it-0", "it-1", "it-1b", "it-2"]
     assert manager.staged == KinesisCursor(
         positions={SHARD_0: "100", SHARD_1: "201", SHARD_2: "300"},
         finished_shards=[SHARD_0],
@@ -159,6 +179,56 @@ def test_reads_every_shard_up_to_the_run_start_and_stages_the_cursor() -> None:
     )
     assert result.final_state is not None
     assert result.completed_state is None
+
+
+@time_machine.travel(RUN_START, tick=False)
+def test_skips_a_shard_that_retention_removed_during_the_run() -> None:
+    manager = _cursor(
+        KinesisCursor(positions={SHARD_0: "100", SHARD_1: "5"}, finished_shards=[], stream_created_at=CREATED)
+    )
+    result = _driver().run(
+        "clicks",
+        _kinesis_by_shard(
+            {
+                "DescribeStreamSummary": [_summary(), _summary()],
+                "ListShards": [_shards(SHARD_0, SHARD_1)],
+            },
+            iterators={
+                SHARD_0: [_iterator("it-0")],
+                SHARD_1: [_error("ResourceNotFoundException", "Shard shardId-000000000001 does not exist")],
+            },
+            records={"it-0": [_records([_record("101", BEFORE_RUN)], next_iterator="it-0b", behind=0)]},
+        ),
+        incremental_field=ARRIVAL_TIMESTAMP_COLUMN,
+        source_cursor=manager,
+    )
+
+    assert result.raised is None
+    assert [row[SEQUENCE_NUMBER_COLUMN] for row in result.rows] == ["101"]
+    assert manager.staged == KinesisCursor(positions={SHARD_0: "101"}, finished_shards=[], stream_created_at=CREATED)
+
+
+@time_machine.travel(RUN_START, tick=False)
+def test_a_deleted_stream_still_fails_the_run() -> None:
+    result = _driver().run(
+        "clicks",
+        _kinesis_by_shard(
+            {
+                "DescribeStreamSummary": [
+                    _summary(),
+                    _error("ResourceNotFoundException", "Stream clicks under account 123456789012 not found."),
+                ],
+                "ListShards": [_shards(SHARD_0)],
+            },
+            iterators={SHARD_0: [_error("ResourceNotFoundException", "Stream clicks not found.")]},
+            records={},
+        ),
+        incremental_field=ARRIVAL_TIMESTAMP_COLUMN,
+        source_cursor=_cursor(),
+    )
+
+    assert result.raised is not None
+    assert "Amazon Kinesis request failed: ResourceNotFoundException" in str(result.raised)
 
 
 class TestStartPosition:
