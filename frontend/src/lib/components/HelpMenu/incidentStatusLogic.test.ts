@@ -45,7 +45,17 @@ describe('incidentStatusLogic', () => {
         expect(logic.values.summary === null).toBe(expectedRequests === 0)
     })
 
-    it('falls back to operational when the status page returns a 2xx body without the incident arrays', async () => {
+    it.each([
+        ['without the incident arrays', { page_title: 'PostHog' }],
+        [
+            'with an incident that has no affected components',
+            { ongoing_incidents: [{ name: 'Outage' }], in_progress_maintenances: [] },
+        ],
+        [
+            'with a maintenance that has a non-object component',
+            { ongoing_incidents: [], in_progress_maintenances: [{ name: 'Upgrade', affected_components: [null] }] },
+        ],
+    ])('falls back to operational when the status page returns a 2xx body %s', async (_name, body) => {
         useMocks({ get: { '/_preflight': [200, { ...preflightJson, region: Region.US }] } })
         initKeaTests()
         const realFetch = global.fetch
@@ -53,7 +63,7 @@ describe('incidentStatusLogic', () => {
             .spyOn(global, 'fetch')
             .mockImplementation((input, init) =>
                 String(input).startsWith(STATUS_PAGE_BASE)
-                    ? Promise.resolve(new Response(JSON.stringify({ page_title: 'PostHog' }), { status: 200 }))
+                    ? Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
                     : realFetch(input, init)
             )
         const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)

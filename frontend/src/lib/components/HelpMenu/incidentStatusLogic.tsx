@@ -119,12 +119,23 @@ function hasRelevantComponents(affectedComponents: AffectedComponent[], relevant
     return affectedComponents.some((component) => normalizeGroupName(component.group_name ?? '') === relevantGroupName)
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
+}
+
+// The selectors read `affected_components` on every incident and maintenance, and `name` and
+// `group_name` on every component, so each entry must be an object with a component array.
+function hasComponentArray(entry: unknown): boolean {
+    return isObject(entry) && Array.isArray(entry.affected_components) && entry.affected_components.every(isObject)
+}
+
 function isSummary(data: unknown): data is Summary {
     return (
-        typeof data === 'object' &&
-        data !== null &&
-        Array.isArray((data as Summary).ongoing_incidents) &&
-        Array.isArray((data as Summary).in_progress_maintenances)
+        isObject(data) &&
+        Array.isArray(data.ongoing_incidents) &&
+        Array.isArray(data.in_progress_maintenances) &&
+        data.ongoing_incidents.every(hasComponentArray) &&
+        data.in_progress_maintenances.every(hasComponentArray)
     )
 }
 
