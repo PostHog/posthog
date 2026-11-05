@@ -56,9 +56,9 @@ export interface businessKnowledgePlaygroundLogicValues {
     chatsLoading: boolean
     deletingChatId: string | null
     loadingMoreChats: boolean
+    mode: PlaygroundMode
     moreChatsError: string | null
     nextChatsOffset: number | null
-    mode: PlaygroundMode
     pendingQuestion: string | null
     question: string
     searchError: string | null
@@ -144,11 +144,11 @@ export interface businessKnowledgePlaygroundLogicActions {
     setDeletingChatId: (deletingChatId: string | null) => {
         deletingChatId: string | null
     }
-    setNextChatsOffset: (offset: number | null) => {
-        offset: number | null
-    }
     setMode: (mode: PlaygroundMode) => {
         mode: PlaygroundMode
+    }
+    setNextChatsOffset: (offset: number | null) => {
+        offset: number | null
     }
     setPendingQuestion: (pendingQuestion: string | null) => {
         pendingQuestion: string | null

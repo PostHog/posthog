@@ -7,13 +7,13 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import DefaultLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
@@ -35,7 +35,7 @@ from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer,
 from .settings import CanonicalTeamTokenPermission
 
 
-class PlaygroundChatPagination(LimitOffsetPagination):
+class PlaygroundChatPagination(DefaultLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
 
