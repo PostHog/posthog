@@ -185,6 +185,32 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "workflow email steps and test sends" in response.json()["detail"].lower()
 
+    @parameterized.expand(
+        [
+            ("unchanged_mapping_keeps_its_stored_sender", "mapping", 200),
+            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", 400),
+        ]
+    )
+    def test_mapping_sender_is_compared_only_with_its_own_stored_mapping(
+        self, _name: str, stored_in: str, expected_status: int
+    ) -> None:
+        mapping = {"name": "Mapping", "inputs_schema": self.email_schema, "inputs": {"email": {"value": self._email()}}}
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Stored destination",
+            type="destination",
+            hog="return 1;",
+            inputs_schema=self.email_schema if stored_in == "top_level" else [],
+            inputs={"email": {"value": self._email()}} if stored_in == "top_level" else {},
+            mappings=[mapping] if stored_in == "mapping" else None,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"mappings": [deepcopy(mapping)]}
+        )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_destination_with_an_own_rotation_ignores_a_stale_sandbox_fallback(self) -> None:
         own_sender = Integration.objects.create(
             team=self.team,
@@ -415,6 +441,32 @@ class TestSandboxSenderValidation(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
+
+    @parameterized.expand([("transactional_emails",), ("transactional_email_keys",)])
+    def test_transactional_workflow_update_cannot_select_the_sandbox_sender(self, origin_product: str) -> None:
+        own_sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
+        )
+        workflow = self._workflow()
+        email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
+        email["from"] = {"integrationId": own_sender.id}
+        stored = HogFlow.objects.create(
+            team=self.team,
+            name="Transactional workflow",
+            actions=deepcopy(workflow["actions"]),
+            edges=workflow["edges"],
+            origin_product=origin_product,
+        )
+        email["from"] = {"integrationId": self.sender.id}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": workflow["actions"]}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "transactional" in response.json()["detail"].lower()
 
     @parameterized.expand([("email",), ("name",), ("replyTo",)])
     def test_legacy_sender_overrides_cannot_be_changed(self, field: str) -> None:
