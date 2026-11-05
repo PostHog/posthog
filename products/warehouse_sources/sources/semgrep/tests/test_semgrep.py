@@ -285,6 +285,8 @@ class TestSemgrepSourceResponse:
         assert response.name == name
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
+        # Only the two-level lockfile chain saves no checkpoint.
+        assert response.supports_resume is (config.parent == "deployments")
         if config.partition_key:
             assert response.partition_keys == [config.partition_key]
             assert response.partition_mode == "datetime"

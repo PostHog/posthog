@@ -4,7 +4,7 @@ from typing import Literal
 PaginationStyle = Literal["none", "page", "cursor", "body_cursor"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SemgrepEndpointConfig:
     # Path relative to the API base URL; may contain `{deployment_slug}` / `{deployment_id}`
     # placeholders resolved per deployment during the fan-out.

@@ -382,10 +382,13 @@ def semgrep_source(
     config = SEMGREP_ENDPOINTS[endpoint]
 
     resource: Any
+    supports_resume = True
     if config.pagination == "none":
         resource = _single_source(api_token, endpoint, config, team_id, job_id)
     elif config.parent == "dependency_repositories":
         resource = _repository_fanout_source(api_token, endpoint, config, team_id, job_id)
+        # The two-level chain saves no checkpoint, so a hand-off would restart it from the start.
+        supports_resume = False
     else:
         resource = _fanout_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
 
@@ -399,6 +402,7 @@ def semgrep_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode=config.sort_mode,
+        supports_resume=supports_resume,
     )
 
 
