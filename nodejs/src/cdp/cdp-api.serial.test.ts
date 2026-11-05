@@ -2174,6 +2174,7 @@ describe('CDP API', () => {
 
         const DAY_MS = 24 * 60 * 60 * 1000
         const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
+        const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
 
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
@@ -2235,7 +2236,13 @@ describe('CDP API', () => {
                 expect.anything()
             )
             expect(emailStatusRows()).toEqual([
-                expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: res.body.invocation_id,
+                    status: 'queued',
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }),
             ])
         })
 
@@ -2275,32 +2282,46 @@ describe('CDP API', () => {
                     .set({ Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
+            const otherSenderId = codeSend.from.integrationId + 3
+            const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
             it.each([
-                ['a template send', 'transactional_email', body],
-                ['a code send', 'transactional_email/send', { ...body, send: codeSend }],
+                ['a template send', 'transactional_email', body, body],
+                ['a code send', 'transactional_email/send', { ...body, send: codeSend }, { ...body, send: codeSend }],
+                [
+                    'a code send after its named address resolved to another sender',
+                    'transactional_email/send',
+                    { ...body, send: codeSend },
+                    { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
+                ],
+                [
+                    'a code send from a sender without an address',
+                    'transactional_email/send',
+                    { ...body, send: addresslessSend },
+                    { ...body, send: addresslessSend },
+                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
-                async (_desc, route, payload) => {
-                    const first = await sendKeyedOn(route, payload)
-                    const retry = await sendKeyedOn(route, payload)
+                async (_desc, route, first, retry) => {
+                    const sent = await sendKeyedOn(route, first)
+                    const replayed = await sendKeyedOn(route, retry)
 
-                    expect(first.status).toEqual(202)
-                    expect(first.body).toMatchObject({ replayed: false })
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({
+                    expect(sent.status).toEqual(202)
+                    expect(sent.body).toMatchObject({ replayed: false })
+                    expect(replayed.status).toEqual(202)
+                    expect(replayed.body).toEqual({
                         status: 'queued',
-                        invocation_id: first.body.invocation_id,
+                        invocation_id: sent.body.invocation_id,
                         scheduled_at: null,
                         replayed: true,
                     })
                     expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                     expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: first.body.invocation_id, status: 'queued' }),
+                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
                     ])
                 }
             )
@@ -2330,6 +2351,27 @@ describe('CDP API', () => {
                     'a scheduled time added',
                     ['transactional_email/send', { ...body, send: codeSend }],
                     ['transactional_email/send', { ...body, send: codeSend, scheduled_at: inDays(2) }],
+                ],
+                [
+                    'another named sender',
+                    ['transactional_email/send', { ...body, send: codeSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
+                    ],
+                ],
+                [
+                    'another sender without an address',
+                    ['transactional_email/send', { ...body, send: addresslessSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
+                    ],
+                ],
+                [
+                    'a changed cc',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -2388,10 +2430,13 @@ describe('CDP API', () => {
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toEqual({ ...first.body, replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(emailStatusRows()).toEqual([
-                    expect.objectContaining({ message_id: first.body.invocation_id, status: 'scheduled' }),
-                    expect.objectContaining({ message_id: first.body.invocation_id, status: 'scheduled' }),
-                ])
+                const scheduledRow = expect.objectContaining({
+                    message_id: first.body.invocation_id,
+                    status: 'scheduled',
+                    recipient: body.to,
+                    scheduled_at: toClickHouseTime(scheduledAt),
+                })
+                expect(emailStatusRows()).toEqual([scheduledRow, scheduledRow])
             })
 
             it('frees the key when the scheduled time is too far ahead', async () => {
@@ -2450,7 +2495,13 @@ describe('CDP API', () => {
                     expect(invocation.state.scheduledAt).toEqual(scheduledAt)
                     expect(invocation.queuePriority).toEqual(0)
                     expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: res.body.invocation_id, status: 'scheduled' }),
+                        expect.objectContaining({
+                            message_id: res.body.invocation_id,
+                            status: 'scheduled',
+                            recipient: body.to,
+                            function_id: hogFlow.id,
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                        }),
                     ])
                 }
             )
@@ -2491,6 +2542,10 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
+            [
+                'a code send with copies to addresses that use atext symbols',
+                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
@@ -2539,6 +2594,10 @@ describe('CDP API', () => {
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
+            [
+                'more than 10 cc addresses',
+                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
@@ -2546,6 +2605,38 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(400)
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [
+                'a bcc address is suppressed',
+                'recipient_suppressed',
+                { bcc: ['hidden@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailSuppressionService'], 'isSuppressed')
+                        .mockImplementation((_teamId, email) => Promise.resolve(email === 'hidden@example.com')),
+            ],
+            [
+                "a cc address's domain has no mail servers",
+                'recipient_unreachable',
+                { cc: ['copy@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockImplementation((_teamId, email) =>
+                            Promise.resolve(email === 'copy@example.com' ? 'Skipping send: no mail servers.' : null)
+                        ),
+            ],
+            ['a cc address is malformed', 'recipient_unreachable', { cc: ['copy@ph\u3002example.com'] }, () => {}],
+        ] as const)('refuses the whole code send when %s', async (_desc, code, copies, refuse) => {
+            refuse()
+
+            const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, ...copies } })
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: code })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 

@@ -71,6 +71,8 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
         (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
     }
 )
 

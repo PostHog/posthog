@@ -1768,7 +1768,7 @@ export type SearchableEntity =
     | 'survey'
 
 export type SearchListParams = {
-    q: string
+    q?: string
     entities?: SearchableEntity[]
     include_counts?: boolean
 }

@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{TeamFiltersBuilder, TeamId};
+use crate::filters::{FilterCatalog, TeamFiltersBuilder, TeamId};
 use crate::merge::apply_handler::{handle_transfer, ApplyOutcome};
 use crate::merge::drain_handler::{
     handle_merge_event_with_transfer_mode, DrainOutcome, MembershipRegisterTransferMode,
@@ -22,9 +22,10 @@ use crate::merge::drain_handler::{
 use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
-    MERGE_DRAIN_DURATION_SECONDS, MERGE_HELD_OFFSET_GAUGE, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL,
-    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL,
-    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
+    MERGE_DRAIN_DURATION_SECONDS, MERGE_DROPPED_TOTAL, MERGE_HELD_OFFSET_GAUGE,
+    MERGE_OUTBOX_CLEAR_FAILURE_TOTAL, MERGE_PENDING_TRANSFERS_GAUGE,
+    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_FORWARDS_TOTAL,
+    MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
@@ -184,34 +185,28 @@ pub(crate) async fn handle_merge(
 ) {
     let msg_coords = (partition_id as i32, offset);
 
-    // One snapshot serves both resolutions below; `filters` falls back to empty when the team is
-    // absent, so the drain never wedges on an unknown team.
-    let snapshot = catalog.load_full();
+    let Some(filters) = merge_filters(&catalog.load_full(), TeamId(event.team_id)) else {
+        counter!(MERGE_DROPPED_TOTAL, "path" => "drain").increment(1);
+        mark_processed(&merge.merge_tracker, partition_id, offset);
+        return;
+    };
 
     // The whole drain state machine runs as one sync section on the blocking pool with owned inputs.
     let section = {
-        let snapshot = snapshot.clone();
+        let filters = filters.clone();
         let event_owned = event.clone();
         let partition_count = merge.partition_count;
         let register_transfer_mode =
             MembershipRegisterTransferMode::from_enabled(merge.register_transfer_enabled);
         handle
             .run_section("merge_drain", move |store| {
-                let fallback: TeamFilters;
-                let filters: &TeamFilters = match snapshot.team(TeamId(event_owned.team_id)) {
-                    Some(team) => team,
-                    None => {
-                        fallback = empty_team_filters();
-                        &fallback
-                    }
-                };
                 // Timed inside the section so the histogram keeps measuring drain execution only;
                 // permit and pool-queue waits are on `store_offload_*{op="merge_drain"}`.
                 let started = Instant::now();
                 let outcome = handle_merge_event_with_transfer_mode(
                     partition_id,
                     store,
-                    filters,
+                    &filters,
                     &event_owned,
                     msg_coords,
                     partition_count,
@@ -221,15 +216,6 @@ pub(crate) async fn handle_merge(
                 outcome
             })
             .await
-    };
-
-    let fallback: TeamFilters;
-    let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
-        Some(team) => team,
-        None => {
-            fallback = empty_team_filters();
-            &fallback
-        }
     };
 
     // The section is only `Err` on teardown cancellation; hold the offset so the next tenure's
@@ -264,7 +250,7 @@ pub(crate) async fn handle_merge(
                 handle,
                 sink,
                 merge,
-                filters,
+                &filters,
                 &transitions,
                 event.merged_at_ms,
                 last_updated,
@@ -359,30 +345,26 @@ pub(crate) async fn handle_apply(
 ) {
     let transfer_coords = (partition_id as i32, offset);
 
-    let snapshot = catalog.load_full();
+    let Some(filters) = merge_filters(&catalog.load_full(), TeamId(transfer.team_id)) else {
+        counter!(MERGE_DROPPED_TOTAL, "path" => "apply").increment(1);
+        mark_processed(&merge.transfer_tracker, partition_id, offset);
+        return;
+    };
 
     // The whole apply state machine runs as one sync section on the blocking pool with owned inputs.
     let section = {
-        let snapshot = snapshot.clone();
+        let filters = filters.clone();
         let transfer_owned = transfer.clone();
         let partition_count = merge.partition_count;
         handle
             .run_section("merge_apply", move |store| {
-                let fallback: TeamFilters;
-                let filters: &TeamFilters = match snapshot.team(TeamId(transfer_owned.team_id)) {
-                    Some(team) => team,
-                    None => {
-                        fallback = empty_team_filters();
-                        &fallback
-                    }
-                };
                 // Timed inside the section so the histogram keeps measuring apply execution only;
                 // permit and pool-queue waits are on `store_offload_*{op="merge_apply"}`.
                 let started = Instant::now();
                 let outcome = handle_transfer(
                     partition_id,
                     store,
-                    filters,
+                    &filters,
                     &transfer_owned,
                     transfer_coords,
                     partition_count,
@@ -391,15 +373,6 @@ pub(crate) async fn handle_apply(
                 outcome
             })
             .await
-    };
-
-    let fallback: TeamFilters;
-    let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
-        Some(team) => team,
-        None => {
-            fallback = empty_team_filters();
-            &fallback
-        }
     };
 
     let outcome = match section {
@@ -427,7 +400,7 @@ pub(crate) async fn handle_apply(
                 handle,
                 sink,
                 merge,
-                filters,
+                &filters,
                 &transitions,
                 transfer.merged_at_ms,
                 last_updated,
@@ -736,9 +709,22 @@ fn hold(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition_id.to_string()).set(floor as f64);
 }
 
-/// Fallback for a team absent from the catalog: no cohorts, UTC timezone.
-fn empty_team_filters() -> TeamFilters {
-    TeamFiltersBuilder::default().freeze(UTC)
+/// The filters a merge or a transfer of `team_id` runs with, or `None` when the catalog does not
+/// process the team. Even with empty filters, a drain writes a tombstone and a drain marker and an
+/// apply writes an apply marker, and the processor must hold no state for a team it does not
+/// process. A processed team with no realtime cohort gets empty filters, so its tombstones still
+/// redirect stragglers to the survivor.
+///
+/// The empty boot catalog processes no team, but it drops nothing, because
+/// `spawn_follower_after_boot` starts the merge and transfer followers only after the first catalog
+/// load.
+fn merge_filters(catalog: &FilterCatalog, team_id: TeamId) -> Option<Arc<TeamFilters>> {
+    catalog.processes(team_id).then(|| {
+        catalog
+            .team(team_id)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(TeamFiltersBuilder::default().freeze(UTC)))
+    })
 }
 
 #[cfg(test)]
@@ -746,7 +732,10 @@ fn empty_team_filters() -> TeamFilters {
 // `StoreHandle` facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
+    use common_types::cohort::TeamAllowlist;
     use envconfig::Envconfig;
     use serde_json::json;
     use tempfile::TempDir;
@@ -759,7 +748,10 @@ mod tests {
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::stage2::Stage2State;
-    use crate::store::{CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig};
+    use crate::store::{
+        CohortStore, MergeAppliedKey, OffloadConfig, OffloadMode, Stage2Key, StoreConfig,
+        TombstoneKey,
+    };
 
     /// Wrap a test store in the `All` operating point so `handle_redrive` runs on the blocking pool.
     fn handle(store: &CohortStore) -> StoreHandle {
@@ -1296,6 +1288,113 @@ mod tests {
         assert!(
             store.get_stage2(&register_key).unwrap().is_none(),
             "P_old's register row is reclaimed by the drain, like the pre-register pipeline",
+        );
+    }
+
+    /// The team-without-cohorts tests in `consumers::events` pin that a processed team still drains.
+    #[tokio::test]
+    async fn a_merge_and_its_transfer_of_a_team_the_catalog_does_not_process_write_nothing() {
+        const TEAM: i32 = 8;
+        const MERGE_OFFSET: i64 = 50;
+        const TRANSFER_OFFSET: i64 = 80;
+
+        let catalog = CatalogHandle::from_catalog(FilterCatalog::for_processing(
+            TeamAllowlist::Only(HashSet::from([7])),
+            [],
+        ));
+        let old_person = Uuid::from_u128(1);
+        let new_person = Uuid::from_u128(2);
+        let old_partition = partition_of(TeamId(TEAM), &old_person, COHORT_PARTITION_COUNT) as u16;
+        let new_partition = partition_of(TeamId(TEAM), &new_person, COHORT_PARTITION_COUNT) as u16;
+
+        let (_dir, store) = temp_store();
+        let deps = capture_deps(CaptureTransferSink::new());
+        deps.merge_tracker
+            .mark_dispatched(old_partition as i32, MERGE_OFFSET + 1);
+        deps.transfer_tracker
+            .mark_dispatched(new_partition as i32, TRANSFER_OFFSET + 1);
+        let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        let mut queue = EvictionQueue::new();
+
+        handle_merge(
+            old_partition,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            &mut queue,
+            "1",
+            &PersonMergeEvent {
+                team_id: TEAM,
+                old_person_uuid: old_person,
+                new_person_uuid: new_person,
+                merged_at_ms: 2,
+                schema_version: MERGE_EVENT_SCHEMA_VERSION,
+            },
+            MERGE_OFFSET,
+        )
+        .await;
+        handle_apply(
+            new_partition,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            &mut queue,
+            "1",
+            &MergeStateTransfer {
+                team_id: TEAM,
+                old_person_uuid: old_person,
+                new_person_uuid: new_person,
+                merged_at_ms: 2,
+                source_partition: old_partition as i32,
+                source_offset: MERGE_OFFSET,
+                leaves: vec![],
+                membership_registers: vec![],
+                forward_hops: 0,
+                person_dedup: None,
+            },
+            TRANSFER_OFFSET,
+        )
+        .await;
+
+        assert!(
+            store
+                .get_tombstone(&TombstoneKey {
+                    partition_id: old_partition,
+                    team_id: TEAM as u64,
+                    person: old_person,
+                })
+                .unwrap()
+                .is_none(),
+            "the dropped merge wrote no tombstone",
+        );
+        assert!(
+            store
+                .get_merge_applied(&MergeAppliedKey {
+                    partition_id: new_partition,
+                    team_id: TEAM as u64,
+                    new_person,
+                    source_partition: old_partition as i32,
+                    source_offset: MERGE_OFFSET,
+                })
+                .unwrap()
+                .is_none(),
+            "the dropped transfer wrote no apply marker",
+        );
+        assert_eq!(
+            deps.merge_tracker
+                .committable_offsets()
+                .get(&(old_partition as i32)),
+            Some(&(MERGE_OFFSET + 1)),
+            "the dropped merge commits past its offset",
+        );
+        assert_eq!(
+            deps.transfer_tracker
+                .committable_offsets()
+                .get(&(new_partition as i32)),
+            Some(&(TRANSFER_OFFSET + 1)),
+            "the dropped transfer commits past its offset",
         );
     }
 }

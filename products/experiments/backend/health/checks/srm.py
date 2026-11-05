@@ -17,6 +17,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health.checks.forced_variant import (
     SOME_CONDITIONS_PINNED,
@@ -33,7 +36,7 @@ from products.experiments.backend.health.context import (
     ReachableCondition,
 )
 from products.experiments.backend.health.pinned_share import pinned_variant_keys
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckPassed, not_applicable
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
@@ -146,7 +149,14 @@ def srm(ctx: HealthContext) -> CheckOutcome:
             return not_applicable("Needs two or more variants in the split")
         return not_applicable("Runs once enough users are exposed")
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
-        return None
+        return CheckPassed(
+            measurement=ExperimentHealthMeasurement(
+                value=p_value,
+                threshold=SAMPLE_RATIO_MISMATCH_P_VALUE,
+                unit=ExperimentHealthMeasurementUnit.P_VALUE,
+                warns=ExperimentHealthMeasurementSide.BELOW,
+            )
+        )
     share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
     split_change = _split_change_warning(ctx)
     history = ctx.flag_history

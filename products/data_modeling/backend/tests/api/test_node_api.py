@@ -516,6 +516,29 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
 
+    @parameterized.expand([("materialize", {}), ("run", {"direction": "downstream"})])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_manual_run_is_refused_soon_after_the_last_run(self, action, body, mock_sync_connect):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        self.view_node.type = NodeType.MAT_VIEW
+        self.view_node.save(update_fields=["type"])
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.view_node.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{action}/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
+        mock_client.start_workflow.assert_not_called()
+
     def test_lineage_returns_subgraph(self):
         response = self.client.get(
             f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"

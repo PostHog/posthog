@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
  */
 export const oauthDeviceApproveCreateBodyUserCodeMax = 20
 
@@ -20,6 +20,12 @@ export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
         .max(oauthDeviceApproveCreateBodyUserCodeMax)
         .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
     project_id: zod.number().describe('The project the token is scoped to.'),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes.'
+        ),
 })
 
 /**

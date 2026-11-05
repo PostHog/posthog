@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
-use replay_core_v4::inspect::dom::{DeclinedUrl, UrlLimit};
+use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::edits::EventEdits;
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
@@ -101,7 +101,6 @@ pub struct Block {
     /// Set when the inspector could not read the block in full, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,
     pub edits: Vec<EventEdits>,
-    pub declined: Vec<DeclinedUrl>,
     pub unplaced: bool,
     /// The distinct pages of the block's surfacing features, which the writer stores as fingerprints.
     pub visited_urls: Vec<String>,
@@ -543,7 +542,6 @@ fn inspect_session(
                 font_urls: inspected.font_urls,
                 url_limit: inspected.url_limit,
                 edits: inspected.edits,
-                declined: inspected.declined,
                 unplaced: inspected.unplaced,
                 visited_urls: inspected.features.visited_urls,
                 captured_at_ms,

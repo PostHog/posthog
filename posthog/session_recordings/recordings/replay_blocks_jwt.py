@@ -2,6 +2,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.dataclasses import frozen
@@ -24,9 +26,16 @@ REPLAY_DIRECT_BLOCKS_FLAG = "replay-direct-blocks"
 def is_direct_blocks_enabled(team_id: int) -> bool:
     """Gate for giving the player block urls. The player polls the listing for a live recording, so the check sends
     no flag-called event."""
+    # All deployments share one flag project and team ids repeat across them, so conditions target a deployment by this.
+    person_properties = {"cloud_deployment": settings.CLOUD_DEPLOYMENT} if settings.CLOUD_DEPLOYMENT else {}
     try:
         return bool(
-            posthoganalytics.feature_enabled(REPLAY_DIRECT_BLOCKS_FLAG, str(team_id), send_feature_flag_events=False)
+            posthoganalytics.feature_enabled(
+                REPLAY_DIRECT_BLOCKS_FLAG,
+                str(team_id),
+                person_properties=person_properties,
+                send_feature_flag_events=False,
+            )
         )
     except Exception:
         return False

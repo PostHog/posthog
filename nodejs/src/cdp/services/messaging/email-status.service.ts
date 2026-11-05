@@ -21,7 +21,7 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailStatus =
+export type EmailDeliveryStatus =
     | 'scheduled'
     | 'queued'
     | 'canceled'
@@ -30,6 +30,11 @@ export type EmailStatus =
     | 'delivered'
     | 'bounced'
     | 'complained'
+
+// Only email_status_events keeps these, so they never replace a delivery status.
+export type EmailEngagementStatus = 'opened' | 'clicked'
+
+export type EmailStatus = EmailDeliveryStatus | EmailEngagementStatus
 
 export type EmailStatusReason =
     // A bounce type, in the words the `$bounce_type` event property uses.
@@ -75,6 +80,8 @@ const STATUS_RANK: Record<EmailStatus, bigint> = {
     delivered: 5n,
     bounced: 6n,
     complained: 7n,
+    opened: 8n,
+    clicked: 9n,
 }
 
 // A run that fails on its email step fails after the step recorded why, for example
@@ -102,6 +109,11 @@ export interface EmailStatusRow {
     created_at: string
     status_at: string
     reason: string
+    recipient: string
+    function_id: string
+    sending_domain: string
+    // Only a scheduled row has one. A row without it stores NULL.
+    scheduled_at?: string
 }
 
 export interface EmailStatusUpdate {
@@ -114,6 +126,11 @@ export interface EmailStatusUpdate {
     statusAt?: Date
     // A failure of the whole run rather than of the email step.
     runOutcome?: boolean
+    recipient?: string
+    functionId?: string
+    sendingDomain?: string
+    // When a scheduled send is due.
+    scheduledAt?: Date
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -150,6 +167,10 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         created_at: isoMicroseconds(uuidtCreatedAt(update.messageId)),
         status_at: isoMicroseconds(statusAt),
         reason: update.reason ?? '',
+        recipient: update.recipient ?? '',
+        function_id: update.functionId ?? '',
+        sending_domain: update.sendingDomain ?? '',
+        ...(update.scheduledAt && { scheduled_at: isoMicroseconds(update.scheduledAt) }),
     }
 }
 

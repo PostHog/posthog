@@ -15,7 +15,7 @@ import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService, uuidtCreatedAt } from '../messaging/email-status.service'
+import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -25,9 +25,11 @@ import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
 import {
+    AcceptedSend,
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    transactionalEmailRecipients,
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
@@ -44,7 +46,7 @@ const transactionalEmailFingerprint = (
 ): string => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
     if (send) {
-        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, send)
+        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
     }
     if (scheduledAt) {
         request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
@@ -59,14 +61,29 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
     })
 }
 
+type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
+
+const withSenderTheCallerChose = ({
+    from,
+    ...send
+}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+    ...send,
+    from: senderTheCallerChose(from),
+})
+
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+    if (!from) {
+        return undefined
+    }
+    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
+}
+
 const writeStatus = (
     emailStatus: EmailStatusService,
-    teamId: number,
-    messageId: string,
-    status: 'queued' | 'scheduled' | 'canceled'
+    update: EmailStatusUpdate & { status: 'queued' | 'scheduled' | 'canceled' }
 ): void => {
-    emailStatus.queue({ teamId, messageId, status })
-    void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, messageId))
+    emailStatus.queue(update)
+    void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
 }
 
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
@@ -115,7 +132,14 @@ export class TransactionalSends {
                 case 'replayed': {
                     const scheduledAt = reservation.scheduledAt ?? null
                     if (scheduledAt) {
-                        writeStatus(this.deps.emailStatus, team.id, reservation.invocationId, 'scheduled')
+                        writeStatus(this.deps.emailStatus, {
+                            teamId: team.id,
+                            messageId: reservation.invocationId,
+                            status: 'scheduled',
+                            recipient: to,
+                            functionId: hogFlow.id,
+                            scheduledAt: new Date(scheduledAt),
+                        })
                     }
                     return { outcome: 'replayed', invocationId: reservation.invocationId, scheduledAt }
                 }
@@ -137,7 +161,9 @@ export class TransactionalSends {
         }
         try {
             stages.start('checks')
-            const refusal = tooFarAhead ? 'invalid_scheduled_at' : await this.refusal(team.id, hogFlow, to)
+            const refusal = tooFarAhead
+                ? 'invalid_scheduled_at'
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
                 if (idempotencyKey) {
                     stages.start('idempotency')
@@ -173,7 +199,14 @@ export class TransactionalSends {
             )
         }
         stages.start('metrics_flush')
-        writeStatus(this.deps.emailStatus, team.id, invocation.id, scheduledAt ? 'scheduled' : 'queued')
+        writeStatus(this.deps.emailStatus, {
+            teamId: team.id,
+            messageId: invocation.id,
+            status: scheduledAt ? 'scheduled' : 'queued',
+            recipient: to,
+            functionId: hogFlow.id,
+            scheduledAt: scheduledAt ?? undefined,
+        })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
@@ -226,7 +259,11 @@ export class TransactionalSends {
     // The email worker skips a send for these reasons too, but only after the caller has its answer. Checking them
     // here tells the caller that the email will not go out. The worker keeps its checks, because the state can
     // change while the job waits on the queue.
-    private async refusal(teamId: number, hogFlow: HogFlow, to: string): Promise<TransactionalSendRefusal | null> {
+    private async refusal(
+        teamId: number,
+        hogFlow: HogFlow,
+        recipients: string[]
+    ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
         }
@@ -234,12 +271,16 @@ export class TransactionalSends {
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
-        const suppressed = this.deps.emailSuppression.isSuppressed(teamId, to, { transactional: true })
+        const suppressed = Promise.all(
+            recipients.map((email) => this.deps.emailSuppression.isSuppressed(teamId, email, { transactional: true }))
+        )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
-        const recipientSkipReason = this.deps.emailValidation.getRecipientSkipReason(teamId, to)
+        const recipientSkipReasons = Promise.all(
+            recipients.map((email) => this.deps.emailValidation.getRecipientSkipReason(teamId, email))
+        )
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReason]
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
         for (const lookup of lookups) {
             lookup.catch(() => undefined)
         }
@@ -250,13 +291,13 @@ export class TransactionalSends {
         if (hogFlow.email_sending_paused_at) {
             return 'sending_paused'
         }
-        if (await suppressed) {
+        if ((await suppressed).some(Boolean)) {
             return 'recipient_suppressed'
         }
         if ((await quota).isLimited) {
             return 'quota_limited'
         }
-        if (await recipientSkipReason) {
+        if ((await recipientSkipReasons).some(Boolean)) {
             return 'recipient_unreachable'
         }
         return null
@@ -309,7 +350,7 @@ export class ScheduledTransactionalSends {
         if (result.outcome !== 'rescheduled') {
             return { outcome: result.outcome }
         }
-        writeStatus(this.deps.emailStatus, teamId, messageId, 'scheduled')
+        writeStatus(this.deps.emailStatus, { teamId, messageId, status: 'scheduled' })
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
@@ -331,7 +372,7 @@ export class ScheduledTransactionalSends {
         }
         monitoringService.queueInvocationResults([result])
         invocationResultsRowsService.queueInvocationResults([result])
-        writeStatus(this.deps.emailStatus, job.teamId, job.id, 'canceled')
+        writeStatus(this.deps.emailStatus, { teamId: job.teamId, messageId: job.id, status: 'canceled' })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))
