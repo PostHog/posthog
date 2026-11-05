@@ -6,7 +6,6 @@ import {
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import {
@@ -224,12 +223,13 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
         return 0
     })
 }
-export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
+export const calculateLayouts = (
+    tiles: DashboardTile[],
+    { groupsShareGrid = false }: { groupsShareGrid?: boolean } = {}
+): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
-        tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
-            .map((tile) => tile.id)
+        tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
     )
 
     // Always calculate sm layout first to establish reference order
@@ -341,17 +341,39 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
         const dirtyLayouts = layouts?.filter(({ y }) => y === Infinity)
 
-        // array of -1 for each column
-        const lowestPoints = Array.from(Array(columnCount)).map(() => -1)
-
-        // set the lowest point for each column
-        for (const { x, y, w, h } of cleanLayouts) {
-            for (let i = x; i <= x + w - 1; i++) {
-                lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
+        // Each group lays out on its own, so a new tile fills a gap in its own group.
+        // Without sections every group renders in one grid, so they all count as one group.
+        const groupOf = new Map(
+            tiles.map((tile) => [tile.id?.toString(), groupsShareGrid ? null : (tile.group_key ?? null)])
+        )
+        const lowestPointsByGroup = new Map<string | null, number[]>()
+        const lowestPointsFor = (groupKey: string | null): number[] => {
+            let points = lowestPointsByGroup.get(groupKey)
+            if (!points) {
+                const groupLayouts = cleanLayouts.filter(({ i }) => groupOf.get(i) === groupKey)
+                // Groups sort by their top tile, so a grouped tile never goes above its group's top row.
+                const floor =
+                    groupKey === null || groupLayouts.length === 0
+                        ? -1
+                        : Math.min(...groupLayouts.map(({ y }) => y)) - 1
+                points = Array.from(Array(columnCount)).map(() => floor)
+                for (const { x, y, w, h } of groupLayouts) {
+                    for (let column = x; column <= x + w - 1; column++) {
+                        points[column] = Math.max(points[column], y + h - 1)
+                    }
+                }
+                // The first tile of an empty group goes below every other tile, so the group goes last.
+                if (groupLayouts.length === 0 && groupKey !== null) {
+                    const dashboardBottom = Math.max(-1, ...cleanLayouts.map(({ y, h }) => y + h - 1))
+                    points = points.map(() => dashboardBottom)
+                }
+                lowestPointsByGroup.set(groupKey, points)
             }
+            return points
         }
 
         for (const { i, w, h, minW, minH } of dirtyLayouts) {
+            const lowestPoints = lowestPointsFor(groupOf.get(i) ?? null)
             // how low are things in "w" consecutive of columns
             const segmentCount = columnCount - w + 1
             const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)

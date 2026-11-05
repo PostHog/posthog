@@ -237,6 +237,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         orderBy="last_seen",
         orderDirection=None,
         status=None,
+        severity=None,
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
@@ -261,6 +262,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     orderBy=orderBy,  # pyright: ignore[reportArgumentType]
                     orderDirection=orderDirection,
                     status=status,
+                    severity=severity,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
@@ -1202,6 +1204,57 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for result in results:
             expected_severity = ErrorTrackingIssue.Severity.HIGH if result["id"] == self.issue_id_one else None
             self.assertEqual(result["severity"], expected_severity)
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_severity_field(self, _name: str, legacy_shape: bool):
+        self._assign_severities()
+        shape_filters: list[ErrorTrackingIssueFilter] = []
+        if legacy_shape:
+            # Matches every issue, so it only forces the legacy shape.
+            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
+
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
+        )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                severity=ErrorTrackingQueryIssueSeverity.HIGH,
+                volumeResolution=1,
+            ),
+            team=self.team,
+            date_from=datetime(2020, 1, 1, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        by_field = {
+            severity.value: {
+                result["id"] for result in self._calculate(filterGroup=filter_group, severity=severity)["results"]
+            }
+            for severity in ErrorTrackingQueryIssueSeverity
+        }
+
+        self.assertEqual(
+            by_field,
+            {
+                "low": {self.issue_id_two},
+                "medium": {self.issue_id_four},
+                "high": {self.issue_id_three},
+                "critical": {self.issue_id_one},
+            },
+        )
 
     @parameterized.expand(
         [

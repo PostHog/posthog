@@ -312,8 +312,32 @@ class TestSafetyCultureSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
+    @parameterized.expand(
+        [
+            ("group_users", {"user_id": "user_1", "group_id": "role_1", "organisation_id": "role_org"}),
+            ("site_members", {"site_id": "location_1", "member_id": "user_1"}),
+            (
+                "action_assignees",
+                {"id": "aa_1", "action_id": "audit_1", "assignee_id": "user_1", "name": "Ada", "type": "USER"},
+            ),
+            (
+                "issue_assignees",
+                {"id": "ia_1", "issue_id": "issue_1", "assignee_id": "user_1", "modified_at": "2024-03-01T00:00:00Z"},
+            ),
+        ]
+    )
+    def test_join_feed_primary_keys_exist_on_documented_rows(self, endpoint: str, row: dict[str, Any]) -> None:
+        # The membership feeds have no `id`, so the default primary key would make every merge fail.
+        result = _driver().run(endpoint, [_response([row])])
+
+        assert result.response is not None
+        assert result.rows == [row]
+        assert result.response.primary_keys
+        assert all(row.get(key) for key in result.response.primary_keys)
+
     def test_incremental_endpoints_match_documented_modified_after_support(self) -> None:
-        # Only these four feeds document a server-side modified_after filter; flipping any other
-        # endpoint to incremental would silently ship a full-refresh-cost "incremental" sync.
+        # Only these four feeds document a modified_after filter that keys off a `modified_at` column;
+        # action_assignees accepts the param but its rows carry no `modified_at` for the watermark.
+        # Flipping any other endpoint to incremental would ship a full-refresh-cost "incremental" sync.
         incremental = {name for name, config in SAFETYCULTURE_ENDPOINTS.items() if config.supports_incremental}
         assert incremental == {"inspections", "inspection_items", "templates", "actions"}

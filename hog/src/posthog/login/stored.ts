@@ -1,11 +1,17 @@
 import { HogError } from '@/core/errors'
+import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 import { accessKeyFromStorage, type AccessKey, type AccessKeyStorage, type LogoutOutcome } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import { hostKey, type HostKey } from '@/posthog/host'
+import { withLoginLock } from '@/posthog/oauth'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from '@/posthog/settings'
+
+// settings.json and the credentials file hold every host's login, so each write reads them, changes
+// one entry and writes them back. The lock keeps two hog processes from dropping each other's entry.
+const LOGINS_LOCK = 'logins.lock'
 
 export interface LoggedOut extends LogoutOutcome {
     // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
@@ -53,46 +59,57 @@ export async function writeLogin(
     key: AccessKey,
     options: { lastLogin?: boolean; removeIfLate?: boolean; keychainLeftover?: boolean } = {}
 ): Promise<void> {
-    await store.write(key.host, key.secret(), { removeIfLate: options.removeIfLate })
-    const current = await readSettings(runtime)
-    const previous = loginFor(current, key.host)
-    const record = key.record(store.kind)
-    const keychainLeftover =
-        store.kind === 'file' &&
-        (options.keychainLeftover === true || previous?.store === 'keychain' || previous?.keychainLeftover === true)
-    const settings = withLogin(current, key.host, keychainLeftover ? { ...record, keychainLeftover } : record)
-    await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
+    await withFileLock(runtime, LOGINS_LOCK, async () => {
+        await store.write(key.host, key.secret(), { removeIfLate: options.removeIfLate })
+        const current = await readSettings(runtime)
+        const previous = loginFor(current, key.host)
+        const record = key.record(store.kind)
+        const keychainLeftover =
+            store.kind === 'file' &&
+            (options.keychainLeftover === true || previous?.store === 'keychain' || previous?.keychainLeftover === true)
+        const settings = withLogin(current, key.host, keychainLeftover ? { ...record, keychainLeftover } : record)
+        await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
+    })
 }
 
 // Resolves to false when the store held nothing for the host.
 export async function removeLogin(runtime: Runtime, host: string, store: KeychainStore | FileStore): Promise<boolean> {
-    const removed = await store.remove(host)
-    const settings = withLogin(await readSettings(runtime), host, undefined)
-    const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
-    await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
-    return removed
+    return withFileLock(runtime, LOGINS_LOCK, async () => {
+        const removed = await store.remove(host)
+        const settings = withLogin(await readSettings(runtime), host, undefined)
+        const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
+        await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
+        return removed
+    })
 }
 
 // Logs this machine out of `host`: the key revokes itself where it can, and hog removes its
 // stored copy. Resolves to undefined when hog had no login to remove.
+// Under the renewal lock, so a renewal in another hog process can neither restore the login after
+// this removes it, nor rotate the refresh token this revokes.
 export async function logout(runtime: Runtime, host: string): Promise<LoggedOut | undefined> {
-    const settings = await readSettings(runtime)
-    const record = loginFor(settings, host)
-    const login = await readLogin(runtime, settings, host)
-    if (!login) {
-        // The file entry can be gone while the record still names a keychain item left behind.
-        if (!record?.keychainLeftover) {
+    return withLoginLock(runtime, host, async () => {
+        const settings = await readSettings(runtime)
+        const record = loginFor(settings, host)
+        const login = await readLogin(runtime, settings, host)
+        if (!login) {
+            // The file entry can be gone while the record still names a keychain item left behind.
+            if (!record?.keychainLeftover) {
+                return undefined
+            }
+            await removeLogin(runtime, host, openStore(runtime, record.store))
+            return { revoked: null, revokeUrl: null, keychainLeftover: await removeKeychainLeftover(runtime, host) }
+        }
+        const [outcome, removed] = await Promise.all([
+            login.key.logout(runtime),
+            removeLogin(runtime, host, login.store),
+        ])
+        if (!removed) {
             return undefined
         }
-        await removeLogin(runtime, host, openStore(runtime, record.store))
-        return { revoked: null, revokeUrl: null, keychainLeftover: await removeKeychainLeftover(runtime, host) }
-    }
-    const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, host, login.store)])
-    if (!removed) {
-        return undefined
-    }
-    const leftover = record?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
-    return { ...outcome, keychainLeftover: leftover }
+        const leftover = record?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
+        return { ...outcome, keychainLeftover: leftover }
+    })
 }
 
 // Resolves to why the removal failed, or null once no item is left.
@@ -135,7 +152,7 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     for (const host of hosts.values()) {
         const record = loginFor(settings, host)
         const outcome = await logout(runtime, host)
-        const orphan = await file.remove(host)
+        const orphan = await withFileLock(runtime, LOGINS_LOCK, () => file.remove(host))
         // Logout already handled a keychain login and a marked leftover.
         const swept =
             record?.store !== 'keychain' && !record?.keychainLeftover
