@@ -613,6 +613,9 @@ export function themeSearchItem(
         return null
     }
     const requested = normalized.includes('dark') ? 'dark' : normalized.includes('light') ? 'light' : null
+    if (requested && (requested === 'dark') === isDarkModeOn) {
+        return null
+    }
     const target = requested ?? (isDarkModeOn ? 'light' : 'dark')
     const name = target === 'dark' ? 'Dark mode' : 'Light mode'
     return {

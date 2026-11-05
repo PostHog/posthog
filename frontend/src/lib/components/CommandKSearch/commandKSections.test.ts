@@ -477,6 +477,17 @@ describe('buildSections', () => {
     )
 
     test.each([
+        ['light', false, null],
+        ['dark mode', true, null],
+        ['light', true, 'Light mode'],
+        ['dark', false, 'Dark mode'],
+        ['theme', true, 'Light mode'],
+    ])('the theme shortcut for "%s" with dark mode %s is %s', (query, isDarkModeOn, name) => {
+        const item = themeSearchItem(query, isDarkModeOn, { setTheme: jest.fn(), toggleTheme: jest.fn() })
+        expect(item?.name ?? null).toBe(name)
+    })
+
+    test.each([
         [false, []],
         [true, []],
         [false, ['Theme']],
