@@ -20,11 +20,15 @@ export function searchableText(value: unknown): string {
     const pending: unknown[] = [value]
     while (pending.length > 0) {
         const item = pending.pop()
+        // Pushed one by one: spreading a large array into one call exceeds the engine's argument limit.
         if (Array.isArray(item)) {
-            pending.push(...[...item].reverse())
+            for (let index = item.length - 1; index >= 0; index--) {
+                pending.push(item[index])
+            }
         } else if (isPlainObject(item)) {
-            for (const [key, entry] of Object.entries(item).reverse()) {
-                pending.push(entry, key)
+            const entries = Object.entries(item)
+            for (let index = entries.length - 1; index >= 0; index--) {
+                pending.push(entries[index][1], entries[index][0])
             }
         } else {
             parts.push(String(item))

@@ -26,6 +26,12 @@ describe('ToolCallValue', () => {
             { open: true, body: true },
         ],
         [
+            'opens a folded value holding more items than a call takes arguments',
+            [...Array.from({ length: 200000 }, (_, index) => index), 'needle'],
+            'needle',
+            { open: true, body: true },
+        ],
+        [
             'opens a folded value nested deeper than the call stack',
             { ...longResult, deep: nested(4000, 'needle') },
             'needle',
@@ -37,7 +43,7 @@ describe('ToolCallValue', () => {
         await waitFor(() =>
             expect({
                 open: container.querySelector('details')?.open ?? null,
-                body: container.querySelector('dl') !== null,
+                body: container.querySelector('dl, pre') !== null,
             }).toEqual(expected)
         )
     })
