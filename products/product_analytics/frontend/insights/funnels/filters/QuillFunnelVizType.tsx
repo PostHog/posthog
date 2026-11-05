@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 
+import { IconHourglass, IconLineGraph } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
@@ -24,9 +27,54 @@ interface FunnelDisplayChoice {
     vizType: VizType
     layout?: FunnelLayout
     label: string
-    description: string
+    buttonLabel: string
     icon: JSX.Element
 }
+
+const CHOICE_GROUPS: { title: string; choices: FunnelDisplayChoice[] }[] = [
+    {
+        title: 'Steps',
+        choices: [
+            {
+                key: 'steps-vertical',
+                vizType: VizType.Steps,
+                layout: FunnelLayout.vertical,
+                label: 'Left to right',
+                buttonLabel: 'Steps, left to right',
+                icon: <IconFunnelVertical />,
+            },
+            {
+                key: 'steps-horizontal',
+                vizType: VizType.Steps,
+                layout: FunnelLayout.horizontal,
+                label: 'Top to bottom',
+                buttonLabel: 'Steps, top to bottom',
+                icon: <IconFunnelHorizontal />,
+            },
+        ],
+    },
+    {
+        title: 'Over time',
+        choices: [
+            {
+                key: 'time-to-convert',
+                vizType: VizType.TimeToConvert,
+                label: 'Time to convert',
+                buttonLabel: 'Time to convert',
+                icon: <IconHourglass />,
+            },
+            {
+                key: 'trends',
+                vizType: VizType.Trends,
+                label: 'Conversion rate',
+                buttonLabel: 'Conversion rate',
+                icon: <IconLineGraph />,
+            },
+        ],
+    },
+]
+
+const CHOICES = CHOICE_GROUPS.flatMap((group) => group.choices)
 
 export function QuillFunnelVizType({
     insightProps,
@@ -41,42 +89,14 @@ export function QuillFunnelVizType({
     }
 
     const layout = funnelsFilter?.layout || FunnelLayout.vertical
-    const choices: FunnelDisplayChoice[] = options.flatMap((option): FunnelDisplayChoice[] =>
-        option.value === VizType.Steps
-            ? [
-                  {
-                      key: `${option.value}-${FunnelLayout.vertical}`,
-                      vizType: option.value,
-                      layout: FunnelLayout.vertical,
-                      label: `${option.title}, left to right`,
-                      description: option.description,
-                      icon: <IconFunnelVertical className="text-secondary" />,
-                  },
-                  {
-                      key: `${option.value}-${FunnelLayout.horizontal}`,
-                      vizType: option.value,
-                      layout: FunnelLayout.horizontal,
-                      label: `${option.title}, top to bottom`,
-                      description: option.description,
-                      icon: <IconFunnelHorizontal className="text-secondary" />,
-                  },
-              ]
-            : [
-                  {
-                      key: option.value,
-                      vizType: option.value,
-                      label: option.title,
-                      description: option.description,
-                      icon: option.icon,
-                  },
-              ]
-    )
-    const current = choices.find(
+    const current = CHOICES.find(
         (choice) => choice.vizType === value && (choice.layout === undefined || choice.layout === layout)
     )
+    const descriptionFor = (vizType: VizType): string | undefined =>
+        options.find((option) => option.value === vizType)?.description
 
     const choose = (key: string): void => {
-        const choice = choices.find((c) => c.key === key)
+        const choice = CHOICES.find((c) => c.key === key)
         if (!choice) {
             return
         }
@@ -101,21 +121,26 @@ export function QuillFunnelVizType({
                 }
             >
                 {current?.icon}
-                <span>{current?.label}</span>
+                <span>{current?.buttonLabel}</span>
                 <SelectTriggerIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 <DropdownMenuRadioGroup value={current?.key ?? ''} onValueChange={(key) => choose(key as string)}>
-                    {choices.map((choice) => (
-                        <DropdownMenuRadioItem
-                            key={choice.key}
-                            value={choice.key}
-                            tooltip={choice.description}
-                            closeOnClick
-                        >
-                            {choice.icon}
-                            {choice.label}
-                        </DropdownMenuRadioItem>
+                    {CHOICE_GROUPS.map((group) => (
+                        <DropdownMenuGroup key={group.title}>
+                            <DropdownMenuLabel>{group.title}</DropdownMenuLabel>
+                            {group.choices.map((choice) => (
+                                <DropdownMenuRadioItem
+                                    key={choice.key}
+                                    value={choice.key}
+                                    tooltip={descriptionFor(choice.vizType)}
+                                    closeOnClick
+                                >
+                                    {choice.icon}
+                                    {choice.label}
+                                </DropdownMenuRadioItem>
+                            ))}
+                        </DropdownMenuGroup>
                     ))}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>
