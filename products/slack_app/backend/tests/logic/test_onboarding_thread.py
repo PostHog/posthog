@@ -377,6 +377,26 @@ def test_a_step_set_elsewhere_keeps_its_number_and_says_it_is_already_set(
 
 
 @pytest.mark.django_db
+def test_the_top_message_follows_a_skipped_step_set_later(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    _refresh(integration)
+    link_user(user)
+    _refresh(integration)
+    update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, skip_step="model")
+    _refresh(integration)
+    slack_client.chat_update.reset_mock()
+
+    set_auto_model_choice(SLACK_TEAM_ID, SLACK_USER_ID, True)
+    _refresh(integration)
+
+    root = _edits(slack_client)["100.1"]
+    assert "2 of 3 steps done" in root and "2. :white_check_mark: Model chosen" in root
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "action, org_admin, refreshes, message",
     [

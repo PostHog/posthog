@@ -51,7 +51,7 @@ class SlackAppOnboardingMessage:
         if self.kind == "step":
             return f"{self.step}: show step"
         if self.kind == "root":
-            return f"top message: {self.progress}"
+            return f"top message: {(self.progress or '').partition(chr(10))[0]}"
         return "ready message"
 
 

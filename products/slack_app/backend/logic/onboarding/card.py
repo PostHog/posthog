@@ -83,18 +83,23 @@ def _checklist(checked: list[_PlannedStep]) -> str:
     return "\n".join(lines)
 
 
+def _root_status(checked: list[_PlannedStep]) -> str:
+    """The progress line, then the checklist. A step can change its line and keep the count, such as a
+    skipped step that the person sets in the Home tab, so the thread compares all of it."""
+    return f"{_progress(checked)}\n{_checklist(checked)}"
+
+
 def _root_message(checked: list[_PlannedStep], *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
-    progress = _progress(checked)
     return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
         blocks=[
             section_block(ONBOARDING_INTRO_TEXT),
-            context_block(":white_check_mark: Setup done" if ready else progress),
+            context_block(":white_check_mark: Setup done" if ready else _progress(checked)),
             context_block(_checklist(checked)),
         ],
         ts=ts,
-        progress=progress,
+        progress=_root_status(checked),
     )
 
 
@@ -184,7 +189,7 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
         edits.append(_root_message(checked, ready=True, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
-    if state.progress != progress:
+    if state.progress != _root_status(checked):
         edits.append(_root_message(checked, ready=False, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
