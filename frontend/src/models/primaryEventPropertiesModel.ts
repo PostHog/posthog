@@ -103,7 +103,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
     loaders({
         primaryPropertyChanges: {
             __default: {} as PrimaryPropertyChanges,
-            loadPrimaryProperties: async ({ names }: { names: string[] }) => {
+            loadPrimaryProperties: async ({ names }: { names: string[] }): Promise<PrimaryPropertyChanges> => {
                 if (names.length === 0) {
                     return {}
                 }
@@ -117,7 +117,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             }: {
                 eventName: string
                 propertyKey: string | null
-            }) => {
+            }): Promise<PrimaryPropertyChanges> => {
                 let definitionId: string
                 try {
                     definitionId = (await api.eventDefinitions.byName({ name: eventName })).id
