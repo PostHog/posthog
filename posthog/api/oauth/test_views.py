@@ -664,11 +664,29 @@ class TestOAuthAPI(APIBaseTest):
             ("all_allowed", "all", "192.0.2.1", True, True, 200),
             ("unrelated_policy", "organization", "203.0.113.1", False, True, 200),
             ("declined", "organization", "203.0.113.1", True, False, 200),
+            ("auto_org_blocked", "organization", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_org_allowed", "organization", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_team_blocked", "team", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_team_allowed", "team", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_all_blocked", "all", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_all_allowed", "all", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_unrelated", "organization", "203.0.113.1", False, True, 302, "auto"),
+            ("auto_mixed_blocked", "mixed", "203.0.113.1", True, True, 403, "auto"),
+            ("first_party_blocked", "organization", "203.0.113.1", True, True, 403, "first_party"),
+            ("first_party_allowed", "organization", "192.0.2.1", True, True, 302, "first_party"),
         ]
     )
     @override_settings(IS_BEHIND_PROXY=False)
-    def test_authorize_post_checks_grant_ip_policy(
-        self, _name: str, access_level: str, client_ip: str, target_restricted: bool, allow: bool, expected_status: int
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_authorize_checks_grant_ip_policy(
+        self,
+        _name: str,
+        access_level: str,
+        client_ip: str,
+        target_restricted: bool,
+        allow: bool,
+        expected_status: int,
+        approval_path: str = "consent",
     ) -> None:
         restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
         OrganizationIPRestrictions.objects.create(
@@ -688,14 +706,43 @@ class TestOAuthAPI(APIBaseTest):
         }
         grants_before = OAuthGrant.objects.count()
 
-        response = self.client.post("/oauth/authorize/", body, REMOTE_ADDR=client_ip)
+        if approval_path == "consent":
+            response = self.client.post("/oauth/authorize/", body, REMOTE_ADDR=client_ip)
+        else:
+            if approval_path == "first_party":
+                self.confidential_application.is_first_party = True
+                self.confidential_application.save()
+                body["scoped_organizations"] = [
+                    str(org_id) for org_id in self.user.organizations.values_list("id", flat=True)
+                ]
+            else:
+                if access_level == "mixed":
+                    body["scoped_organizations"] = [str(restricted_org.id)]
+                    body["scoped_teams"] = [self.team.id]
+                elif access_level == "organization":
+                    body["scoped_teams"] = None
+                elif access_level == "team":
+                    body["scoped_organizations"] = None
+                OAuthAccessToken.objects.create(
+                    application=self.confidential_application,
+                    user=self.user,
+                    token="existing_ip_policy_token",
+                    expires=timezone.now() + timedelta(hours=1),
+                    scope="openid",
+                    scoped_organizations=body["scoped_organizations"],
+                    scoped_teams=body["scoped_teams"],
+                )
+            response = self.client.get(
+                self.base_authorization_url + "&scope=openid&approval_prompt=auto", REMOTE_ADDR=client_ip
+            )
 
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 403:
             self.assertContains(response, "ip_not_allowed", status_code=403)
             self.assertEqual(OAuthGrant.objects.count(), grants_before)
         elif allow:
-            grant = OAuthGrant.objects.get(code=parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0])
+            redirect_to = response.json()["redirect_to"] if approval_path == "consent" else response["Location"]
+            grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
             self.assertEqual(grant.scoped_organizations, body["scoped_organizations"])
             self.assertEqual(grant.scoped_teams, body["scoped_teams"])
         else:

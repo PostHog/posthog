@@ -40,6 +40,7 @@ from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -315,6 +316,27 @@ def _scoped_organization_ids(
     if access_level == OAuthApplicationAccessLevel.TEAM.value and scoped_team_ids:
         return set(Team.objects.filter(pk__in=scoped_team_ids).values_list("organization_id", flat=True))
     return set(user.organizations.values_list("id", flat=True))
+
+
+def _enforce_grant_ip_restrictions(
+    request: Request, scoped_organization_ids: list[str] | None, scoped_team_ids: list[int] | None
+) -> None:
+    user = cast(User, request.user)
+    organization_ids: set[uuid.UUID] = set()
+    if scoped_organization_ids:
+        organization_ids.update(
+            _scoped_organization_ids(
+                user, OAuthApplicationAccessLevel.ORGANIZATION.value, scoped_organization_ids, None
+            )
+        )
+    if scoped_team_ids:
+        organization_ids.update(
+            _scoped_organization_ids(user, OAuthApplicationAccessLevel.TEAM.value, None, scoped_team_ids)
+        )
+    if not scoped_organization_ids and not scoped_team_ids:
+        organization_ids = _scoped_organization_ids(user, OAuthApplicationAccessLevel.ALL.value, None, None)
+    for organization_id in organization_ids:
+        enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=str(organization_id))
 
 
 def _impersonation_ai_processing_block(
@@ -1746,6 +1768,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
                 credentials["scoped_teams"] = []
+                _enforce_grant_ip_restrictions(
+                    request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                )
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1775,6 +1800,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     ):
                         credentials["scoped_teams"] = token.scoped_teams
                         credentials["scoped_organizations"] = token.scoped_organizations
+                        _enforce_grant_ip_restrictions(
+                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                        )
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -1926,15 +1954,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            for organization_id in _scoped_organization_ids(
-                request.user,
-                serializer.validated_data.get("access_level"),
-                serializer.validated_data.get("scoped_organizations"),
-                serializer.validated_data.get("scoped_teams"),
-            ):
-                enforce_ip_restrictions(
-                    request, request.user, request.successful_authenticator, organization_id=str(organization_id)
-                )
+            _enforce_grant_ip_restrictions(request, credentials["scoped_organizations"], credentials["scoped_teams"])
 
             if block := _impersonation_ai_processing_block(
                 request,
