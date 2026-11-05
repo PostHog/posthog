@@ -322,8 +322,8 @@ tools:
         title: Update account notebook tags
         description: >
             Replace an account notebook's `tags` by its `short_id`. `tags` replaces the whole tag set, so read the
-            notebook first and send the full list to add one. The title and content are not edited here: a note's
-            title comes from its first line, so use `notebooks-partial-update` to change the content.
+            notebook first and send the full list to add one. The title and content are not edited here: a note's title
+            comes from its first line, so use `notebooks-partial-update` to change the content.
         feature_flag: customer-analytics-csp
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve
