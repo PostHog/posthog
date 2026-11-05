@@ -224,15 +224,17 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
-    "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
-    "without the investigation agent. "
+    "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
+    "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
+    "notifications, and investigations still run with `off`. "
     "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
     f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
     "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
     "matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, "
     "an alert must match one of them. An alert that matches a block pattern is dropped, also when it "
     "matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no "
-    "backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+    "backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. "
+    "Other sources reject these keys."
 )
 
 
