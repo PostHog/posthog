@@ -1297,6 +1297,7 @@ export interface SlackThreadReferenceDTOApi {
  * * `posthog_desktop` - PostHog Desktop
  * * `posthog_mobile` - PostHog Mobile
  * * `posthog_web` - PostHog Web
+ * * `agent_mcp` - PostHog Agent MCP
  */
 export type TaskClientProvenanceEnumApi = (typeof TaskClientProvenanceEnumApi)[keyof typeof TaskClientProvenanceEnumApi]
 
@@ -1304,6 +1305,7 @@ export const TaskClientProvenanceEnumApi = {
     PosthogDesktop: 'posthog_desktop',
     PosthogMobile: 'posthog_mobile',
     PosthogWeb: 'posthog_web',
+    AgentMcp: 'agent_mcp',
 } as const
 
 /**
@@ -1370,7 +1372,8 @@ export interface TaskDetailDTOApi {
      *
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
-     * * `posthog_web` - PostHog Web */
+     * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP */
     client_provenance?: TaskClientProvenanceEnumApi | null
 }
 
@@ -1440,7 +1443,8 @@ export interface TaskBasicApi {
      *
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
-     * * `posthog_web` - PostHog Web */
+     * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP */
     client_provenance?: TaskClientProvenanceEnumApi | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
@@ -1793,7 +1797,8 @@ export interface TaskCreateResponseDTOApi {
      *
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
-     * * `posthog_web` - PostHog Web */
+     * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP */
     client_provenance?: TaskClientProvenanceEnumApi | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
@@ -2786,7 +2791,8 @@ export interface TaskRunResponseApi {
      *
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
-     * * `posthog_web` - PostHog Web */
+     * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP */
     client_provenance?: TaskClientProvenanceEnumApi | null
     /** Error returned when the run could not start. */
     run_error?: string
@@ -5013,6 +5019,7 @@ export interface SlackThreadContextResponseApi {
 }
 
 /**
+ * * `agent_mcp` - agent_mcp
  * * `autoresearch` - autoresearch
  * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
@@ -5044,6 +5051,7 @@ export interface SlackThreadContextResponseApi {
 export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof TaskListSourceEnumApi]
 
 export const TaskListSourceEnumApi = {
+    AgentMcp: 'agent_mcp',
     Autoresearch: 'autoresearch',
     ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
@@ -5406,6 +5414,7 @@ export type TasksListParams = {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance
@@ -5566,6 +5575,7 @@ export const TasksListClientProvenance = {
     PosthogDesktop: 'posthog_desktop',
     PosthogMobile: 'posthog_mobile',
     PosthogWeb: 'posthog_web',
+    AgentMcp: 'agent_mcp',
 } as const
 
 export type TasksListExcludeOriginProduct =
@@ -5627,6 +5637,7 @@ export const TasksListPrState = {
 } as const
 
 /**
+ * * `agent_mcp` - agent_mcp
  * * `autoresearch` - autoresearch
  * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
@@ -5658,6 +5669,7 @@ export const TasksListPrState = {
 export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
 
 export const TasksListSourcesItem = {
+    AgentMcp: 'agent_mcp',
     Autoresearch: 'autoresearch',
     ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',

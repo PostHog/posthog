@@ -75,6 +75,8 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentOperation
+                              |AgentOperationReply
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -588,6 +590,8 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentOperation
+                        |AgentOperationReply
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession

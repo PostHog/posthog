@@ -19,9 +19,11 @@ import structlog
 from pydantic import BaseModel
 from rest_framework import exceptions
 
+from posthog.dataclasses import frozen
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES,
@@ -73,6 +75,25 @@ class SandboxRouteResult(BaseModel):
     attached_context_count: int = 0
 
 
+@frozen
+class SandboxDispatchOptions:
+    """How a Run differs from a chat that a person started in the PostHog app.
+
+    The defaults are the chat behavior. A delegated caller (the Agent MCP) narrows the PostHog
+    scopes to its own credential, fixes the result shape, and pins the repository commit.
+    """
+
+    posthog_mcp_scopes: PosthogMcpScopes = "full"
+    output_schema: dict[str, Any] | None = None
+    client_provenance: str | None = None
+    system_prompt_suffix: str | None = None
+    branch: str | None = None
+    extra_run_state: dict[str, Any] | None = None
+
+
+DEFAULT_DISPATCH_OPTIONS = SandboxDispatchOptions()
+
+
 @contextmanager
 def lock_conversation_for_followup(conversation_id: str, team_id: int) -> Iterator[Conversation]:
     """Serialize concurrent sandbox follow-ups for a single conversation.
@@ -116,9 +137,21 @@ class SandboxSession(BaseSandboxService):
         {tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS}
     )
 
-    def __init__(self, conversation: "Conversation", user: User) -> None:
+    def __init__(
+        self, conversation: "Conversation", user: User, *, options: SandboxDispatchOptions = DEFAULT_DISPATCH_OPTIONS
+    ) -> None:
         super().__init__(team=conversation.team, user=user)
         self.conversation: Conversation = conversation
+        self.options = options
+
+    def _system_prompt(self) -> Any:
+        system_prompt = PromptService(self.team, self.user).build()
+        if self.options.system_prompt_suffix:
+            system_prompt = {
+                **system_prompt,
+                "append": f"{system_prompt['append']}\n\n{self.options.system_prompt_suffix}",
+            }
+        return system_prompt
 
     def open(self, data: Mapping[str, Any], *, repository: str | None = None) -> SandboxRouteResult | None:
         task = self.conversation.task
@@ -266,7 +299,7 @@ class SandboxSession(BaseSandboxService):
         deduped = context_service.prune_repeated_entity_refs(attached_context, prior=[])
         wrapped = context_service.wrap_user_message(content, deduped)
 
-        system_prompt = PromptService(self.team, self.user).build()
+        system_prompt = self._system_prompt()
 
         created = tasks_facade.create_and_run_task(
             team=self.team,
@@ -281,6 +314,7 @@ class SandboxSession(BaseSandboxService):
             inactivity_timeout_seconds=SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             # Defer the workflow so the initial run state can carry the PostHog AI keys.
             start_workflow=False,
+            **self._create_kwargs(),
         )
 
         run_dto = created.latest_run
@@ -299,6 +333,7 @@ class SandboxSession(BaseSandboxService):
             pending_user_message=wrapped,
         )
         state_updates = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        state_updates.update(self.options.extra_run_state or {})
         # Persist the enriched run state and conversation linkage together, under the row lock so a
         # concurrent first message in another tab can't double-link. Re-check `task_id is None`
         # inside the lock; a half-write would orphan the run (enriched state, but conversation.task
@@ -317,7 +352,7 @@ class SandboxSession(BaseSandboxService):
         self.conversation.task_id = created.task_id
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
 
-        # Start the run after the commit. `posthog_mcp_scopes="full"` mirrors the legacy
+        # Start the run after the commit. The default `posthog_mcp_scopes="full"` mirrors the legacy
         # first-message path: the agent creates insights, dashboards, and notebooks, so it
         # needs write scopes (the workflow client otherwise defaults to read-only). If the
         # start fails, un-link the conversation and restore its runtime so the user's retry is a
@@ -329,7 +364,7 @@ class SandboxSession(BaseSandboxService):
                 team_id=self.team.id,
                 user_id=self.user.pk,
                 create_pr=False,
-                posthog_mcp_scopes="full",
+                posthog_mcp_scopes=self.options.posthog_mcp_scopes,
             )
         except Exception:
             self.conversation.task_id = None
@@ -428,7 +463,7 @@ class SandboxSession(BaseSandboxService):
         if task is None:
             raise exceptions.ValidationError("This conversation has no backing task to resume.")
 
-        system_prompt = PromptService(self.team, self.user).build()
+        system_prompt = self._system_prompt()
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             current = locked.current_run
@@ -450,6 +485,7 @@ class SandboxSession(BaseSandboxService):
                 "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
             extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
+            extra_state.update(self.options.extra_run_state or {})
 
             new_run = task.create_run(mode="interactive", extra_state=extra_state)
 
@@ -461,7 +497,7 @@ class SandboxSession(BaseSandboxService):
             team_id=self.team.id,
             user_id=self.user.pk,
             create_pr=False,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=self.options.posthog_mcp_scopes,
         )
 
         return SandboxRouteResult(
@@ -472,6 +508,16 @@ class SandboxSession(BaseSandboxService):
             just_created_run=True,
             attached_context_count=len(attached_context),
         )
+
+    def _create_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {}
+        if self.options.output_schema is not None:
+            kwargs["output_schema"] = self.options.output_schema
+        if self.options.client_provenance is not None:
+            kwargs["client_provenance"] = self.options.client_provenance
+        if self.options.branch is not None:
+            kwargs["branch"] = self.options.branch
+        return kwargs
 
     def _collect_seen_entity_refs(self, run: "TaskRun") -> list[tuple[str, str | int]]:
         """Collect `(type, id)` pairs for entities already named in the conversation.

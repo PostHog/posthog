@@ -12790,6 +12790,303 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `needs_input` - Needs input
+     * * `cancelling` - Cancelling
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * * `expired` - Expired
+     */
+    export type AgentOperationStateEnum = typeof AgentOperationStateEnum[keyof typeof AgentOperationStateEnum];
+
+
+    export const AgentOperationStateEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      NeedsInput: 'needs_input',
+      Cancelling: 'cancelling',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+      Expired: 'expired',
+    } as const;
+
+    export interface AgentOperationProject {
+      /** Project id. */
+      id: number;
+      /** Project name. */
+      name: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type AgentOperationPlanStatusEnum = typeof AgentOperationPlanStatusEnum[keyof typeof AgentOperationPlanStatusEnum];
+
+
+    export const AgentOperationPlanStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface AgentOperationPlanItem {
+      /** The plan item. */
+      content: string;
+      /** The state of the plan item.
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AgentOperationPlanStatusEnum;
+    }
+
+    /**
+     * * `client` - Client
+     * * `none` - None
+     */
+    export type AgentOperationApprovalsEnum = typeof AgentOperationApprovalsEnum[keyof typeof AgentOperationApprovalsEnum];
+
+
+    export const AgentOperationApprovalsEnum = {
+      Client: 'client',
+      None: 'none',
+    } as const;
+
+    export interface AgentOperationApprovalOption {
+      /** Send this option's meaning as the reply: allow, allow all, or deny. */
+      option_id: string;
+      /** Option kind, such as allow_once, allow_always or reject_once. */
+      kind: string;
+      /** Option label. */
+      name: string;
+    }
+
+    export interface AgentOperationApproval {
+      /** The pending approval request. */
+      request_id: string;
+      /** A short label for the tool call that waits for approval, such as 'Execute SQL query'. */
+      title: string;
+      /**
+         * The PostHog command that waits for approval, such as 'call execute-sql {...}', cut to 600 characters. Null for other tools.
+         * @nullable
+         */
+      detail: string | null;
+      /** The answers that the sandbox accepts. */
+      options: AgentOperationApprovalOption[];
+    }
+
+    /**
+     * * `complete` - Complete
+     * * `needs_input` - Needs input
+     * * `failed` - Failed
+     */
+    export type AgentOperationResultStatusEnum = typeof AgentOperationResultStatusEnum[keyof typeof AgentOperationResultStatusEnum];
+
+
+    export const AgentOperationResultStatusEnum = {
+      Complete: 'complete',
+      NeedsInput: 'needs_input',
+      Failed: 'failed',
+    } as const;
+
+    export interface AgentOperationLink {
+      /** What the evidence is. */
+      label: string;
+      /**
+         * A link to the evidence, when one exists.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    export interface AgentOperationArtifact {
+      /** The kind of PostHog object, such as insight, dashboard or feature_flag. */
+      type: string;
+      /** The object name. */
+      name: string;
+      /**
+         * A link to the object, when one exists.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    export interface AgentOperationResult {
+      /** What PostHog AI reported at the end of its turn.
+       *
+       * * `complete` - Complete
+       * * `needs_input` - Needs input
+       * * `failed` - Failed */
+      status: AgentOperationResultStatusEnum;
+      /** The answer or plan, in Markdown. */
+      answer: string;
+      /**
+         * The question for the requester, when status is needs_input.
+         * @nullable
+         */
+      question: string | null;
+      /** Assumptions that PostHog AI made. */
+      assumptions: string[];
+      /** Queries, insights and replays used. */
+      evidence: AgentOperationLink[];
+      /** PostHog objects created or changed. */
+      artifacts: AgentOperationArtifact[];
+      /** Suggested next steps. */
+      follow_ups: string[];
+    }
+
+    export interface AgentOperation {
+      /** Operation id. Use it for status, reply and cancel. */
+      id: string;
+      /** Operation state.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `needs_input` - Needs input
+       * * `cancelling` - Cancelling
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled
+       * * `expired` - Expired */
+      state: AgentOperationStateEnum;
+      /**
+         * Why the operation is in this state, for example question, approval_required, deadline, no_result or credential_revoked.
+         * @nullable
+         */
+      state_reason: string | null;
+      /** The goal that the client sent. */
+      goal: string;
+      /** The project that the operation works in. It does not change. */
+      project: AgentOperationProject;
+      /** The PostHog AI conversation. Send it with a new goal to continue. */
+      conversation_id: string;
+      /**
+         * The backing task.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * The current run.
+         * @nullable
+         */
+      run_id: string | null;
+      /**
+         * The repository that PostHog AI reads, if any.
+         * @nullable
+         */
+      repository: string | null;
+      /**
+         * The pinned commit of the repository.
+         * @nullable
+         */
+      resolved_commit: string | null;
+      /** Open the conversation in PostHog. */
+      posthog_url: string;
+      /** PostHog AI's latest plan. */
+      plan: AgentOperationPlanItem[];
+      /** Steps since the cursor that the client sent. */
+      new_steps: string[];
+      /** The number of steps that the operation recorded so far, across all its runs. new_steps shows at most 20 of them. */
+      steps_total: number;
+      /**
+         * PostHog AI's running summary of the work.
+         * @nullable
+         */
+      summary: string | null;
+      /** Whether the client answers approval prompts.
+       *
+       * * `client` - Client
+       * * `none` - None */
+      approvals: AgentOperationApprovalsEnum;
+      /** The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'. */
+      approval: AgentOperationApproval | null;
+      /**
+         * The question or approval that the operation waits for.
+         * @nullable
+         */
+      question: string | null;
+      /** The latest structured result. */
+      result: AgentOperationResult | null;
+      /** Send this cursor with the next status request. */
+      cursor: string;
+      /** Recommended delay before the next status request. */
+      retry_after_seconds: number;
+      /** When the operation started. */
+      created_at: string;
+      /** When the operation stops if it has not finished. */
+      deadline_at: string;
+      /**
+         * When the operation reached a terminal state.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface AgentOperationError {
+      /** Machine-readable error code. */
+      code: string;
+      /** What went wrong and what to do next. */
+      detail: string;
+    }
+
+    export interface AgentOperationReply {
+      /**
+         * The answer to the operation's question, 'allow' or 'deny' for an approval, or a steering message while it runs.
+         * @maxLength 4096
+         */
+      message: string;
+      /**
+         * A unique id for this reply. Send the same id again to recover a lost response without a second delivery.
+         * @maxLength 128
+         */
+      client_request_id: string;
+    }
+
+    export interface AgentOperationStart {
+      /**
+         * The product goal for PostHog AI, written as a complete request. For example: 'Why did signups drop last week?'
+         * @maxLength 4096
+         */
+      goal: string;
+      /**
+         * A unique id that the client makes for this request. Send the same id again to recover a lost response. A new goal needs a new id.
+         * @maxLength 128
+         */
+      client_request_id: string;
+      /**
+         * Optional facts from the client, such as the feature under work or relevant file names. PostHog AI treats it as data, not as instructions.
+         * @maxLength 4096
+         */
+      context?: string;
+      /** Continue the conversation of an earlier operation, so PostHog AI keeps its context. */
+      conversation_id?: string;
+      /**
+         * Optional GitHub repository in 'organization/repository' form, for PostHog AI to read. The repository is read-only.
+         * @maxLength 255
+         * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+         */
+      repository?: string;
+      /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.
+       *
+       * * `client` - Client
+       * * `none` - None */
+      approvals?: AgentOperationApprovalsEnum;
+      /**
+         * Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.
+         * @maxLength 255
+         */
+      ref?: string;
+    }
+
     export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
 
 
@@ -75851,6 +76148,7 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP
      */
     export type TaskClientProvenanceEnum = typeof TaskClientProvenanceEnum[keyof typeof TaskClientProvenanceEnum];
 
@@ -75859,6 +76157,7 @@ export namespace Schemas {
       PosthogDesktop: 'posthog_desktop',
       PosthogMobile: 'posthog_mobile',
       PosthogWeb: 'posthog_web',
+      AgentMcp: 'agent_mcp',
     } as const;
 
     /**
@@ -75925,7 +76224,8 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web */
+       * * `posthog_web` - PostHog Web
+       * * `agent_mcp` - PostHog Agent MCP */
       client_provenance?: TaskClientProvenanceEnum | null;
     }
 
@@ -75995,7 +76295,8 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web */
+       * * `posthog_web` - PostHog Web
+       * * `agent_mcp` - PostHog Agent MCP */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
@@ -109795,7 +110096,8 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web */
+       * * `posthog_web` - PostHog Web
+       * * `agent_mcp` - PostHog Agent MCP */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
@@ -109825,6 +110127,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `agent_mcp` - agent_mcp
      * * `autoresearch` - autoresearch
      * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
@@ -109857,6 +110160,7 @@ export namespace Schemas {
 
 
     export const TaskListSourceEnum = {
+      AgentMcp: 'agent_mcp',
       Autoresearch: 'autoresearch',
       ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
@@ -110989,7 +111293,8 @@ export namespace Schemas {
        *
        * * `posthog_desktop` - PostHog Desktop
        * * `posthog_mobile` - PostHog Mobile
-       * * `posthog_web` - PostHog Web */
+       * * `posthog_web` - PostHog Web
+       * * `agent_mcp` - PostHog Agent MCP */
       client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the run could not start. */
       run_error?: string;
@@ -121170,6 +121475,14 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    };
+
+    export type AgentOperationsRetrieveParams = {
+    /**
+     * The cursor from the previous response. The response then has only the steps after it.
+     * @minLength 1
+     */
+    cursor?: string;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
@@ -133499,6 +133812,7 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP
      * @minLength 1
      */
     client_provenance?: TasksListClientProvenance;
@@ -133662,6 +133976,7 @@ export namespace Schemas {
       PosthogDesktop: 'posthog_desktop',
       PosthogMobile: 'posthog_mobile',
       PosthogWeb: 'posthog_web',
+      AgentMcp: 'agent_mcp',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
@@ -133726,6 +134041,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `agent_mcp` - agent_mcp
      * * `autoresearch` - autoresearch
      * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
@@ -133758,6 +134074,7 @@ export namespace Schemas {
 
 
     export const TasksListSourcesItem = {
+      AgentMcp: 'agent_mcp',
       Autoresearch: 'autoresearch',
       ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',

@@ -201,6 +201,9 @@ export function routeLabel(pathname: string): string {
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return '/mcp'
     }
+    if (pathname === '/agent' || pathname.startsWith('/agent/')) {
+        return '/agent'
+    }
     if (pathname === '/sse' || pathname.startsWith('/sse/')) {
         return '/sse'
     }

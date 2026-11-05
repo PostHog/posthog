@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentOperationApi,
+    AgentOperationReplyApi,
+    AgentOperationStartApi,
+    AgentOperationsRetrieveParams,
     ConversationApi,
     ConversationsListParams,
     CoreMemoryListParams,
@@ -49,6 +53,104 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAgentOperationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_operations/`
+}
+
+/**
+ * Send a product goal to PostHog AI. Returns at once; read the status until the state is terminal.
+ * @summary Start an agent operation
+ */
+export const agentOperationsCreate = async (
+    projectId: string,
+    agentOperationStartApi: AgentOperationStartApi,
+    options?: RequestInit
+): Promise<AgentOperationApi> => {
+    return apiMutator<AgentOperationApi>(getAgentOperationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentOperationStartApi),
+    })
+}
+
+export const getAgentOperationsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AgentOperationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_operations/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_operations/${id}/`
+}
+
+/**
+ * The operation state, the plan, the steps after the cursor, and the result when one exists.
+ * @summary Get agent operation status
+ */
+export const agentOperationsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AgentOperationsRetrieveParams,
+    options?: RequestInit
+): Promise<AgentOperationApi> => {
+    return apiMutator<AgentOperationApi>(getAgentOperationsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentOperationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_operations/${id}/cancel/`
+}
+
+/**
+ * Request cancellation. The state is cancelling until the sandbox stops, then cancelled.
+ * @summary Cancel an agent operation
+ */
+export const agentOperationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentOperationApi> => {
+    return apiMutator<AgentOperationApi>(getAgentOperationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAgentOperationsReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_operations/${id}/reply/`
+}
+
+/**
+ * Answer a question or an approval, or steer a running operation. 'allow', 'allow all' or 'deny' with no pending approval or question returns 409 with code no_pending_approval, because the approval was already answered.
+ * @summary Reply to an agent operation
+ */
+export const agentOperationsReplyCreate = async (
+    projectId: string,
+    id: string,
+    agentOperationReplyApi: AgentOperationReplyApi,
+    options?: RequestInit
+): Promise<AgentOperationApi> => {
+    return apiMutator<AgentOperationApi>(getAgentOperationsReplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentOperationReplyApi),
+    })
+}
 
 export const getConversationsListUrl = (projectId: string, params?: ConversationsListParams) => {
     const normalizedParams = new URLSearchParams()
