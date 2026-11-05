@@ -161,16 +161,19 @@ def flow_holds_credentials(
 _PRESENTATION_STEP_FIELDS = ("name", "description", "created_at", "updated_at")
 
 
+_USER_VALUE_KEYS = frozenset({"value", "default"})
+
+
 def without_bytecode_contracts(node: Any) -> Any:
     # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
     # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
     # nobody changed it, so a content comparison must not count the stamp as content. A stamp only
-    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
-    # content.
+    # ever sits next to a `bytecode` key, and never inside an input's value or a default, which hold
+    # a person's own JSON and stay content as written.
     if isinstance(node, dict):
         derived = "bytecode" in node
         return {
-            key: without_bytecode_contracts(value)
+            key: value if key in _USER_VALUE_KEYS else without_bytecode_contracts(value)
             for key, value in node.items()
             if not (derived and key == "bytecode_contract")
         }
@@ -214,15 +217,27 @@ def credential_reach(variables: Any, actions: Any, edges: Any, template_cache: O
 
 
 def variables_override_defaults(overrides: Any, variables: Any) -> bool:
-    """Whether a test run sets a variable to a value other than the flow's default for it."""
-    if not isinstance(overrides, dict) or not overrides:
+    """Whether a run sets a variable to a value other than the flow's default for it."""
+    if not overrides:
         return False
+    # The worker spreads whatever it gets into the variables, so a list or a string sets keys too.
+    if not isinstance(overrides, dict):
+        return True
     defaults = {
         variable.get("key"): variable.get("default")
         for variable in (variables if isinstance(variables, list) else [])
         if isinstance(variable, dict)
     }
-    return any(key not in defaults or defaults[key] != value for key, value in overrides.items())
+    return any(
+        key not in defaults or not _same_variable_value(defaults[key], value) for key, value in overrides.items()
+    )
+
+
+def _same_variable_value(default: Any, value: Any) -> bool:
+    # Defaults are stored as text, so a typed override such as 5 or true can equal the default "5" or "true".
+    return default == value or (
+        isinstance(default, str) and isinstance(value, (bool, int, float)) and json.dumps(value) == default
+    )
 
 
 def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> set[str]:

@@ -7476,6 +7476,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("edges_only", False, 403),
             # Error handling or a step that writes no variable still decides which steps run.
             ("producer_on_error", False, 403),
+            # A person's JSON can hold keys that look like compiler output.
+            ("producer_json_value", False, 403),
             ("non_writer_inputs", False, 403),
             ("producer_rename", False, 200),
             # The save carries the producer's own secret recovered, and storage keeps it stripped.
@@ -7490,6 +7492,10 @@ class TestHogFlowSecretInputs(APIBaseTest):
             payload["actions"][1]["config"]["inputs"]["api_key"] = {"value": "PRODUCER-SECRET"}
         if name == "non_writer_inputs":
             del payload["actions"][1]["output_variable"]
+        if name == "producer_json_value":
+            payload["actions"][1]["config"]["inputs"]["headers"] = {
+                "value": {"bytecode": 0, "bytecode_contract": "hosts.example.com"}
+            }
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         if staged_draft:
             flow = HogFlow.objects.get(id=flow_id)
@@ -7503,6 +7509,11 @@ class TestHogFlowSecretInputs(APIBaseTest):
             body: dict = {"variables": [{**payload["variables"][0], "default": "attacker.example.com"}]}
         elif name in ("producer_inputs", "non_writer_inputs"):
             producer["config"]["inputs"]["url"] = {"value": "https://attacker.example.com"}
+            body = {"actions": payload["actions"]}
+        elif name == "producer_json_value":
+            producer["config"]["inputs"]["headers"] = {
+                "value": {"bytecode": 0, "bytecode_contract": "attacker.example.com"}
+            }
             body = {"actions": payload["actions"]}
         elif name == "producer_on_error":
             producer["on_error"] = "abort"
@@ -7581,9 +7592,13 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("run_now_away_from_default", "run", {"host": "attacker.example.com"}, True),
             ("run_now_with_the_default", "run", {"host": "example.com"}, False),
             ("batch_away_from_default", "batch_jobs", {"host": "attacker.example.com"}, True),
+            ("batch_with_the_default", "batch_jobs", {"host": "example.com"}, False),
+            # The worker spreads a list into the variables too, so its keys can override.
+            ("batch_with_a_list", "batch_jobs", ["attacker.example.com"], True),
             # Every firing of a schedule runs with its overrides.
             ("schedule_away_from_default", "schedules", {"host": "attacker.example.com"}, True),
             ("schedule_with_the_default", "schedules", {"host": "example.com"}, False),
+            ("schedule_edited_away_from_default", "schedule_edit", {"host": "attacker.example.com"}, True),
         ]
     )
     @patch(
@@ -7595,7 +7610,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         self,
         _name: str,
         endpoint: str,
-        overrides: dict,
+        overrides: Any,
         refused: bool,
         mock_test: MagicMock,
         mock_run: MagicMock,
@@ -7603,32 +7618,43 @@ class TestHogFlowSecretInputs(APIBaseTest):
     ) -> None:
         for mock in (mock_test, mock_run):
             mock.return_value = MagicMock(status_code=200, json=lambda: {"status": "queued", "invocation_id": "i"})
+        schedule = {"rrule": "FREQ=DAILY", "starts_at": "2026-01-01T00:00:00Z"}
         endpoints: dict[str, tuple[str, str, dict[str, Any]]] = {
             "invocations": ("event", "invocations/", {"mock_async_functions": False}),
             "mocked_invocations": ("event", "invocations/", {"mock_async_functions": True}),
             "run": ("schedule", "run/", {"variables": overrides}),
             "batch_jobs": ("batch", "batch_jobs", {"variables": overrides}),
-            "schedules": (
-                "schedule",
-                "schedules",
-                {"rrule": "FREQ=DAILY", "starts_at": "2026-01-01T00:00:00Z", "variables": overrides},
-            ),
+            "schedules": ("schedule", "schedules", {**schedule, "variables": overrides}),
+            "schedule_edit": ("schedule", "schedules/{schedule_id}", {"variables": overrides}),
         }
         trigger, path, body = endpoints[endpoint]
         if path == "invocations/":
             body["globals"] = {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides}
         payload = self._linked_flow_payload()
         payload["actions"][0]["config"] = {**payload["actions"][0]["config"], "type": trigger}
-        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
-        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
+        flow_url = (
+            f"/api/projects/{self.team.id}/hog_flows/"
+            + self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        )
+        HogFlow.objects.filter(id=flow_url.rsplit("/", 1)[1]).update(status=HogFlow.State.ACTIVE)
+        if endpoint == "schedule_edit":
+            schedule_id = self.client.post(f"{flow_url}/schedules", schedule, format="json").json()["id"]
+            path = path.format(schedule_id=schedule_id)
+        stored = (HogFlowBatchJob.objects.count(), list(HogFlowSchedule.objects.values_list("variables", flat=True)))
         self._make_session_stale()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{path}", body, format="json")
+        send = self.client.patch if endpoint == "schedule_edit" else self.client.post
+        response = send(f"{flow_url}/{path}", body, format="json")
 
-        assert (response.status_code == 403) == refused, response.json()
-        schedules = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules").json()
-        dispatched = mock_test.called or mock_run.called or mock_batch.called or bool(schedules)
-        assert dispatched == (not refused)
+        if refused:
+            assert response.status_code == 403, response.json()
+            assert not (mock_test.called or mock_run.called or mock_batch.called)
+            assert stored == (
+                HogFlowBatchJob.objects.count(),
+                list(HogFlowSchedule.objects.values_list("variables", flat=True)),
+            )
+        else:
+            assert response.status_code in (200, 201), response.json()
 
     def test_a_test_run_of_a_step_only_in_the_draft_gets_its_own_secret(self) -> None:
         # The builder tests the staged draft by sending it as `configuration`, so a secret saved only
