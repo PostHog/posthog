@@ -133424,6 +133424,10 @@ export namespace Schemas {
      */
     created_after?: string;
     /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string;
+    /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
@@ -133686,6 +133690,10 @@ export namespace Schemas {
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
     created_after?: string;
+    /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string;
     /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100

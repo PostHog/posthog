@@ -443,6 +443,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
+    created_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.'
+        ),
     exclude: zod
         .array(zod.string())
         .max(signalsReportsListQueryExcludeMax)
