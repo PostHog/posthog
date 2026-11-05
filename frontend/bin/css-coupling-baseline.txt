@@ -6,7 +6,6 @@
 frontend/src/layout/navigation-3000/components/SimpleLayoutFrame.tsx -> .Navigation3000
 frontend/src/layout/navigation-3000/layout-modes/TodayFramedLayout.tsx -> .TodayAppLayout
 frontend/src/layout/navigation-3000/layout-modes/TodayPhoneLayout.tsx -> .TodayAppLayout
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> .TodayPane
 frontend/src/layout/today/TodayContextPanelContent.tsx -> .TodayContextPanelContent
 frontend/src/layout/today/TodayContextPanelLauncher.tsx -> .TodayContextPanelButton
 frontend/src/layout/today/TodayPaneRow.tsx -> .TodayIconBadge

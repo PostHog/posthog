@@ -1,3 +1,5 @@
+import './TodayShell.scss'
+
 import type { ReactNode } from 'react'
 
 import { Autocomplete, AutocompleteList } from '@posthog/quill'
