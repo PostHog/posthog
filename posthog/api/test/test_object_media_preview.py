@@ -9,7 +9,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia, User
+from posthog.models import EventDefinition, ObjectMediaPreview, Team, UploadedMedia, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -132,29 +134,53 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
             ("event_definitions", "/api/projects/{team}/event_definitions/"),
         ]
     )
-    def test_screenshot_access_checks_do_not_add_queries_per_preview(self, _name, path):
+    def test_screenshot_access_checks_stay_bounded_to_the_project(self, _name, path):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
 
-        def add_screenshots(count: int) -> None:
-            for _ in range(count):
-                session_id = str(uuid.uuid4())
-                SessionRecording.objects.create(team=self.team, session_id=session_id, distinct_id="user")
-                asset = ExportedAsset.objects.create(
-                    team=self.team, export_format="image/png", export_context={"session_recording_id": session_id}
-                )
-                ObjectMediaPreview.objects.create(
-                    team=self.team, event_definition=event_definition, exported_asset=asset
-                )
+        def add_screenshot(team: Team, session_id: str, event: EventDefinition) -> None:
+            SessionRecording.objects.create(team=team, session_id=session_id, distinct_id="user")
+            asset = ExportedAsset.objects.create(
+                team=team, export_format="image/png", export_context={"session_recording_id": session_id}
+            )
+            ObjectMediaPreview.objects.create(team=team, event_definition=event, exported_asset=asset)
 
-        def count_queries() -> int:
+        add_screenshot(other_team, "other-project-session", EventDefinition.objects.create(team=other_team, name="x"))
+
+        def capture() -> list[str]:
             with CaptureQueriesContext(connection) as queries:
                 response = self.client.get(path.format(team=self.team.pk))
             assert response.status_code == status.HTTP_200_OK
-            return len(queries)
+            return [query["sql"] for query in queries]
 
-        add_screenshots(1)
-        self.client.get(path.format(team=self.team.pk))
-        with_one = count_queries()
-        add_screenshots(3)
+        add_screenshot(self.team, str(uuid.uuid4()), event_definition)
+        capture()
+        with_one = capture()
+        for _ in range(3):
+            add_screenshot(self.team, str(uuid.uuid4()), event_definition)
+        with_four = capture()
 
-        assert count_queries() == with_one
+        assert len(with_four) == len(with_one)
+        assert not any("other-project-session" in sql for sql in with_four)
+
+    @parameterized.expand(
+        [
+            ("without_export_scope", ["event_definition:read"], 0),
+            ("with_export_scope", ["event_definition:read", "export:read"], 1),
+        ]
+    )
+    def test_scoped_key_needs_export_read_to_get_export_links(self, _name, scopes, expected_links):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=self.user)
+        ObjectMediaPreview.objects.create(team=self.team, event_definition=event_definition, exported_asset=asset)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/object_media_previews/?event_definition={event_definition.pk}",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == expected_links

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
 from posthog.models.utils import strict_fetch
-from posthog.permissions import is_scout_sandbox_request
+from posthog.permissions import is_scout_sandbox_request, scopes_caller_lacks
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
 from products.exports.backend.facade.auth import viewable_exported_asset_ids
@@ -24,13 +24,16 @@ def visible_exported_asset_ids(previews: Iterable[ObjectMediaPreview], view: obj
     """Ids of the exported assets behind these previews that the requesting user may read.
 
     An exported asset's URL is a long-lived token that works without a session, so it is only handed to
-    viewers the exports API would serve the asset to. Without a request user and access control, no
-    exported asset is visible.
+    viewers the exports API would serve the asset to: the user must pass its access checks, and a scoped
+    token must hold `export:read`. Without a request user and access control, no exported asset is visible.
     """
+    request = getattr(view, "request", None)
     user_access_control = getattr(view, "user_access_control", None)
-    user_id = getattr(getattr(getattr(view, "request", None), "user", None), "id", None)
+    user_id = getattr(getattr(request, "user", None), "id", None)
     assets = [preview.exported_asset for preview in previews if preview.exported_asset is not None]
     if user_access_control is None or user_id is None or not assets:
+        return set()
+    if scopes_caller_lacks(request, ["export:read"]):
         return set()
     return viewable_exported_asset_ids(assets, user_id=user_id, user_access_control=user_access_control)
 
@@ -143,7 +146,13 @@ class ObjectMediaPreviewViewSet(
             refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.select_related(*PREVIEW_SELECT_RELATED, "event_definition").order_by("-updated_at", "-id")
+        # The mixin applies its team filter only after this method returns, and the access check below
+        # loads every exported preview in the queryset, so scope to the team first.
+        queryset = (
+            queryset.filter(team_id=self.team_id)
+            .select_related(*PREVIEW_SELECT_RELATED, "event_definition")
+            .order_by("-updated_at", "-id")
+        )
         event_definition_id = self.request.query_params.get("event_definition")
         if event_definition_id:
             queryset = queryset.filter(event_definition_id=event_definition_id)
