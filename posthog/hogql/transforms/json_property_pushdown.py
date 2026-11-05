@@ -38,8 +38,8 @@ def _matched_property_access(node: ast.AST, context: HogQLContext):
     if not isinstance(table_type, (ast.LazyTableType, ast.LazyJoinType)):
         return None
     # A property access on a table of event rows, such as the flag calls union or a join to events, reads with the
-    # team's event property types and decodes JSON escapes differently from JSONExtractString. The union also
-    # validates its reads before this rewrite runs, so a read that the rewrite adds would skip that validation.
+    # team's event property types and decodes JSON escapes differently from JSONExtractString. The union validates
+    # its reads before this rewrite runs. A read that the rewrite adds would skip that validation.
     if isinstance(table_type.resolve_database_table(context), EVENT_ROW_TABLES):
         return None
 

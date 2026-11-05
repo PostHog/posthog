@@ -784,8 +784,8 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
         self, _name: str, mode: FlagEvaluationsMode
     ):
-        # Mode 1 writes a call to both tables, and before the coverage start only events is sure to hold every call.
-        # Mode 2 writes it only to flag_evaluations.
+        # Mode 1 writes a call to both tables. Before the coverage start, only events is sure to hold every call.
+        # Mode 2 writes a call only to flag_evaluations.
         timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
         if mode == READ:
             _create_event(
@@ -858,79 +858,23 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
 
-    @parameterized.expand(
-        [
-            param(f"{name}_{mode.name.lower()}", mode, expressions, properties, expected, **options)
-            for name, expressions, properties, expected, options in (
-                (
-                    "text_in_a_numeric_property",
-                    "JSONExtractString(properties, 'probe')",
-                    {"probe": "text"},
-                    ("text",),
-                    {},
-                ),
-                (
-                    "escaped_newline",
-                    "JSONExtractString(properties, 'probe')",
-                    {"probe": "a\nb"},
-                    ("a\nb",),
-                    {"numeric_probe": False},
-                ),
-                (
-                    "parsed_as_a_number",
-                    "toFloatOrZero(JSONExtractString(properties, 'probe'))",
-                    {"probe": "12.5"},
-                    (12.5,),
-                    {},
-                ),
-                (
-                    "aliased_scan",
-                    "JSONExtractString(e.properties, 'probe')",
-                    {"probe": "text"},
-                    ("text",),
-                    {"alias": "e"},
-                ),
-                (
-                    "person_properties_on_events",
-                    "JSONExtractString(person.properties, 'probe')",
-                    {},
-                    ("text",),
-                    {"person_properties": {"probe": "text"}},
-                ),
-                # The flat key reads the column name that the export of the nested path uses.
-                (
-                    "nested_path_and_flat_key",
-                    "properties.a.b, JSONExtractString(properties, 'a___b')",
-                    {"a": {"b": "nested"}, "a___b": "flat"},
-                    ("nested", "flat"),
-                    {},
-                ),
-            )
-            for mode in (READ, ONLY)
-        ]
-    )
-    def test_json_extract_string_reads_the_raw_json_value(
-        self,
-        _name: str,
-        mode: FlagEvaluationsMode,
-        expressions: str,
-        properties: dict,
-        expected: tuple,
-        alias: str | None = None,
-        person_properties: dict | None = None,
-        numeric_probe: bool = True,
-    ):
-        if numeric_probe:
-            for kind in (PropertyDefinition.Type.EVENT, PropertyDefinition.Type.PERSON):
-                PropertyDefinition.objects.create(team=self.team, name="probe", property_type="Numeric", type=kind)
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_json_extract_string_reads_the_raw_json_value(self, _name: str, mode: FlagEvaluationsMode):
+        for name, kind in (
+            ("probe", PropertyDefinition.Type.EVENT),
+            ("amount", PropertyDefinition.Type.EVENT),
+            ("probe", PropertyDefinition.Type.PERSON),
+        ):
+            PropertyDefinition.objects.create(team=self.team, name=name, property_type="Numeric", type=kind)
         now = datetime.now(UTC)
         person = _create_person(distinct_ids=["probe"], team_id=self.team.pk)
+        properties = {"probe": "text", "amount": "12.5", "newline": "a\nb", "a": {"b": "nested"}, "a___b": "flat"}
         for event in ("$pageview", "$feature_flag_called"):
             _create_event(
                 event=event,
                 distinct_id="probe",
                 person_id=person.uuid,
-                person_properties=person_properties or {},
+                person_properties={"probe": "text"},
                 team=self.team,
                 timestamp=now - timedelta(days=1),
                 properties={"$feature_flag": "probe-flag", "source": "events", **properties},
@@ -941,23 +885,32 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             timestamp=now - timedelta(days=1),
             distinct_id="probe",
             person_id=person.uuid,
-            person_properties=person_properties or {},
+            person_properties={"probe": "text"},
             properties={"source": "flag_evaluations", **properties},
         )
         flush_persons_and_events()
-        table, prefix = (f"events AS {alias}", f"{alias}.") if alias else ("events", "")
 
-        response = self._run(
-            f"SELECT {prefix}event, {prefix}properties.source, {expressions} FROM {table} "
-            f"WHERE {prefix}{MIXED} AND {prefix}distinct_id = 'probe' ORDER BY {prefix}event",
-            mode,
-            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-        )
+        def run(alias: str, expressions: str):
+            return self._run(
+                f"SELECT {alias}.event, {alias}.properties.source, {expressions} FROM events AS {alias} "
+                f"WHERE {alias}.{MIXED} AND {alias}.distinct_id = 'probe' ORDER BY {alias}.event",
+                mode,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ).results
 
-        assert response.results == [
-            ("$feature_flag_called", "flag_evaluations", *expected),
-            ("$pageview", "events", *expected),
-        ]
+        def rows(*values) -> list[tuple]:
+            return [("$feature_flag_called", "flag_evaluations", *values), ("$pageview", "events", *values)]
+
+        # The flat key `a___b` reads the column name that the export of the nested path `a.b` uses.
+        assert run(
+            "events",
+            "JSONExtractString(properties, 'probe'), toFloatOrZero(JSONExtractString(properties, 'amount')), "
+            "JSONExtractString(properties, 'newline'), properties.a.b, JSONExtractString(properties, 'a___b')",
+        ) == rows("text", 12.5, "a\nb", "nested", "flat")
+        assert run("e", "JSONExtractString(e.properties, 'probe')") == rows("text")
+        # The union refuses a query that reads both `properties` and `person.properties`. This query reads person
+        # properties alone for that reason.
+        assert run("events", "JSONExtractString(person.properties, 'probe')") == rows("text")
 
     def test_prewhere_reads_both_tables(self):
         response = self._run(
