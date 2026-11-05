@@ -20,6 +20,10 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",

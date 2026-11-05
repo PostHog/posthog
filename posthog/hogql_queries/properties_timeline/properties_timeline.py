@@ -28,7 +28,7 @@ from posthog.models.person.person import Person
 from posthog.models.property.util import count_hogql_properties
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.product_analytics.backend.facade import queries as product_analytics_queries
 
 
@@ -180,8 +180,8 @@ class PropertiesTimeline:
         # Only the series' event or action selects events. Its property filters name key properties,
         # and filtering on them would hide the changes the timeline shows.
         if isinstance(series, ActionsNode):
-            action = Action.objects.filter(pk=series.id, team__project_id=team.project_id).first()
-            return action_to_expr(action) if action is not None else ast.Constant(value=False)
+            actions = get_actions(action_ids=[series.id], project_id=team.project_id)
+            return action_to_expr(actions[0]) if actions else ast.Constant(value=False)
         if series.event is None:
             return None
         return ast.CompareOperation(

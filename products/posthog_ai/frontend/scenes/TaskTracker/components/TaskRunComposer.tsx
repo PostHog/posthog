@@ -44,6 +44,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { QuillAttachedContextChips } from '../../../components/quill/QuillAttachedContextChips'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
@@ -282,7 +283,7 @@ export function TaskRunComposer({
                             <>
                                 {repository && <QuillRunRepositoryChip repository={repository} branch={branch} />}
                                 {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
-                                <AttachedContextChips />
+                                <QuillAttachedContextChips taskId={logicProps.taskId} />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </>
                         }
@@ -296,6 +297,7 @@ export function TaskRunComposer({
                                     onAddContext={() => setContextPickerOpen(true)}
                                 />
                                 <QuillAttachedContextPicker
+                                    taskId={logicProps.taskId}
                                     open={contextPickerOpen}
                                     onOpenChange={setContextPickerOpen}
                                     anchor={groupRef}
@@ -318,13 +320,13 @@ export function TaskRunComposer({
                         <Composer.Frame ref={labelRef}>
                             <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
                                 {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
-                                <AttachedContextChips />
+                                <AttachedContextChips taskId={logicProps.taskId} />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </Composer.Header>
                             {field}
                             <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                 <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
-                                <AttachedContextPicker />
+                                <AttachedContextPicker taskId={logicProps.taskId} />
                                 {pickers(modelPicker, modePicker)}
                                 <div className="ml-auto">
                                     <ContextUsageChip />

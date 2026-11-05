@@ -27,7 +27,7 @@ from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
-from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     ALERT_ALLOW_PATTERNS_KEY,
@@ -77,6 +77,7 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -89,7 +90,13 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    ActionabilityChoice,
+    SourceIssue,
+    SourceSuggestion,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .implementation_repositories import (
@@ -117,6 +124,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
 from .ranking.public_outcomes import RankingOutcome
@@ -217,15 +225,17 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
-    "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
-    "without the investigation agent. "
+    "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
+    "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
+    "notifications, and investigations still run with `off`. "
     "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
     f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
     "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
     "matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, "
     "an alert must match one of them. An alert that matches a block pattern is dropped, also when it "
     "matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no "
-    "backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+    "backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. "
+    "Other sources reject these keys."
 )
 
 
@@ -577,16 +587,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
-            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
-            "stop new scores; events written before stay. Turning it on does not enroll a project that "
-            "anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
+            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
+            "this project's active trends insights and writes the results as $anomaly_score events, which "
+            "are not billed. True by default. False still stops new scores; events written before stay. "
+            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
         help_text=(
-            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
-            "PostHog decides which projects anomaly scoring covers."
+            "Whether the anomaly scoring rollout covers this project. PostHog decides which projects it "
+            "covers. A covered project is scored only while its Product analytics source is on."
         )
     )
     reports_generated_today = serializers.SerializerMethodField(
@@ -650,7 +661,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
-        return covers_team(parse_config(read_payload()), obj.team)
+        return enrolls_team(parse_config(read_payload()), obj.team)
 
     @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
@@ -2050,6 +2061,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "request. Null when the team tracks no issues, or the issue could not be opened."
         ),
     )
+    source_issues = serializers.SerializerMethodField(
+        help_text=(
+            "URLs of the external issues this report is about, as recorded by the scout or person that "
+            "filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. "
+            "Empty when the report names none. Issues the report learned about from a GitHub issue signal "
+            "are not listed here."
+        ),
+    )
     tracker_issue_reference = serializers.SerializerMethodField(
         help_text=(
             "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null "
@@ -2150,6 +2169,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "tracker_issue_url",
             "tracker_issue_reference",
             "tracker_issue_error",
+            "source_issues",
             "work_state",
             "assignee",
             "refund",
@@ -2505,6 +2525,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         return tracker.issue_url or None
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_source_issues(self, obj: SignalReport) -> list[str]:
+        by_report: dict[str, list[SourceIssue]] | None = self.context.get("source_issues_map")
+        if by_report is None:
+            by_report = source_issues_by_report(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return [issue.url for issue in by_report.get(str(obj.id), [])]
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_tracker_issue_reference(self, obj: SignalReport) -> str | None:
         tracker = self._get_tracker_issue(obj)
@@ -2621,16 +2648,30 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
-            "Sort key from the ranker named by the list response's ranker field, for sort=recommended only. "
-            "Lower keys rank first, so rows from several requests merge in the order of one request. "
-            "For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, "
-            "and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the "
-            "priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort."
+            "Sort key from the ranker named by the list response's ranker field, for sort=recommended and "
+            "sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one "
+            "request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from "
+            "0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses "
+            "the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the "
+            "stored personal ranking gets its position in that ranking from 0, and every other report gets the "
+            "number of those positions plus its key from the recommended ranker. Null for every other sort."
+        ),
+    )
+    personal_tier = serializers.SerializerMethodField(
+        help_text=(
+            "The tier your personal ranking gave this report, for sort=personal. Null when the language model "
+            "did not rank the report, and for every other sort."
+        ),
+    )
+    personal_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why your personal ranking put this report where it is, for sort=personal. Null when the language "
+            "model did not rank the report, and for every other sort."
         ),
     )
 
     class Meta(SignalReportSerializer.Meta):
-        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
+        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key", "personal_tier", "personal_reason"]
         read_only_fields = fields
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
@@ -2638,7 +2679,26 @@ class SignalReportListSerializer(SignalReportSerializer):
         if ranker is None:
             return None
         score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        return inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        key = inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        personal_order: PersonalListOrder | None = self.context.get("personal_order")
+        if personal_order is None:
+            return key
+        personal_rank = getattr(obj, "personal_rank", None)
+        if personal_rank is not None:
+            return float(personal_rank - 1)
+        return len(personal_order.report_ids) + key
+
+    def _personal_note(self, obj: SignalReport) -> PersonalRowNote | None:
+        personal_order: PersonalListOrder | None = self.context.get("personal_order")
+        return personal_order.notes.get(str(obj.id)) if personal_order is not None else None
+
+    def get_personal_tier(self, obj: SignalReport) -> str | None:
+        note = self._personal_note(obj)
+        return note.tier if note is not None else None
+
+    def get_personal_reason(self, obj: SignalReport) -> str | None:
+        note = self._personal_note(obj)
+        return note.reason if note is not None else None
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
@@ -2669,6 +2729,13 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
+    ranking_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal "
+            "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
+        ),
+    )
     count_only = serializers.BooleanField(
         required=False,
         default=False,

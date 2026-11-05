@@ -11,7 +11,7 @@ outer form (no <form> of their own, which the browser would drop) and submit thr
         <select id="email_sending_tier" name="tier">
             {% for option in tiers %}
                 <option value="{{ option.tier }}" {% if option.selected %}selected{% endif %}>
-                    {{ option.tier }} — {{ option.per_hour }}/hour, {{ option.per_day }}/day
+                    {{ option.tier }} — {{ option.per_day }}/day
                 </option>
             {% endfor %}
         </select>

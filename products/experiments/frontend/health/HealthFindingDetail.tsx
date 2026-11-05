@@ -5,7 +5,7 @@ import { HealthCheckRuleSection } from './HealthCheckRuleSection'
 import { HealthFindingFixes } from './HealthFindingFixes'
 import { HealthFindingSeverityIcon } from './HealthFindingSeverityIcon'
 import type { HealthPanelCheck } from './healthPanelChecks'
-import { HEALTH_FINDING_SEVERITY_LABELS, type HealthPanelFinding } from './healthPanelFindings'
+import type { HealthPanelFinding } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
 import { useHealthFindingReporting } from './useHealthFindingReporting'
 
@@ -31,23 +31,18 @@ export function HealthFindingDetail({
         severity: finding.severity,
         reason: finding.reason ?? undefined,
     })
-    const status = [HEALTH_FINDING_SEVERITY_LABELS[finding.severity], check ? `Found by "${check.name}"` : null]
-        .filter(Boolean)
-        .join(' · ')
 
     return (
-        <div className="flex flex-col gap-4" data-attr="experiment-health-finding-detail">
-            <div className="flex flex-col gap-1 min-w-0">
-                <h3 className="m-0 flex items-center gap-2 text-base font-semibold">
+        <div className="flex flex-col gap-6" data-attr="experiment-health-finding-detail">
+            <h3 className="m-0 flex min-w-0 items-start gap-2 text-xl font-semibold">
+                <span className="flex pt-1">
                     <HealthFindingSeverityIcon severity={finding.severity} />
-                    <span>{finding.title}</span>
-                </h3>
-                <span className="pl-6 text-xs text-secondary">{status}</span>
-            </div>
+                </span>
+                <span>{finding.title}</span>
+            </h3>
             <HealthPanelSection title="What we found">
                 <p className="m-0 max-w-prose whitespace-pre-line">{finding.detail}</p>
             </HealthPanelSection>
-            {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} />}
             {finding.actions.length > 0 && (
                 <HealthFindingFixes
                     actions={finding.actions}
@@ -57,6 +52,7 @@ export function HealthFindingDetail({
                     }}
                 />
             )}
+            {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} />}
             {check && <HealthCheckRuleSection check={check} units={units} checkedAt={checkedAt} />}
         </div>
     )

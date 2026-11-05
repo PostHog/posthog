@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { runHog, TEST_CREDENTIALS } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 // hog logins for each host, the first one the last login.
 function storedLogins(...hosts: string[]): { files: Record<string, string>; keychain: Record<string, string> } {
@@ -42,7 +42,7 @@ describe('global options', () => {
             files: { '/work/a.yaml': 'name: a\nquery: SELECT 1\n' },
             respond: () => ({ status: 200, body: { results: [] } }),
         })
-        expect(result.json().plan).toEqual([expect.objectContaining({ action: 'create' })])
+        expect(result.json()).toMatchObject({ plan: [expect.objectContaining({ action: 'create' })] })
         expect(result.exitCode).toBe(0)
     })
 
@@ -101,6 +101,7 @@ describe('global options', () => {
     test.each([
         ['an env flag that is not a boolean', ['endpoints', 'list'], { HOG_DEBUG: 'maybe' }],
         ['a rate limit that is not a number', ['endpoints', 'list'], { HOG_RATE_LIMIT: 'fast' }],
+        ['a host with a password in it', ['endpoints', 'list'], { HOG_HOST: 'https://user:secret@ph.example.com' }],
     ])('%s is a usage error', async (_name, argv, env) => {
         const result = await runHog(argv, { env: { ...AGENT, ...TEST_CREDENTIALS, ...env } })
         expect(result.exitCode).toBe(2)
@@ -109,7 +110,7 @@ describe('global options', () => {
 
     test('HOG_OUTPUT picks the format', async () => {
         const result = await runHog(['commands'], { env: { HOG_OUTPUT: 'json' }, stdoutIsTTY: true })
-        expect(() => JSON.parse(result.stdout)).not.toThrow()
+        expect(() => readJson(result.stdout)).not.toThrow()
     })
 
     test('--skip-ssl-verification turns off certificate checks', async () => {
