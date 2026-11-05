@@ -94,7 +94,7 @@ export const NothingMatches: Story = {
     },
     decorators: [scene(0)],
     play: async ({ canvasElement }) => {
-        await openPart(canvasElement, 'triggers', 'Triggers')
+        await openPart(canvasElement, 'triggers', 'Quick filters')
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="llma-evaluation-create-volume-none"]')) {
                 throw new Error('Waiting for the volume estimate')
