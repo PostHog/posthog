@@ -89984,6 +89984,10 @@ export namespace Schemas {
       recordings_queued_for_deletion: boolean;
       /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
+      /** Number of requested person IDs that exist only in analytics data, with no person record. Their events and recordings are queued for deletion as requested, and unless keep_person was true they are removed from analytics shortly after the request completes. Always 0 when deleting by distinct_ids. */
+      orphaned_persons_found: number;
+      /** Requested IDs or distinct IDs that matched no person, so nothing was deleted for them. A distinct ID listed here can still have its recordings deleted if delete_recordings was true. */
+      ids_not_found: string[];
     }
 
     export interface PersonCohortsResponse {

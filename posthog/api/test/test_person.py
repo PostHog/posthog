@@ -1013,6 +1013,44 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertTrue(data["recordings_queued_for_deletion"])
         self.assertEqual(data["deletion_errors"], [])
 
+    @parameterized.expand([("sync", False), ("queued", True)])
+    def test_bulk_delete_ids_deletes_person_found_only_in_clickhouse(self, _name, queued):
+        orphan_uuid = str(uuid4())
+        create_person_in_ch(uuid=orphan_uuid, team_id=self.team.pk, version=3, properties={"email": "a@example.com"})
+        for distinct_id in ["orphan-did-1", "orphan-did-2"]:
+            create_person_distinct_id(team_id=self.team.pk, distinct_id=distinct_id, person_id=orphan_uuid, version=0)
+        missing_uuid = str(uuid4())
+        started: list[list[str]] = []
+
+        with (
+            override_settings(PERSON_BULK_DELETE_ASYNC=queued),
+            mock.patch(
+                "posthog.models.person.bulk_delete._start_recording_workflows",
+                side_effect=lambda _t, persons, *_a: started.extend(sorted(p.distinct_ids) for p in persons),
+            ),
+        ):
+            response = self.client.post(
+                "/api/person/bulk_delete/",
+                {"ids": [orphan_uuid.upper(), missing_uuid], "delete_events": True, "delete_recordings": True},
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        data = response.json()
+        assert data["persons_found"] == 0
+        assert data["orphaned_persons_found"] == 1
+        assert data["ids_not_found"] == [missing_uuid]
+        assert data["events_queued_for_deletion"] is True
+        assert data["recordings_queued_for_deletion"] is True
+        assert list(AsyncDeletion.objects.filter(team_id=self.team.pk).values_list("deletion_type", "key")) == [
+            (DeletionType.Person, orphan_uuid)
+        ]
+        assert started == [["orphan-did-1", "orphan-did-2"]]
+        ch_persons = sync_execute(
+            "SELECT is_deleted, version FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": orphan_uuid},
+        )
+        assert ch_persons == [(1, 4)]
+
     def test_bulk_delete_validation_too_many_ids(self):
         """Test that bulk_delete rejects more than 1000 IDs"""
         # Test with ids

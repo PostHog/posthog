@@ -119,6 +119,17 @@ def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) ->
     ]
 
 
+def live_ch_distinct_ids_for_persons(team_id: int, uuids: list[str]) -> dict[str, list[str]]:
+    """Map each person uuid to the distinct ids whose current, live ClickHouse mapping points at it."""
+    if not uuids:
+        return {}
+    by_uuid: dict[str, list[str]] = {}
+    for mapping in _ch_mappings_for_persons(team_id, set(uuids)):
+        if not mapping.winner_is_deleted:
+            by_uuid.setdefault(mapping.winner_person_id, []).append(mapping.distinct_id)
+    return {uuid: sorted(by_uuid.get(uuid, [])) for uuid in uuids}
+
+
 def tombstone_orphaned_ch_persons(
     team_id: int,
     orphans: list[OrphanedPerson],

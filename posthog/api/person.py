@@ -60,6 +60,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import (
     DeletionRun,
+    OrphanedPersonDeletion,
+    delete_orphaned_ch_persons,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
@@ -329,6 +331,16 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         "the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
+    )
+    orphaned_persons_found = serializers.IntegerField(
+        help_text="Number of requested person IDs that exist only in analytics data, with no person record. "
+        "Their events and recordings are queued for deletion as requested, and unless keep_person was true they "
+        "are removed from analytics shortly after the request completes. Always 0 when deleting by distinct_ids."
+    )
+    ids_not_found = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Requested IDs or distinct IDs that matched no person, so nothing was deleted for them. "
+        "A distinct ID listed here can still have its recordings deleted if delete_recordings was true.",
     )
 
 
@@ -1168,6 +1180,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        orphans = self._delete_orphaned_persons(
+            ids, persons, keep_person=keep_person, delete_events=delete_events, delete_recordings=delete_recordings
+        )
         if not keep_person or delete_recordings:
             queue_person_training_deletion(
                 self.team_id,
@@ -1201,14 +1216,39 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
             )
 
+        matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
             "persons_queued_for_deletion": 0,
-            "events_queued_for_deletion": delete_events and len(persons) > 0,
-            "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "events_queued_for_deletion": delete_events and len(persons) + len(orphans.orphaned_uuids) > 0,
+            "recordings_queued_for_deletion": delete_recordings and len(persons) + len(orphans.orphaned_uuids) > 0,
             "deletion_errors": errors,
+            "orphaned_persons_found": len(orphans.orphaned_uuids),
+            "ids_not_found": orphans.not_found_uuids
+            or [distinct_id for distinct_id in distinct_ids or [] if distinct_id not in matched],
         }
+
+    def _delete_orphaned_persons(
+        self,
+        ids: builtins.list[str] | None,
+        persons: builtins.list[Person],
+        *,
+        keep_person: bool,
+        delete_events: bool,
+        delete_recordings: bool,
+    ) -> OrphanedPersonDeletion:
+        if not ids:
+            return OrphanedPersonDeletion(orphaned_uuids=[], not_found_uuids=[])
+        return delete_orphaned_ch_persons(
+            self.team_id,
+            ids,
+            persons,
+            delete_profile=not keep_person,
+            delete_events=delete_events,
+            delete_recordings=delete_recordings,
+            actor=cast(User, self.request.user),
+        )
 
     def _queue_bulk_delete_persons(
         self,
@@ -1227,6 +1267,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # every distinct ID of each resolved person, so only those unmatched IDs are handed over.
         matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
         unmatched = [distinct_id for distinct_id in distinct_ids or [] if distinct_id not in matched]
+        orphans = self._delete_orphaned_persons(
+            ids, persons, keep_person=keep_person, delete_events=delete_events, delete_recordings=delete_recordings
+        )
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=actor)
         persons_queued = queue_person_deletion(
@@ -1243,9 +1286,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "persons_found": len(persons),
             "persons_deleted": 0,
             "persons_queued_for_deletion": persons_queued if not keep_person else 0,
-            "events_queued_for_deletion": delete_events and len(persons) > 0,
-            "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "events_queued_for_deletion": delete_events and len(persons) + len(orphans.orphaned_uuids) > 0,
+            "recordings_queued_for_deletion": delete_recordings and len(persons) + len(orphans.orphaned_uuids) > 0,
             "deletion_errors": [],
+            "orphaned_persons_found": len(orphans.orphaned_uuids),
+            "ids_not_found": orphans.not_found_uuids or unmatched,
         }
 
     @extend_schema(
