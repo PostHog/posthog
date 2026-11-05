@@ -18,7 +18,11 @@ from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranCredentials,
     FivetranWriteBlockedError,
 )
-from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot, parse_connection
+from products.warehouse_sources.backend.migration.fivetran.snapshot import (
+    SnapshotStoppedError,
+    fetch_snapshot,
+    parse_connection,
+)
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
 from products.warehouse_sources.backend.migration.types import ScheduleKind, VendorSchedule, VendorSnapshot
 
@@ -134,6 +138,18 @@ class TestFetchSnapshot(SimpleTestCase):
             **_ok({"id": "conn_folder", "service": "google_drive", "schema": "drive", "sync_frequency": 360}),
         )
         m.get(f"{FIVETRAN_API_URL}/connections/conn_folder/schemas", status_code=404, json={"message": "Not found"})
+
+    def test_stops_before_the_next_connection_once_the_caller_gives_up(self) -> None:
+        answers = iter([True, False])
+        with requests_mock.Mocker() as m:
+            self._mock_account(m)
+            self._mock_connections(m)
+            with pytest.raises(SnapshotStoppedError):
+                fetch_snapshot(_client(), keep_going=lambda: next(answers))
+
+        requested = {request.path for request in m.request_history}
+        assert "/v1/connections/conn_pg" in requested
+        assert "/v1/connections/conn_folder" not in requested
 
     def test_reads_whole_account_and_stores_no_secret(self) -> None:
         with requests_mock.Mocker() as m:
