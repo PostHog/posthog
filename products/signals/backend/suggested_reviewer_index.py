@@ -15,6 +15,8 @@ from django.db.models import Q, QuerySet
 import structlog
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
 
@@ -108,3 +110,18 @@ def report_ids_naming_reviewers(
         user_uuids, github_logins, logins_match_unidentified_only=logins_match_unidentified_only
     )
     return SignalReportSuggestedReviewer.objects.for_team(team_id).filter(identity).values("report_id")
+
+
+@frozen
+class ReviewerSetMatch:
+    reviewer_count: int
+    names_identity: bool
+
+
+def match_reviewer_set(*, team_id: int, report_id: str, user_uuid: str, github_login: str | None) -> ReviewerSetMatch:
+    """Whether a report's current reviewer set names this person, with the "is this me?" login rule."""
+    rows = SignalReportSuggestedReviewer.objects.for_team(team_id).filter(report_id=report_id)
+    identity = _identity_filter(
+        [user_uuid], [github_login] if github_login else [], logins_match_unidentified_only=False
+    )
+    return ReviewerSetMatch(reviewer_count=rows.count(), names_identity=rows.filter(identity).exists())
