@@ -3882,6 +3882,19 @@ class PullRequestChecksPermissionErrorSerializer(serializers.Serializer):
     )
 
 
+class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
+    """Response when none of the team's GitHub integrations can access the repository."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a repository no GitHub integration can access."
+    )
+    error = serializers.CharField(read_only=True, help_text="Which repository GitHub can't access, and who can fix it.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
 class PullRequestCiStatus(TextChoices):
     """Coarse rollup of a pull request's checks, as mapped from GitHub's status check rollup."""
 
