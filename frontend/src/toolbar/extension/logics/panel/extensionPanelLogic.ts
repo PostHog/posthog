@@ -28,6 +28,7 @@ import {
     SessionUserResult,
     ToolbarAccessResult,
     getExtensionPanelState,
+    openableAuthorizedUrls,
 } from './extensionPanelState'
 
 const DEFAULT_UI_HOST = 'https://us.posthog.com'
@@ -80,6 +81,7 @@ export interface extensionPanelLogicValues {
     dataAttributes: string[]
     entitlements: ToolbarEntitlementsApiEntitlements | null
     hostPermission: boolean | null
+    openableAuthorizedUrls: string[]
     panelState: ExtensionPanelState
     projectSwitchFailed: boolean
     projectUrl: (path: string) => string
@@ -158,6 +160,9 @@ export interface extensionPanelLogicActions {
         feature: ExtensionFeatureKey
         path: string
     }
+    openAuthorizedUrl: (url: string) => {
+        url: string
+    }
     openPostHogPath: (path: string) => {
         path: string
     }
@@ -205,13 +210,13 @@ export interface extensionPanelLogicMeta {
         entitlements: (toolbarAccess: ToolbarAccessResult | null) => ToolbarEntitlementsApiEntitlements | null
         panelState: (
             tabUrl: string | null | undefined,
-            uiHost: string,
             hostPermission: boolean | null,
             sessionUser: SessionUserResult | null,
             toolbarAccess: ToolbarAccessResult | null,
             authorizedUrls: string[] | 'error' | null
         ) => ExtensionPanelState
         settingsNeeded: (panelState: ExtensionPanelState, projectSwitchFailed: boolean) => boolean
+        openableAuthorizedUrls: (authorizedUrls: string[] | 'error' | null) => string[]
     }
 }
 
@@ -233,6 +238,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         switchProject: (teamId: number) => ({ teamId }),
         openPostHogPath: (path: string) => ({ path }),
         openProjectPath: (path: string) => ({ path }),
+        openAuthorizedUrl: (url: string) => ({ url }),
         openFeature: (feature: ExtensionFeatureKey, path: string) => ({ feature, path }),
         retry: true,
         setProjectSwitchFailed: (failed: boolean) => ({ failed }),
@@ -354,10 +360,9 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
                 toolbarAccess?.status === 'allowed' ? toolbarAccess.entitlements : null,
         ],
         panelState: [
-            (s) => [s.tabUrl, s.uiHost, s.hostPermission, s.sessionUser, s.toolbarAccess, s.authorizedUrls],
+            (s) => [s.tabUrl, s.hostPermission, s.sessionUser, s.toolbarAccess, s.authorizedUrls],
             (
                 tabUrl: string | null | undefined,
-                uiHost: string,
                 hostPermission: boolean | null,
                 sessionUser: SessionUserResult | null,
                 toolbarAccess: ToolbarAccessResult | null,
@@ -365,7 +370,6 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             ): ExtensionPanelState =>
                 getExtensionPanelState({
                     tabUrl,
-                    uiHost,
                     hostPermission,
                     sessionStatus: sessionUser?.status ?? null,
                     toolbarAccess,
@@ -376,6 +380,10 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             (s) => [s.panelState, s.projectSwitchFailed],
             (panelState: ExtensionPanelState, projectSwitchFailed: boolean): boolean =>
                 projectSwitchFailed || OPEN_SETTINGS_IN.includes(panelState.kind),
+        ],
+        openableAuthorizedUrls: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls: string[] | 'error' | null): string[] => openableAuthorizedUrls(authorizedUrls),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -442,6 +450,11 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         },
         openProjectPath: ({ path }) => {
             void openTab(values.projectUrl(path))
+        },
+        openAuthorizedUrl: ({ url }) => {
+            toolbarPosthogJS.capture('toolbar extension authorized url opened', { panel_state: values.panelState.kind })
+            // The side panel belongs to the window, so it stays open on the new tab and follows it.
+            void openTab(url)
         },
         openFeature: ({ feature, path }) => {
             toolbarPosthogJS.capture('toolbar extension feature opened', { feature })
