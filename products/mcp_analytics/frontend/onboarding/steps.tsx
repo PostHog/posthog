@@ -11,6 +11,7 @@ import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { OnboardingStep } from 'scenes/onboarding/OnboardingStep'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
