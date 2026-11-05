@@ -98,7 +98,8 @@ export function EvaluationLivePreview({
     }
     const lines = evaluation.evaluation_type === 'hog' ? evaluation.evaluation_config.source.trim().split('\n') : []
     const codeLines = lines.filter(Boolean).length
-    const model = selectedModelName ?? selectedModel
+    // An unpicked model comes back as an empty string, not null, so `||` falls through to the placeholder.
+    const model = selectedModelName || selectedModel || 'a model'
     const cadence = reportText({ ...configDraft, enabled: configDraft.enabled && isReportableEvaluation })
     const todo = checklist.filter((item) => !item.done)
 
@@ -131,7 +132,7 @@ export function EvaluationLivePreview({
                             ) : (
                                 <>
                                     {part('name', methodText(evaluation, usesDecisionModel))} on{' '}
-                                    {part('check', model ?? 'a model', 'model')}
+                                    {part('check', model, 'model')}
                                 </>
                             )}{' '}
                             and returns {part('output', templateOutputText(evaluation).toLowerCase(), 'result')}.

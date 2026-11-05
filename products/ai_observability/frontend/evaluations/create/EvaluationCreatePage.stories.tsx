@@ -39,7 +39,8 @@ function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
         },
         // The query client puts the query kind in the path.
         post: {
-            '/api/projects/:team_id/evaluations/sample_traffic/': SAMPLE_TRAFFIC,
+            '/api/projects/:team_id/evaluations/sample_traffic/':
+                matchingGenerations > 0 ? SAMPLE_TRAFFIC : { results: [] },
             '/api/environments/:team_id/query/:kind/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
             '/api/environments/:team_id/query/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
         },
