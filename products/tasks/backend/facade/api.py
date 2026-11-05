@@ -231,6 +231,7 @@ from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 if TYPE_CHECKING:
     from products.canvas.backend.facade.contracts import CanvasSummary
+    from products.signals.backend.facade.self_driving import SelfDrivingQuotaGate
 
 logger = logging.getLogger(__name__)
 
@@ -3700,7 +3701,14 @@ def enforce_self_driving_free_trial(
     raise FreeTrialPullRequestRefused()
 
 
-def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+def enforce_self_driving_pr_quota(
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    gate: "SelfDrivingQuotaGate | None" = None,
+) -> None:
+    """Pass a pre-resolved gate when enforcement must happen under a database lock."""
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
@@ -3709,7 +3717,8 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
         self_driving_quota_gate,
     )
 
-    gate = self_driving_quota_gate(team)
+    if gate is None:
+        gate = self_driving_quota_gate(team)
     if gate.limited:
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
@@ -10338,6 +10347,8 @@ def run_task(
         mode=mode if task.uses_self_driving_billing(mode) else "interactive",
         continue_admitted_pipeline=pipeline_rerun,
     )
+    if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
+        enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
     try:
         with transaction.atomic():
             task_run = task.create_run(
@@ -12740,6 +12751,9 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
     ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
+    from products.signals.backend.facade.self_driving import (
+        self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
+    )
     from products.signals.backend.facade.trial import (
         prepare_task_trial,  # noqa: PLC0415 -- Signals depends on the Tasks facade
     )
@@ -12758,6 +12772,11 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
         origin=admission_task.origin_product,
         report_id=admission_task.signal_report_source_id,
         mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
+    )
+    quota_gate = (
+        self_driving_quota_gate(admission_task.team)
+        if trial_admission is None and admission_task.uses_self_driving_billing("background")
+        else None
     )
 
     with transaction.atomic():
@@ -12792,6 +12811,13 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
+        if quota_gate is not None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="canvas_fix",
+                gate=quota_gate,
+            )
         task_run = task.create_run(
             mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
         )

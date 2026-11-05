@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_usage import GatewayRequestCost
 
 from products.signals.backend.constants import FIRST_REPORT_SCOUT
@@ -17,7 +19,7 @@ from products.signals.backend.facade.trial import (
 )
 from products.signals.backend.free_trial import FreeTrialPullRequestRefused, self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
-from products.signals.backend.quota import trial_quota_gate
+from products.signals.backend.quota import self_driving_quota_gate, trial_quota_gate
 from products.signals.backend.spend import record_llm_spend, record_task_spend
 from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.trial.funding import TrialFunding
@@ -437,6 +439,133 @@ class TestTrialExecution(BaseTest):
                 async_to_sync(run_task_tool)(team=self.team, user=self.user, task_id=str(task.id))
         dispatch.assert_not_called()
         assert task.runs.count() == 0
+
+    @parameterized.expand(
+        [
+            (entrypoint, limited, claimed)
+            for entrypoint in ("facade", "tool", "canvas")
+            for limited in (True, False)
+            for claimed in (True, False)
+        ]
+    )
+    def test_manual_run_without_active_trial_obeys_self_driving_quota(
+        self, entrypoint: str, limited: bool, claimed: bool
+    ) -> None:
+        if claimed:
+            self.claim()
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Paid implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with (
+            patch(
+                "products.signals.backend.facade.self_driving.self_driving_quota_gate", wraps=self_driving_quota_gate
+            ) as resolve_quota,
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=limited),
+            patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
+            patch(
+                "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason", return_value=None
+            ),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async", new_callable=AsyncMock),
+        ):
+            with self.assertRaises(QuotaLimitExceeded) if limited else nullcontext():
+                if entrypoint == "canvas":
+                    assert (
+                        tasks_facade.request_canvas_fix(
+                            task.id, self.team.id, prompt="Fix the canvas", acting_user_id=self.user.id
+                        )
+                        == "new_run"
+                    )
+                elif entrypoint == "tool":
+                    async_to_sync(run_task_tool)(team=self.team, user=self.user, task_id=str(task.id))
+                else:
+                    result = tasks_facade.run_task(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        validated_data={"mode": "background"},
+                        free_trial_enabled=False,
+                    )
+                    assert result is not None and result.error is None and result.run_error is None
+        if entrypoint == "canvas":
+            resolve_quota.assert_called_once()
+        assert task.runs.count() == (0 if limited else 1)
+
+    def test_accepted_pipeline_without_trial_finishes_after_the_quota(self) -> None:
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4(), run_count=1)
+        task = Task.objects.create(
+            team=self.team,
+            title="Accepted implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+            internal=True,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True),
+            patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+        ):
+            result = tasks_facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background"},
+                pipeline_rerun=True,
+                free_trial_enabled=False,
+            )
+        assert result is not None and result.error is None and result.run_error is None
+        assert task.runs.count() == 1
+        assert task.runs.get().state["self_driving_funding"]["funding"] == "existing"
+
+    @parameterized.expand([("signaled",), ("already_queued",), ("stale",)])
+    def test_canvas_only_checks_self_driving_quota_for_a_new_run(self, outcome: str) -> None:
+        self.flag_mock.return_value = False
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team,
+            title="Running implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        run = task.create_run(
+            extra_state={"pending_user_message": "Accepted work"} if outcome == "already_queued" else {}
+        )
+        run.status = TaskRun.Status.QUEUED if outcome == "already_queued" else TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        with (
+            patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True),
+            patch("products.signals.backend.quota.self_driving_quota_enforcement_enabled", return_value=True),
+            patch(
+                "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason", return_value=None
+            ),
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=outcome == "signaled"),
+        ):
+            with self.assertRaises(QuotaLimitExceeded) if outcome == "stale" else nullcontext():
+                assert (
+                    tasks_facade.request_canvas_fix(
+                        task.id, self.team.id, prompt="Fix the canvas", acting_user_id=self.user.id
+                    )
+                    == outcome
+                )
+        assert task.runs.count() == 1
 
     @parameterized.expand([("trial",), ("paid",), ("existing",), (None,)])
     def test_facade_continuation_keeps_admitted_funding_when_trial_rollout_is_disabled(
