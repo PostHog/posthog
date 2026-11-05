@@ -470,63 +470,6 @@ database "posthog" {
     }
   }
 
-  table "logs_billing_metrics" {
-    order_by     = ["team_id", "time_bucket", "service_name"]
-    partition_by = "toYYYYMM(time_bucket)"
-    settings = {
-      deduplicate_merge_projection_mode = "rebuild"
-      index_granularity                 = "8192"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.logs_billing_metrics"
-      replica_name = "{replica}-{shard}"
-    }
-  }
-
-  table "logs_billing_metrics_distributed" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "logs_billing_metrics"
-    }
-  }
-
   table "logs_distributed" {
     column "time_bucket" {
       type         = "DateTime"
@@ -1151,29 +1094,6 @@ SQL
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.logs34"
       replica_name = "{replica}"
-    }
-  }
-
-  materialized_view "kafka_logs_avro_billing_metrics_mv" {
-    to_table = "posthog.logs_billing_metrics"
-    query = file("sql/kafka_logs_avro_billing_metrics_mv.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
 

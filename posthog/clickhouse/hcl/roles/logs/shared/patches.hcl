@@ -20,21 +20,6 @@ database "posthog" {
     }
   }
 
-  patch_table "logs_billing_metrics" {
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/logs_billing_metrics"
-      replica_name = "{replica}"
-    }
-  }
-
-  patch_table "logs_billing_metrics_distributed" {
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "logs_billing_metrics"
-    }
-  }
-
   patch_table "logs_distributed" {
     engine "distributed" {
       cluster_name    = "logs"
