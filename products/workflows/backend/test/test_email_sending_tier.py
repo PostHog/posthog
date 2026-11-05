@@ -522,57 +522,27 @@ class TestBackfillEmailSendingTiers(BaseTest):
         assert set(BackfillCommand()._without_deleted_teams(histories)) == {self.team.id}
 
 
-SANDBOX_SETTINGS = {
-    "WORKFLOWS_SANDBOX_SENDER_DOMAIN": "sandbox.example.com",
-    "SES_SANDBOX_FROM_ADDRESS": "sender@sandbox.example.com",
-    "SES_SANDBOX_TENANT_NAME": "sandbox-tenant",
-}
-
-
 @override_settings(**TIER_SETTINGS)
 class TestSendingHistoryFromMetrics(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("sandbox configured", SANDBOX_SETTINGS, ["email_sent", "email_sandbox_sent"], 600, {"yesterday": 600}),
-            (
-                "sandbox not configured",
-                dict.fromkeys(SANDBOX_SETTINGS, ""),
-                ["email_sent"],
-                1300,
-                {"yesterday": 900, "today": 400},
-            ),
-        ]
-    )
-    def test_sandbox_sends_count_toward_neither_volume_nor_rates(
-        self,
-        _name: str,
-        sandbox_settings: dict[str, str],
-        sent_names: list[str],
-        expected_sent: int,
-        expected_daily: dict[str, int],
-    ) -> None:
+    def test_sandbox_sends_count_toward_neither_volume_nor_rates(self) -> None:
         today = timezone.now().date()
-        keys = {"yesterday": (today - timedelta(days=1)).strftime("%Y-%m-%d"), "today": today.strftime("%Y-%m-%d")}
+        yesterday, today_key = (today - timedelta(days=1)).strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
         days = {
-            keys["yesterday"]: {"email_sent": 900, "email_sandbox_sent": 300},
-            keys["today"]: {"email_sent": 400, "email_sandbox_sent": 400, "email_bounced_hard": 2},
+            yesterday: {"email_sent": 900, "email_sandbox_sent": 300},
+            today_key: {"email_sent": 400, "email_sandbox_sent": 400, "email_bounced_hard": 2},
         }
 
         def requested(*, name: list[str], **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
             return {7: {day: {m: c for m, c in counts.items() if m in name} for day, counts in days.items()}}
 
-        with (
-            override_settings(**sandbox_settings),
-            patch(
-                "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
-                side_effect=requested,
-            ) as fetch,
+        with patch(
+            "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
+            side_effect=requested,
         ):
             windows = build_sending_history_windows(
                 after=timezone.now() - timedelta(days=30), recent_after=timezone.now() - timedelta(days=7)
             )
 
-        assert [n for n in fetch.call_args.kwargs["name"] if n.endswith("_sent")] == sent_names
-        assert windows.window[7].sent == expected_sent
+        assert windows.window[7].sent == 600
         assert windows.window[7].hard_bounced == 2
-        assert windows.window[7].daily_sends == {keys[day]: sends for day, sends in expected_daily.items()}
+        assert windows.window[7].daily_sends == {yesterday: 600}

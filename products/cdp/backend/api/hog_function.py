@@ -77,6 +77,7 @@ from products.cdp.backend.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
+    MappingsListField,
     MappingsSerializer,
     added_duplicate_input_keys,
     compile_hog,
@@ -197,20 +198,18 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     return snapshot
 
 
-def _stored_email_values_by_key(instance: Optional[HogFunction]) -> dict[str, dict]:
+def _stored_email_values_by_key(inputs_schema: Any, inputs: Any) -> dict[str, dict]:
     """Stored email input values by input key, so a save that leaves one unchanged, such as disabling the function, keeps working.
 
     Only inputs the stored schema declares as email count. A dictionary input can hold the same shape, and
     retyping it to email must not carry its value past the sandbox sender checks.
     """
-    if instance is None:
-        return {}
     email_keys = {
         str(schema.get("key"))
-        for schema in instance.inputs_schema or []
+        for schema in inputs_schema or []
         if isinstance(schema, dict) and schema.get("type") in ("email", "native_email")
     }
-    stored_inputs = instance.inputs if isinstance(instance.inputs, dict) else {}
+    stored_inputs = inputs if isinstance(inputs, dict) else {}
     return {
         key: entry["value"]
         for key, entry in stored_inputs.items()
@@ -408,6 +407,17 @@ def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) 
     return candidates[0] if len(candidates) == 1 else None
 
 
+def _stored_email_values_by_mapping(instance: Optional[HogFunction], mappings: Any) -> list[dict[str, dict]]:
+    if not isinstance(mappings, list):
+        return []
+    stored_mappings = [m for m in (instance.mappings if instance else None) or [] if isinstance(m, dict)]
+    result = []
+    for index, mapping in enumerate(mappings):
+        stored = _stored_mapping_for(mapping, index, stored_mappings) if isinstance(mapping, dict) else None
+        result.append(_stored_email_values_by_key(stored.get("inputs_schema"), stored.get("inputs")) if stored else {})
+    return result
+
+
 _AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]
 
 
@@ -461,7 +471,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         help_text="Schema defining the configurable input parameters for this function.",
     )
     inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
-    mappings = serializers.ListField(
+    mappings = MappingsListField(
         child=MappingsSerializer(),
         required=False,
         allow_null=True,
@@ -655,7 +665,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
-        self.context["existing_email_values_by_key"] = _stored_email_values_by_key(instance)
+        self.context["existing_email_values_by_key"] = (
+            _stored_email_values_by_key(instance.inputs_schema, instance.inputs) if instance else {}
+        )
+        self.context["existing_email_values_by_mapping"] = _stored_email_values_by_mapping(
+            instance, data.get("mappings")
+        )
 
         template = None
         if data["template_id"]:
