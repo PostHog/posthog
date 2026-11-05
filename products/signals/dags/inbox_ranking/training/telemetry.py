@@ -210,9 +210,7 @@ def _pair_comparison_event(
                 f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key) for key in _DELTA_KEYS
             }
         interval = deltas.get("macro_team_interval") or {}
-        properties |= {
-            f"{comparison}_within_user_macro_interval_{key}": interval.get(key) for key in _INTERVAL_KEYS
-        }
+        properties |= {f"{comparison}_within_user_macro_interval_{key}": interval.get(key) for key in _INTERVAL_KEYS}
     return TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties)
 
 
