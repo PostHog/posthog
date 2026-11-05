@@ -286,6 +286,24 @@ class TestWorktreeRoots:
 
         assert discovered == ([("other", hand_made.resolve())] if expected_other else [])
 
+    @pytest.mark.parametrize(
+        ("layout", "trusted"),
+        [("private_folder", True), ("others_can_write", False), ("symlink", False), ("missing", False)],
+    )
+    def test_scratchpad_root_is_trusted_only_as_a_private_folder(self, tmp_path, layout: str, trusted: bool) -> None:
+        shared_tmp = tmp_path / "tmp"
+        shared_tmp.mkdir()
+        root = shared_tmp / f"claude-{os.getuid()}"
+        if layout == "symlink":
+            (tmp_path / "someone-elses-src").mkdir()
+            root.symlink_to(tmp_path / "someone-elses-src", target_is_directory=True)
+        elif layout != "missing":
+            root.mkdir(mode=0o700)
+            if layout == "others_can_write":
+                root.chmod(0o777)
+
+        assert worktrees._claude_scratchpad_root(shared_tmp) == (root if trusted else None)
+
 
 def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = ()) -> Path:
     for relative, content in files.items():
@@ -304,19 +322,9 @@ class TestCollectDepsItems:
         [
             ("build", False, {"web/dist", ".pytest_cache", "web/app.tsbuildinfo", ".flox/cache/go-build"}),
             ("deps", False, {"web/node_modules", "scratch/node_modules", "tools/.venv", ".flox/cache/venv"}),
-            # Without its index, git cannot say what the branch tracks, so build output stays and every dependency folder goes.
+            # Without its index, git cannot say what the branch tracks, so nothing goes.
             ("build", True, set()),
-            (
-                "deps",
-                True,
-                {
-                    "web/node_modules",
-                    "scratch/node_modules",
-                    "vendored/node_modules",
-                    "tools/.venv",
-                    ".flox/cache/venv",
-                },
-            ),
+            ("deps", True, set()),
         ],
         ids=["build", "deps", "orphaned_build", "orphaned_deps"],
     )

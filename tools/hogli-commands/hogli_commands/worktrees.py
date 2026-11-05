@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import stat
 import time
 import fcntl
 import shutil
@@ -84,9 +85,10 @@ WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw
 # POSTHOG_WORKTREE_BASE override.
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     phw_base = os.environ.get("POSTHOG_WORKTREE_BASE") or str(Path.home() / ".worktrees" / "posthog")
+    scratchpad_root = _claude_scratchpad_root()
     return [
         ("claude", repo_root / ".claude" / "worktrees"),
-        ("claude-scratchpad", _claude_scratchpad_root()),
+        *([("claude-scratchpad", scratchpad_root)] if scratchpad_root is not None else []),
         ("codex", repo_root / ".codex" / "worktrees"),
         ("codex", repo_root / ".codex-worktrees"),
         ("codex", Path.home() / ".codex" / "worktrees"),
@@ -95,13 +97,21 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
-def _claude_scratchpad_root() -> Path:
-    root = Path("/tmp") / f"claude-{os.getuid()}"
-    # /tmp is shared, so a folder that another user created under this name is not this user's scratchpad.
+def _claude_scratchpad_root(shared_tmp: Path = Path("/tmp")) -> Path | None:
+    """The scratchpad root, or None unless it is a real folder that only this user owns and can write to.
+
+    /tmp is shared, so another user can create this name first, or make it a
+    symlink that points discovery at someone else's folders.
+    """
+
+    root = shared_tmp / f"claude-{os.getuid()}"
     try:
-        return root if root.stat().st_uid == os.getuid() else root / "not-owned-by-this-user"
+        status = root.lstat()
     except OSError:
-        return root
+        return None
+    if not stat.S_ISDIR(status.st_mode) or status.st_uid != os.getuid() or status.st_mode & 0o022:
+        return None
+    return root
 
 
 # Claude Code's scratchpad worktrees sit at <root>/<encoded project>/<session id>/scratchpad/<worktree>.
@@ -1480,21 +1490,17 @@ def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact]) -> list[
 
     A generated file that the repo commits, or a file git does not ignore, may be
     someone's work, so a path that holds one stays. A dependency folder may be
-    outside .gitignore, because no one writes their own files into one. An
-    orphaned worktree has lost its index, so git cannot say what its branch
-    tracks, and only its dependency folders are approved. When git cannot
-    answer, nothing is approved.
+    outside .gitignore, because no one writes their own files into one. When
+    git cannot answer, nothing is approved, and that includes an orphaned
+    worktree, whose lost index leaves git unable to say what its branch tracks.
     """
 
     if not artifacts:
         return []
     gitdir = _gitdir_for(worktree)
     if gitdir is None or not gitdir.is_dir():
-        return [
-            artifact.path
-            for artifact in artifacts
-            if "deps" in artifact.kinds and not _holds_nested_repo(artifact.path)
-        ]
+        click.echo(f"  {_display_path(worktree)} is orphaned, so git cannot check it and nothing in it is removed.")
+        return []
     status = _git(
         worktree, ["status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"], timeout=120.0
     )
