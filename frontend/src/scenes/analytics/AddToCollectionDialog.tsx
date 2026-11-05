@@ -27,13 +27,14 @@ import { pluralize } from 'lib/utils/strings'
 
 import { AddToCollectionDialogRow } from './AddToCollectionDialogRow'
 import { AddToCollectionTab, addToCollectionItemKey, addToCollectionLogic, isInFolder } from './addToCollectionLogic'
+import { AddToCollectionMoveWarning } from './AddToCollectionMoveWarning'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 
 /** Picks existing work, the person's own first, and adds it to the collection or folder that is open. */
 export function AddToCollectionDialog(): JSX.Element {
     const { folder, folderName, tab, search, feedQuery, feed, selected, selectedCount, adding, addDisabledReason } =
         useValues(addToCollectionLogic)
-    const { closeAddToCollection, setTab, setSearch, loadMore, toggleItem, addSelected, refreshFeed } =
+    const { closeAddToCollection, setTab, setSearch, loadMore, toggleItem, requestAdd, refreshFeed } =
         useActions(addToCollectionLogic)
 
     const renderBody = (): JSX.Element => {
@@ -84,7 +85,7 @@ export function AddToCollectionDialog(): JSX.Element {
         }
         return (
             <div className="flex flex-col gap-2">
-                <ItemGroup className="gap-0">
+                <ItemGroup className="gap-px">
                     {feed.items.map((item) => (
                         <AddToCollectionDialogRow
                             key={addToCollectionItemKey(item)}
@@ -148,13 +149,14 @@ export function AddToCollectionDialog(): JSX.Element {
                         variant="primary"
                         loading={adding}
                         disabledReason={adding ? undefined : (addDisabledReason ?? undefined)}
-                        onClick={() => addSelected()}
+                        onClick={() => requestAdd()}
                         data-attr="analytics-add-items-submit"
                     >
                         {selectedCount ? `Add ${pluralize(selectedCount, 'item')}` : 'Add items'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
+            <AddToCollectionMoveWarning />
         </Dialog>
     )
 }

@@ -1,11 +1,9 @@
-import { ItemCheckbox, ItemContent, ItemDescription, ItemTitle } from '@posthog/quill'
-
-import { TZLabel } from 'lib/components/TZLabel'
+import { ItemCheckbox, ItemContent, ItemTitle, Text } from '@posthog/quill'
 
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPE_INFO, AnalyticsItem } from './analyticsUtils'
 
-/** One pickable item in the add-items dialog: its type, name, and when the person last opened it. */
+/** One pickable item in the add-items dialog, with the collection it sits in now. */
 export function AddToCollectionDialogRow({
     item,
     checked,
@@ -18,8 +16,10 @@ export function AddToCollectionDialogRow({
     onToggle: (item: AnalyticsItem) => void
 }): JSX.Element {
     const info = ANALYTICS_TYPE_INFO[item.type]
+    const where = alreadyHere ? 'Already here' : item.spaceName ? `In ${item.spaceName}` : null
     return (
         <ItemCheckbox
+            size="xs"
             aria-checked={checked || alreadyHere}
             disabled={alreadyHere}
             onClick={() => onToggle(item)}
@@ -30,25 +30,18 @@ export function AddToCollectionDialogRow({
                 className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: info.color }}
-                aria-hidden
+                aria-label={info.label}
             >
                 <AnalyticsTypeIcon type={item.type} />
             </span>
-            <ItemContent variant="menuItem" className="min-w-0">
+            <ItemContent variant="menuItem" className="min-w-0 flex-1">
                 <ItemTitle className="truncate">{item.name}</ItemTitle>
-                <ItemDescription>
-                    {alreadyHere ? (
-                        'Already here'
-                    ) : item.timestamp ? (
-                        <>
-                            <span>{info.label} · viewed </span>
-                            <TZLabel time={item.timestamp} />
-                        </>
-                    ) : (
-                        info.label
-                    )}
-                </ItemDescription>
             </ItemContent>
+            {where && (
+                <Text size="xs" variant="muted" className="max-w-40 shrink-0 truncate">
+                    {where}
+                </Text>
+            )}
         </ItemCheckbox>
     )
 }

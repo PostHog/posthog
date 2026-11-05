@@ -20,7 +20,7 @@ import type { AnalyticsSourceState } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
 import { assertCanvasShareable } from './analyticsShareLogic'
 import { analyticsSpacesLogic } from './analyticsSpacesLogic'
-import { AnalyticsItem, fileSystemEntryName } from './analyticsUtils'
+import { AnalyticsItem, analyticsSpaceOfPath, fileSystemEntryName } from './analyticsUtils'
 
 export type AddToCollectionTab = 'mine' | 'all'
 
@@ -52,10 +52,12 @@ export interface addToCollectionLogicValues {
     user: UserType | null // userLogic
     addDisabledReason: string | null
     adding: boolean
+    confirmOpen: boolean
     feed: AnalyticsFeed
     feedQuery: AnalyticsFeedQuery
     folder: string | null
     folderName: string
+    leavingOtherCollections: AnalyticsItem[]
     requestedCount: number
     search: string
     selected: Record<string, AnalyticsItem>
@@ -96,6 +98,12 @@ export interface addToCollectionLogicActions {
     openAddToCollection: (folder: string) => {
         folder: string
     }
+    requestAdd: () => {
+        value: true
+    }
+    setConfirmOpen: (open: boolean) => {
+        open: boolean
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -111,17 +119,14 @@ export interface addToCollectionLogicActions {
 export interface addToCollectionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         folderName: (folder: string | null) => string
-        feedQuery: (
-            tab: AddToCollectionTab,
-            search: string,
-            user: null | import('~/types').UserType
-        ) => AnalyticsFeedQuery
+        feedQuery: (tab: AddToCollectionTab, search: string, user: UserType | null) => AnalyticsFeedQuery
         feed: (
-            sources: Record<string, import('./analyticsFeed').AnalyticsSourceState>,
+            sources: Record<string, AnalyticsSourceState>,
             currentTeamId: number | null,
             feedQuery: AnalyticsFeedQuery
         ) => AnalyticsFeed
         selectedCount: (selected: Record<string, AnalyticsItem>) => number
+        leavingOtherCollections: (selected: Record<string, AnalyticsItem>, folder: string | null) => AnalyticsItem[]
         addDisabledReason: (selectedCount: number) => string | null
     }
 }
@@ -147,6 +152,8 @@ export const addToCollectionLogic = kea<addToCollectionLogicType>([
         setSearch: (search: string) => ({ search }),
         loadMore: true,
         toggleItem: (item: AnalyticsItem) => ({ item }),
+        requestAdd: true,
+        setConfirmOpen: (open: boolean) => ({ open }),
         addSelected: true,
         addFinished: (failed: AnalyticsItem[]) => ({ failed }),
         itemsAdded: true,
@@ -188,6 +195,14 @@ export const addToCollectionLogic = kea<addToCollectionLogicType>([
             },
         ],
         adding: [false, { addSelected: () => true, addFinished: () => false, closeAddToCollection: () => false }],
+        confirmOpen: [
+            false,
+            {
+                setConfirmOpen: (_, { open }) => open,
+                addSelected: () => false,
+                closeAddToCollection: () => false,
+            },
+        ],
     }),
     selectors({
         folderName: [
@@ -221,6 +236,14 @@ export const addToCollectionLogic = kea<addToCollectionLogicType>([
             (s) => [s.selected],
             (selected: Record<string, AnalyticsItem>): number => Object.keys(selected).length,
         ],
+        // An item lives in one folder, so adding it here takes it out of the collection it is in now.
+        leavingOtherCollections: [
+            (s) => [s.selected, s.folder],
+            (selected: Record<string, AnalyticsItem>, folder: string | null): AnalyticsItem[] => {
+                const here = folder ? analyticsSpaceOfPath(folder) : null
+                return Object.values(selected).filter((item) => !!item.spaceName && item.spaceName !== here)
+            },
+        ],
         addDisabledReason: [
             (s) => [s.selectedCount],
             (selectedCount: number): string | null => (selectedCount ? null : 'Pick at least one item first'),
@@ -239,6 +262,13 @@ export const addToCollectionLogic = kea<addToCollectionLogicType>([
             actions.ensureFeed(values.feedQuery, values.requestedCount)
         },
         loadMore: () => actions.ensureFeed(values.feedQuery, values.requestedCount),
+        requestAdd: () => {
+            if (values.leavingOtherCollections.length) {
+                actions.setConfirmOpen(true)
+            } else {
+                actions.addSelected()
+            }
+        },
         addSelected: async () => {
             const folder = values.folder
             const items = Object.values(values.selected)

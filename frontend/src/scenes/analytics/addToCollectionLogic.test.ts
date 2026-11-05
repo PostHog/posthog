@@ -14,6 +14,7 @@ const OTHER_USER = { ...MOCK_DEFAULT_USER, id: 999, uuid: 'other-user' }
 const MINE = { id: 'fs-mine', ref: 'mine', path: 'Unfiled/Insights/Weekly\\/active', creator: MOCK_DEFAULT_USER.id }
 const THEIRS = { id: 'fs-theirs', ref: 'theirs', path: 'Unfiled/Insights/Churn', creator: OTHER_USER.id }
 const ALREADY_HERE = { id: 'fs-here', ref: 'here', path: 'Finance/Revenue', creator: OTHER_USER.id }
+const IN_GROWTH = { id: 'fs-growth', ref: 'growth', path: 'Growth/Retention', creator: OTHER_USER.id }
 
 describe('addToCollectionLogic', () => {
     let moves: string[]
@@ -28,7 +29,9 @@ describe('addToCollectionLogic', () => {
                     if (params.get('type__startswith') !== 'insight') {
                         return { results: [], next: null }
                     }
-                    const rows = params.get('search')?.includes('user:me') ? [MINE] : [MINE, THEIRS, ALREADY_HERE]
+                    const rows = params.get('search')?.includes('user:me')
+                        ? [MINE]
+                        : [MINE, THEIRS, ALREADY_HERE, IN_GROWTH]
                     return {
                         results: rows.map(({ creator, ...row }) => ({
                             ...row,
@@ -57,7 +60,7 @@ describe('addToCollectionLogic', () => {
         userLogic.mount()
     })
 
-    it('lists the person’s own work apart from everyone’s, and keeps a failed item selected after adding', async () => {
+    it('lists the person’s own work apart from everyone’s, confirms before taking items out of another collection, and keeps a failed item selected', async () => {
         const logic = addToCollectionLogic()
         logic.mount()
 
@@ -67,12 +70,18 @@ describe('addToCollectionLogic', () => {
         logic.actions.toggleItem(logic.values.feed.items[0])
 
         await expectLogic(logic, () => logic.actions.setTab('all')).toFinishAllListeners()
-        expect(logic.values.feed.items.map((item) => item.id)).toEqual(['mine', 'theirs', 'here'])
+        expect(logic.values.feed.items.map((item) => item.id)).toEqual(['mine', 'theirs', 'here', 'growth'])
         logic.actions.toggleItem(logic.values.feed.items[1])
+        logic.actions.toggleItem(logic.values.feed.items[3])
+
+        logic.actions.requestAdd()
+        expect(logic.values.confirmOpen).toBe(true)
+        expect(logic.values.leavingOtherCollections.map((item) => item.id)).toEqual(['growth'])
+        expect(moves).toEqual([])
 
         await expectLogic(logic, () => logic.actions.addSelected()).toDispatchActions(['addFinished', 'itemsAdded'])
 
-        expect(moves).toEqual(['fs-mine -> Finance/Weekly\\/active'])
+        expect(moves.sort()).toEqual(['fs-growth -> Finance/Retention', 'fs-mine -> Finance/Weekly\\/active'])
         expect(Object.keys(logic.values.selected)).toEqual(['insight:theirs'])
         expect(logic.values.folder).toBe('Finance')
     })
