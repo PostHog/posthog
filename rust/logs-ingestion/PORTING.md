@@ -244,7 +244,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 
 [README.md](README.md) covers configuration, the modes and the shadow guards.
 
-- `config::ServiceConfig::from_env(&Env)` reads the Node keys with `overrideConfigWithEnv` semantics (`node_env`) and the `LOGS_RUST_*` keys with envconfig, and applies the shadow guards (`ConfigError`).
+- `config::ServiceConfig::from_env(&Env)` reads the Node keys with `overrideConfigWithEnv` semantics (`node_env`), and in shadow mode (`LOGS_RUST_SHADOW_MODE`, default true) appends the shadow suffixes to the group and the output topics.
 - `KAFKA_CONSUMER_*` parses as `parseEnvToRdkafkaConfig` with `skipKeysInDefaultConfig` (`config::NODE_DEFAULT_CONFIG_CONSUMER_KEYS`). `kafka_source::consumer_client_config` adds Node's `auto.offset.reset=earliest` default and applies `stripClassicProtocolConfig` last.
 - `consumer_loop::run_consumer_loop(source, processor, config, shutdown, on_tick)` is the batch loop. `BatchSource` (Kafka: `kafka_source::KafkaBatchSource`) and `BatchProcessor` (implemented by `LogsIngestionConsumer`) are its seams.
 - `kafka_outputs::KafkaOutputs` implements `IngestionOutputs` and awaits each delivery report.

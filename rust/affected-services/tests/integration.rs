@@ -114,7 +114,6 @@ fn every_deployable_binary_has_an_image_entry() {
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
         "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
-        "logs-ingestion",         // image entry lands with its deployment
         "logs-shadow-compare",    // image entry lands with its deployment
         "personhog-stateright",   // model-checker explorer CLI, not a service
         "personhog-test-harness", // e2e load/correctness harness CLI, not a service

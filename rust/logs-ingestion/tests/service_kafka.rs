@@ -34,7 +34,7 @@ use tokio::sync::Notify;
 const INPUT: &str = "logs_ingestion";
 const SHADOW_LOGS: &str = "clickhouse_logs_rust_shadow";
 const SHADOW_DLQ: &str = "logs_ingestion_dlq_rust_shadow";
-const SHADOW_METRICS: &str = "app_metrics_rust_shadow";
+const SHADOW_METRICS: &str = "clickhouse_app_metrics2_rust_shadow";
 const PRODUCTION: &[&str] = &[
     "clickhouse_logs",
     "logs_ingestion_dlq",
@@ -46,14 +46,9 @@ const GROUP: &str = "ingestion-logs-rust-shadow";
 fn env_for(bootstrap: &str) -> HashMap<String, String> {
     [
         ("PLUGIN_SERVER_MODE", "ingestion-logs"),
-        ("LOGS_RUST_MODE", "shadow"),
         ("DATABASE_URL", "postgres://unused"),
         ("DATABASE_READONLY_URL", "postgres://unused-replica"),
-        ("LOGS_RUST_SHADOW_REDIS_HOST", "127.0.0.1"),
-        ("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID", GROUP),
-        ("LOGS_RUST_SHADOW_LOGS_TOPIC", SHADOW_LOGS),
-        ("LOGS_RUST_SHADOW_DLQ_TOPIC", SHADOW_DLQ),
-        ("LOGS_RUST_SHADOW_APP_METRICS_TOPIC", SHADOW_METRICS),
+        ("LOGS_REDIS_HOST", "127.0.0.1"),
         ("KAFKA_CONSUMER_METADATA_BROKER_LIST", bootstrap),
         ("KAFKA_CONSUMER_AUTO_OFFSET_RESET", "earliest"),
         ("KAFKA_CONSUMER_ENABLE_PARTITION_EOF", "false"),
@@ -231,10 +226,7 @@ async fn kafka_outputs_route_by_output_name_and_wait_for_delivery() {
     }
 
     let mut missing = env_for(&bootstrap);
-    missing.insert(
-        "LOGS_RUST_SHADOW_DLQ_TOPIC".into(),
-        "missing_rust_shadow".into(),
-    );
+    missing.insert("LOGS_INGESTION_CONSUMER_DLQ_TOPIC".into(), "missing".into());
     let missing = ServiceConfig::from_env(&missing).unwrap();
     // The second call fails too only if the first one did not create the topic.
     for _ in 0..2 {
