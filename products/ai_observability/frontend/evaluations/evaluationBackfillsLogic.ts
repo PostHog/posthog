@@ -25,6 +25,7 @@ import type {
 import { evaluationErrorMessage } from './apiErrors'
 import { backfillRangeDateFormat } from './backfillConditions'
 import { hasUnsetConditionRollout, llmEvaluationLogic, normalizeConditionRollouts } from './llmEvaluationLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConditionSet } from './types'
 import type { EvaluationConfig } from './types'
 
@@ -556,6 +557,12 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             },
             loadBackfillsSuccess: schedulePoll,
             loadBackfillsFailure: schedulePoll,
+            // A count cut short by leaving the tab never lands here, so the request waits for the next visit.
+            requestEstimateSuccess: () => {
+                if (takeBackfillStart(props.evaluationId) && !values.startDisabledReason) {
+                    actions.createBackfill()
+                }
+            },
             seedConditions: () => actions.requestEstimate(),
             setWindowRange: () => actions.requestEstimate(),
             setConditions: () => actions.requestEstimate(),
@@ -624,7 +631,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     // The units this run covers now have a result, so the count it started from is stale.
                     cache.lastEstimate = null
                     cache.recountWhenIdle = true
-                    lemonToast.success('Backfill started')
+                    lemonToast.success('Backfill started', { autoClose: 15000 })
                     actions.loadBackfills()
                 } catch (error) {
                     lemonToast.error(backfillErrorMessage(error, 'Couldn’t start the backfill. Try again.'))

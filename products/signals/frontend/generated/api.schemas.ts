@@ -5713,6 +5713,7 @@ export interface SignalReportStateRequestApi {
  * * `commit` - Commit
  * * `task_run` - Task Run
  * * `note` - Note
+ * * `scout_note_left` - Scout Note Left
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
@@ -5755,6 +5756,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     Commit: 'commit',
     TaskRun: 'task_run',
     Note: 'note',
+    ScoutNoteLeft: 'scout_note_left',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
@@ -6144,8 +6146,24 @@ export const MonitoringCheckTimingStateEnumApi = {
     ExpiryReached: 'expiry_reached',
 } as const
 
+/**
+ * * `monitoring` - Monitoring
+ * * `verifying` - Verifying
+ * * `assessment_required` - Assessment required
+ * * `verification_complete` - Verification complete
+ */
+export type FinalVerificationStateEnumApi =
+    (typeof FinalVerificationStateEnumApi)[keyof typeof FinalVerificationStateEnumApi]
+
+export const FinalVerificationStateEnumApi = {
+    Monitoring: 'monitoring',
+    Verifying: 'verifying',
+    AssessmentRequired: 'assessment_required',
+    VerificationComplete: 'verification_complete',
+} as const
+
 export interface MonitoringCheckTimingApi {
-    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+    /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
      *
      * * `scheduled` - Scheduled
      * * `due` - Due
@@ -6157,6 +6175,13 @@ export interface MonitoringCheckTimingApi {
      * * `unavailable` - Timing unavailable
      * * `expiry_reached` - Expiry reached */
     state: MonitoringCheckTimingStateEnumApi
+    /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+     *
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete */
+    readonly final_verification_state?: FinalVerificationStateEnumApi | null
     /**
      * Original Monitoring start for this check's report.
      * @nullable
@@ -6561,7 +6586,7 @@ export interface PersonalRankingApi {
     personalized: boolean
     /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
     cached: boolean
-    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a report in the list changed since the build, and the next scheduled build updates it. Pass `refresh` for a new list now. */
     stale: boolean
     /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
     building: boolean
@@ -6575,6 +6600,11 @@ export interface PersonalRankingApi {
      * @nullable
      */
     generated_at: string | null
+    /**
+     * When a build or a check last compared the list with your full inbox. The list is current as at this time. Null when no list is stored.
+     * @nullable
+     */
+    checked_at: string | null
     /**
      * How long the model call of the build took, in ms. Null when there was no model call.
      * @nullable
@@ -8612,6 +8642,37 @@ export interface ScoutMemberTeamApi {
     is_maintainer: boolean
 }
 
+export interface ScoutMemberActivityObjectApi {
+    /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+    type: string
+    /** The latest name of the object. */
+    name: string
+}
+
+/**
+ * What one member worked on recently, from their activity summary.
+ */
+export interface ScoutMemberActivityApi {
+    /**
+     * One line about the member's recent work.
+     * @nullable
+     */
+    headline: string | null
+    /** The labels of the main threads of the member's recent work. */
+    themes: string[]
+    /** Up to 5 objects the member created or changed, the most edited first. */
+    owned: ScoutMemberActivityObjectApi[]
+    /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+    watched: ScoutMemberActivityObjectApi[]
+    /**
+     * When the summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+    stale: boolean
+}
+
 /**
  * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
  */
@@ -8631,6 +8692,8 @@ export interface ScoutMemberApi {
     github_login: string | null
     /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
     teams: ScoutMemberTeamApi[]
+    /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+    activity?: ScoutMemberActivityApi | null
 }
 
 /**
@@ -8701,7 +8764,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. `report_note` for one left from a report through this API with `report_id` set: steering written straight for you, about the report its content names. */
     origin: string
 }
 
@@ -8719,6 +8782,11 @@ export interface ScoutNoteCreateRequestApi {
      * @maxLength 200
      */
     skill_name?: string
+    /**
+     * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+     * @nullable
+     */
+    report_id?: string | null
     /**
      * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
      * @nullable
@@ -9947,6 +10015,11 @@ export interface EditReportRequestApi {
      * @maxLength 500
      */
     reviewer_retry_reason?: string
+    /**
+     * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+     * @maxLength 500
+     */
+    reviewer_outcome_reason?: string
     /** Id of the report to edit (must belong to this project). */
     report_id: string
     /**
@@ -10719,7 +10792,7 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10733,7 +10806,7 @@ export interface SignalSourceConfigApi {
     source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
     config?: SignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: SignalSourceConfigApiConfigSet
@@ -10755,7 +10828,7 @@ export interface PaginatedSignalSourceConfigListApi {
 }
 
 /**
- * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
@@ -10769,7 +10842,7 @@ export interface PatchedSignalSourceConfigApi {
     source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
     config?: PatchedSignalSourceConfigApiConfig
     /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
     config_set?: PatchedSignalSourceConfigApiConfigSet
@@ -11349,6 +11422,12 @@ export type SignalsReportsForMeRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.
+     * @minimum 0
+     * @maximum 10080
+     */
+    max_age_minutes?: number
     /**
      * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */

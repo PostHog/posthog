@@ -89,8 +89,6 @@ export class RecordingApiServer implements NodeServer {
             isProd: isProdEnv(),
             blocksJwtSecret: this.config.RECORDING_API_BLOCKS_JWT_SECRET,
             jwtSecret: this.config.RECORDING_API_JWT_SECRET,
-            allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
-            legacySecret: this.config.INTERNAL_API_SECRET,
         })
 
         // A public process serves only browser block reads, so it never connects to Postgres or Kafka.

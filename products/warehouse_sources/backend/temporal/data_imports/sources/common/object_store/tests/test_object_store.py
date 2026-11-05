@@ -716,6 +716,29 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
             list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
 
+    def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        # pyarrow's own decoder raises a bare OSError (not a subclass) for a page that fails its
+        # internal validation, e.g. a corrupt block. Real file content can't be made to fail that
+        # validation deterministically, so the decoder itself is the mocked boundary.
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=OSError("cannot have zero value per block")),
+            pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet"),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
+
+    def test_a_transient_read_error_while_streaming_parquet_batches_is_not_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=ConnectionError("connection reset")),
+            pytest.raises(ConnectionError),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
+
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
         store = local_store(tmp_path)

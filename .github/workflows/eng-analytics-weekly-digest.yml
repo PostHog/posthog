@@ -1,6 +1,6 @@
 name: Engineering analytics weekly digest
 
-# Posts last week's Depot spend and pull request figures to #alerts-devex every Monday.
+# Posts last week's Depot spend, pull request figures and slow PR workflows to #alerts-devex every Monday.
 # .github/scripts/eng-analytics-weekly-digest.mjs says where each figure comes from.
 #
 # Required. Until these are set, the job logs a warning and posts nothing:
