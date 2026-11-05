@@ -262,6 +262,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "source_product",
             "source_type",
             "enabled",
+            "admin_disabled",
+            "admin_disable_note",
             "config",
             "config_set",
             "config_remove",
@@ -269,7 +271,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "updated_at",
             "status",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "admin_disabled", "admin_disable_note"]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

@@ -35,6 +35,7 @@ import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAdminWarning } from './SourceAdminWarning'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
@@ -514,6 +515,7 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
+    sourceConfigs: SignalSourceConfig[] | null
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -530,6 +532,7 @@ interface AgentRowProps {
 
 const AgentRow = memo(function AgentRow({
     agent,
+    sourceConfigs,
     state,
     product,
     expanded,
@@ -558,7 +561,7 @@ const AgentRow = memo(function AgentRow({
     const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
-        <div data-attr="signal-source-row" data-source={agent.source}>
+        <div className="@container/source-row" data-attr="signal-source-row" data-source={agent.source}>
             {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
             <div
                 className={`group flex min-h-13 items-center gap-2 px-2 py-2 transition-colors ${
@@ -597,6 +600,7 @@ const AgentRow = memo(function AgentRow({
                         </span>
                     </div>
                 </button>
+                <SourceAdminWarning sourceConfigs={sourceConfigs} sourceProduct={agent.sourceProduct} />
                 {tag && (
                     <LemonTag type={tag.type} size="small">
                         {tag.label}
@@ -604,7 +608,8 @@ const AgentRow = memo(function AgentRow({
                 )}
                 {entities.length > 0 && (
                     <span className="shrink-0 truncate text-right text-xs text-muted">
-                        {enabledCount} of {entities.length} {agent.entityNoun} on
+                        {enabledCount} of {entities.length}
+                        <span className="@max-[400px]/source-row:hidden"> {agent.entityNoun} on</span>
                     </span>
                 )}
                 {armed && !productOff && (
@@ -1002,6 +1007,7 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
+                    sourceConfigs={sourceConfigs}
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
@@ -1025,6 +1031,7 @@ export function AgentsRoster(): JSX.Element {
         },
         [
             stateFor,
+            sourceConfigs,
             linearIssuesConfig,
             openLinearTeamsPicker,
             isLinearIssuesToggling,

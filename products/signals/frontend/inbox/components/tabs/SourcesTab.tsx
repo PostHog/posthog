@@ -1,12 +1,15 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { SignalSourceProduct } from '../../types'
 import { AgentsRoster } from '../config/AgentsRoster'
+import { SourceAdminWarning } from '../config/SourceAdminWarning'
 import { SourceCatalog } from '../config/SourceCatalog'
 import { SettingsSection } from './SettingsSection'
 
 export function SourcesTab(): JSX.Element {
+    const { sourceConfigs } = useValues(signalSourcesLogic)
     const { loadSources, loadSourceConfigs, loadVisionScanners, loadProductDataEvents } = useActions(signalSourcesLogic)
 
     useEffect(() => {
@@ -22,6 +25,11 @@ export function SourcesTab(): JSX.Element {
                 title="Your sources"
                 description="Each source watches for signals, and spins up an agent to look into them."
             >
+                <SourceAdminWarning
+                    sourceConfigs={sourceConfigs}
+                    sourceProduct={SignalSourceProduct.SignalsScout}
+                    label="Scouts"
+                />
                 <AgentsRoster />
             </SettingsSection>
             <SettingsSection

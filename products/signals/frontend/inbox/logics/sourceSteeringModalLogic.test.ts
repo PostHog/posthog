@@ -16,6 +16,8 @@ const sourceConfig: SignalSourceConfig = {
     config: { recording_filters: { events: [] }, steering: 'old rules', default_not_actionable: true },
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
+    admin_disabled: false,
+    admin_disable_note: '',
     status: null,
 }
 

@@ -55,6 +55,7 @@ async def get_conversations_signals_enabled_teams_activity() -> list[int]:
             source_product=SignalSourceConfig.SourceProduct.CONVERSATIONS,
             source_type=SignalSourceConfig.SourceType.TICKET,
             enabled=True,
+            admin_disabled=False,
             # Tiny bit paranoid, as signals enabled should require AI consent by design
             team__organization__is_ai_data_processing_approved=True,
         ).values_list("team_id", flat=True)

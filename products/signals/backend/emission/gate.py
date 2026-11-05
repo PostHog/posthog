@@ -14,9 +14,4 @@ def emit_signals_enabled(team_id: int, source_type: str, schema_name: str, ai_da
     if identity is None:
         return False
     source_product, signal_source_type = identity
-    return SignalSourceConfig.objects.filter(
-        team_id=team_id,
-        source_product=source_product,
-        source_type=signal_source_type,
-        enabled=True,
-    ).exists()
+    return SignalSourceConfig.is_source_enabled(team_id, source_product, signal_source_type)

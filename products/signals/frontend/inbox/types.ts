@@ -3,6 +3,7 @@ import type { UserBasicType } from '~/types'
 import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     type SignalReportApi,
+    type SignalSourceConfigApi,
     type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
@@ -207,14 +208,13 @@ export interface SignalReportArtefactResponse {
     count: number
 }
 
-export interface SignalSourceConfig {
-    id: string
-    source_product: SignalSourceProduct
+export interface SignalSourceConfig extends Omit<
+    SignalSourceConfigApi,
+    'source_type' | 'enabled' | 'config' | 'status'
+> {
     source_type: SignalSourceType
     enabled: boolean
     config: Record<string, any>
-    created_at: string
-    updated_at: string
     status: SignalSourceConfigStatus | null
 }
 

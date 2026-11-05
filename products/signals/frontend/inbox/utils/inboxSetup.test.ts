@@ -58,6 +58,8 @@ describe('Inbox setup defaults', () => {
             config: {},
             created_at: '2026-10-01T00:00:00Z',
             updated_at: '2026-10-01T00:00:00Z',
+            admin_disabled: false,
+            admin_disable_note: '',
             status: null,
         }
         const sources = setupSources([linearConfig], {}, 0, false)

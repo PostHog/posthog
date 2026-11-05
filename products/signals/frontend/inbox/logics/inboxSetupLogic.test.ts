@@ -540,6 +540,8 @@ describe('Inbox setup', () => {
                 id: 'source-one',
                 created_at: '2026-10-14T12:00:00Z',
                 updated_at: '2026-10-14T12:00:00Z',
+                admin_disabled: false,
+                admin_disable_note: '',
                 status: null,
             },
         ]
