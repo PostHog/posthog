@@ -57,6 +57,10 @@ export async function findInsightVariables(
     return { found: new Map([...found].map(([name, variable]) => [name, { ...variable, code_name: name }])), complete }
 }
 
+export function getInsightVariable(api: PostHogApi, id: string): Promise<InsightVariable> {
+    return api.get(`insight_variables/${encodeURIComponent(id)}/`, InsightVariable)
+}
+
 export function createInsightVariable(
     api: PostHogApi,
     variable: { code_name: string; type: string; default_value?: unknown; is_multi?: boolean }

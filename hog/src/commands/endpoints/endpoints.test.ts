@@ -184,6 +184,22 @@ describe('hog endpoints', () => {
         expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', 'type: string'))
     })
 
+    test('pull fetches a variable past the page cap by its ID, so its type stays exact', async () => {
+        const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
+            env: AGENT,
+            respond: server([HOGQL], (url) =>
+                url.startsWith(`${BASE}insight_variables/?`) || url === `${BASE}insight_variables/`
+                    ? { status: 200, body: { results: [], next: `${BASE}insight_variables/?page=2` } }
+                    : url === `${BASE}insight_variables/var-1/`
+                      ? { status: 200, body: VARIABLES[0] }
+                      : undefined
+            ),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE)
+    })
+
     test.each([
         [
             'a file that defines another endpoint',
