@@ -24,7 +24,7 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.aeo.backend import gaps
+from products.aeo.backend import gaps, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -49,6 +49,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetTopicCounts,
     PromptStats,
+    PromptSuggestion,
+    PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
     PromptUpdate,
@@ -499,6 +501,17 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
     ]
     result = upsert_prompts(team, candidates)
     return PromptImportResult(created=result["created"], updated=result["updated"], skipped=result["skipped"])
+
+
+def suggest_prompts(team_id: int, request: PromptSuggestionRequest) -> list[PromptSuggestion]:
+    """Suggest prompts to track, without saving them. Raises PromptSuggestionError when the model fails."""
+    # Archived prompts are included so a suggestion never revives a prompt someone retired.
+    existing = list(
+        AEOPrompt.objects.for_team(team_id)
+        .order_by("-created_at")
+        .values_list("prompt", flat=True)[: suggestions.MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS * 10]
+    )
+    return suggestions.suggest_prompts(team_id, request, existing)
 
 
 def _get_prompt_row(team_id: int, prompt_id: str, *, lock: bool = False) -> AEOPrompt:

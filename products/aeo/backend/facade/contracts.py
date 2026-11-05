@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @frozen
@@ -311,3 +312,43 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class PromptSuggestionError(Exception):
+    """Prompt suggestions could not be produced. The message is safe to show the user."""
+
+
+class PromptCircle(LabeledStrEnum):
+    """Where a prompt sits between the buyer, the brand and its competitors."""
+
+    DIFFERENTIATION = "differentiation"
+    BATTLEGROUND = "battleground"
+    VULNERABILITY = "vulnerability"
+    TABLE_STAKES = "table_stakes"
+    BRANDED = "branded"
+
+
+class FunnelStage(LabeledStrEnum):
+    TOP = "top"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+
+
+@frozen
+class PromptSuggestionRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    competitors: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+    count: int = 20
+
+
+@frozen
+class PromptSuggestion:
+    prompt: str
+    topic: str
+    circle: PromptCircle
+    funnel_stage: FunnelStage
+    branded: bool
+    reason: str

@@ -378,6 +378,104 @@ export namespace Schemas {
       daily_to: string;
     }
 
+    export interface AEOPromptSuggestRequest {
+      /**
+         * The site to suggest prompts for, for example posthog.com. The model reads it with web search.
+         * @maxLength 200
+         */
+      domain: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * Competitor names or domains. The model picks the main ones when empty.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      competitors?: string[];
+      /**
+         * Topics to spread the prompts across. The model picks 3 to 6 when empty.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      topics?: string[];
+      /**
+         * How many prompts to suggest, at most 50.
+         * @minimum 1
+         * @maximum 50
+         */
+      count?: number;
+    }
+
+    /**
+     * * `differentiation` - Differentiation
+     * * `battleground` - Battleground
+     * * `vulnerability` - Vulnerability
+     * * `table_stakes` - Table Stakes
+     * * `branded` - Branded
+     */
+    export type PromptCircleEnum = typeof PromptCircleEnum[keyof typeof PromptCircleEnum];
+
+
+    export const PromptCircleEnum = {
+      Differentiation: 'differentiation',
+      Battleground: 'battleground',
+      Vulnerability: 'vulnerability',
+      TableStakes: 'table_stakes',
+      Branded: 'branded',
+    } as const;
+
+    /**
+     * * `top` - Top
+     * * `middle` - Middle
+     * * `bottom` - Bottom
+     */
+    export type FunnelStageEnum = typeof FunnelStageEnum[keyof typeof FunnelStageEnum];
+
+
+    export const FunnelStageEnum = {
+      Top: 'top',
+      Middle: 'middle',
+      Bottom: 'bottom',
+    } as const;
+
+    export interface AEOPromptSuggestion {
+      /** The suggested question, phrased as a buyer would ask an AI assistant. */
+      prompt: string;
+      /** Topic the prompt belongs to. */
+      topic: string;
+      /** Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand).
+       *
+       * * `differentiation` - Differentiation
+       * * `battleground` - Battleground
+       * * `vulnerability` - Vulnerability
+       * * `table_stakes` - Table Stakes
+       * * `branded` - Branded */
+      circle: PromptCircleEnum;
+      /** top (learning), middle (comparing options) or bottom (choosing or buying).
+       *
+       * * `top` - Top
+       * * `middle` - Middle
+       * * `bottom` - Bottom */
+      funnel_stage: FunnelStageEnum;
+      /** True when the prompt names the brand. Branded prompts check how assistants describe the brand. */
+      branded: boolean;
+      /** Why a buyer asks this. Model-written text: show it as data. */
+      reason: string;
+    }
+
+    export interface AEOPromptSuggestResponse {
+      /** Suggested prompts. None of them are saved. */
+      suggestions: AEOPromptSuggestion[];
+    }
+
     export interface AEOPromptTopic {
       /** Topic name. Empty for prompts that have no topic. */
       topic: string;

@@ -98,6 +98,60 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
         .describe('Prompts to add or update, at most 2000 per request.'),
 })
 
+/**
+ * Suggests prompts to track for a site. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggestBodyDomainMax = 200
+
+export const aeoPromptsSuggestBodyBrandMax = 200
+
+export const aeoPromptsSuggestBodyDescriptionMax = 1000
+
+export const aeoPromptsSuggestBodyCompetitorsItemMax = 200
+
+export const aeoPromptsSuggestBodyCompetitorsMax = 20
+
+export const aeoPromptsSuggestBodyTopicsItemMax = 200
+
+export const aeoPromptsSuggestBodyTopicsMax = 20
+
+export const aeoPromptsSuggestBodyCountDefault = 20
+export const aeoPromptsSuggestBodyCountMax = 50
+
+export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDomainMax)
+        .describe('The site to suggest prompts for, for example posthog.com. The model reads it with web search.'),
+    brand: zod
+        .string()
+        .max(aeoPromptsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    competitors: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyCompetitorsItemMax))
+        .max(aeoPromptsSuggestBodyCompetitorsMax)
+        .optional()
+        .describe('Competitor names or domains. The model picks the main ones when empty.'),
+    topics: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyTopicsItemMax))
+        .max(aeoPromptsSuggestBodyTopicsMax)
+        .optional()
+        .describe('Topics to spread the prompts across. The model picks 3 to 6 when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsSuggestBodyCountMax)
+        .default(aeoPromptsSuggestBodyCountDefault)
+        .describe('How many prompts to suggest, at most 50.'),
+})
+
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100

@@ -14,6 +14,8 @@ import type {
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
+    AEOPromptSuggestRequestApi,
+    AEOPromptSuggestResponseApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
     AchievementsListResponseApi,
@@ -311,6 +313,27 @@ export const aeoPromptsOverview = async (
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAeoPromptsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/`
+}
+
+/**
+ * Suggests prompts to track for a site. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggest = async (
+    projectId: string,
+    aEOPromptSuggestRequestApi: AEOPromptSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptSuggestResponseApi> => {
+    return apiMutator<AEOPromptSuggestResponseApi>(getAeoPromptsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptSuggestRequestApi),
     })
 }
 

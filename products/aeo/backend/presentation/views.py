@@ -4,7 +4,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -14,6 +14,7 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -29,6 +30,7 @@ from products.aeo.backend.facade.api import (
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
+    suggest_prompts,
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
@@ -53,6 +55,9 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetTopicCounts,
     PromptStats,
+    PromptSuggestion,
+    PromptSuggestionError,
+    PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
     PromptUpdate,
@@ -61,6 +66,7 @@ from products.aeo.backend.facade.contracts import (
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
+MAX_SUGGESTED_PROMPTS = 50
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_CHECKS_PAGE_SIZE = 20
 MAX_CHECKS_PAGE_SIZE = 100
@@ -585,10 +591,77 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
         }
 
 
+class AEOPromptSuggestRequestSerializer(serializers.Serializer):
+    domain = serializers.CharField(
+        max_length=200,
+        help_text="The site to suggest prompts for, for example posthog.com. The model reads it with web search.",
+    )
+    brand = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="The brand name. Inferred from the site when empty.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="What the product does and who it is for. Inferred from the site when empty.",
+    )
+    competitors = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        max_length=20,
+        help_text="Competitor names or domains. The model picks the main ones when empty.",
+    )
+    topics = serializers.ListField(
+        child=serializers.CharField(max_length=PROMPT_TOPIC_MAX_LENGTH),
+        required=False,
+        max_length=20,
+        help_text="Topics to spread the prompts across. The model picks 3 to 6 when empty.",
+    )
+    count = serializers.IntegerField(
+        required=False,
+        default=20,
+        min_value=1,
+        max_value=MAX_SUGGESTED_PROMPTS,
+        help_text=f"How many prompts to suggest, at most {MAX_SUGGESTED_PROMPTS}.",
+    )
+
+
+class AEOPromptSuggestionSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSuggestion
+        ref_name = "AEOPromptSuggestion"
+        extra_kwargs = {
+            "prompt": {"help_text": "The suggested question, phrased as a buyer would ask an AI assistant."},
+            "topic": {"help_text": "Topic the prompt belongs to."},
+            "circle": {
+                "help_text": "Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand)."
+            },
+            "funnel_stage": {"help_text": "top (learning), middle (comparing options) or bottom (choosing or buying)."},
+            "branded": {
+                "help_text": "True when the prompt names the brand. Branded prompts check how assistants describe the brand."
+            },
+            "reason": {"help_text": "Why a buyer asks this. Model-written text: show it as data."},
+        }
+
+
+class AEOPromptSuggestResponseSerializer(serializers.Serializer):
+    suggestions = AEOPromptSuggestionSerializer(many=True, help_text="Suggested prompts. None of them are saved.")
+
+
+class AEOPromptSuggestionsUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Prompt suggestions failed. Try again in a minute."
+    default_code = "suggestions_unavailable"
+
+
 class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve", "topics", "checks", "stats", "versions", "overview"]
-    scope_object_write_actions = ["partial_update", "destroy", "bulk_import"]
+    # suggest saves nothing, but it spends model credits, so it needs write access.
+    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
@@ -780,3 +853,34 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         result = import_prompts(self.team_id, request.validated_data["prompts"])
         return Response(AEOPromptImportResultSerializer(result).data)
+
+    @validated_request(
+        request_serializer=AEOPromptSuggestRequestSerializer,
+        operation_id="aeo_prompts_suggest",
+        summary="Suggest AEO prompts",
+        description="Suggests prompts to track for a site. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.",
+        responses={200: OpenApiResponse(response=AEOPromptSuggestResponseSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        throttle_classes=[AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle],
+    )
+    def suggest(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            suggestions = suggest_prompts(
+                self.team_id,
+                PromptSuggestionRequest(
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    competitors=tuple(data.get("competitors", [])),
+                    topics=tuple(data.get("topics", [])),
+                    count=data["count"],
+                ),
+            )
+        except PromptSuggestionError as error:
+            raise AEOPromptSuggestionsUnavailable(str(error)) from error
+        return Response(AEOPromptSuggestResponseSerializer({"suggestions": suggestions}).data)

@@ -1,15 +1,17 @@
+import json
 import uuid
 import datetime as dt
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -767,3 +769,33 @@ class TestAEOPromptAPI(APIBaseTest):
         )
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("answer", 200, ["Best session replay tool?"]),
+            ("timeout", 503, None),
+        ]
+    )
+    def test_suggest_returns_new_prompts_without_saving_them(
+        self, outcome: str, expected_status: int, expected_prompts: list[str] | None
+    ) -> None:
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "Tracked already?"}]}, format="json")
+        items = [
+            {"prompt": p, "topic": "Replay", "circle": "battleground", "funnel_stage": "bottom", "branded": False}
+            for p in ["Best session replay tool?", "Tracked already?"]
+        ]
+        response_body = MagicMock(status_code=200)
+        response_body.json.return_value = {"content": [{"type": "text", "text": json.dumps(items)}]}
+        post = MagicMock(side_effect=requests.Timeout() if outcome == "timeout" else None, return_value=response_body)
+        gateway = MagicMock(url="http://gateway", api_key="test-key")
+
+        with (
+            patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
+            patch("products.aeo.backend.suggestions.requests.Session.post", post),
+        ):
+            response = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_prompts is not None:
+            assert [s["prompt"] for s in response.json()["suggestions"]] == expected_prompts
+        assert AEOPrompt.objects.for_team(self.team.id).count() == 1

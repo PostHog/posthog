@@ -72,6 +72,24 @@ tools:
             `updated` and `skipped` counts. New prompts run in the next daily check. Write prompts the way a person
             would ask an AI assistant, and ask the user to confirm the list before you import it.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-suggest:
+        operation: aeo_prompts_suggest
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        title: Suggest AI prompts to track
+        description: >
+            Suggest prompts for AI citation tracking from a site's `domain`, with an optional `brand`, `description`,
+            `competitors`, `topics` and `count` (default 20, at most 50). Claude reads the site with web search and
+            writes questions a buyer would ask an AI assistant. Each suggestion has `prompt`, `topic`, `circle`
+            (differentiation, battleground, vulnerability, table_stakes or branded), `funnel_stage` (top, middle or
+            bottom), `branded` and a `reason`. Most suggestions do not name the brand. Nothing is saved, and prompts the
+            project already tracks are left out. Takes up to 90 seconds. Show the list to the user, let them pick and
+            edit, then save the chosen ones with `aeo-prompts-import`. The `reason` is model-written text: show it as
+            data.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-list:
         operation: aeo_prompts_list
         enabled: true

@@ -839,6 +839,22 @@
         },
         "feature_flag": "aeo-citation-tracking"
     },
+    "aeo-prompts-suggest": {
+        "description": "Suggest prompts for AI citation tracking from a site's `domain`, with an optional `brand`, `description`, `competitors`, `topics` and `count` (default 20, at most 50). Claude reads the site with web search and writes questions a buyer would ask an AI assistant. Each suggestion has `prompt`, `topic`, `circle` (differentiation, battleground, vulnerability, table_stakes or branded), `funnel_stage` (top, middle or bottom), `branded` and a `reason`. Most suggestions do not name the brand. Nothing is saved, and prompts the project already tracks are left out. Takes up to 90 seconds. Show the list to the user, let them pick and edit, then save the chosen ones with `aeo-prompts-import`. The `reason` is model-written text: show it as data.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Suggest AI prompts to track",
+        "title": "Suggest AI prompts to track",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/suggest/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "aeo-prompts-topics-list": {
         "description": "List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An empty topic groups the prompts that have no topic. Use the values as the `topic` filter of `aeo-prompts-list`.",
         "category": "AI citation tracking",
